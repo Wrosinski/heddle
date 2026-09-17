@@ -503,6 +503,7 @@ def test_empty_public_feature_scaffold_remains_searchable(tmp_path: Path) -> Non
 def test_public_identity_and_responsibility_are_consistent() -> None:
     metadata = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text())["project"]
     readme = (REPO_ROOT / "README.md").read_text()
+    normalized_readme = " ".join(readme.split()).lower()
     license_text = (REPO_ROOT / "LICENSE").read_text()
     assert metadata["name"] == "heddle"
     assert metadata["version"] == "0.0.1"
@@ -514,28 +515,29 @@ def test_public_identity_and_responsibility_are_consistent() -> None:
     assert metadata["urls"]["Repository"] == "https://github.com/Wrosinski/heddle"
     assert metadata["urls"]["Issues"] == "https://github.com/Wrosinski/heddle/issues"
     for statement in (
-        "flexibility with formal verification",
+        "open-source local workflow runtime",
+        "researched scope to verified implementation",
         "Python 3.13",
         "Codex",
         "Claude Code",
-        "no support",
-        "your own responsibility",
+        "no support commitment",
+        "Review commands before",
     ):
-        assert statement.lower() in readme.lower(), f"FAIL README omits: {statement}"
+        assert statement.lower() in normalized_readme, f"FAIL README omits: {statement}"
     assert "MIT License" in license_text and "Wojtek Rosinski" in license_text
     for path in ("CONTRIBUTING.md", "SECURITY.md", ".github/workflows/quality.yml"):
         assert (REPO_ROOT / path).is_file(), f"FAIL public surface is missing: {path}"
     assert (REPO_ROOT / ".pre-commit-config.yaml").is_file()
     contributing = (REPO_ROOT / "CONTRIBUTING.md").read_text()
     security = (REPO_ROOT / "SECURITY.md").read_text()
-    assert "configuration" in readme.lower() and "override" in readme.lower()
+    assert ".heddle.yaml" in readme and "host configuration" in readme.lower()
     assert "contribut" in contributing.lower() and "python 3.13" in contributing.lower()
     assert "private vulnerability reporting" in security.lower()
     assert "not a support channel" in security.lower()
     admission_route = (
         "heddle orient\n",
         "heddle feature prepare <slug> --area <area> --from-file <intake.yaml>",
-        "heddle feature policy <slug> --from-file <policy.yaml> "
+        "heddle feature policy <slug> --from-file <approved-policy.yaml> "
         "--expect-revision <revision>",
         "heddle feature start <slug> --area <area> --expect-revision <revision>",
         "heddle orient --feature <slug>",
@@ -544,7 +546,9 @@ def test_public_identity_and_responsibility_are_consistent() -> None:
     assert positions == sorted(positions), (
         "FAIL README documents an illegal admission route"
     )
-    assert "Owner approval of the complete policy is required" in readme
+    assert (
+        "full review policy for your confirmation before starting" in normalized_readme
+    )
 
 
 # AC-7 positive fixture: container ordering, compression, and timestamps are

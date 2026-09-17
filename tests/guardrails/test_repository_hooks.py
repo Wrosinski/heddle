@@ -24,6 +24,7 @@ PRECOMMIT_CONFIG = REPO_ROOT / ".pre-commit-config.yaml"
 PYPROJECT = REPO_ROOT / "pyproject.toml"
 QUALITY_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "quality.yml"
 README = REPO_ROOT / "README.md"
+CONTRIBUTING = REPO_ROOT / "CONTRIBUTING.md"
 ENFORCEMENT_BASELINE = REPO_ROOT / "docs" / "workflow" / "enforcement-baseline.md"
 
 
@@ -851,10 +852,10 @@ def _configured_hooks() -> tuple[dict[str, dict], dict[str, dict]]:
 
 def test_pre_commit_baseline_ac1_documents_complete_hook_installation() -> None:
     """AC-1: fresh setup installs both declared Git-hook stages."""
-    readme = README.read_text(encoding="utf-8")
+    contributing = CONTRIBUTING.read_text(encoding="utf-8")
     installer_command = ".venv/bin/python scripts/install-repository-hooks.py"
-    assert installer_command in readme, (
-        "FAIL AC-1: README must route fresh development setup through the "
+    assert installer_command in contributing, (
+        "FAIL AC-1: contributing guidance must route development setup through the "
         "repository hook installer"
     )
     installer = (SCRIPTS / "install-repository-hooks.py").read_text(encoding="utf-8")
@@ -973,15 +974,14 @@ def test_pre_commit_baseline_ac6_enables_final_strict_typing() -> None:
 
 @pytest.mark.acceptance
 def test_pre_commit_baseline_ac7_documents_the_integrated_green_commands() -> None:
-    """AC-7: contributors and CI share one inspectable acceptance baseline."""
+    """AC-7: the baseline documents the focused local acceptance commands."""
     baseline = ENFORCEMENT_BASELINE.read_text(encoding="utf-8")
     for command in (
         ".venv/bin/pre-commit run --all-files",
         ".venv/bin/ruff check heddle tests scripts",
         ".venv/bin/ruff format --check heddle tests scripts",
         ".venv/bin/mypy",
-        ".venv/bin/python -m pytest --test-band=fast",
-        ".venv/bin/python -m pytest --test-band=toolchain",
+        ".venv/bin/python -m tests.proof_runner <exact-file.py-or-node-id>",
         ".venv/bin/heddle validate",
     ):
         assert command in baseline, f"FAIL AC-7: baseline omits {command!r}"

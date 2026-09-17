@@ -331,13 +331,18 @@ class TestAC12HumanOutput:
             )
 
     def test_init_refusal_text_carries_hint_and_next_actions(self, run_cli):
-        """The retained node now covers idempotent existing-host preview output."""
-        code, out, _err = run_cli(["init", "--dry-run"])
-        assert code == 0
+        code, out, _err = run_cli(["init"])
+        assert code == 3
         assert_not_json(out)
-        assert "init dry-run:" in out
-        assert "skip: .heddle.yaml (scaffold-once)" in out
-        assert "accept: .heddle.lock (runtime-owned)" in out
+        assert "workspace-invalid" in out, (
+            "FAIL: human failure text names the error code (AC-12)"
+        )
+        assert "review every refused row" in out, (
+            "FAIL: human failure text renders the remediation hint"
+        )
+        assert "heddle init --dry-run" in out, (
+            "FAIL: human failure text renders the safe preview next action"
+        )
 
 
 class TestPerCommandHelp:
