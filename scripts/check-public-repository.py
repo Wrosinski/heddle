@@ -59,13 +59,114 @@ def _declared_manifest(root: Path, policy: dict[str, Any], boundary: str) -> Pat
         relative = policy["repository"]["manifest"]
     else:
         relative = policy["artifacts"][boundary]["manifest"]
-    return root / relative
+    return root / str(relative)
 
 
 def _is_private(path: str, repository: dict[str, Any]) -> bool:
     return path not in repository["exceptions"] and any(
         fnmatch.fnmatchcase(path, pattern) for pattern in repository["private_globs"]
     )
+
+
+def check_staged(args: argparse.Namespace) -> int:
+    root = args.root.resolve()
+    repository = _policy(args.policy.resolve())["repository"]
+    private = [path for path in _tracked(root) if _is_private(path, repository)]
+    if private:
+        return _fail(
+            "workflow records must stay local; remove these paths from the index "
+            "with git rm --cached, preserving their working files:\n"
+            + "\n".join(private)
+        )
+    return _pass("index contains no local workflow records")
+
+
+def _git(root: Path, *arguments: str) -> bytes:
+    return subprocess.run(
+        ["git", *arguments], cwd=root, check=True, capture_output=True
+    ).stdout
+
+
+def _commit(root: Path, revision: str) -> str:
+    if re.fullmatch(r"[a-fA-F0-9]{40}|[a-fA-F0-9]{64}", revision) is None:
+        raise ValueError(f"expected a full Git object ID, got {revision!r}")
+    return (
+        _git(root, "rev-parse", "--verify", f"{revision}^{{commit}}").decode().strip()
+    )
+
+
+def _history_violations(
+    root: Path, policy: dict[str, Any], head: str, base: str | None
+) -> list[str]:
+    if _git(root, "rev-parse", "--is-shallow-repository").strip() == b"true":
+        raise ValueError("history is shallow; fetch full history before checking")
+    tip = _commit(root, head)
+    exclusions = []
+    if base and set(base) != {"0"}:
+        exclusions.append(_commit(root, base))
+    baseline = policy.get("history", {}).get("published_baseline")
+    if baseline:
+        exclusions.append(_commit(root, baseline))
+    revisions = [tip, *(("--not", *exclusions) if exclusions else ())]
+    commits = _git(root, "rev-list", *revisions).decode().splitlines()
+    violations = []
+    for commit in commits:
+        paths = _git(
+            root,
+            "diff-tree",
+            "--root",
+            "-m",
+            "--no-commit-id",
+            "--no-renames",
+            "--diff-filter=ACMT",
+            "--name-only",
+            "-z",
+            "-r",
+            commit,
+        ).split(b"\0")
+        for path in sorted(set(paths) - {b""}):
+            name = path.decode("utf-8", errors="surrogateescape")
+            if _is_private(name, policy["repository"]):
+                violations.append(f"{commit}: {name!r}")
+    return violations
+
+
+def check_history(args: argparse.Namespace) -> int:
+    violations = _history_violations(
+        args.root.resolve(), _policy(args.policy.resolve()), args.head, args.base
+    )
+    if violations:
+        return _fail(
+            "new commits contain local workflow records, including intermediate "
+            "commits; repair unpublished history before pushing:\n"
+            + "\n".join(violations)
+        )
+    return _pass("new commit history contains no local workflow records")
+
+
+def check_outgoing(args: argparse.Namespace) -> int:
+    root = args.root.resolve()
+    policy = _policy(args.policy.resolve())
+    violations: list[str] = []
+    for line in sys.stdin:
+        fields = line.split()
+        if len(fields) != 4:
+            raise ValueError("malformed pre-push ref update; expected four fields")
+        _local_ref, head, remote_ref, base = fields
+        if set(head) == {"0"}:
+            continue
+        if set(base) != {"0"}:
+            try:
+                _commit(root, base)
+            except subprocess.CalledProcessError:
+                base = "0" * 40
+        violations.extend(
+            f"{remote_ref}: {row}"
+            for row in _history_violations(root, policy, head, base)
+        )
+    if violations:
+        return _fail("push contains local workflow records:\n" + "\n".join(violations))
+    return _pass("all outgoing refs preserve the local-records boundary")
 
 
 def check_repository(args: argparse.Namespace) -> int:
@@ -235,7 +336,8 @@ def _python_narrative_lines(text: str) -> set[int]:
             and isinstance(first.value.value, str)
         ):
             continue
-        lines.update(range(first.value.lineno, first.value.end_lineno + 1))
+        last_line = first.value.end_lineno or first.value.lineno
+        lines.update(range(first.value.lineno, last_line + 1))
     return lines
 
 
@@ -284,6 +386,10 @@ def check_references(args: argparse.Namespace) -> int:
     public_markdown_names = {
         Path(path).name for path in public if path.lower().endswith(".md")
     }
+    generated = set(policy.get("local_records", {}).get("scaffolds", {}))
+    generated_names = _ALLOWED_GENERATED_MARKDOWN_REFERENCES | {
+        Path(path).name for path in generated
+    }
     violations: list[str] = []
     for relative in members:
         try:
@@ -305,11 +411,11 @@ def check_references(args: argparse.Namespace) -> int:
                 relative in documents or line_number in narrative_lines
             )
             bad_concrete = narrative_reference and any(
-                _is_private(path, policy["repository"]) for path in concrete
+                _is_private(path, policy["repository"]) and path not in generated
+                for path in concrete
             )
             dangling_bare = narrative_reference and any(
-                name not in public_markdown_names
-                and name not in _ALLOWED_GENERATED_MARKDOWN_REFERENCES
+                name not in public_markdown_names and name not in generated_names
                 for name in _BARE_MARKDOWN_REFERENCE.findall(line)
             )
             if relative not in documents:
@@ -640,6 +746,15 @@ def _parser() -> argparse.ArgumentParser:
     repository = subparsers.add_parser("repository", parents=[common])
     repository.add_argument("--manifest", type=Path)
     repository.set_defaults(run=check_repository)
+    subparsers.add_parser("staged", parents=[common]).set_defaults(run=check_staged)
+    history = subparsers.add_parser("history", parents=[common])
+    history.add_argument("--base")
+    history.add_argument("--head", required=True)
+    history.set_defaults(run=check_history)
+    outgoing = subparsers.add_parser("outgoing", parents=[common])
+    outgoing.add_argument("remote_name")
+    outgoing.add_argument("remote_url")
+    outgoing.set_defaults(run=check_outgoing)
     for command, runner in (
         ("references", check_references),
         ("surfaces", check_surfaces),
@@ -667,6 +782,7 @@ def main() -> int:
         subprocess.CalledProcessError,
         tarfile.TarError,
         zipfile.BadZipFile,
+        ValueError,
     ) as error:
         return _fail(str(error))
 

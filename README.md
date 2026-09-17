@@ -123,7 +123,7 @@ Create a Python 3.13 environment and install the development dependencies:
 ```bash
 uv venv --python 3.13 .venv
 uv pip install -e ".[dev]"
-.venv/bin/pre-commit install --install-hooks
+.venv/bin/python scripts/install-repository-hooks.py
 ```
 
 Use the [test-selection map](docs/testing/test-selection-map.md) to select

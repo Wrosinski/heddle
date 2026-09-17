@@ -39,6 +39,13 @@ repos:
         files: ^(heddle|tests|scripts)/.*\.py$
   - repo: local
     hooks:
+      - id: check-local-workflow-records
+        name: keep workflow records out of Git
+        entry: .venv/bin/python scripts/check-public-repository.py staged
+        language: system
+        stages: [pre-commit]
+        pass_filenames: false
+        always_run: true
       - id: mypy
         name: mypy
         entry: .venv/bin/mypy

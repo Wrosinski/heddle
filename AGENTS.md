@@ -10,6 +10,13 @@ To enter a feature-work session:
 
 Engineering preferences are governed by `docs/workflow/engineering-principles.md`.
 
+Feature execution records stay local under the paths declared in
+`release/public-repository.toml`. Never stage or force-add those records.
+Keep proposals in the ignored proposal directory; publish maintained product
+documentation separately from implementation history. Follow the repository
+policy in `docs/workflow/local-records.md` even when packaged guidance permits
+optional record commits. Tests use synthetic fixtures, never local run evidence.
+
 Test selection, execution authority, design and maintenance are governed by
 [the testing strategy](docs/workflow/testing-strategy.md). Consult its current
 capability notes and [selection map](docs/testing/test-selection-map.md) before

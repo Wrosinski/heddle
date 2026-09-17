@@ -77,7 +77,10 @@ heddle/resources/autonomy-addendum.md
 heddle/resources/brief.scaffold.md
 heddle/resources/complete.briefing.md
 heddle/resources/engineering-principles.seed.md
+heddle/resources/feature-index.scaffold.yaml
 heddle/resources/feature-spec.scaffold.md
+heddle/resources/friction-log.scaffold.md
+heddle/resources/gate-effectiveness.scaffold.md
 heddle/resources/gate-failure-guide.md
 heddle/resources/heddle-yaml.scaffold.yaml
 heddle/resources/hooks/check-bypass-justification.py

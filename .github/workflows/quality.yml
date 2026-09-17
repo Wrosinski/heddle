@@ -13,6 +13,8 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
       - name: Set up Python
         uses: actions/setup-python@v7
         with:
@@ -21,6 +23,11 @@ jobs:
         run: |
           python -m venv .venv
           .venv/bin/python -m pip install -e '.[dev]'
+      - name: Check local-record publication boundary
+        env:
+          BASE_REV: ${{ github.event.pull_request.base.sha || github.event.before }}
+          HEAD_REV: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: .venv/bin/python scripts/check-public-repository.py history --base "$BASE_REV" --head "$HEAD_REV"
       - name: Run repository hooks
         run: .venv/bin/pre-commit run --all-files
       - name: Run fast tests

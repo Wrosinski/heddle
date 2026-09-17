@@ -176,8 +176,7 @@ def test_policy_covers_repository_and_distribution_categories() -> None:
         ), f"FAIL proposed public manifest includes a private-record category: {member}"
 
 
-# AC-1/AC-6 discriminator: future repository-local workflow records are ignored,
-# while the three deliberately public scaffold files remain addable.
+# AC-1/AC-6 discriminator: future repository-local workflow records are ignored.
 def test_private_workflow_records_are_ignored(tmp_path: Path) -> None:
     ignored = (
         "docs/proposals/local-note.md",
@@ -186,11 +185,10 @@ def test_private_workflow_records_are_ignored(tmp_path: Path) -> None:
         "docs/features/runtime/local-work.json",
         "plans/local-work/state.yaml",
         "docs/gate-trajectories/local-run/result.json",
-    )
-    public_exceptions = (
         "docs/features/_descriptions.yaml",
         "plans/gate-effectiveness.md",
         "plans/friction-log.md",
+        ".heddle/intake/local-work.yaml",
     )
     root = tmp_path / "repository"
     root.mkdir()
@@ -212,20 +210,6 @@ def test_private_workflow_records_are_ignored(tmp_path: Path) -> None:
             + result.stdout
             + result.stderr
         )
-    for path in public_exceptions:
-        target = root / path
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text("public fixture\n")
-        visible = subprocess.run(
-            ["git", "check-ignore", "--no-index", path],
-            cwd=root,
-            text=True,
-            capture_output=True,
-            check=False,
-        )
-        assert visible.returncode == 1, (
-            f"FAIL public scaffold exception is ignored: {path}"
-        )
     subprocess.run(["git", "add", "."], cwd=root, check=True)
     staged = subprocess.run(
         ["git", "ls-files"],
@@ -236,8 +220,7 @@ def test_private_workflow_records_are_ignored(tmp_path: Path) -> None:
     ).stdout.splitlines()
     for path in ignored:
         assert path not in staged, f"FAIL private workflow path was staged: {path}"
-    for path in public_exceptions:
-        assert path in staged, f"FAIL public scaffold exception was not staged: {path}"
+    assert staged == [".gitignore"]
 
 
 # AC-1 discriminator: ignore rules cannot make a force-added private member

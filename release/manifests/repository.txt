@@ -22,7 +22,6 @@ SECURITY.md
 docs/design/architecture.md
 docs/design/briefing-prompting-principles.md
 docs/design/workflow-model.md
-docs/features/_descriptions.yaml
 docs/patterns/_descriptions.yaml
 docs/patterns/_template.md
 docs/patterns/artifact-bound-authorization-record.md
@@ -53,6 +52,7 @@ docs/workflow/document-structure.md
 docs/workflow/enforcement-baseline.md
 docs/workflow/engineering-principles.md
 docs/workflow/host-integration.md
+docs/workflow/local-records.md
 docs/workflow/prompt-refinement.md
 docs/workflow/subagent-exploration-patterns.md
 docs/workflow/testing-strategy.md
@@ -133,7 +133,10 @@ heddle/resources/autonomy-addendum.md
 heddle/resources/brief.scaffold.md
 heddle/resources/complete.briefing.md
 heddle/resources/engineering-principles.seed.md
+heddle/resources/feature-index.scaffold.yaml
 heddle/resources/feature-spec.scaffold.md
+heddle/resources/friction-log.scaffold.md
+heddle/resources/gate-effectiveness.scaffold.md
 heddle/resources/gate-failure-guide.md
 heddle/resources/heddle-yaml.scaffold.yaml
 heddle/resources/hooks/check-bypass-justification.py
@@ -210,8 +213,6 @@ heddle/runtime/verification.py
 heddle/runtime/verify_exec.py
 heddle/runtime/write_args.py
 heddle/runtime/write_path.py
-plans/friction-log.md
-plans/gate-effectiveness.md
 pyproject.toml
 release/manifests/repository.txt
 release/manifests/sdist.txt
@@ -231,6 +232,8 @@ scripts/gate-doctor.sh
 scripts/gate-trajectory-report.py
 scripts/gate_doctor.py
 scripts/git-commit-retry.sh
+scripts/install-repository-hooks.py
+scripts/pre-push
 scripts/qualify-public-repository.sh
 scripts/run-complete-test-band.py
 templates/claude-md-workflow-section.md
@@ -445,6 +448,7 @@ tests/guardrails/test_analysis_skill_contracts.py
 tests/guardrails/test_gate_prompt_integrity_scaffolding.py
 tests/guardrails/test_git_commit_retry.py
 tests/guardrails/test_host_guidance_bundle.py
+tests/guardrails/test_local_records.py
 tests/guardrails/test_packaged_hooks.py
 tests/guardrails/test_pinned_supervisor.py
 tests/guardrails/test_public_repository.py

@@ -9,11 +9,16 @@ private_globs = [
   "docs/proposals/**",
   "plans/**",
 ]
-exceptions = [
-  "docs/features/_descriptions.yaml",
-  "plans/friction-log.md",
-  "plans/gate-effectiveness.md",
-]
+exceptions = []
+
+[local_records.scaffolds]
+"docs/features/_descriptions.yaml" = "heddle/resources/feature-index.scaffold.yaml"
+"plans/friction-log.md" = "heddle/resources/friction-log.scaffold.md"
+"plans/gate-effectiveness.md" = "heddle/resources/gate-effectiveness.scaffold.md"
+
+[history]
+# Published history is retained; every subsequent commit obeys this policy.
+published_baseline = "1099c8affa5c885d9e49d2f28d14aa133cf659d1"
 
 [artifacts.sdist]
 manifest = "release/manifests/sdist.txt"

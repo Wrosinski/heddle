@@ -21,12 +21,8 @@ venv/
 /docs/proposals/evidence/**/baseline/
 /docs/proposals/evidence/**/candidates/
 
-# Heddle's own development records stay local to each checkout. The empty
-# feature index and the two product feedback seeds remain public scaffolds.
+# Heddle's own development records stay local to each checkout.
 /docs/proposals/
 /docs/features/**
-!/docs/features/_descriptions.yaml
 /plans/**
-!/plans/gate-effectiveness.md
-!/plans/friction-log.md
 /.heddle/intake/
