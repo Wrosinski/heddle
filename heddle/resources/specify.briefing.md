@@ -14,6 +14,12 @@ feature's `brief.md` and `plan.md`, and milestone authoring through
 for an unresolved user-owned question. Never hand-edit `state.yaml` or intake
 history. Phase exit remains caller- or driver-owned.
 
+Research and review output forms a recommendation and does not grant approval.
+Mutating follow-up binds the current owner revision. Review dispositions qualify
+later review evidence with `review_run_id` and native proof with
+`verification_scope`; a clean later report alone does not settle an original
+finding or its `@coverage` duty.
+
 ## Orient and research
 
 Read, in order:
@@ -45,6 +51,13 @@ missing mappings need inspection, not a full-suite baseline. Plan focused
 hermetic feedback separately from required broad proof and local e2e/live runs.
 Those executions need explicit scope authority, not merely a plan command or
 phase grant. Prerequisites are separate, and existing applicable grants persist.
+Progressive `test_command` output and session prose are feedback; only
+`heddle verify --scope <scope>` records native proof.
+
+Host tooling owns `.heddle.yaml`'s `autopilot.test_command`, which configures
+the additional close suite run by `heddle feature complete`. It does not replace
+feature proof, and `feature complete` does not create a clean environment; it
+runs the command in the current host checkout.
 
 ## Research checkpoint
 

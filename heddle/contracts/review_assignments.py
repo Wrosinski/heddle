@@ -25,6 +25,20 @@ EVIDENCE_KINDS = (
     "decision",
     "unavailable",
 )
+DISPOSITION_REQUIRED_FIELDS = (
+    "run_id",
+    "finding_id",
+    "status",
+    "evidence_kind",
+    "references",
+    "reason",
+)
+DISPOSITION_OPTIONAL_FIELDS = (
+    "requires_inspection",
+    "decision_id",
+    "review_run_id",
+    "verification_scope",
+)
 ROLE_STAGES = {
     "spec-review": "spec-review",
     "plan-review": "plan-review",

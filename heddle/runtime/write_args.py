@@ -14,6 +14,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass
 
+from heddle.contracts.operations import VERIFICATION_SCOPE_GUIDANCE
 from heddle.contracts.result import ExitCode, HeddleError, HeddleResult
 from heddle.contracts.schemas import COMMAND_KEYS, FLOW_MODES
 from heddle.kernel.state import MILESTONE_VERIFICATION_KEYS
@@ -203,7 +204,7 @@ def parse_verify(
         value_flags={
             "--scope": (
                 "--scope requires a value",
-                "pass --scope m<N>, feature, smoke, acceptance, or live",
+                VERIFICATION_SCOPE_GUIDANCE,
             ),
         },
         unknown_hint=(

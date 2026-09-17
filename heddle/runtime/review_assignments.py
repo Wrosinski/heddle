@@ -23,6 +23,8 @@ from heddle.contracts.result import (
     Severity,
 )
 from heddle.contracts.review_assignments import (
+    DISPOSITION_OPTIONAL_FIELDS,
+    DISPOSITION_REQUIRED_FIELDS,
     DISPOSITION_STATUSES,
     EVIDENCE_KINDS,
     ROLE_STAGES,
@@ -55,7 +57,7 @@ from heddle.io.source import (
 from heddle.kernel import review_assignments as core
 from heddle.kernel.feature_policy import validate_host_review_selection
 from heddle.kernel.model import FeatureSnapshot
-from heddle.kernel.project_config import KernelError, ProjectConfig
+from heddle.kernel.project_config import KernelError, ProjectConfig, feature_state_path
 from heddle.kernel.readiness import EvidenceExplanation
 from heddle.kernel.review_closure import assess_review_closure
 from heddle.kernel.source_manifest import ObservedPath, normalize_paths
@@ -1376,22 +1378,6 @@ def _nonempty(value: Any, label: str) -> str:
     return value
 
 
-_DISPOSITION_REQUIRED_FIELDS = (
-    "run_id",
-    "finding_id",
-    "status",
-    "evidence_kind",
-    "references",
-    "reason",
-)
-_DISPOSITION_OPTIONAL_FIELDS = (
-    "requires_inspection",
-    "decision_id",
-    "review_run_id",
-    "verification_scope",
-)
-
-
 @dataclass(frozen=True)
 class _DispositionInput:
     row_index: int
@@ -1450,8 +1436,8 @@ def _decode_disposition_input(
             "malformed-row",
             "provide a JSON object for this disposition row",
         )
-    allowed = {*_DISPOSITION_REQUIRED_FIELDS, *_DISPOSITION_OPTIONAL_FIELDS}
-    for field in _DISPOSITION_REQUIRED_FIELDS:
+    allowed = {*DISPOSITION_REQUIRED_FIELDS, *DISPOSITION_OPTIONAL_FIELDS}
+    for field in DISPOSITION_REQUIRED_FIELDS:
         if field not in raw:
             return _row_failure(
                 row_index,
@@ -1635,12 +1621,29 @@ def _dispositions(
             None,
         )
         captured = []
+        state_reference = (
+            feature_state_path(config, snapshot.feature)
+            .relative_to(config.root)
+            .as_posix()
+        )
         for reference in item.references:
             try:
+                normalized_reference = normalize_paths((reference,))[0]
+                if normalized_reference == state_reference:
+                    failures[item.row_index] = _row_failure(
+                        item.row_index,
+                        row,
+                        "self-mutating-reference",
+                        "cite a stable source or report instead of the state file "
+                        "mutated by this disposition transaction",
+                        field="references",
+                        reference=normalized_reference,
+                    )
+                    break
                 captured.append(
                     captured_reference(
                         config.root,
-                        reference,
+                        normalized_reference,
                         source_observations=frame.captures,
                     )
                 )

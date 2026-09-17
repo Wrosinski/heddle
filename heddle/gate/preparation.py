@@ -18,6 +18,8 @@ from pathlib import Path, PurePosixPath
 from heddle.gate.extraction import (
     extract_command_test_paths,
     extract_explicit_test_paths,
+    unsupported_command_test_tokens,
+    unsupported_explicit_test_tokens,
 )
 from heddle.gate.input_navigation import CODEX_INLINE_LIMIT, NAVIGATION_POLICY
 from heddle.gate.overlap import compute_overlap
@@ -782,6 +784,24 @@ def declared_scaffold_paths(
     """Resolve explicit plan declarations and current changed test files once."""
     tests_root = _normalize_path(resolve_tests_root(context.repo_root))
     declared: set[str] = set()
+    unsupported_plan = unsupported_explicit_test_tokens(
+        context.plan_content, tests_root=tests_root
+    )
+    if unsupported_plan:
+        token = unsupported_plan[0]
+        raise _input_error(
+            f"unsupported plan test declaration {token!r}",
+            f"replace {token!r} with exact test file paths or supported selectors",
+        )
+    unsupported_commands = unsupported_command_test_tokens(
+        tuple(context.verification_commands.values()), tests_root=tests_root
+    )
+    if unsupported_commands:
+        token = unsupported_commands[0]
+        raise _input_error(
+            f"unsupported command test declaration {token!r}",
+            f"replace {token!r} with exact test file paths or supported selectors",
+        )
     explicit_paths = list(
         extract_explicit_test_paths(context.plan_content, tests_root=tests_root)
     )

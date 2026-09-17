@@ -1,0 +1,7 @@
+{
+  "name": "heddle-prettier-witness",
+  "private": true,
+  "devDependencies": {
+    "prettier": "3.9.6"
+  }
+}

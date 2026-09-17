@@ -12,6 +12,12 @@ from heddle.contracts.decisions import (
     ResolutionKind,
 )
 
+VERIFICATION_SCOPE_GUIDANCE = (
+    "supported native scopes: m<N>, smoke, acceptance, or live; configure "
+    "progressive feedback with "
+    "`heddle commands set test_command --command <shell-line>`"
+)
+
 
 @dataclass(frozen=True)
 class Status:
@@ -629,17 +635,27 @@ def action_command(action: Action) -> str:
         case SessionAction(feature, _):
             return operation_command(Kickoff(feature))
         case AuthoringAction(feature, work, _, _, revision):
-            command = {
-                "review-disposition": "review disposition",
-                "review-interpretation": "review interpret",
-                "feature-policy": "feature policy",
-            }.get(work)
-            if command is None:
+            if work == "feature-policy":
+                authored_operation: Operation = FeaturePolicy(
+                    slug=feature,
+                    payload={},
+                    expect_revision=revision,
+                )
+            elif work == "review-disposition":
+                authored_operation = RecordReviewDisposition(
+                    feature=feature,
+                    payload={},
+                    expect_revision=revision,
+                )
+            elif work == "review-interpretation":
+                authored_operation = InterpretReview(
+                    feature=feature,
+                    payload={},
+                    expect_revision=revision,
+                )
+            else:
                 raise ValueError(f"unknown authoring work {work!r}")
-            return (
-                f"heddle {command} --input-json - --expect-revision {revision} "
-                f"--feature {feature}"
-            )
+            return operation_command(authored_operation)
         case DecisionAction(feature, "pending-intake-selection", _, _):
             return "heddle orient --feature <choice>"
         case DecisionAction(feature, _, _, _):

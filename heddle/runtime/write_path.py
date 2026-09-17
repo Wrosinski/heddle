@@ -512,7 +512,7 @@ def verify(operation: ops.Verify) -> HeddleResult:
         if context.snapshot.current_milestone is None:
             return usage_failure(
                 "verify requires --scope when no milestone is current",
-                "pass --scope m<N>, feature, smoke, acceptance, or live",
+                ops.VERIFICATION_SCOPE_GUIDANCE,
             )
         resolved_scope = context.snapshot.current_milestone.id
 

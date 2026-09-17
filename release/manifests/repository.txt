@@ -305,6 +305,8 @@ tests/fixtures/source-manifest/single.txt
 tests/fixtures/source-manifest/tree/a.txt
 tests/fixtures/source-manifest/tree/b.txt
 tests/fixtures/source-manifest/tree/nested/c.txt
+tests/fixtures/toolchains/prettier-3.9.6/package-lock.json
+tests/fixtures/toolchains/prettier-3.9.6/package.json
 tests/fixtures/workspaces/README.md
 tests/fixtures/workspaces/completed-boundary/.heddle.yaml
 tests/fixtures/workspaces/completed-boundary/docs/features/example/complete-boundary.md
@@ -576,6 +578,12 @@ tests/runtime/test_verification_provenance.py
 tests/runtime/test_verification_provenance_acceptance.py
 tests/runtime/test_verify_shell_semantics.py
 tests/runtime/test_wheel_harness.py
+tests/runtime/test_workflow_authoring.py
+tests/runtime/test_workflow_completion_visibility.py
+tests/runtime/test_workflow_evidence.py
+tests/runtime/test_workflow_formatting.py
+tests/runtime/test_workflow_guidance.py
+tests/runtime/test_workflow_usability_installed.py
 tests/runtime/test_workflow_mutations.py
 tests/runtime/test_write_path_acceptance.py
 tests/runtime/test_write_path_foundation.py

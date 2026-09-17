@@ -69,6 +69,7 @@ from heddle.kernel.verification import latest_verification_is_bound_to_declarati
 
 __all__ = [
     "ActiveFeatureResolution",
+    "AuthoringGuidance",
     "ConfigDiagnostic",
     "FeatureSnapshot",
     "GateArtifact",
@@ -76,6 +77,7 @@ __all__ = [
     "ProjectConfig",
     "StateFile",
     "active_feature_pointer_path",
+    "derive_authoring_guidance",
     "derive_next_actions",
     "errored_gate_run_count",
     "feature_state_path",
@@ -157,6 +159,14 @@ class FeatureSnapshot:
     entry: str  # "fresh" | "resume" (WM-10)
     next_steps: str | None  # latest session's next_steps
     state: StateFile  # full typed facts
+
+
+@dataclass(frozen=True)
+class AuthoringGuidance:
+    stage: str
+    work: str
+    briefing_command: str
+    read_only: bool
 
 
 @dataclass(frozen=True)
@@ -551,6 +561,18 @@ def milestones_landed_since(state: StateFile, decision: Any) -> tuple[str, ...]:
 def is_terminal(state: StateFile) -> bool:
     """Historical acceptance is one immutable typed value."""
     return state.completion is not None
+
+
+def derive_authoring_guidance(snapshot: FeatureSnapshot) -> AuthoringGuidance | None:
+    """Project the stage briefing as read-only guidance, never as scheduling."""
+    if is_terminal(snapshot.state):
+        return None
+    return AuthoringGuidance(
+        stage=snapshot.stage,
+        work="stage-work",
+        briefing_command=ops.operation_command(ops.Kickoff(snapshot.feature)),
+        read_only=True,
+    )
 
 
 def derive_next_actions(snapshot: FeatureSnapshot) -> tuple[NextAction, ...]:

@@ -253,6 +253,12 @@ def _render_input_schema(schema: Mapping[str, Any]) -> list[str]:
     ]
     lines.extend(_schema_field_lines(schema["fields"], indent=2))
     lines.extend(f"  note: {note}" for note in schema.get("notes", []))
+    if "example" in schema:
+        lines.append("  example:")
+        lines.extend(
+            f"    {line}"
+            for line in json.dumps(schema["example"], indent=2).splitlines()
+        )
     return lines
 
 
@@ -276,6 +282,8 @@ def _schema_field_lines(fields: Mapping[str, Any], indent: int) -> list[str]:
         lines.append(f"{pad}{name}  {', '.join(qualifiers)} — {spec['summary']}")
         for option in spec.get("one_of", ()):
             lines.append(f"{pad}    {option['value']}  {option['summary']}")
+        if "fields" in spec:
+            lines.extend(_schema_field_lines(spec["fields"], indent + 4))
         if items and "fields" in items:
             lines.extend(_schema_field_lines(items["fields"], indent + 4))
     return lines

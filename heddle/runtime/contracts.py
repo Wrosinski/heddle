@@ -14,6 +14,30 @@ from dataclasses import dataclass
 from typing import Any
 
 from heddle.contracts import operations as ops
+from heddle.contracts.feature_policy import (
+    COMPLEXITIES,
+    FEATURE_AXES_FIELDS,
+    GATE_POLICY_FIELDS,
+    GATE_POLICY_OPTIONAL_FIELDS,
+    INTAKE_INPUT_FIELDS,
+    INTAKE_INPUT_SCHEMA_ID,
+    INTAKE_RESEARCH_FIELDS,
+    INTAKE_ROUTES,
+    MODES,
+    POLICY_INPUT_FIELDS,
+    POLICY_SCHEMA,
+    REVIEWER_FIELDS,
+    ROLES,
+    SCOPES,
+    TESTABILITIES,
+    TRIGGER_FIELDS,
+    FeatureAxes,
+)
+from heddle.contracts.gate_execution import VALID_GATE_CLIS, VALID_REASONING_EFFORTS
+from heddle.contracts.review_assignments import (
+    DISPOSITION_STATUSES,
+    EVIDENCE_KINDS,
+)
 from heddle.contracts.schemas import (
     DECISION_BATCH_CLASSES,
     DECISION_BATCH_KINDS,
@@ -21,6 +45,7 @@ from heddle.contracts.schemas import (
     ESCALATION_CLASS_SUMMARIES,
     POLICY_RESOLUTION_REQUIRED_FIELDS,
 )
+from heddle.kernel.feature_policy import recommend_policy
 
 # Decision Log (schema-identifier spellings): heddle.<artifact>/v<N>.
 MANIFEST_SCHEMA_VERSION = "heddle.manifest/v0"
@@ -319,6 +344,371 @@ POLICY_BATCH_INPUT_SCHEMA: dict[str, Any] = {
     ],
 }
 
+
+def _closed_options(values: tuple[str, ...] | frozenset[str]) -> list[dict[str, str]]:
+    return [
+        {"value": value, "summary": value.replace("-", " ")}
+        for value in (values if isinstance(values, tuple) else sorted(values))
+    ]
+
+
+def _text_field(summary: str, *, required: bool = True) -> dict[str, Any]:
+    return {
+        "type": "string",
+        "required": required,
+        "non_empty": True,
+        "summary": summary,
+    }
+
+
+def _contract_fields(
+    inventory: tuple[str, ...],
+    definitions: dict[str, Any],
+    *,
+    optional: tuple[str, ...] = (),
+) -> dict[str, Any]:
+    """Order and validate public descriptors from their contract vocabulary."""
+    if set(definitions) != set(inventory):
+        raise AssertionError("public descriptor field definitions drifted")
+    if not set(optional).issubset(inventory):
+        raise AssertionError("public descriptor optional fields drifted")
+    return {
+        name: {**definitions[name], "required": name not in optional}
+        for name in inventory
+    }
+
+
+_AXES_FIELDS: dict[str, Any] = _contract_fields(
+    FEATURE_AXES_FIELDS,
+    {
+        "scope": {
+            **_text_field("estimated breadth of the feature"),
+            "one_of": _closed_options(SCOPES),
+        },
+        "complexity": {
+            **_text_field("consequential implementation uncertainty"),
+            "one_of": _closed_options(COMPLEXITIES),
+        },
+        "testability": {
+            **_text_field("available executable evidence"),
+            "one_of": _closed_options(TESTABILITIES),
+        },
+        "scope_rationale": _text_field("why the selected scope applies"),
+        "complexity_rationale": _text_field("why the selected complexity applies"),
+        "testability_rationale": _text_field("why the selected testability applies"),
+    },
+)
+
+_REVIEWER_FIELDS: dict[str, Any] = _contract_fields(
+    REVIEWER_FIELDS,
+    {
+        "cli": {
+            **_text_field("provider CLI used for this reviewer slot"),
+            "one_of": _closed_options(VALID_GATE_CLIS),
+        },
+        "model": _text_field("exact provider model identifier"),
+        "reasoning_effort": {
+            **_text_field("requested reasoning effort"),
+            "one_of": _closed_options(VALID_REASONING_EFFORTS),
+        },
+    },
+)
+
+INTAKE_INPUT_SCHEMA: dict[str, Any] = {
+    "id": INTAKE_INPUT_SCHEMA_ID,
+    "media_type": "application/yaml",
+    "delivered_by": "--from-file <path|->",
+    "summary": "researched feature intake used to prepare a policy recommendation",
+    "fields": _contract_fields(
+        INTAKE_INPUT_FIELDS,
+        {
+            "schema": {
+                "type": "string",
+                "required": True,
+                "const": INTAKE_INPUT_SCHEMA_ID,
+                "summary": "payload schema id, exact match",
+            },
+            "route": {
+                **_text_field("explicit direct or governed workflow route"),
+                "one_of": [
+                    {
+                        "value": route,
+                        "summary": (
+                            "work outside the feature workflow"
+                            if route == "direct"
+                            else "prepare governed feature admission"
+                        ),
+                    }
+                    for route in INTAKE_ROUTES
+                ],
+            },
+            "route_reason": _text_field("why this route was selected"),
+            "research": {
+                "type": "object",
+                "required": True,
+                "summary": "one source file and its decision-relevant summary",
+                "fields": _contract_fields(
+                    INTAKE_RESEARCH_FIELDS,
+                    {
+                        "reference": _text_field(
+                            "repository-relative research source path"
+                        ),
+                        "summary": _text_field("what the source establishes"),
+                    },
+                ),
+            },
+            "axes": {
+                "type": "object",
+                "required": True,
+                "summary": "feature review-policy assessment axes",
+                "fields": _AXES_FIELDS,
+            },
+        },
+    ),
+    "example": {
+        "schema": INTAKE_INPUT_SCHEMA_ID,
+        "route": INTAKE_ROUTES[1],
+        "route_reason": "Use the governed workflow for this multi-module change",
+        "research": {
+            "reference": "brief.md",
+            "summary": "Declares the feature purpose and initial boundary",
+        },
+        "axes": {
+            "scope": "small",
+            "complexity": "low",
+            "testability": "full",
+            "scope_rationale": "The change has one bounded public surface",
+            "complexity_rationale": "The existing owners and failure modes are known",
+            "testability_rationale": "Disposable hosts cover the public behavior",
+        },
+    },
+    "notes": [
+        "Preparation returns a recommendation; it does not grant approval.",
+        "The area and feature slug are command arguments, not payload fields.",
+        "Unknown fields and unsupported closed values are refused.",
+    ],
+}
+
+
+def _feature_policy_example() -> dict[str, Any]:
+    axes = FeatureAxes(
+        scope="small",
+        complexity="low",
+        testability="full",
+        scope_rationale="The change has one bounded public surface",
+        complexity_rationale="The existing owners and failure modes are known",
+        testability_rationale="Disposable hosts cover the public behavior",
+    )
+    recommendation = recommend_policy(axes)
+    return {
+        "schema": POLICY_SCHEMA,
+        "revision": 1,
+        "axes": ops.decoded_payload(axes),
+        "approval": "Owner explicitly approved this complete example policy",
+        "entries": [ops.decoded_payload(entry) for entry in recommendation.entries],
+    }
+
+
+FEATURE_POLICY_INPUT_SCHEMA: dict[str, Any] = {
+    "id": POLICY_SCHEMA,
+    "media_type": "application/yaml",
+    "delivered_by": "--from-file <path|->",
+    "summary": "complete owner-approved review policy for a prepared intake",
+    "fields": _contract_fields(
+        POLICY_INPUT_FIELDS,
+        {
+            "schema": {
+                "type": "string",
+                "required": True,
+                "const": POLICY_SCHEMA,
+                "summary": "payload schema id, exact match",
+            },
+            "revision": {
+                "type": "integer",
+                "required": True,
+                "summary": "policy revision recorded inside the policy document",
+            },
+            "axes": {
+                "type": "object",
+                "required": True,
+                "summary": "confirmed feature assessment axes",
+                "fields": _AXES_FIELDS,
+            },
+            "approval": _text_field("explicit approval of the complete policy matrix"),
+            "entries": {
+                "type": "list",
+                "required": True,
+                "min_items": len(ROLES),
+                "summary": "each live review role exactly once",
+                "items": {
+                    "type": "object",
+                    "fields": _contract_fields(
+                        GATE_POLICY_FIELDS,
+                        {
+                            "role": {
+                                **_text_field("review role"),
+                                "one_of": _closed_options(ROLES),
+                            },
+                            "scope": {
+                                **_text_field("assignment scope"),
+                                "one_of": _closed_options(("feature", "milestone")),
+                            },
+                            "mode": {
+                                **_text_field("round scheduling mode"),
+                                "one_of": _closed_options(MODES),
+                            },
+                            "limit": {
+                                "type": "integer or null",
+                                "required": True,
+                                "summary": (
+                                    "upper round limit, null for off or convergence"
+                                ),
+                            },
+                            "minimum_rounds": {
+                                "type": "integer",
+                                "required": True,
+                                "summary": "minimum primary rounds before closure",
+                            },
+                            "primary": {
+                                "type": "object",
+                                "required": True,
+                                "summary": "required reviewer selection",
+                                "fields": _REVIEWER_FIELDS,
+                            },
+                            "secondary": {
+                                "type": "object or null",
+                                "required": False,
+                                "summary": "optional independent reviewer selection",
+                                "fields": _REVIEWER_FIELDS,
+                            },
+                            "trigger": {
+                                "type": "object or null",
+                                "required": False,
+                                "summary": (
+                                    "required integration gap when robustness is "
+                                    "enabled"
+                                ),
+                                "fields": _contract_fields(
+                                    TRIGGER_FIELDS,
+                                    {
+                                        "gate": _text_field(
+                                            "robustness-analysis gate name"
+                                        ),
+                                        "gap": _text_field("specific integration gap"),
+                                        "references": {
+                                            "type": "list",
+                                            "required": True,
+                                            "min_items": 1,
+                                            "items": {
+                                                "type": "string",
+                                                "non_empty": True,
+                                            },
+                                            "summary": (
+                                                "exact sources that establish the gap"
+                                            ),
+                                        },
+                                    },
+                                ),
+                            },
+                        },
+                        optional=GATE_POLICY_OPTIONAL_FIELDS,
+                    ),
+                },
+            },
+        },
+    ),
+    "example": _feature_policy_example(),
+    "notes": [
+        "The example is a recommendation template and does not grant approval.",
+        "Approval must cover the complete policy, and --expect-revision guards "
+        "the owner revision separately from the policy revision.",
+        "Every live role appears exactly once; role, scope, mode, reviewer and "
+        "trigger semantics remain validated by the policy owner.",
+    ],
+}
+
+REVIEW_DISPOSITION_INPUT_SCHEMA: dict[str, Any] = {
+    "id": "heddle.review-disposition-input/v1",
+    "media_type": "application/json",
+    "delivered_by": "--input-json <path|->",
+    "summary": "evidence-bound dispositions for original review obligations",
+    "fields": {
+        "schema": {
+            "type": "string",
+            "required": True,
+            "const": "heddle.review-disposition-input/v1",
+            "summary": "payload schema id, exact match",
+        },
+        "dispositions": {
+            "type": "list",
+            "required": True,
+            "min_items": 1,
+            "summary": "original finding or coverage obligations to settle",
+            "items": {
+                "type": "object",
+                "fields": {
+                    "run_id": _text_field("originating review run ID"),
+                    "finding_id": _text_field("originating finding ID or @coverage"),
+                    "status": {
+                        **_text_field("lead disposition status"),
+                        "one_of": _closed_options(DISPOSITION_STATUSES),
+                    },
+                    "evidence_kind": {
+                        **_text_field("qualification route for the cited evidence"),
+                        "one_of": _closed_options(EVIDENCE_KINDS),
+                    },
+                    "references": {
+                        "type": "list",
+                        "required": True,
+                        "min_items": 1,
+                        "items": {"type": "string", "non_empty": True},
+                        "summary": "exact evidence paths or native references",
+                    },
+                    "reason": _text_field("how the evidence resolves the obligation"),
+                    "requires_inspection": {
+                        "type": "boolean",
+                        "required": False,
+                        "summary": "retain an independent inspection duty",
+                    },
+                    "decision_id": _text_field(
+                        "resolved decision binding for decision evidence",
+                        required=False,
+                    ),
+                    "review_run_id": _text_field(
+                        "qualifying later review run binding", required=False
+                    ),
+                    "verification_scope": _text_field(
+                        "qualifying native verification scope", required=False
+                    ),
+                },
+            },
+        },
+    },
+    "example": {
+        "schema": "heddle.review-disposition-input/v1",
+        "dispositions": [
+            {
+                "run_id": "00000000-0000-0000-0000-000000000000",
+                "finding_id": "SP-I1",
+                "status": "addressed",
+                "evidence_kind": "inspection",
+                "references": ["src/example.py"],
+                "reason": "Inspected the exact repair against the owning contract",
+            }
+        ],
+    },
+    "notes": [
+        "@coverage requires inspection of the original scope; "
+        "requires_inspection preserves that duty.",
+        "A clean later report alone does not settle an originating duty: review "
+        "evidence needs review_run_id and its qualifying binding.",
+        "Verification evidence needs verification_scope; inspection and contract "
+        "evidence retain exact references.",
+        "Unknown fields, unsupported values and unqualified evidence fail the "
+        "complete batch before it writes.",
+    ],
+}
+
 # workflow-model §15. Summaries transcribe the public command surface
 # (noun-group lines split per verb — adaptation, not invention). Exit-code
 # sets follow the pinned rules: universal floor {0,1,2}; fatal-capable
@@ -401,6 +791,7 @@ COMMAND_SURFACE: tuple[CommandContract, ...] = (
         ),
         exit_codes=_EXIT_CAS,
         output_schema=None,
+        input_schema=REVIEW_DISPOSITION_INPUT_SCHEMA,
     ),
     CommandContract(
         name=ops.operation_type_name(ops.ReviewRoundOpen),
@@ -447,6 +838,7 @@ COMMAND_SURFACE: tuple[CommandContract, ...] = (
                     "type": "string",
                     "required": True,
                     "const": "heddle.review-interpretation-input/v1",
+                    "summary": "payload schema id, exact match",
                 },
                 **{
                     name: {"type": "string", "required": True, "summary": summary}
@@ -465,6 +857,14 @@ COMMAND_SURFACE: tuple[CommandContract, ...] = (
                     "required": True,
                     "summary": "complete native content matching capture.schema_json",
                 },
+            },
+            "example": {
+                "schema": "heddle.review-interpretation-input/v1",
+                "run_id": "00000000-0000-0000-0000-000000000000",
+                "capture_sha256": "0" * 64,
+                "author": "review lead",
+                "reason": "Preserves every finding and limitation in the capture",
+                "content": {"schema": "provider-declared-schema"},
             },
             "notes": [
                 "Read every original finding and limitation before interpreting.",
@@ -512,6 +912,7 @@ COMMAND_SURFACE: tuple[CommandContract, ...] = (
         ),
         exit_codes=_EXIT_CAS,
         output_schema=None,
+        input_schema=INTAKE_INPUT_SCHEMA,
     ),
     CommandContract(
         name=ops.operation_type_name(ops.FeaturePolicy),
@@ -528,6 +929,7 @@ COMMAND_SURFACE: tuple[CommandContract, ...] = (
         ),
         exit_codes=_EXIT_CAS,
         output_schema=None,
+        input_schema=FEATURE_POLICY_INPUT_SCHEMA,
     ),
     CommandContract(
         name=ops.operation_type_name(ops.FeatureReassess),
@@ -578,8 +980,9 @@ COMMAND_SURFACE: tuple[CommandContract, ...] = (
         name=ops.operation_type_name(ops.FeatureComplete),
         cli_binding=("completion", "run_feature_complete"),
         summary=(
-            "accept completion with local retention; record commits optional; "
-            "retry stamp, archive and cleanup effects"
+            "accept completion; host tooling supplies the additional close suite "
+            "through autopilot.test_command; it does not replace feature proof and "
+            "does not create a clean environment; retry retention effects"
         ),
         mutating=True,
         dry_run=True,
@@ -810,7 +1213,7 @@ COMMAND_SURFACE: tuple[CommandContract, ...] = (
             _FEATURE,
             FlagSpec(
                 "--scope",
-                "verification scope (feature|m<N>|smoke|acceptance|live)",
+                ops.VERIFICATION_SCOPE_GUIDANCE,
             ),
             _EXPECT_REVISION,
             _DRY_RUN,

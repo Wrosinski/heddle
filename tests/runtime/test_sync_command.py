@@ -40,11 +40,11 @@ SESSION_BEGIN = "<!-- heddle:begin session-entry -->"
 SESSION_END = "<!-- heddle:end session-entry -->"
 
 SESSION_BODY = (
-    "This repository's feature workflow runs through the `heddle` CLI.\n\n"
+    "\nThis repository's feature workflow runs through the `heddle` CLI.\n\n"
     "To enter a feature-work session:\n\n"
     "1. Run `heddle orient`.\n"
     "2. Follow the `next_actions` it returns.\n"
-    "3. Run `heddle kickoff` only when `orient` routes there.\n"
+    "3. Run `heddle kickoff` only when `orient` routes there.\n\n"
 )
 CREATED_AGENTS = SESSION_BEGIN + "\n" + SESSION_BODY + SESSION_END + "\n"
 

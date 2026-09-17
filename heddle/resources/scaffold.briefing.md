@@ -171,6 +171,14 @@ Keep the command roles distinct:
   acceptance proves the composed feature; live repeats the same core flow
   against approved real dependencies.
 
+Progressive `test_command` output and session prose are feedback; only
+`heddle verify --scope <scope>` records native proof.
+
+Host tooling owns `.heddle.yaml`'s `autopilot.test_command`, which configures
+the additional close suite run by `heddle feature complete`. It does not replace
+feature proof, and `feature complete` does not create a clean environment; it
+runs the command in the current host checkout.
+
 Design failure output for the next model: keep stdout concise, make failures
 grep-friendly with `FAIL` or `ERROR` beside the cause, summarize counts, give
 an actionable first diagnostic, and provide a fast selection for large suites.

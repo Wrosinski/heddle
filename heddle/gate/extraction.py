@@ -56,6 +56,39 @@ def extract_command_test_paths(
     return _extract_test_paths(commands, tests_root=tests_root)
 
 
+def unsupported_explicit_test_tokens(
+    content: str, *, tests_root: str
+) -> tuple[str, ...]:
+    """Return whole unsupported test-path tokens from authored Markdown code."""
+    return _unsupported_test_tokens(_markdown_code(content), tests_root=tests_root)
+
+
+def unsupported_command_test_tokens(
+    commands: tuple[str, ...], *, tests_root: str
+) -> tuple[str, ...]:
+    """Return whole unsupported test-path tokens from runtime commands."""
+    return _unsupported_test_tokens(commands, tests_root=tests_root)
+
+
+def _unsupported_test_tokens(
+    explicit_text: tuple[str, ...], *, tests_root: str
+) -> tuple[str, ...]:
+    token_pattern = re.compile(
+        rf"(?<![A-Za-z0-9_./-]){re.escape(tests_root)}/[^\s`\"']+"
+    )
+    unsupported: list[str] = []
+    seen: set[str] = set()
+    for code in explicit_text:
+        for match in token_pattern.finditer(code):
+            token = match.group(0).rstrip(".,);")
+            path, _separator, _selector = token.partition("::")
+            if any(marker in path for marker in ("*", "?", "[", "]", "{", "}")):
+                if token not in seen:
+                    seen.add(token)
+                    unsupported.append(token)
+    return tuple(unsupported)
+
+
 def _extract_test_paths(
     explicit_text: tuple[str, ...], *, tests_root: str
 ) -> tuple[str, ...]:

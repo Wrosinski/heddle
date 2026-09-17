@@ -3,11 +3,17 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, fields
+from typing import Any
 
 from heddle.contracts.gates import GATE_CATALOG
 
 POLICY_SCHEMA = "heddle.feature-policy/v1"
+INTAKE_INPUT_SCHEMA_ID = "heddle.intake-input/v1"
+INTAKE_ROUTES = ("direct", "heddle")
+INTAKE_INPUT_FIELDS = ("schema", "route", "route_reason", "research", "axes")
+INTAKE_RESEARCH_FIELDS = ("reference", "summary")
+TRIGGER_FIELDS = ("gate", "gap", "references")
 ROLES = tuple(GATE_CATALOG)
 DOCUMENT_ROLES = frozenset({"spec-review", "plan-review"})
 ITERATIVE_DOCUMENT_ROLES = DOCUMENT_ROLES | {"review-test-scaffolding"}
@@ -53,6 +59,18 @@ class ConfirmedPolicy:
     axes: FeatureAxes
     approval: str
     entries: tuple[GatePolicy, ...]
+
+
+def _model_fields(model: type[Any]) -> tuple[str, ...]:
+    return tuple(field.name for field in fields(model))
+
+
+FEATURE_AXES_FIELDS = _model_fields(FeatureAxes)
+REVIEWER_FIELDS = _model_fields(Reviewer)
+GATE_POLICY_FIELDS = _model_fields(GatePolicy)
+GATE_POLICY_OPTIONAL_FIELDS = ("secondary", "trigger")
+CONFIRMED_POLICY_FIELDS = _model_fields(ConfirmedPolicy)
+POLICY_INPUT_FIELDS = ("schema", *CONFIRMED_POLICY_FIELDS)
 
 
 @dataclass(frozen=True)

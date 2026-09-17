@@ -395,6 +395,41 @@ def test_ac15_terminal_complete_fires_notify_with_review_count(
     )
 
 
+def test_ac12_auto_driver_with_configured_suite_reaches_completion_handoff(
+    run_json,
+    driver_corpus,
+    fake_claude,
+    monkeypatch,
+    auto_tier2_workspace,
+    tmp_path,
+):
+    """AC-12 survivor: configured close proof permits, but does not pre-run,
+    the automatic robustness-to-complete handoff before final acceptance."""
+    host = auto_tier2_workspace(chdir=False)
+    state_path = _arm_complete_boundary(driver_corpus, host)
+    attempted = tmp_path / "close-suite-ran"
+    set_autopilot_config(
+        host,
+        test_command=(
+            'python3 -c "from pathlib import Path; '
+            f"Path({str(attempted)!r}).write_text('ran')\""
+        ),
+    )
+    monkeypatch.chdir(host)
+
+    code, envelope, _out, _err = run_json(
+        ["drive", "--feature", SLUG, "--until", "complete", "--json"]
+    )
+
+    assert code == 0 and envelope["ok"], envelope
+    after = driver_corpus.read_yaml(state_path)
+    assert after["stage"] == "complete"
+    assert after["completion"] is None
+    assert not attempted.exists(), (
+        "FAIL AC-12: driver ran the configured final close suite before acceptance"
+    )
+
+
 def test_ac18_policy_fact_without_journal_entry_is_incomplete(
     run_cli, envelope_tools, driver_corpus, monkeypatch, auto_tier2_workspace
 ):

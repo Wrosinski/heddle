@@ -47,6 +47,7 @@ from heddle.runtime.auto_close import (
     CompletionRepairObservation,
     archive_trajectory_best_effort,
     close_audit_repairs,
+    close_obligation,
     run_close_suite,
 )
 from heddle.runtime.clock import utc_now_seconds
@@ -143,6 +144,7 @@ def complete_feature(operation: ops.FeatureComplete) -> HeddleResult:
                     "dry_run": True,
                     "close_suite_command": context.config.autopilot.test_command
                     or None,
+                    "close_obligation": close_obligation(context.config),
                     "effects": {
                         name: {"status": "pending", "paths": paths}
                         for name, paths in {

@@ -7,7 +7,12 @@ from dataclasses import dataclass
 from types import MappingProxyType
 from typing import Any, Literal
 
-from heddle.contracts.operations import Action, CommandAction, Verify
+from heddle.contracts.operations import (
+    VERIFICATION_SCOPE_GUIDANCE,
+    Action,
+    CommandAction,
+    Verify,
+)
 from heddle.kernel.project_config import KernelError
 from heddle.kernel.source_manifest import (
     SourceEvidence,
@@ -113,17 +118,31 @@ def resolve_source_declaration(state: StateFile, scope: str) -> SourceDeclaratio
         return SourceDeclaration("milestone-owns", paths)
 
     if scope == "feature":
-        raise _source_error(scope, "is unsupported by the current milestone workflow")
+        raise _source_error(
+            scope,
+            "is unsupported by the current milestone workflow",
+            hint=VERIFICATION_SCOPE_GUIDANCE,
+        )
 
     if scope in FINAL_SCOPES:
         return SourceDeclaration(
             "feature-owned-union", _feature_owned_union(state, scope)
         )
-    raise _source_error(scope, "is not a known verification scope")
+    raise _source_error(
+        scope,
+        "is not a known verification scope",
+        hint=VERIFICATION_SCOPE_GUIDANCE,
+    )
 
 
 def verification_command_for_scope(state: StateFile, scope: str) -> str:
     """Resolve the one stored command belonging to an exact scope."""
+    if scope == "feature":
+        raise _source_error(
+            scope,
+            "is unsupported by the current milestone workflow",
+            hint=VERIFICATION_SCOPE_GUIDANCE,
+        )
     if scope.startswith("m"):
         milestone = milestone_for_scope(state, scope)
         if milestone is None:
@@ -163,11 +182,11 @@ def _feature_owned_union(state: StateFile, scope: str) -> tuple[str, ...]:
     return paths
 
 
-def _source_error(scope: str, problem: str) -> KernelError:
+def _source_error(scope: str, problem: str, *, hint: str | None = None) -> KernelError:
     return KernelError(
         code="workspace-invalid",
         message=f"verification source for {scope!r} {problem}",
-        hint="repair the verification source declaration and retry",
+        hint=hint or "repair the verification source declaration and retry",
     )
 
 

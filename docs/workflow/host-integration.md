@@ -124,6 +124,12 @@ repository unchanged.
 - Set `sync.mirror` to an agent-instruction mirror such as `CLAUDE.md`, or set it
   to `null` when the host does not want a mirror.
 
+Host tooling owns `.heddle.yaml`'s `autopilot.test_command`, which configures
+the additional close suite run by `heddle feature complete`. It does not replace
+feature proof, and `feature complete` does not create a clean environment; it
+runs the command in the current host checkout. Choose a command that creates or
+activates its own isolation when the host requires one.
+
 Keep repository instructions in `AGENTS.md` outside the Heddle-managed session
 entry. Those instructions retain test authority and all permission boundaries
 for provider access, production mutation, push, deployment, and publication.

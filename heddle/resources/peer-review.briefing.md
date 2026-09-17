@@ -72,6 +72,10 @@ every coverage gap and independent originating inspection duty; an assurance
 from another reviewer is not the required inspection. The native decision and
 qualified disposition are authority, not an edited Markdown review.
 
+For source-bound evidence, finish edits, sync, format, inspect, then record
+dispositions. Formatting is an authored byte change when an explicit raw-file
+reference observes it; future formatting is never invisible to evidence.
+
 ## Verification evidence
 
 Keep five claims separate: **content identity** (the declared bytes match the

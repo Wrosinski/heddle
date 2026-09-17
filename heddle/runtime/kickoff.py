@@ -11,6 +11,7 @@ briefing instead of a not-implemented stub.
 from __future__ import annotations
 
 import sys
+from dataclasses import asdict
 
 from heddle.contracts import operations as ops
 from heddle.contracts.result import (
@@ -18,10 +19,11 @@ from heddle.contracts.result import (
     HeddleError,
     HeddleResult,
 )
-from heddle.kernel.model import is_terminal
+from heddle.kernel.model import derive_authoring_guidance, is_terminal
 from heddle.kernel.project_config import KernelError
 from heddle.kernel.resources import resolve_resource
 from heddle.runtime import application
+from heddle.runtime.auto_close import close_obligation, close_obligation_text
 from heddle.runtime.cli_args import parse_feature_flag
 from heddle.runtime.diagnostics import kernel_error_result
 from heddle.runtime.feature_context import (
@@ -63,6 +65,7 @@ def kickoff(operation: ops.Kickoff) -> HeddleResult:
                     "Acceptance is immutable. Follow the reported actions to repair "
                     "pending stamp, archive or cleanup effects.\n"
                 ),
+                "close_obligation": close_obligation(config),
             },
             diagnostics=observed.diagnostics,
             next_actions=observed.next_actions,
@@ -92,12 +95,16 @@ def kickoff(operation: ops.Kickoff) -> HeddleResult:
             diagnostics=resolved.diagnostics,
         )
 
+    authoring_guidance = derive_authoring_guidance(snapshot)
+    assert authoring_guidance is not None
     result = HeddleResult.success(
         {
             "feature": resolved.feature,
             "stage": snapshot.stage,
             "source": source,
             "briefing": briefing,
+            "authoring_guidance": asdict(authoring_guidance),
+            "close_obligation": close_obligation(config),
             **policy_data,
         },
         diagnostics=resolved.diagnostics,
@@ -118,7 +125,13 @@ def _render_human(result: HeddleResult) -> None:
             print(f"  next: {action.command} — {action.reason}", file=sys.stderr)
     else:
         data = result.data or {}
-        print(data.get("briefing", ""), end="")
+        briefing = data.get("briefing", "")
+        print(briefing, end="")
+        if briefing and not briefing.endswith("\n"):
+            print()
+        obligation = data.get("close_obligation")
+        if isinstance(obligation, dict):
+            print(close_obligation_text(obligation))
     for diagnostic in result.diagnostics:
         print(f"note: {diagnostic.code}: {diagnostic.message}", file=sys.stderr)
 

@@ -55,6 +55,10 @@ those exact owners and the authorized ruling. Use `heddle decisions add` for new
 lead questions. Use `heddle
 review disposition` for evidence-bound original findings and coverage.
 
+For source-bound evidence, finish edits, sync, format, inspect, then record
+dispositions. Formatting is an authored byte change when an explicit raw-file
+reference observes it; future formatting is never invisible to evidence.
+
 Run `heddle validate` after changes. Follow native next actions for targeted
 review, stops, and explicit budget decisions; do not invent another fixed pass
 count or restart usage after an amendment. Exit toward **scaffold** only when

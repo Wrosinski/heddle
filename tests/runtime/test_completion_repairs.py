@@ -445,3 +445,44 @@ def test_f3_a7_apply_repeats_preflight_after_the_suite_before_accepting(
     assert read(host.state)["completion"] is None
     logs = tuple((host.state.parent / "verification").glob("final-close-*.log"))
     assert len(logs) == 1
+
+
+def test_ac12_valid_nonzero_close_suite_refuses_then_retry_succeeds(
+    tmp_path, monkeypatch
+) -> None:
+    """AC-12 survivor: an executed nonzero suite cannot stamp or accept close."""
+    host = final_host(tmp_path, monkeypatch, verify_now=False)
+    _set_close_suite(
+        host,
+        "from pathlib import Path; "
+        f"p = Path('plans/{FEATURE}/verification/close-suite.calls'); "
+        "p.parent.mkdir(parents=True, exist_ok=True); p.write_text('close\\n'); "
+        "raise SystemExit(17)",
+    )
+
+    failed = host.complete()
+
+    assert not failed.ok and failed.error is not None
+    rendered_failure = json.dumps(failed.to_envelope()).casefold()
+    assert "additional close suite" in rendered_failure
+    assert "clean-venv" not in rendered_failure
+    assert "clean environment" not in rendered_failure
+    assert read(host.state)["completion"] is None
+    assert yaml.safe_load(host.spec.read_text().split("---", 2)[1])["lifecycle"] != (
+        "complete"
+    )
+    assert host.suite_calls() == ["close"]
+    logs = tuple((host.state.parent / "verification").glob("final-close-*.log"))
+    assert len(logs) == 1
+
+    _set_close_suite(
+        host,
+        "from pathlib import Path; "
+        f"p = Path('plans/{FEATURE}/verification/close-suite.calls'); "
+        "p.write_text(p.read_text() + 'retry\\n')",
+    )
+    recovered = host.complete()
+
+    assert recovered.ok and recovered.data["accepted"] is True
+    assert read(host.state)["completion"] is not None
+    assert host.suite_calls() == ["close", "retry"]

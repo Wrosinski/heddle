@@ -29,6 +29,7 @@ from heddle.contracts.result import (
 from heddle.kernel.model import (
     BLOCKING_TRIGGER_ROWS,
     FeatureSnapshot,
+    derive_authoring_guidance,
     gate_convergence_phase,
     gate_decision_deferral_active,
     is_terminal,
@@ -48,6 +49,7 @@ from heddle.runtime.audit import (
     DecisionJournalAudit,
     surfaced_decision_journal_audit,
 )
+from heddle.runtime.auto_close import close_obligation, close_obligation_text
 from heddle.runtime.cli_args import parse_feature_flag
 from heddle.runtime.diagnostics import kernel_error_result
 from heddle.runtime.feature_context import (
@@ -120,6 +122,7 @@ def _portfolio_payload(
         try:
             snapshot = resolve_snapshot(config, slug)
             payload = _status_payload(snapshot)
+            payload["close_obligation"] = close_obligation(config)
             audit = surfaced_decision_journal_audit(config, slug, snapshot.state)
             if audit is not None:
                 payload["decision_journal_audit"] = audit.status
@@ -277,6 +280,7 @@ def _read_surface(
 
         observed = completion_result(resolved, dry_run=True)
         payload = build_payload(snapshot)
+        payload["close_obligation"] = close_obligation(resolved.config)
         assert observed.data is not None
         payload.update(
             {
@@ -313,6 +317,7 @@ def _read_surface(
             purpose=purpose,
         )
         payload = build_payload(snapshot)
+        payload["close_obligation"] = close_obligation(resolved.config)
         if not is_terminal(snapshot.state):
             if assignment_projection is not None:
                 payload.update(assignment_projection)
@@ -461,6 +466,7 @@ def _orient_payload(snapshot: FeatureSnapshot) -> dict[str, Any]:
 
 
 def _snapshot_base_payload(snapshot: FeatureSnapshot) -> dict[str, Any]:
+    authoring_guidance = derive_authoring_guidance(snapshot)
     payload: dict[str, Any] = {
         "feature": snapshot.feature,
         "workspace": snapshot.workspace,
@@ -475,6 +481,9 @@ def _snapshot_base_payload(snapshot: FeatureSnapshot) -> dict[str, Any]:
         "gate_decision_deferral": gate_decision_deferral_active(snapshot),
         "gate_convergence_phase": gate_convergence_phase(
             snapshot.state, snapshot.required_gates
+        ),
+        "authoring_guidance": (
+            asdict(authoring_guidance) if authoring_guidance is not None else None
         ),
     }
     if snapshot.state.completion is not None:
@@ -560,6 +569,16 @@ def _render_read_result(result: HeddleResult) -> None:
             print(f"  next_steps: {data['next_steps']}")
     else:
         print(f"  milestone: {data['current_milestone'] or '(none)'}")
+    guidance = data.get("authoring_guidance")
+    if isinstance(guidance, dict):
+        mode = "read-only" if guidance.get("read_only") else "authoring"
+        print(
+            f"  guidance ({mode}): {guidance['work']}; "
+            f"briefing: {guidance['briefing_command']}"
+        )
+    obligation = data.get("close_obligation")
+    if isinstance(obligation, dict):
+        print(f"  {close_obligation_text(obligation)}")
     labels = (
         _blocking_label(
             code,

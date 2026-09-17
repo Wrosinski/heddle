@@ -25,6 +25,7 @@ from tests.tiering_review_helpers import (
 def test_changed_citation_reopens_only_its_original_finding(
     tmp_path, monkeypatch, run_cli
 ):
+    """AC-6 survivor: changed source reopens only the citing obligation."""
     host, path = current_host(tmp_path, monkeypatch)
     (host / "docs/first.md").write_text("First concern proof.\n")
     (host / "docs/second.md").write_text("Second concern proof.\n")
@@ -71,6 +72,7 @@ def test_changed_citation_reopens_only_its_original_finding(
 def test_only_assignment_dependencies_and_cited_evidence_reopen_dispositions(
     tmp_path, monkeypatch, run_cli, role, edited
 ):
+    """AC-6 survivor: unrelated edits do not erase qualified dispositions."""
     host, path = current_host(
         tmp_path, monkeypatch, stage=ROLE_STAGES[role], overrides={role: entry(role)}
     )

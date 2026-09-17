@@ -41,6 +41,10 @@ through `heddle review disposition`, retaining qualified evidence and any
 independent inspection requirement. Do not silently treat absence in a later
 report as settlement.
 
+For source-bound evidence, finish edits, sync, format, inspect, then record
+dispositions. Formatting is an authored byte change when an explicit raw-file
+reference observes it; future formatting is never invisible to evidence.
+
 Use the runtime's next action for a necessary targeted round or cap/stop
 decision; a limit is not a fixed number of required passes and is not closure.
 Run `heddle validate` after document corrections. Exit toward **plan-review**

@@ -8,12 +8,18 @@ from typing import Any
 
 from heddle.contracts.feature_policy import (
     COMPLEXITIES,
+    CONFIRMED_POLICY_FIELDS,
     DOCUMENT_ROLES,
+    FEATURE_AXES_FIELDS,
+    GATE_POLICY_FIELDS,
+    GATE_POLICY_OPTIONAL_FIELDS,
     MODES,
     POLICY_SCHEMA,
+    REVIEWER_FIELDS,
     ROLES,
     SCOPES,
     TESTABILITIES,
+    TRIGGER_FIELDS,
     CallBudget,
     ConfirmedPolicy,
     EffectivePolicy,
@@ -51,9 +57,14 @@ def validate_host_review_selection(
 
 
 def _fields(
-    value: object, model: type, *, optional: tuple[str, ...] = ()
+    value: object,
+    model: type,
+    field_inventory: tuple[str, ...],
+    *,
+    optional: tuple[str, ...] = (),
 ) -> dict[str, Any]:
-    names = {field.name for field in fields(model)}
+    names = set(field_inventory)
+    assert names == {field.name for field in fields(model)}
     if (
         not isinstance(value, dict)
         or set(value) - names
@@ -68,17 +79,28 @@ def parse_policy(value: object) -> ConfirmedPolicy:
     if not isinstance(value, dict) or value.get("schema") != POLICY_SCHEMA:
         raise ValueError(f"policy requires schema {POLICY_SCHEMA}")
     data = _fields(
-        {key: item for key, item in value.items() if key != "schema"}, ConfirmedPolicy
+        {key: item for key, item in value.items() if key != "schema"},
+        ConfirmedPolicy,
+        CONFIRMED_POLICY_FIELDS,
     )
     axes = parse_axes(data["axes"])
     if not isinstance(data["entries"], (list, tuple)):
         raise ValueError("policy entries must be a sequence")
     entries = []
     for entry in data["entries"]:
-        row = dict(_fields(entry, GatePolicy, optional=("secondary", "trigger")))
-        row["primary"] = Reviewer(**_fields(row["primary"], Reviewer))
+        row = dict(
+            _fields(
+                entry,
+                GatePolicy,
+                GATE_POLICY_FIELDS,
+                optional=GATE_POLICY_OPTIONAL_FIELDS,
+            )
+        )
+        row["primary"] = Reviewer(**_fields(row["primary"], Reviewer, REVIEWER_FIELDS))
         if row.get("secondary") is not None:
-            row["secondary"] = Reviewer(**_fields(row["secondary"], Reviewer))
+            row["secondary"] = Reviewer(
+                **_fields(row["secondary"], Reviewer, REVIEWER_FIELDS)
+            )
         if row.get("trigger") is not None and not isinstance(row["trigger"], dict):
             raise ValueError("policy trigger must be a mapping")
         entries.append(GatePolicy(**row))
@@ -90,7 +112,7 @@ def parse_policy(value: object) -> ConfirmedPolicy:
 
 
 def parse_axes(value: object) -> FeatureAxes:
-    axes = FeatureAxes(**_fields(value, FeatureAxes))
+    axes = FeatureAxes(**_fields(value, FeatureAxes, FEATURE_AXES_FIELDS))
     validate_axes(axes)
     return axes
 
@@ -166,14 +188,14 @@ def validate_gate_policy(row: GatePolicy) -> None:
         if row.secondary.cli == row.primary.cli:
             raise ValueError("policy secondary needs an independent reviewer CLI")
     if row.trigger is not None:
-        if set(row.trigger) != {"gate", "gap", "references"}:
+        if set(row.trigger) != set(TRIGGER_FIELDS):
             raise ValueError("policy trigger needs gate, gap and references")
         if row.role != "robustness-analysis" or row.trigger["gate"] != row.role:
             raise ValueError("policy trigger must name the robustness-analysis gate")
         _text(row.trigger["gap"], "trigger integration gap")
         references = row.trigger["references"]
-        if not isinstance(references, (list, tuple)):
-            raise ValueError("policy trigger references must be a sequence")
+        if not isinstance(references, (list, tuple)) or not references:
+            raise ValueError("policy trigger references must be a nonempty sequence")
         for reference in references:
             _text(reference, "trigger reference")
     elif row.role == "robustness-analysis" and row.mode != "off":

@@ -13,7 +13,14 @@ from typing import Any
 import yaml
 
 from heddle.contracts import operations as ops
-from heddle.contracts.feature_policy import POLICY_SCHEMA, ConfirmedPolicy
+from heddle.contracts.feature_policy import (
+    INTAKE_INPUT_FIELDS,
+    INTAKE_INPUT_SCHEMA_ID,
+    INTAKE_RESEARCH_FIELDS,
+    INTAKE_ROUTES,
+    POLICY_SCHEMA,
+    ConfirmedPolicy,
+)
 from heddle.contracts.result import Conflict, HeddleResult, NextAction
 from heddle.contracts.schemas import FLOW_MODES
 from heddle.io.source import capture_path
@@ -69,9 +76,10 @@ def invalid(message: str) -> KernelError:
     )
 
 
-def object_fields(value: Any, keys: set[str]) -> dict[str, Any]:
-    if not isinstance(value, dict) or set(value) != keys:
-        raise invalid(f"expected exactly fields {sorted(keys)}")
+def object_fields(value: Any, keys: tuple[str, ...] | set[str]) -> dict[str, Any]:
+    expected = set(keys)
+    if not isinstance(value, dict) or set(value) != expected:
+        raise invalid(f"expected exactly fields {sorted(expected)}")
     return value
 
 
@@ -308,15 +316,13 @@ def pending_intake_action(
 def prepare_feature(operation: ops.FeaturePrepare) -> HeddleResult:
     try:
         validate_identity(operation.slug, operation.area)
-        payload = object_fields(
-            operation.payload, {"schema", "route", "route_reason", "research", "axes"}
-        )
-        if payload["schema"] != "heddle.intake-input/v1":
-            raise invalid("prepare input requires heddle.intake-input/v1")
-        if payload["route"] not in ("direct", "heddle"):
-            raise invalid("route must be direct or heddle")
+        payload = object_fields(operation.payload, INTAKE_INPUT_FIELDS)
+        if payload["schema"] != INTAKE_INPUT_SCHEMA_ID:
+            raise invalid(f"prepare input requires {INTAKE_INPUT_SCHEMA_ID}")
+        if payload["route"] not in INTAKE_ROUTES:
+            raise invalid(f"route must be {' or '.join(INTAKE_ROUTES)}")
         nonempty(payload["route_reason"], "route reason")
-        research = object_fields(payload["research"], {"reference", "summary"})
+        research = object_fields(payload["research"], INTAKE_RESEARCH_FIELDS)
         nonempty(research["summary"], "research summary")
         axes = parse_axes(payload["axes"])
         config = load_project_config_from_cwd()

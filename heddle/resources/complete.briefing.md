@@ -16,6 +16,10 @@ and delete nothing before the final checkpoint.
 ## 1. Orientation across permanent and ephemeral evidence
 
 Inspect the configured close suite and nested commands before completion.
+Host tooling owns `.heddle.yaml`'s `autopilot.test_command`, which configures
+the additional close suite run by `heddle feature complete`. It does not replace
+feature proof, and `feature complete` does not create a clean environment; it
+runs the command in the current host checkout.
 Broad suites and local full-workflow e2e/live execution need an explicit request
 covering that scope; a completion grant or stored command does not independently
 supply it. Existing applicable execution grants persist. Reuse current native
@@ -250,7 +254,9 @@ or commits them, and completion does not move the baseline.
    cause, repository-relative path and legal next action. Repair all reported
    inputs and preview again; an unreadable input is not also diagnosed for its
    content, and unsafe spec paths remain integrity failures. A repair report runs
-   no suite and writes no state, stamp, archive or log. Then invoke
+   no suite and writes no state, stamp, archive or log. A successful JSON
+   preview reports `close_obligation` and `close_suite_command`; dry-run does not
+   run the configured suite. Then invoke
    `heddle feature complete --feature <slug>`; `--expect-revision <n>` optionally
    requires the pending ledger revision. The command takes no narrative payload.
    `session log` remains ordinary narrative and cannot accept completion.

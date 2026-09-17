@@ -28,6 +28,9 @@
 #   notify_timeout_s: 10
 #   max_turns: 100
 #   max_budget_usd: 150.0
+#   # Host tooling owns autopilot.test_command, this additional close suite. It
+#   # does not replace feature proof. Heddle does not create a clean environment;
+#   # it runs the command in the current host checkout.
 #   test_command: pytest
 #
 # The AGENTS.md mirror is on by default (CLAUDE.md is kept byte-identical by

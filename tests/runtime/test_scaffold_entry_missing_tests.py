@@ -40,6 +40,7 @@ def scaffold_host(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Path
 def test_unwritten_tests_do_not_block_scaffold_orientation(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, declaration: str
 ) -> None:
+    """AC-9 survivor: declared future tests do not block read-only guidance."""
     host, state_path = scaffold_host(tmp_path, monkeypatch)
     if declaration == "plan":
         plan = state_path.with_name("plan.md")
@@ -68,6 +69,7 @@ def test_unwritten_tests_do_not_block_scaffold_orientation(
 def test_actual_scaffold_review_requires_declared_test_before_provider(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, run_cli: Any
 ) -> None:
+    """AC-9 survivor: actual launch refuses missing tests before provider work."""
     _host, state_path = scaffold_host(tmp_path, monkeypatch)
     plan = state_path.with_name("plan.md")
     plan.write_text(plan.read_text() + "\nPlanned: `tests/future.py`.\n")
@@ -84,6 +86,7 @@ def test_actual_scaffold_review_requires_declared_test_before_provider(
 def test_removed_reviewed_test_reopens_coverage_without_blocking_orientation(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, run_cli: Any
 ) -> None:
+    """AC-6/AC-9 survivor: removed reviewed tests reopen coverage only."""
     host, state_path = scaffold_host(tmp_path, monkeypatch)
     plan = state_path.with_name("plan.md")
     plan.write_text(plan.read_text() + "\nReviewed: `tests/check.py`.\n")

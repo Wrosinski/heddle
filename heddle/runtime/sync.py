@@ -132,25 +132,25 @@ def render_plan_status(
         "next", next_actions[0].command if next_actions else "none"
     )
     return (
-        "Generated status snapshot — not live. Operational facts live in\n"
+        "\nGenerated status snapshot — not live. Operational facts live in\n"
         "`state.yaml`, which is authoritative; refresh this block with\n"
         f"`heddle sync --feature {feature}`.\n\n"
         f"- feature: {feature}\n"
         f"- stage: {stage} (authorized through {authorized})\n"
         f"- milestone: {milestone}\n"
         f"- conditions: {conditions}\n"
-        f"- next: {next_command}\n"
+        f"- next: {next_command}\n\n"
     )
 
 
 def render_session_entry() -> str:
     """Render the constant LF-terminated session-entry body."""
     return (
-        "This repository's feature workflow runs through the `heddle` CLI.\n\n"
+        "\nThis repository's feature workflow runs through the `heddle` CLI.\n\n"
         "To enter a feature-work session:\n\n"
         "1. Run `heddle orient`.\n"
         "2. Follow the `next_actions` it returns.\n"
-        "3. Run `heddle kickoff` only when `orient` routes there.\n"
+        "3. Run `heddle kickoff` only when `orient` routes there.\n\n"
     )
 
 

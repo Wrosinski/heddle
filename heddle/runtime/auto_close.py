@@ -26,6 +26,7 @@ from heddle.runtime.clock import utc_now_seconds
 from heddle.runtime.verify_exec import run_verification_command
 
 if TYPE_CHECKING:
+    from heddle.kernel.project_config import ProjectConfig
     from heddle.runtime.feature_context import ResolvedSnapshotContext
 
 FRICTION_RETRO_HEADINGS = (
@@ -41,6 +42,28 @@ class CompletionRepairObservation:
     repair: CompletionRepair
     next_action: NextAction
     exit_code: ExitCode = ExitCode.FATAL
+
+
+def close_obligation(config: ProjectConfig) -> dict[str, Any]:
+    """Project the host-owned close command without executing or interpreting it."""
+    command = config.autopilot.test_command or None
+    return {
+        "configured": command is not None,
+        "command": command,
+        "source": ".heddle.yaml:autopilot.test_command",
+        "runs_at": "feature complete",
+    }
+
+
+def close_obligation_text(obligation: dict[str, Any]) -> str:
+    """Render the shared human summary for the read-only close projection."""
+    configured = bool(obligation["configured"])
+    state = "configured" if configured else "absent"
+    command = obligation["command"] if configured else "(none)"
+    return (
+        f"close obligation ({state}): {command}; "
+        f"source: {obligation['source']}; runs at: {obligation['runs_at']}"
+    )
 
 
 def missing_retro_headings(text: str) -> tuple[str, ...]:
@@ -270,7 +293,10 @@ def run_close_suite(
             ),
             hint="make the configured autopilot test command pass before close",
             action=ops.ManualAction(command),
-            reason="run the clean-venv suite required at final close",
+            reason=(
+                "run the additional close suite configured at "
+                ".heddle.yaml:autopilot.test_command in the current host checkout"
+            ),
         )
     return CloseSuiteFact(
         command, log_path.relative_to(context.state_path.parent).as_posix(), exit_code

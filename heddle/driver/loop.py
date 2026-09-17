@@ -400,7 +400,7 @@ def _auto_close_suite_result(
     config: ProjectConfig, snap: FeatureSnapshot
 ) -> HeddleResult | None:
     # An auto-flow feature must have autopilot.test_command configured, or
-    # the Phase-9 clean-venv close gate (_auto_close_block) is a silent no-op and
+    # the Phase-9 additional close gate (_auto_close_block) is a silent no-op and
     # close trusts possibly-stale per-milestone verify facts. Require it at drive
     # startup — the same "the run cannot proceed without capability X" seam as the
     # capability probe — halting with a structured config error if absent.
@@ -409,8 +409,8 @@ def _auto_close_suite_result(
     if config.autopilot.test_command:
         return None
     return driver_results.usage(
-        "flow: auto requires autopilot.test_command (the Phase-9 clean-venv close "
-        "suite); without it the close gate is skipped",
+        "flow: auto requires .heddle.yaml:autopilot.test_command (the additional "
+        "close suite); without it the close gate is skipped",
         "set [autopilot] test_command in .heddle.yaml before driving an auto feature",
     )
 

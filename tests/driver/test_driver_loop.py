@@ -332,10 +332,9 @@ def test_missing_command_drive_auto_without_test_command_halts_at_startup(
     """
     review: a flow: auto feature with no autopilot.test_command must halt at
         drive startup with a structured config error — otherwise the completion-stage
-        clean-venv
-        close gate (_auto_close_block) is a silent no-op and close trusts possibly-stale
-        verify facts. Red before the startup check: drive proceeds and the gap is
-        invisible.
+        additional close gate (_auto_close_block) is a silent no-op and close trusts
+        possibly-stale verify facts. Red before the startup check: drive proceeds and
+        the gap is invisible.
     """
     host = auto_tier2_workspace()
     # Model an auto host that forgot to configure the close suite.
@@ -350,9 +349,13 @@ def test_missing_command_drive_auto_without_test_command_halts_at_startup(
         "FAIL timeout: drive must halt when a flow: auto feature has no "
         "autopilot.test_command"
     )
-    assert "test_command" in json.dumps(envelope).lower(), (
+    rendered = json.dumps(envelope).lower()
+    assert "test_command" in rendered, (
         f"FAIL timeout: the halt must name autopilot.test_command, got {envelope!r}"
     )
+    assert "additional close suite" in rendered
+    assert "clean-venv" not in rendered
+    assert "clean environment" not in rendered
     after = driver_corpus.read_yaml(state_path)
     assert after == before, (
         "FAIL timeout: a startup config halt must do no work (state unchanged)"
