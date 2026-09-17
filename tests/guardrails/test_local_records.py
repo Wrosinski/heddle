@@ -79,6 +79,7 @@ def commit_file(root: Path, path: str, content: str = "fixture\n") -> str:
 @pytest.mark.parametrize(
     "path",
     [
+        ".heddle.lock",
         "plans/gate-effectiveness.md",
         "plans/friction-log.md",
         "docs/features/_descriptions.yaml",

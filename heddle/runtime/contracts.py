@@ -334,7 +334,13 @@ COMMAND_SURFACE: tuple[CommandContract, ...] = (
         args=(),
         # init creates the workspace/config fresh — no prior revision to
         # CAS-guard, so no exit 5 (Feature Spec §Architecture table rules).
-        flags=_FLAGS_JSON_DRY_RUN,
+        flags=(
+            *_FLAGS_JSON_DRY_RUN,
+            FlagSpec(
+                "--adopt-existing",
+                "preserve and record existing host-owned config and principles",
+            ),
+        ),
         exit_codes=_EXIT_FATAL,
         output_schema="heddle.init/v0",
     ),

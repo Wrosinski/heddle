@@ -528,6 +528,7 @@ tests/runtime/test_host_reporting_transport.py
 tests/runtime/test_host_tooling_guardrails.py
 tests/runtime/test_identity_readiness_acceptance.py
 tests/runtime/test_identity_readiness_installed.py
+tests/runtime/test_init_existing.py
 tests/runtime/test_install_mode_reporting.py
 tests/runtime/test_kickoff.py
 tests/runtime/test_milestone_authoring.py

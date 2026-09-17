@@ -5,7 +5,7 @@ uses it. The host owns its code, instructions, principles, test policy,
 credentials, deployment process, and release authority. Heddle owns its CLI
 state and the managed regions and files declared by its adoption contract.
 Scaffold-once targets such as `.heddle.yaml` and the engineering-principles seed
-become host-owned after creation. `.heddle.lock` records creation-time facts; it
+become host-owned after creation. `.heddle.lock` records adoption-time facts; it
 does not give Heddle continuing ownership of those files.
 
 Use the public `heddle` commands shown here. Do not edit a feature's
@@ -80,9 +80,24 @@ heddle init --dry-run
 ```
 
 Inspect every proposed create, accept, integrate, refuse, or skip result. A
-refusal needs explicit resolution: Do not overwrite occupied content; review or
-remove every refused target, or relocate the conflicting host content, before
-previewing again.
+refusal needs explicit resolution. Do not overwrite occupied content. When the
+configuration and principles are already host-authored and the adoption lock is
+missing, explicitly preserve and adopt them:
+
+```bash
+heddle init --adopt-existing --dry-run
+heddle init --adopt-existing
+```
+
+Review the preview before applying. This option records the existing regular
+files' bytes without replacing them or changing their ratification status.
+Configuration still must parse; symlinks, invalid managed markers, conflicting
+instruction mirrors and malformed locks still refuse. Missing targets receive
+normal scaffolds. Existing valid locks retain their original hashes. The option
+does not reset adoption history or suppress subsequent doctor diagnostics.
+
+Resolve structural conflicts explicitly and preview again; do not remove
+host-authored content just to obtain a successful initialization.
 
 Apply only after the preview is understood and every refusal is resolved:
 

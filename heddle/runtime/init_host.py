@@ -142,12 +142,12 @@ def read_init_lock(root: Path) -> tuple[InitLockEntry, ...]:
     )
 
 
-def plan_init(cwd: Path) -> InitPlan:
+def plan_init(cwd: Path, *, adopt_existing: bool = False) -> InitPlan:
     """Build the immutable host-adoption plan rooted at the nearest Git host."""
-    return _plan_init_root(_find_git_root(cwd))
+    return _plan_init_root(_find_git_root(cwd), adopt_existing=adopt_existing)
 
 
-def _plan_init_root(root: Path) -> InitPlan:
+def _plan_init_root(root: Path, *, adopt_existing: bool = False) -> InitPlan:
     """Build a plan after the pre-config Git-root boundary has resolved."""
 
     # Syntax- or structure-invalid YAML is a bootstrap failure rather than an
@@ -205,6 +205,7 @@ def _plan_init_root(root: Path) -> InitPlan:
                     path,
                     class_,
                     resources[path.as_posix()],
+                    adopt_existing=adopt_existing,
                 )
             )
 
@@ -245,12 +246,13 @@ def _plan_init_root(root: Path) -> InitPlan:
 
 def run_init(args: list[str], json_mode: bool) -> int:
     """Serve the live planner, write-free preview, and atomic apply command."""
-    dry_run, parse_failure = _parse_args(args)
+    operation, parse_failure = _parse_args(args)
     if parse_failure is not None:
         return emit_envelope(parse_failure, json_mode, _render_human)
     from heddle.runtime.application import execute
 
-    return emit_envelope(execute(ops.Init(dry_run=dry_run)), json_mode, _render_human)
+    assert operation is not None
+    return emit_envelope(execute(operation), json_mode, _render_human)
 
 
 def initialize(operation: ops.Init) -> HeddleResult:
@@ -258,7 +260,7 @@ def initialize(operation: ops.Init) -> HeddleResult:
     root: Path | None = None
     try:
         root = _find_git_root(Path.cwd())
-        plan = _plan_init_root(root)
+        plan = _plan_init_root(root, adopt_existing=operation.adopt_existing)
     except KernelError as error:
         return _init_failure(error, root)
 
@@ -289,7 +291,10 @@ def initialize(operation: ops.Init) -> HeddleResult:
                 action=ops.ManualAction(
                     "${EDITOR:-vi} docs/workflow/engineering-principles.md"
                 ),
-                reason="author the host principles and set their status to ratified",
+                reason=(
+                    "review the host principles; preserve existing ratification "
+                    "and ratify a seed only with owner approval"
+                ),
             ),
             NextAction(
                 action=ops.CommandAction(ops.Doctor()),
@@ -313,8 +318,11 @@ def apply_init(plan: InitPlan) -> tuple[InitResultRow, ...]:
             hint="run `heddle init --dry-run` and repair every refused target",
         )
 
+    _check_accepted_scaffolds(plan)
     applied: list[InitResultRow] = []
     for target in plan.targets:
+        if target.path == _LOCK_PATH:
+            _check_accepted_scaffolds(plan)
         if target.action not in {"accept", "skip"}:
             desired = target.desired_bytes
             if desired is None:
@@ -350,6 +358,18 @@ def apply_init(plan: InitPlan) -> tuple[InitResultRow, ...]:
             )
         )
     return tuple(applied)
+
+
+def _check_accepted_scaffolds(plan: InitPlan) -> None:
+    for target in plan.targets:
+        if target.class_ != "scaffold-once" or target.action != "accept":
+            continue
+        if _target_bytes(plan.root / target.path) != target.desired_bytes:
+            raise KernelError(
+                code="workspace-invalid",
+                message=f"accepted host target changed during init: {target.path}",
+                hint="review the changed file and rerun the init preview",
+            )
 
 
 def _prepare_parent(destination: Path, root: Path) -> None:
@@ -480,6 +500,8 @@ def _plan_scaffold_target(
     relative: PurePosixPath,
     class_: InitClass,
     desired: bytes,
+    *,
+    adopt_existing: bool = False,
 ) -> InitTarget:
     current = _target_bytes(target_path)
     if current is None:
@@ -490,11 +512,12 @@ def _plan_scaffold_target(
             action,
             desired if action != "refuse" else None,
         )
+    accepted = current == desired or adopt_existing
     return InitTarget(
         relative,
         class_,
-        "accept" if current == desired else "refuse",
-        desired if current == desired else None,
+        "accept" if accepted else "refuse",
+        current if accepted else None,
     )
 
 
@@ -706,19 +729,23 @@ def _render_lock(
     return ("\n".join(lines) + "\n").encode("utf-8")
 
 
-def _parse_args(args: list[str]) -> tuple[bool, HeddleResult | None]:
-    if not args:
-        return False, None
-    if args == ["--dry-run"]:
-        return True, None
-    unexpected = next((token for token in args if token != "--dry-run"), "--dry-run")
+def _parse_args(args: list[str]) -> tuple[ops.Init | None, HeddleResult | None]:
+    flags = {"--dry-run", "--adopt-existing"}
+    if len(args) == len(set(args)) and all(token in flags for token in args):
+        return ops.Init(
+            dry_run="--dry-run" in args, adopt_existing="--adopt-existing" in args
+        ), None
+    unexpected = next(
+        (token for token in args if token not in flags or args.count(token) > 1),
+        "",
+    )
     return (
-        False,
+        None,
         HeddleResult.failure(
             HeddleError(
                 code="usage",
                 message=f"unrecognized init argument {unexpected!r}",
-                hint="usage: heddle init [--dry-run] [--json]",
+                hint="usage: heddle init [--adopt-existing] [--dry-run] [--json]",
             ),
             exit_code=ExitCode.USAGE,
         ),
@@ -817,7 +844,12 @@ def _refused_failure(
         HeddleError(
             code="workspace-invalid",
             message=f"init refused occupied or structurally invalid targets: {named}",
-            hint="review every refused row before applying",
+            hint=(
+                "review every refused row before applying; to preserve existing "
+                "host-owned config and principles, preview "
+                "`heddle init --adopt-existing --dry-run`; structural faults "
+                "and mirror conflicts still require repair"
+            ),
         ),
         exit_code=ExitCode.FATAL,
         diagnostics=tuple(diagnostics),

@@ -61,6 +61,12 @@ If `AGENTS.md` already exists, Heddle integrates one bounded managed region and
 preserves all host-authored bytes outside it. It refuses malformed markers or
 occupied scaffold targets instead of overwriting them.
 
+For an existing host configuration and principles file without an adoption lock,
+preview `heddle init --adopt-existing --dry-run`, then run
+`heddle init --adopt-existing` after reviewing the result. This preserves those
+files and records their current hashes; it does not ratify principles or bypass
+invalid configuration, marker faults, or mirror conflicts.
+
 The adopter must author and ratify
 `docs/workflow/engineering-principles.md`. Set `status: ratified` only after the
 adopter has reviewed and authored the principles; then use doctor to validate

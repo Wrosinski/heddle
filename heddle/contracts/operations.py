@@ -324,6 +324,7 @@ class RecordPolicy:
 @dataclass(frozen=True)
 class Init:
     dry_run: bool = False
+    adopt_existing: bool = False
 
 
 @dataclass(frozen=True)
@@ -458,6 +459,9 @@ def operation_command(operation: Operation) -> str:
     """Render external argv once; display text is never an execution input."""
     arguments: list[str] = ["heddle", *operation_name(operation).split()]
     match operation:
+        case Init():
+            if operation.adopt_existing:
+                arguments.append("--adopt-existing")
         case RecordReviewDisposition() | ReviewRoundOpen() | InterpretReview():
             if operation.payload is not None:
                 arguments.extend(("--input-json", "-"))

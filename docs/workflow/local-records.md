@@ -12,6 +12,11 @@ directory. Promote useful conclusions into maintained documentation through an
 explicit scoped change; do not publish the execution history alongside it.
 Packaged templates and synthetic test fixtures remain versioned.
 
+Heddle's own checkout also keeps its adoption lock local. After cloning this
+repository, use the explicit existing-host adoption procedure in the
+[host integration guide](host-integration.md); preserve the checked-in
+configuration and ratified principles.
+
 Run `.venv/bin/python scripts/install-repository-hooks.py` after development
 environment setup. It installs the standard commit/message hooks, a dedicated
 push hook that reads every ref update, and missing local record scaffolds.

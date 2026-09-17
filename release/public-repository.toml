@@ -3,6 +3,7 @@ schema_version = 1
 [repository]
 manifest = "release/manifests/repository.txt"
 private_globs = [
+  ".heddle.lock",
   ".heddle/intake/**",
   "docs/features/**",
   "docs/gate-trajectories/**",
