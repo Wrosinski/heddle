@@ -1,8 +1,9 @@
 # CLAUDE.md — Workflow Section
 
 <!-- Copy the section below into your project's AGENTS.md file, outside the -->
-<!-- heddle-managed markers. Heddle keeps CLAUDE.md as a byte-identical mirror -->
-<!-- of AGENTS.md (sync.mirror, default on), so edit AGENTS.md, not the mirror. -->
+<!-- heddle-managed markers. If the host uses CLAUDE.md as an instruction -->
+<!-- mirror, maintain it with host tooling; Heddle detects mirror drift but -->
+<!-- does not write the mirror. -->
 <!-- Adjust paths and commands to match your project. -->
 
 ## Development Workflow

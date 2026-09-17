@@ -1718,71 +1718,38 @@ def test_ac14_red_readme_install_and_update_contract() -> None:
     )
     assert "wheel" in _heading_before(readme, commands[2]).casefold()
 
-    update_steps = (
-        "stop long-lived Heddle processes, especially `heddle drive`",
-        "checkpoint the host in Git and record current Heddle provenance",
-        "edit and verify Heddle in its own checkout",
-        "start a fresh CLI process in the selected mode",
-        "run `heddle doctor` and resolve fatal diagnostics",
-        "follow the [guide's active-feature or no-active-feature update route]",
-        "projection application requires an active feature",
-        "resume after runtime/state compatibility is confirmed",
-    )
-    update_heading = re.search(
-        r"^#{2,6}\s+.*update.*$", readme, flags=re.IGNORECASE | re.MULTILINE
-    )
-    assert update_heading is not None
-    following_heading = re.search(
-        r"^##\s+", readme[update_heading.end() :], flags=re.MULTILINE
-    )
-    update_end = (
-        update_heading.end() + following_heading.start()
-        if following_heading is not None
-        else len(readme)
-    )
-    update_section = readme[update_heading.end() : update_end]
-    positions = [update_section.index(step) for step in update_steps]
-    assert positions == sorted(positions)
-
-    journey_heading = re.search(r"^## Adopt a host$", readme, flags=re.MULTILINE)
-    assert journey_heading is not None
-    following_heading = re.search(
-        r"^##\s+", readme[journey_heading.end() :], flags=re.MULTILINE
-    )
-    journey_end = (
-        journey_heading.end() + following_heading.start()
-        if following_heading is not None
-        else len(readme)
-    )
-    journey_section = readme[journey_heading.end() : journey_end]
+    # README owns the quick start; the canonical guide owns detailed update
+    # and adoption procedures, checked by test_host_integration_guidance.py.
+    quick_start = readme.split("## Quick start\n", 1)[1].split("## Daily use", 1)[0]
     journey_steps = (
         "heddle init --dry-run",
         "\nheddle init\n",
         "must author and ratify",
         "status: ratified",
         "heddle doctor",
+        "heddle orient",
+        "heddle feature prepare",
+        "heddle feature policy",
         "heddle feature start",
+        "heddle orient --feature",
     )
-    positions = [journey_section.index(step) for step in journey_steps]
+    positions = [quick_start.index(step) for step in journey_steps]
     assert positions == sorted(positions)
+    assert "--expect-revision <revision>" in quick_start
+    assert "owner-approved policy" in quick_start
+    assert "(docs/workflow/host-integration.md)" in quick_start
+    assert "non-editable installation uses a fixed snapshot" in quick_start
+    assert "Editable source changes need a fresh CLI process" in quick_start
+    assert "metadata or dependency changes\nalso need reinstallation" in quick_start
     _paragraph_with_terms(readme, "AGENTS.md", "integrat", "preserv")
-    _paragraph_with_terms(
-        readme,
-        "status: ratified",
-        "adopter",
-        "author",
-        "doctor",
-    )
-    _paragraph_with_terms(
-        readme,
-        "live Python processes do not reload package changes",
-        "fresh",
-    )
-    _paragraph_with_terms(
-        readme,
-        "never silently rewrites lock-tracked host documents",
-        "switch",
-    )
+    _paragraph_with_terms(readme, "status: ratified", "adopter", "author", "doctor")
+
+    update = readme.split("## Updating\n", 1)[1].split("\n## ", 1)[0]
+    assert "Stop long-lived processes" in update and "heddle drive" in update
+    assert "checkpoint" in update and "fresh CLI process" in update
+    assert "heddle doctor" in update
+    assert "(docs/workflow/host-integration.md#update-heddle-safely)" in update
+    assert "never silently rewrite host documents" in update
 
 
 @pytest.mark.toolchain

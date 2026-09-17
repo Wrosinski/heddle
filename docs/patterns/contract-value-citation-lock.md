@@ -20,15 +20,14 @@ free to choose.
 
 1. Encode each value as a typed constant (frozen dataclass, `str`/`Int`
    Enum, plain tuple) with a **citation comment** beside it naming the
-   ratifying decision or doc section (e.g. `# D25c`, `# workflow-model
-   §12.3`).
+   governing contract or doc section, such as the workflow model
+   [interface semantics](../design/workflow-model.md#interface-semantics).
 2. Add a **value-lock test** per constant that asserts against a
    *transcribed literal* — never re-import the constant under test, or
    the test proves nothing (edit-detection: a transcription typo fails
    loudly even when no other test exercises it). Lock **negative
    membership** too where the contract pins what something is NOT
-   (for example, `review-synthesis` ∉ the verdict-producing gate set despite
-   its `-synthesis` name) — exact-set locks beat suffix/pattern
+   (for example, `milestone-review` is not a verdict-producing gate) — exact-set locks beat suffix/pattern
    inference, which silently admits future misnamed members.
 3. Where the contract mirrors a live structure, add a **tripwire test**
    asserting ordered equality against the live side (e.g.

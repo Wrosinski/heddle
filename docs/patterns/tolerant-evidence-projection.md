@@ -62,7 +62,8 @@ labeled values, records a structure-drift warning, and produces the same typed
 finding projection as canonical output. If it emits two different `Severity`
 values, extraction fails as contradictory.
 
-The governing rule is to warn and accept slight unambiguous structural
-differences, then let the main session review coherence, while retaining strict
-rejection for unsafe ambiguity. The gate extraction and summary pipeline has
-fresh and cache warning regressions for this behavior.
+**Current Heddle boundary:** reviews use versioned structured content. The runtime
+retains completed imperfect captures with warnings; `heddle review interpret`
+records an explicitly attributed, capture-bound lead interpretation. It does
+not silently rewrite the original response. The generic parsing recipe above
+is not a promise that current gates accept arbitrary Markdown layouts.

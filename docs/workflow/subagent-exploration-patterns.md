@@ -81,8 +81,8 @@ Bindings, current as of 2026-09-11:
 - Codex: no repository-level configuration surface exists, so the lead names
   `gpt-5.6-sol` at spawn and escalates to `gpt-6-astra` deliberately.
 
-CLI gate lanes are out of scope. Gate model and effort are resolved by
-`heddle/gate/registry.py`; the exploration lane and the gate lane differ on
+CLI gate lanes are out of scope. Gate model and effort come from the confirmed feature policy, subject to
+host constraints; the exploration lane and the gate lane differ on
 purpose. The model names above are dated bindings, re-derived under the
 model-generation audit trigger in
 `heddle/resources/prompt-authoring-standards.md`.

@@ -36,8 +36,9 @@ grant no authority.
    status snapshot captured earlier than the transition.
 7. If the claim must survive ephemeral-workspace cleanup, publish a compact,
    semantically validated, create-only receipt and read it back before cleanup.
-   Once terminal acceptance exists, that durable receipt is the authority; do
-   not route the completed workflow back through deleted ephemeral facts.
+   Retain the accepted fact and all referenced canonical evidence; a receipt
+   cannot replace its required artifacts. Verify archival before removing
+   eligible scratch, and keep interrupted effects recoverable.
 8. Report provenance separately from command adequacy, semantic quality,
    operational reliability, and tool behavior. A perfectly bound weak test is
    still a weak test.

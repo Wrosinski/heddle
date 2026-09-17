@@ -8,152 +8,156 @@
 </picture>
 
 Heddle is an open-source local workflow runtime for LLM-assisted software
-engineering. It combines flexibility with formal verification: agents can adapt
-their work to the repository while Heddle records explicit workflow state,
-review obligations, and content-bound verification evidence.
+engineering. It helps agents carry a change from researched scope to verified
+implementation, with explicit decisions, accountable reviews, and a reliable
+handoff between sessions.
 
-Heddle requires Python 3.13 or newer. It uses Codex and Claude Code by default;
-the selected command-line runners must already be installed and authenticated.
-The project is provided under the MIT License with no support, no guarantees,
-and no warranty. Use it at your own responsibility and review every command
-before allowing it to change a repository or call an external service.
+## Why Heddle?
 
-The maintained [architecture](docs/design/architecture.md),
-[workflow model](docs/design/workflow-model.md), and
-[testing strategy](docs/workflow/testing-strategy.md) describe the product
-contracts.
+Heddle gives agent-assisted development a repeatable path from an idea to an
+accepted change. Agents investigate, design, and implement; Heddle tracks the
+work, identifies what must happen next, and checks the requirements for moving
+forward.
 
-## Install Heddle for adoption
+- **A connected development workflow.** Carry researched scope through
+  specification, planning, test scaffolding, implementation, review, and
+  explicit completion. Milestones connect implementation work to acceptance
+  criteria, so progress stays tied to the intended outcome.
+- **Continuity across sessions.** Resume with recorded tasks, decisions,
+  verification results, and session handoffs. `heddle orient` identifies the
+  next action, while stage briefings give agents the instructions and context
+  for the work ahead.
+- **Review effort matched to the change.** Heddle recommends a review policy
+  based on scope, complexity, and testability. You confirm the review roles,
+  models, reasoning effort, and round limits, with optional independent
+  reviewers across Codex and Claude Code.
+- **Verification tied to the code tested.** Recorded checks include the
+  command, result, log, and identities of the declared source inputs.
+  Heddle checks whether that evidence still applies before allowing progress,
+  making missing, failed, or stale verification visible.
+- **Review findings followed through to resolution.** Original findings remain
+  attached to their reviews. The lead records how each obligation is addressed,
+  supported by inspection, tests, later review, or an explicit decision.
+  A clean later report alone does not erase an earlier unresolved finding.
+- **Your engineering principles guide the work.** Host-authored principles
+  inform design choices, implementation, and review. The packaged guidance
+  emphasizes repository research, justified scope, simple designs, and focused
+  testing, giving agents a consistent basis for everyday trade-offs.
+- **Autonomy with explicit boundaries.** Work interactively or use supervised
+  automation for authorized stages. The driver pauses for unresolved decisions,
+  blocked progress, and the human completion handoff. Review limits and
+  non-progress checks help keep repeated attempts under control.
 
-Choose exactly one installation mode. The canonical
-[host-integration guide](docs/workflow/host-integration.md) describes the full
-setup, configuration, verification, and update boundaries.
+Heddle runs locally and keeps workflow records in your workspace. It integrates
+with installed Codex and Claude Code runners; model execution uses the selected
+provider.
 
-### Editable checkout
+## Quick start
 
-Use this while developing Heddle from a local checkout:
+### Install Heddle for adoption
+
+Requires **Python 3.13+**, [uv](https://docs.astral.sh/uv/), and installed,
+authenticated Codex or Claude Code runners for the selected roles. Choose one
+installation mode; see the [host-integration guide](docs/workflow/host-integration.md)
+for setup details.
+
+#### Editable checkout — develop Heddle
+
+Use a local clone when you want your Heddle source edits to take effect in new
+CLI processes. Replace `<checkout>` with that clone's absolute path:
 
 ```bash
 uv tool install --force --editable --python 3.13 <checkout>
 ```
 
-### Pinned Git commit
+#### Pinned Git commit — use a fixed version
 
-Use a reviewed full commit SHA for a reproducible Git installation:
+This non-editable installation uses a fixed snapshot, independent of later
+changes to a local clone. Replace the placeholder with a reviewed full commit SHA:
 
 ```bash
 uv tool install --force --refresh --python 3.13 "heddle @ git+https://github.com/Wrosinski/heddle.git@<full-commit-sha>"
 ```
 
-### Reviewed wheel
+#### Reviewed wheel — use a built package
 
-Use an absolute path to the exact wheel that was reviewed:
+Also non-editable; install the exact wheel you reviewed:
 
 ```bash
 uv tool install --force --python 3.13 /absolute/path/to/dist/heddle-<version>-py3-none-any.whl
 ```
 
-## Adopt a host
+Editable source changes need a fresh CLI process; metadata or dependency changes
+also need reinstallation. For non-editable installations, rerun the chosen
+install command to select a new commit or wheel.
 
-Follow the [host-integration guide](docs/workflow/host-integration.md) for the
-complete contract. From the intended Git host, preview and then apply the
-repository footprint:
+### Adopt a host
+
+From the repository you want Heddle to manage, preview and apply its setup:
 
 ```bash
 heddle init --dry-run
 heddle init
 ```
 
-If `AGENTS.md` already exists, Heddle integrates one bounded managed region and
-preserves all host-authored bytes outside it. It refuses malformed markers or
-occupied scaffold targets instead of overwriting them.
-
-For an existing host configuration and principles file without an adoption lock,
-preview `heddle init --adopt-existing --dry-run`, then run
-`heddle init --adopt-existing` after reviewing the result. This preserves those
-files and records their current hashes; it does not ratify principles or bypass
-invalid configuration, marker faults, or mirror conflicts.
-
-The adopter must author and ratify
-`docs/workflow/engineering-principles.md`. Set `status: ratified` only after the
-adopter has reviewed and authored the principles; then use doctor to validate
-the installation:
+Init preserves existing `AGENTS.md` content while integrating its session-entry
+instructions. The adopter must author and ratify
+`docs/workflow/engineering-principles.md`: set `status: ratified` after reviewing
+and adopting those principles, then run doctor to check the installation:
 
 ```bash
 heddle doctor
+heddle orient
 ```
 
-Create the first feature only after configuration and principles are ready.
-Start with orientation, prepare the researched intake it requests, review and
-confirm the complete returned policy, and only then admit the feature:
+If the host already has Heddle configuration and principles but no adoption lock,
+use `heddle init --adopt-existing --dry-run` before applying
+`heddle init --adopt-existing`. See the
+[host-integration guide](docs/workflow/host-integration.md) for refusal handling
+and configuration details.
+
+### Start your first feature
+
+Ask your agent to research the change, then choose Direct work or a formal
+Heddle workflow. For Heddle, the agent prepares the intake and presents the full
+review policy for your confirmation before starting:
 
 ```bash
-heddle orient
 heddle feature prepare <slug> --area <area> --from-file <intake.yaml>
-heddle feature policy <slug> --from-file <policy.yaml> --expect-revision <revision>
+heddle feature policy <slug> --from-file <approved-policy.yaml> --expect-revision <revision>
 heddle feature start <slug> --area <area> --expect-revision <revision>
 heddle orient --feature <slug>
 ```
 
-Owner approval of the complete policy is required before the `feature policy`
-confirmation. Use the current revision returned by each mutating command for the
-next command's revision guard.
+The files contain researched intake and the complete owner-approved policy;
+`heddle help` describes their schemas. Use the current revision returned by each
+mutating command for the next command's guard, then follow `next_actions`.
 
-## Configuration and overrides
+## Daily use
 
-`.heddle.yaml` defines the host layout, verification commands, enabled Codex and
-Claude Code runners, and instruction mirror. Repository instructions continue to
-control execution authority. Review policy overrides are recorded per feature
-through Heddle's policy commands; populated commands or credentials never grant
-permission by themselves. Never edit command-owned `state.yaml` files directly.
+Start each session with `heddle orient` and follow its `next_actions`.
+Run `heddle kickoff` when routed, `heddle status` for progress and blockers,
+and `heddle help` for commands. `.heddle.yaml` holds host configuration;
+native commands maintain workflow state. Repository instructions and your
+authorization continue to govern test runs and external actions.
 
-Start each work session with `heddle orient` and follow its `next_actions`. Run
-`heddle kickoff` only when orientation routes there. Use `heddle help` for the
-current command surface and `heddle status --feature <slug>` for operational
-facts.
+## Updating
 
-Heddle never silently rewrites lock-tracked host documents when installations
-switch. Preview any package-resource projection with `heddle sync --dry-run`
-before applying it with `heddle sync`.
+Stop long-lived processes, especially `heddle drive`, and checkpoint your work
+before changing installations. Start a fresh CLI process and run `heddle doctor`
+after updating. Follow the [update procedure](docs/workflow/host-integration.md#update-heddle-safely)
+for verification, runtime compatibility, and explicit projection previews.
+Installation changes never silently rewrite host documents.
 
-## Update Heddle safely
+## Documentation and contributing
 
-1. stop long-lived Heddle processes, especially `heddle drive`.
-2. checkpoint the host in Git and record current Heddle provenance.
-3. edit and verify Heddle in its own checkout or select a reviewed immutable artifact.
-4. start a fresh CLI process in the selected mode after reinstalling.
-5. run `heddle doctor` and resolve fatal diagnostics.
-6. follow the [guide's active-feature or no-active-feature update route](docs/workflow/host-integration.md); projection application requires an active feature.
-7. resume after runtime/state compatibility is confirmed with `heddle status` and `heddle validate`.
+- [Workflow guide](docs/workflow/workflow.md): the development lifecycle.
+- [Workflow model](docs/design/workflow-model.md): state, review, and evidence rules.
+- [Architecture](docs/design/architecture.md): package structure and integration boundaries.
+- [Testing strategy](docs/workflow/testing-strategy.md): test selection and execution authority.
+- [Contributing](CONTRIBUTING.md): development setup and checks.
+- [Security](SECURITY.md): vulnerability reporting.
 
-live Python processes do not reload package changes; a fresh process is the
-boundary that activates an updated installation.
-
-## Develop and verify
-
-Create a Python 3.13 environment and install the development dependencies:
-
-```bash
-uv venv --python 3.13 .venv
-uv pip install -e ".[dev]"
-.venv/bin/python scripts/install-repository-hooks.py
-```
-
-Use the [test-selection map](docs/testing/test-selection-map.md) to select
-relevant checks. Formal proof runs through
-`.venv/bin/python -m tests.proof_runner <exact-targets>`. Plain pytest selects
-the fast band, while E2E and live tests require their explicit allow flags and
-repository authorization. Run all configured repository checks with:
-
-```bash
-.venv/bin/pre-commit run --all-files
-```
-
-## Contributing and security
-
-Read [CONTRIBUTING.md](CONTRIBUTING.md) before proposing a change. Report a
-security vulnerability through the process in [SECURITY.md](SECURITY.md). These
-channels do not create a support commitment.
-
-Heddle is copyright Wojtek Rosinski and distributed under the
-[MIT License](LICENSE).
+Heddle is copyright Wojtek Rosinski and distributed under the [MIT License](LICENSE),
+with no support commitment, guarantees, or warranty. Review commands before
+allowing them to change a repository or call an external service.

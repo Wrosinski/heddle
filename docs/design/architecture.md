@@ -78,7 +78,7 @@ remaining work. Error codes are stable; diagnostic codes are a separate extensib
 namespace. Legal next actions are typed command, session or manual instructions;
 an empty action list is preferable to fabricating an executable remedy.
 `decision-already-resolved` remains a fatal refusal and invalid routes are usage
-errors; neither becomes a hot-path blocker. See [workflow interface semantics](workflow-model.md#123-interface-constants-pinned-here-for-increment-1).
+errors; neither becomes a hot-path blocker. See [workflow interface semantics](workflow-model.md#interface-semantics).
 
 The warm target is 300 ms with the existing scaled CI ceiling of 2 s for its
 measured command classes; [machine constants](../../heddle/runtime/contracts.py)
@@ -113,8 +113,6 @@ per-role requirements and reviewer tuples independently of scope, complexity
 and testability. `gates.enabled` constrains the available selection; it does not
 grant invocation permission. Unknown host gate names refuse. A host-authored
 gate loader and general workflow/topology DSL are not shipped extension points.
-The bounded W1-D policy has retired admission; historical policy IDs remain
-interpretable without authorizing new experimental events.
 
 ## Discovery and retained history
 
@@ -165,7 +163,7 @@ that boundary while current milestones and final reviews continue to use live
 source and verification evidence. Completion retains and validates every
 receipt-referenced canonical artifact and source-evidence manifest. Synthesis and
 replaced gate IDs are historical-only, not current scheduling routes. See
-[workflow gate semantics](workflow-model.md#62-run-facts-and-convergence).
+[workflow gate semantics](workflow-model.md#review-results-and-closure).
 
 `heddle review allowance` is a constrained facade over the same complete
 confirmed-policy writer. It raises one role-wide absolute quality round limit
@@ -204,16 +202,15 @@ operator-facing details.
 
 ## Validation and evidence boundaries
 
-The D35 reliance test sets severity: a broken fact downstream computation relies
-on is fatal; an incomplete quality relationship is advisory. There is no date,
+Validation severity follows downstream reliance: a broken fact downstream
+computation relies on is fatal; an incomplete quality relationship is advisory. There is no date,
 feature-count or legacy grandfathering. A dangling `satisfies` reference is fatal;
 an unassigned spec AC is advisory. Validation checks cross-plane references and
 its bounded content guardrails, not full Markdown document-schema conformance.
 
-D36 keeps `workspace-invalid` for a single-file fatal and `ledger-drift` for a
+Validation uses `workspace-invalid` for a single-file fatal and `ledger-drift` for a
 cross-plane fatal; the latter is not a hot-path blocking condition. Repo-global
-validation catches each workspace failure, records diagnostics and continues
-(CP1-B). If both fatal kinds occur, `ledger-drift` takes top-level precedence while
+validation catches each workspace failure, records diagnostics and continues. If both fatal kinds occur, `ledger-drift` takes top-level precedence while
 all per-workspace findings survive. Doctor checks environment/resources and
 retained evidence; readiness qualifies a specific transition. None replaces the
 others. [Validation](../../heddle/runtime/validate.py) owns this split; select its
@@ -223,8 +220,6 @@ current runtime consumers from the testing map.
 Repository hooks inspect applicable native workspace metadata and deliberately
 changed bindings; a broken test name cannot be satisfied by an incidental AC
 comment. Runtime verification records command, source identity, outcome and log.
-The old M5 migrate/backfill and CP1-D/ADD-1 recovery machinery is superseded by
-current-only cutover, independently of surviving CP1-A validation obligations.
 
 ## Host integration, installation and limits
 
@@ -256,7 +251,7 @@ its focused tests.
 It is not part of the driver loop. Accepted historical plans are not regenerated.
 Optional root mirror detection does not imply a shipped mirror writer. Repository
 `.claude/skills` to `.codex/skills` generation is separately scoped development
-tooling, not host skill distribution or D46 implementation.
+tooling, not host skill distribution.
 
 `heddle search` owns bounded repository knowledge search using an in-memory FTS5
 index of configured specs and an optional patterns shelf. It uses literal AND
@@ -264,13 +259,11 @@ intent, deterministic ties, no active feature requirement, and no persistent
 cache. Research uses search then the documented index fallback on a failure;
 absent optional content is distinct from unreadable present content.
 
-Current-only cutover builds no converters, backfills, old result/receipt readers
-or dual-format delegates. Finish active older features with a compatible pinned
-supervisor; preserve their evidence outside active discovery before fresh native
-work. The D44 legacy/native live comparison remains deferred, not achieved by
-installed deterministic tests. D46 host mirror writing, broad M8B adapters/hooks/
-profiles, MCP, host gate loading, document schema/fix machinery and new default
-review topology/budgets remain deferred. M8C operational migration is superseded
-by the clean-slate ruling. Historical driver-commit/canary rollout work is not
-silently promoted by maintenance work. The current contracts above state the
-retained limitations.
+State compatibility is limited to the versions declared above; no in-place
+feature converter or backfill is provided. Finish active older features with a
+compatible pinned supervisor; preserve their evidence outside active discovery before fresh native
+work. Host mirror writing, arbitrary host-defined gates, a general workflow DSL,
+MCP integration, and document schema/fix automation are not shipped capabilities.
+Installed tests with controlled providers establish the exercised integration
+behavior, not comparative model quality. The current command manifest and
+implementation define the available surface.

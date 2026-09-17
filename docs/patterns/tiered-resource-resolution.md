@@ -10,46 +10,36 @@ superseded_by: null
 
 **Principle:** [Extend through data and one resolver, not parallel paths](../workflow/engineering-principles.md#architecture).
 
-**Intent:** locate a prompt/template/config asset by a fixed precedence
-(host override > generated projection > packaged default) and return
-*which tier resolved it*, with a shipped packaged floor so the path is
-never empty — making the resolution observable (a `doctor`-style command
-can name each asset's source) instead of a silent first-hit lookup.
+**Intent:** resolve replaceable resources through explicit host override,
+generated projection and packaged default, while reporting the selected source.
 
-**When to use:** any command that loads replaceable assets a host may
-override (gate prompts, stage briefings, slash-command templates, config
-fragments). Not for assets with a single canonical location, and not on a
-hot path that forbids the extra stat calls.
+**When to use:** a host can override a resource that also has an installed default.
+A single canonical asset does not need an override mechanism.
 
 **Recipe:**
 
-1. One helper `resolve_resource(asset) -> (path, source)` walks the tiers
-   in order and returns the resolved path **and** a source tag
-   (`override | generated | packaged`). Callers that only need the path
-   ignore the tag; diagnostics surface it.
-2. Ship a packaged **floor** for every probed asset so the chain always
-   resolves — the absence of a floor turns "not found" into an error path
-   that is hard to test through the surface. (For example, a single
-   `self-review.prompt.md` floor; absent-everywhere reuses the domain's
-   existing error code — there was no dedicated `resource-missing` code.)
-3. A diagnostics command (`doctor`) reports `(asset, source)` per probed
-   asset — the observable half of the precedence bar.
-4. **Caveat to encode:** a subsystem with its *own* bundled
-   default may need a *narrower* resolver that deliberately skips the new
-   packaged tier, or the minimal packaged floor will *shadow* the real
-   asset on a bootstrap/self-hosting path. The engine's `build_prompt`
-   resolves host-override > generated only (its bundled template is its
-   floor); only `kickoff`/`doctor` use the full three-tier resolver. Do
-   not unify onto one resolver without checking for this shadowing.
+1. Put precedence in one resolver that returns the path and source tag:
+   `override`, `generated`, or `packaged`.
+2. Ship a usable default for supported assets inside the installed package.
+   A missing required asset is a typed failure naming the searched locations;
+   a placeholder is not a functioning default.
+3. Surface the selected source in diagnostics so the host can explain what ran.
+4. If a subsystem owns a different packaged namespace, reuse the host-prefix
+   resolver and select its actual packaged asset at that subsystem's owner.
+   Do not introduce a second precedence rule or shadow a real template with a
+   minimal fallback.
+5. Verify host override, generated and installed fallback behavior, plus the
+   missing-resource case. Installed tests must resolve outside the source checkout.
 
-**Anti-patterns / caveats:** a first-hit lookup that does not report the
-tier (you cannot answer "where did this come from?"); no packaged floor
-(every probe has an untested error branch); unifying every consumer onto
-the full resolver and silently shadowing a subsystem's own default
-(caveat 4).
+**Current Heddle application:** `heddle/kernel/resources.py` owns host precedence
+and briefing fallback. Gate prompt preparation uses the same host-prefix lookup
+and its packaged prompt directory. `layout.prompts` is not this resolution root.
+`heddle init` does not generate a full prompt tree or install skills in a host.
 
-**Concrete future-feature scenario:** Heddle ships the canonical
-per-(stage, tier) briefing corpus and the gate prompt corpus — both reuse
-`resolve_resource` and `doctor`'s source-naming unchanged, and `doctor`'s
-probe set expands to cover briefings; installed command templates resolve
-through the same chain.
+**Anti-patterns / caveats:** silent first-hit lookup, placeholder defaults,
+checkout-dependent packaged paths, or claiming a generation command exists
+because the resolver knows a generated directory.
+
+**Concrete future-feature scenario:** a new replaceable briefing ships with a
+real installed default and becomes visible to diagnostics without changing host
+precedence or requiring a copied host prompt corpus.

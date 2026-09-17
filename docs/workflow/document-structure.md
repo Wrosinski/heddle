@@ -127,8 +127,8 @@ including at phase exit or pre-merge. Prerequisites do not grant execution.
 Current milestones use **Low** for an established approach with understood
 dependencies and **High** for consequential uncertainty, new integration or
 expensive-to-reverse choices. Choose a prototype when it resolves that uncertainty.
-Hours are optional metadata, not admission or sizing criteria. Historical Medium
-values remain historical; explicit conversion selects Low or High.
+Hours are optional metadata, not admission or sizing criteria. Do not copy
+unsupported complexity values from older records into current milestones.
 
 ### Compression Protocol
 
@@ -257,10 +257,12 @@ and `verification/`. Root-level close journals, retrospectives and
 `plans/gate-effectiveness.md` survive cleanup. Split milestone prose into workspace
 siblings only when useful; the native ID join and root navigation remain clear.
 
-## 10. Migration from Current Workflow
+## 10. Reading older records
 
 Apply this shape to new authoring. Do not mass-rewrite existing specs or restamp
 historical state, reviews or evidence. Preserve original section names and their
-meaning when reading old documents. Active v6 conversion uses explicit
-`heddle feature migrate` input and its byte-preserving snapshot; accepted v6 stays
-read-only under compatible-runtime guidance. Document editing is not conversion.
+meaning when reading old documents. The current runtime supports active v9 and
+v10 state; incompatible work needs the runtime that created it. There is no
+current `heddle feature migrate` command. See the
+[compatibility contract](../design/workflow-model.md#state-publication-and-compatibility).
+Document editing is not state conversion.

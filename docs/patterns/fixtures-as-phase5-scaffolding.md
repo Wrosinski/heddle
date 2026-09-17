@@ -43,6 +43,6 @@ worked examples creates rework for the later milestones that parse the
 same files. Sanitize real-host material (use the `example` domain) and
 enforce it with a structural test.
 
-**Concrete future-feature scenario:** a future `migrate --from-legacy`
-needs a legacy-workspace corpus; a validator needs invalid-workspace
+**Concrete future-feature scenario:** a future file importer
+needs a versioned input corpus; a validator needs invalid-workspace
 fixtures — both can be authored at their Phase 5 against pinned schemas.

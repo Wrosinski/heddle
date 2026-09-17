@@ -79,8 +79,9 @@ Preview the complete adoption footprint:
 heddle init --dry-run
 ```
 
-Inspect every proposed create, accept, integrate, refuse, or skip result. A
-refusal needs explicit resolution. Do not overwrite occupied content. When the
+Inspect each target's proposed create, accept, integrate, refuse, or skip result.
+Review and resolve every refusal; do not overwrite or remove occupied content
+just to satisfy initialization. When the
 configuration and principles are already host-authored and the adoption lock is
 missing, explicitly preserve and adopt them:
 
@@ -238,7 +239,9 @@ heddle sync --dry-run
 heddle sync
 ```
 
-Inspect the sync preview and apply only approved managed-region or mirror changes.
+Inspect the sync preview and apply only approved managed-region changes.
+Current sync targets are the plan-status region and the root AGENTS session-entry
+region; mirror detection does not provide a mirror writer.
 
 ### No active feature
 

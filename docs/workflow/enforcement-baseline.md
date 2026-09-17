@@ -4,7 +4,7 @@ Catalog of automated enforcement currently active for this repository.
 Implementation Plans link to this owner rather than copy an Active Enforcement
 Rules register.
 
-Last updated: 2026-09-09
+Last updated: 2026-09-17
 
 ## Pre-Commit Hooks
 
@@ -32,16 +32,17 @@ Last updated: 2026-09-09
 ### Local hooks
 
 The workflow-owned guards marked "packaged" run from the packaged hook
-library `heddle/resources/hooks/` — the repo
-dogfoods the unrendered files with their placeholder defaults; hosts get
-them projected by `heddle init`.
+library `heddle/resources/hooks/`. This repository wires them explicitly in
+`.pre-commit-config.yaml`; `scripts/install-repository-hooks.py` installs its
+commit, message and push hooks. `heddle init` does not install host Git hooks.
 
 | Hook | Runs on | What it enforces |
 | ---- | ------- | ---------------- |
+| `check-local-workflow-records` | repository index | Local workflow records stay out of Git under `release/public-repository.toml` |
 | `check-prompt-conventions` | the `layout.prompts` corpus (`heddle/resources/prompts/` here) | Prompt files named in that corpus's `conventions.yaml` carry their declared convention markers |
 | `check-no-src-print` | `heddle/**/*.py` | Non-CLI source modules do not add accidental `print()` calls |
 | `check-test-deletions` (packaged) | staged diff | Test functions, classes, and files are not deleted without `ALLOW_TEST_DELETION=1` |
-| `check-subprocess-handlers` | `heddle/gate/**/*.py` | Direct subprocess calls stay inside sanctioned gate helper modules |
+| `check-subprocess-handlers` | `heddle/gate/**/*.py` and `heddle/io/**/*.py` | Direct subprocess calls stay inside sanctioned helper modules |
 | `check-bypass-justification` (packaged) | environment / commit message | Active `ALLOW_*` bypasses require a `Bypass-Justification:` trailer or `BYPASS_JUSTIFICATION` |
 | `check-principles-amendment` (packaged) | commit message when `docs/workflow/engineering-principles.md` is staged | Principles amendments carry an owner-ratified `Principles-Amendment:` trailer |
 | `check-no-committed-gate-locks` (packaged) | `plans/` | Gate lock files under `plans/.gate-locks` or `*.lock` are not committed |
@@ -56,8 +57,9 @@ mirrors. The default invocation checks without writing. Generation preflights
 both trees, refuses symlinks and unknown mirrors, and preserves unchanged files.
 This is repository maintenance; it does not distribute skills to host projects.
 
-Native verification facts supply command, source identity, outcome and log. The
-retired flat-plan prose proof hook no longer duplicates that evidence.
+Native verification facts supply command, source identity, outcome and log.
+The push hook checks each outgoing commit for private workflow records; CI
+repeats that history check with a full checkout.
 
 ## Linter Rules
 
@@ -99,18 +101,21 @@ single owner of package scope.
 `.github/workflows/quality.yml` runs on pushes and pull requests with
 `contents: read` permission. Its Python 3.13 job creates `.venv`, installs the
 development extras, runs `.venv/bin/pre-commit run --all-files`, then runs
-the explicit fast and toolchain bands. E2E and live execution retain their
+the explicit fast and toolchain bands. CI also checks the local-record
+publication boundary across the relevant commit range. E2E and live execution retain their
 separate permission boundaries.
 
-The complete local acceptance sequence is:
+For local work, select exact tests using the
+[test-selection map](../testing/test-selection-map.md). The CI band commands
+are broad execution, not an automatic local permission grant. A focused check
+sequence is:
 
 ```bash
 .venv/bin/pre-commit run --all-files
 .venv/bin/ruff check heddle tests scripts
 .venv/bin/ruff format --check heddle tests scripts
 .venv/bin/mypy
-.venv/bin/python -m pytest --test-band=fast
-.venv/bin/python -m pytest --test-band=toolchain
+.venv/bin/python -m tests.proof_runner <exact-file.py-or-node-id>
 .venv/bin/heddle validate
 ```
 
@@ -124,10 +129,10 @@ current enforcement rather than introducing another standard.
 | Test area | What it enforces |
 | --------- | ---------------- |
 | `tests/kernel/test_boundaries.py` | Kernel boundary and write/process sink discipline |
-| `tests/runtime/test_boundaries.py` | Runtime write/process sink allowlists and M4 seam accounting |
-| `tests/runtime/test_schemas.py` | Runtime schema constants and M4 write-seam expectations |
+| `tests/runtime/test_boundaries.py` | Runtime write/process sink allowlists and publication ownership |
+| `tests/runtime/test_schemas.py` | Runtime schema constants and write-seam expectations |
 | `tests/runtime/test_contracts.py` | Command contract metadata and output schema discipline |
-| `tests/runtime/test_dispatch.py` | Dispatcher routing and stub/live command behavior |
+| `tests/runtime/test_dispatch.py` | Dispatcher routing and command behavior |
 | `tests/runtime/test_write_path_manifest_guardrails.py` | Write-path manifest, repository guardrails, and exit bars |
 | `tests/guardrails/test_repository_hooks.py` | Focused behavior checks for the wired local hooks (scripts + packaged) |
 | `tests/guardrails/test_packaged_hooks.py` | Packaged hook library: manifest conformance, stdlib-only contract, placeholder rendering, per-hook pass/reject behavior |
@@ -135,9 +140,7 @@ current enforcement rather than introducing another standard.
 
 ## Known Gaps
 
-- The local guardrails police this bootstrap repository's current layout. Future
-  host repositories may need layout-specific `.heddle.yaml` values before
-  reusing the hooks unchanged.
-- The write commands are validated against fixture workspaces in the test
-  suite; this repository's own features now run on the native surface
-  (`heddle drive` / `heddle run-gate` / `heddle kickoff`, m6b switchover).
+These hooks protect this repository's configured layout. They do not automatically
+install themselves in host projects or confine an external provider. Host owners
+choose their own hooks and execution permissions. Passing structural checks and
+fixture-based runtime tests does not establish real-provider behavior quality.

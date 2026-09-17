@@ -6,8 +6,7 @@ That document owns the vendor sources, covered-model list, resolution rule,
 and per-model notes. This companion owns their application to packaged stage
 briefings in `heddle/resources/`.
 
-Consolidated after the model-guidance refresh. The briefings are delivered
-byte-identically as the
+The briefings are delivered byte-identically as the
 phase-session work-prompt head through `heddle kickoff`, so the session must
 receive the complete operative contract without depending on this design note.
 
@@ -61,19 +60,10 @@ receive the complete operative contract without depending on this design note.
    content anchors, forbidden tokens, stop patterns, command containment,
    and cross-briefing duplication.
 
-Former entries resolve here: "State each rule exactly once" and "Plain
-emphasis" → One rule, one home, one winner; "Attach the why" and "Prefer
-positive instruction" → Destination, constraints, and the why; "Bias to
-action within authority" and "No cadence ceremony" → Define done and the
-boundaries, once; "Define what brevity keeps" → Show artifact shapes.
-
 ## Applied to the stage briefings
 
-The scaffold and implement briefings restore the
-methodology the legacy phase kickoffs carried and the first native
-distillation compressed away — survey-before-scaffold, checkpoint payload
-contents, prerequisite classification, per-task explore-before-edit, commit
-readiness, ordered impact checks, handoff fields — while applying the
-principles above: each specific stated once, in process order, with its
-motivation and its artifact shape, and no step scripts where judgment
-suffices.
+Scaffold and implement briefings cover repository investigation, test design,
+prerequisite classification, per-task source inspection, commit readiness,
+impact assessment and handoff. Each instruction belongs at the stage where it
+applies, names its purpose and required evidence, and leaves reversible
+engineering choices to the implementing agent.

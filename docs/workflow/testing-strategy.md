@@ -106,15 +106,11 @@ A selection map is a starting point, not an exhaustive dependency oracle.
 Missing or stale mappings require inspection. Do not infer that no tests apply,
 or automatically substitute a repository-wide run.
 
-## Current capabilities and transition
+## Current capabilities
 
-The original audited baseline was Heddle
-`3c87e3c5611fe1128d13b0d5ba957ed382ebba18`. On 2026-09-12, Wave 2 M3
-activated `tests/pytest_policy.py` through root `tests/conftest.py`, registered
-the band markers and strict pytest configuration, migrated the recorded
-classifications and retired the environment-only live guards. Plain pytest now
-selects the fast band. E2E and live nodes refuse before fixtures unless their
-exact direct permissions are present.
+`tests/pytest_policy.py`, loaded through root `tests/conftest.py`, owns execution
+bands and strict-proof checks. Plain pytest selects the fast band. E2E and live
+nodes refuse before fixtures unless their exact direct permissions are present.
 
 For a directly relevant, inspected hermetic target, use the formal entry:
 
@@ -127,22 +123,18 @@ every requested witness to complete and pass. It refuses inherited permission
 flags and configuration overrides that could reshape the witness set. An ad hoc
 invocation does not replace required native `heddle verify` facts.
 
-| Capability | Status at publication | Delivery owner |
-| --- | --- | --- |
-| Focused selection and explicit broad/e2e/live execution policy | Approved guidance | This document |
-| Initial contract-to-test map | Available; bounded and manually maintained | Selection map / Wave 1 |
-| Packaged prompt and briefing propagation | Implemented with budget-first selection, fast acceptance and scoped-exception duties; local rendering and contract checks do not establish provider behavior quality | Strategy and selection map |
-| Execution bands, independent permission checks, strict proof mode | Active at the repository root; final review, native acceptance and exact installed AC-9 proof complete (`4376ed10`) | Wave 2 |
-| Named shared-helper environment, executable and cleanup hardening | Deferred during simplification; named paths only, no suite-wide guarantee | Wave 3 |
-| Feedback budgets and risk-based fast acceptance | Packaged W1-R guidance and numerical ceilings apply; existing-test migrations pending | Strategy / migration outline |
-| Existing feedback-loop qualification | Deferred during simplification; reuse recipes, correction only if needed and selected | Wave 4 |
-| Packaged strategy/map starter and maintenance examples | Deferred during simplification; manual adoption and core qualification, no init/lock automation | Wave 5 |
-| Qualified worker configuration | Optional, on hold after the measurement checkpoint | E1 (former worker Wave 5) |
+| Capability | Current status |
+| --- | --- |
+| Focused test selection | Maintained strategy and bounded, manually maintained selection map. |
+| Execution bands and strict proof | Active at the repository root through `tests/pytest_policy.py` and `tests/proof_runner.py`. |
+| Packaged testing guidance | Briefings and review prompts carry selection, budget and execution-authority rules; local content checks do not prove provider behavior quality. |
+| Feedback budgets | The time boundaries above apply; existing tests are not all qualified against them. |
+| Host strategy/map installation | Manual adoption; `heddle init` does not project these documents. |
+| Shared-helper hardening and parallel workers | No suite-wide isolation or qualified parallel-worker guarantee. Inspect the selected helpers. |
 
-Update this table with actual commits and evidence as mechanisms ship. Never
-advertise an unimplemented flag as a runnable instruction. The repository's
-configured health command is an exact strict-proof selection. Its presence does
-not grant broader, E2E or live execution.
+Update capability claims when implementation and supporting evidence change.
+The configured health command is an exact strict-proof selection; its presence
+does not grant broader, E2E or live execution.
 
 ## Execution authority and cadence
 
@@ -236,8 +228,8 @@ helpers, rather than filename, mock count, directory, or acceptance label.
 
 ## Runner contract
 
-These Wave 2 semantics are active through the root pytest integration and the
-formal proof entry.
+These semantics are enforced by the root pytest integration and the formal
+proof entry.
 
 | Band | Eligibility predicate | Permission |
 | --- | --- | --- |

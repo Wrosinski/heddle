@@ -980,7 +980,8 @@ COMMAND_SURFACE: tuple[CommandContract, ...] = (
         name=ops.operation_type_name(ops.FeatureComplete),
         cli_binding=("completion", "run_feature_complete"),
         summary=(
-            "accept completion; host tooling supplies the additional close suite "
+            "accept completion with local retention; record commits optional; "
+            "host tooling supplies the additional close suite "
             "through autopilot.test_command; it does not replace feature proof and "
             "does not create a clean environment; retry retention effects"
         ),

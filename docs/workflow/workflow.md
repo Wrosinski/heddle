@@ -138,7 +138,7 @@ provider retry budget, invokes no provider, and leaves the stop in force; after
 the increase, resolve that exact stop with `continue-review`, then use
 `heddle review round-open` through ordinary native routing.
 
-Disposition freshness follows the assignment's review subject. Spec review
+For an unsealed assignment, disposition freshness follows its review subject. Spec review
 tracks the spec; plan review tracks the plan and governing spec; implementation
 reviews track feature inputs and the assigned milestone's owned paths (the union
 of owned paths for feature-wide assignments). Each disposition also tracks its
@@ -148,6 +148,10 @@ does not reopen another milestone's review. Reviewer inspection and verification
 evidence retain their own provenance checks. Older dispositions whose broad
 source basis differs need a new supported disposition; historical evidence is
 never silently stamped fresh or converted into a mandatory provider rerun.
+Successful duty-bearing stage and milestone transitions seal accepted predecessor
+assignments in boundary receipts. Later changes do not reopen that accepted work;
+current milestone and final proof still qualify against live evidence. See the
+[review closure model](../design/workflow-model.md#review-results-and-closure).
 
 ### Batching Protocol
 
@@ -317,7 +321,7 @@ Heddle is used to build Heddle, so every feature session is also a live test of 
 1. **Stop.** Do not route around the behavior silently and do not patch Heddle inside the feature (Stay inside owned scope; Fail loud). A workaround adopted without a record is the silent adaptation the Inviolables forbid.
 2. **Flag.** Append one row to `plans/friction-log.md` now, while the evidence is on screen: date, feature, observed versus expected behavior with the command or artifact as evidence, and the proposed resolution from step 4. If the behavior blocks the current step, also record it with `heddle decisions add` so it reaches the owner at the next checkpoint instead of at feature close.
 3. **Trace.** Classify the cause per Core Principle 1 — missing context, conflicting instruction, model selection, tool delivery, or runtime defect — and name the governing record that defines the expected behavior: `docs/design/workflow-model.md`, `docs/design/architecture.md`, the owning Feature Spec, or the command's `--help` contract. The docs lead: when the record says Heddle is right, the discovery is an expectation or documentation gap, and the row says so. Use the `root-cause-analysis` skill read-only when the symptom may mislead; a diagnosis does not authorize a fix.
-4. **Propose.** Record the smallest change that removes the mechanism, the decisive engineering principle it satisfies, and where it lands (module, contract, or document). Prefer a resolution that leaves Heddle simpler than it was found — a deleted guard, a unified owner, a corrected contract — over a new layer. Size it: a trivial correction with clear correct behavior becomes a maintenance edit in its own commit under owner approval; anything larger becomes a named follow-up feature (`heddle feature start`) or, when it reshapes a ratified contract, a proposal under `docs/proposals/`. A workaround inside the feature's own code is never the resolution.
+4. **Propose.** Record the smallest change that removes the mechanism, the decisive engineering principle it satisfies, and where it lands (module, contract, or document). Prefer a resolution that leaves Heddle simpler than it was found — a deleted guard, a unified owner, a corrected contract — over a new layer. Size it: a trivial correction with clear correct behavior becomes a maintenance edit in its own commit under owner approval; anything larger becomes a named follow-up through researched intake, confirmed policy and `heddle feature start` or, when it reshapes a ratified contract, a proposal under `docs/proposals/`. A workaround inside the feature's own code is never the resolution.
 5. **Resume.** Continue the feature. The row's `Retired by` names the feature, decision, or commit that retires the friction, or `candidate` while nothing does; a `candidate` that recurs is checkpoint material.
 
 At Phase 9 the feature's rows feed the friction retrospective's Tooling fights category, and each row still marked `candidate` receives a disposition at the final checkpoint. Appending rows by hand is the intended shape until recurrence proves a `heddle` command worth building.
