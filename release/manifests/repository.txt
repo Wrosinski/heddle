@@ -239,7 +239,6 @@ scripts/pre-push
 scripts/qualify-public-repository.sh
 scripts/run-complete-test-band.py
 templates/claude-md-workflow-section.md
-templates/gate-effectiveness.md
 tests/completion_helpers.py
 tests/conftest.py
 tests/content_identity_helpers.py
@@ -551,6 +550,7 @@ tests/runtime/test_result.py
 tests/runtime/test_review_allowance_core.py
 tests/runtime/test_review_allowance_integration.py
 tests/runtime/test_review_attempt_authority.py
+tests/runtime/test_review_coverage.py
 tests/runtime/test_review_freshness.py
 tests/runtime/test_review_recommendations.py
 tests/runtime/test_review_retention.py
@@ -585,8 +585,8 @@ tests/runtime/test_workflow_completion_visibility.py
 tests/runtime/test_workflow_evidence.py
 tests/runtime/test_workflow_formatting.py
 tests/runtime/test_workflow_guidance.py
-tests/runtime/test_workflow_usability_installed.py
 tests/runtime/test_workflow_mutations.py
+tests/runtime/test_workflow_usability_installed.py
 tests/runtime/test_write_path_acceptance.py
 tests/runtime/test_write_path_foundation.py
 tests/runtime/test_write_path_manifest_guardrails.py
