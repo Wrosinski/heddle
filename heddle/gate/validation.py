@@ -371,7 +371,10 @@ def _validate_prior_dispositions(
     accepted = [prior for prior in prepared.prior_reviews if prior.result is not None]
     latest = accepted[-1] if accepted else None
     prior = (
-        {(latest.run_id, item.id): item for item in latest.result.content.findings}
+        {
+            (latest.run_id, item.id): item.classification
+            for item in latest.result.content.findings
+        }
         if latest is not None and latest.result is not None
         else {}
     )
@@ -380,10 +383,15 @@ def _validate_prior_dispositions(
     }
     if prepared.assignment_id is not None:
         prior = {
-            (item.run_id, finding.id): finding
+            (item.run_id, finding.id): finding.classification
             for item in accepted
             for finding in item.result.content.findings
         }
+        prior.update(
+            ((item.run_id, "@coverage"), "implement")
+            for item in accepted
+            if item.result.invocation.assignment_id == prepared.assignment_id
+        )
     if (not actual <= set(prior)) or (
         prepared.assignment_id is None and actual != set(prior)
     ):
@@ -407,11 +415,11 @@ def _validate_prior_dispositions(
                 )
             retained.add(row.output_finding_id)
         else:
-            if source.classification == "ignore" and row.disposition == "settled":
+            if source == "ignore" and row.disposition == "settled":
                 if row.decision_id is not None or row.decision_origin is not None:
                     raise ValueError("accepted awareness has no decision owner")
             elif row.disposition == "addressed":
-                if source.classification != "implement":
+                if source != "implement":
                     raise ValueError(
                         "addressed applies only to prior IMPLEMENT findings"
                     )
@@ -426,7 +434,7 @@ def _validate_prior_dispositions(
                 )
                 origin = row.decision_origin
                 if (
-                    source.classification != "report"
+                    source != "report"
                     or decision is None
                     or decision.status != expected
                     or origin is None
