@@ -16,10 +16,9 @@ and delete nothing before the final checkpoint.
 ## 1. Orientation across permanent and ephemeral evidence
 
 Inspect the configured close suite and nested commands before completion.
-Host tooling owns `.heddle.yaml`'s `autopilot.test_command`, which configures
-the additional close suite run by `heddle feature complete`. It does not replace
-feature proof, and `feature complete` does not create a clean environment; it
-runs the command in the current host checkout.
+The additional close suite takes `.heddle.yaml`'s `autopilot.test_command` from
+host tooling and remains separate from feature proof. Heddle does not create a
+clean environment before running it; execution uses the current host checkout.
 Broad suites and local full-workflow e2e/live execution need an explicit request
 covering that scope; a completion grant or stored command does not independently
 supply it. Existing applicable execution grants persist. Reuse current native

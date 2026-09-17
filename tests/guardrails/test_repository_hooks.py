@@ -852,10 +852,14 @@ def _configured_hooks() -> tuple[dict[str, dict], dict[str, dict]]:
 def test_pre_commit_baseline_ac1_documents_complete_hook_installation() -> None:
     """AC-1: fresh setup installs both declared Git-hook stages."""
     readme = README.read_text(encoding="utf-8")
-    assert ".venv/bin/pre-commit install --install-hooks" in readme, (
-        "FAIL AC-1: README must install both configured hook stages and their "
-        "environments from a fresh development checkout"
+    installer_command = ".venv/bin/python scripts/install-repository-hooks.py"
+    assert installer_command in readme, (
+        "FAIL AC-1: README must route fresh development setup through the "
+        "repository hook installer"
     )
+    installer = (SCRIPTS / "install-repository-hooks.py").read_text(encoding="utf-8")
+    assert 'root / ".venv/bin/pre-commit"' in installer
+    assert '"install", "--install-hooks"' in installer
 
     config = yaml.safe_load(PRECOMMIT_CONFIG.read_text(encoding="utf-8"))
     assert set(config["default_install_hook_types"]) == {"pre-commit", "commit-msg"}
@@ -1043,6 +1047,19 @@ def test_every_declared_hook_stage_is_installed_by_default() -> None:
         f"`pre-commit install` will not wire them, leaving those guards dormant. "
         f"Add the stage(s) to default_install_hook_types in .pre-commit-config.yaml."
     )
+
+
+def test_check_public_repository_rejects_unsorted_manifest(tmp_path: Path) -> None:
+    manifest = tmp_path / "repository.txt"
+    manifest.write_text("z-last\na-first\n", encoding="utf-8")
+    result = _run(
+        "check-public-repository.py",
+        "repository",
+        "--manifest",
+        str(manifest),
+    )
+    assert result.returncode != 0
+    assert "sorted and unique" in result.stdout
 
 
 def test_every_wired_guard_has_a_rejection_test() -> None:

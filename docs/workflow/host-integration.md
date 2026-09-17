@@ -79,11 +79,12 @@ Preview the complete adoption footprint:
 heddle init --dry-run
 ```
 
-Inspect each target's proposed create, accept, integrate, refuse, or skip result.
-Review and resolve every refusal; do not overwrite or remove occupied content
-just to satisfy initialization. When the
-configuration and principles are already host-authored and the adoption lock is
-missing, explicitly preserve and adopt them:
+Inspect every target's proposed create, accept, integrate, refuse, or skip result.
+Review each refused target and resolve it explicitly by relocating or renaming
+the proposed target, choosing another path, or otherwise repairing the conflict;
+do not overwrite or remove occupied content just to satisfy initialization.
+When the configuration and principles are already host-authored and the adoption
+lock is missing, explicitly preserve and adopt them:
 
 ```bash
 heddle init --adopt-existing --dry-run

@@ -120,12 +120,12 @@ formal gate artifacts retain their required structure and non-narration rules.
    not weaken a scaffolded contract to obtain green. Keep the progressive
    `test_command` green for survivor pins and current/completed behavior;
    future-red tests remain in their milestone, acceptance, or live scopes.
-   Progressive command output and session prose are feedback; only
-   `heddle verify --scope <scope>` records native proof.
-   Host tooling owns `.heddle.yaml`'s `autopilot.test_command`, which configures
-   the additional close suite run by `heddle feature complete`. It does not
-   replace feature proof, and `feature complete` does not create a clean
-   environment; it runs the command in the current host checkout.
+   Progressive command output and session prose are feedback; native proof is
+   recorded only through a verification action authorized for this stage.
+   Host tooling supplies `.heddle.yaml`'s `autopilot.test_command` to the
+   additional close suite. Keep it distinct from feature proof. Heddle does not
+   create a clean environment for that suite; execution stays in the current
+   host checkout.
    If verification still fails after five fix-and-retry cycles, record the
    failing check, what was tried, and why it is not converging via
    `heddle decisions add` instead of attempting a sixth.

@@ -138,7 +138,7 @@ def test_all_current_roles_share_the_retained_interpretation_boundary(
                 trigger={
                     "gate": role,
                     "gap": "Inspect an unexecuted failure boundary",
-                    "references": [],
+                    "references": ["src/example.py"],
                 }
                 if role == "robustness-analysis"
                 else None,

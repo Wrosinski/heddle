@@ -817,14 +817,14 @@ def test_ac06_ac07_scope_resolution_has_no_cross_fallback(tmp_path: Path) -> Non
 
 
 def test_ac07_help_manifest_advertises_feature_verification_scope() -> None:
+    """The retained node proves the feature scope is no longer advertised."""
+    from heddle.contracts import operations as ops
     from heddle.runtime.contracts import build_manifest
 
     manifest = build_manifest()
     verify = next(row for row in manifest["commands"] if row["name"] == "verify")
     scope = next(flag for flag in verify["flags"] if flag["name"] == "--scope")
-    assert scope["summary"] == (
-        "verification scope (feature|m<N>|smoke|acceptance|live)"
-    )
+    assert scope["summary"] == ops.VERIFICATION_SCOPE_GUIDANCE
 
 
 def test_ac10_preterminal_complete_can_advance_reconciliation_milestone(
