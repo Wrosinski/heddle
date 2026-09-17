@@ -215,9 +215,25 @@ workspace records still exist.
 Before cleanup, audit every Feature Spec `Verified-by:` route against the final
 test names and commands. Repair references made stale by test consolidation or
 renaming, and confirm the required final verification facts still match
-current declared relevant content, commands and source inputs. When a live lane
-was applicable, confirm that same binding or its explicit deferral/substitute.
+current declared relevant content, commands and source inputs. Declared live
+proof is additional to acceptance and needs that same binding. Execution
+deferral remains pending; only an explicit contract ruling with reconciled
+commands, coverage and evidence changes an obligation. Follow the proposal's
+native ruling IDs and existing grants. For older active work, reconcile existing
+design and approvals without fabricating a checkpoint or restarting prior stages.
 Committing unchanged content does not itself invalidate proof.
+
+Audit any declared alignment Assessment under the plan's `### Verification Commands`. It
+names criteria, assessor, the final native run and relevant source identity,
+exact retained artifacts, conclusion and limitations. A relevant fix or new
+output requires a refreshed assessment by the execution-owning lead before
+acceptance. Revalidate affected native closure evidence after an Assessment edit;
+it is authored plan content, not an exemption from source freshness or required
+originating inspection. Misalignment is a blocking defect; quality beyond the contract is
+observational, and explicit contract quality thresholds still bind. Reference
+the Assessment in spec Outcomes and session summaries. Preserve artifacts in
+durable local evidence, preferably inside the workspace for archival, or record
+their external retention location. This judgment is not a verification fact.
 
 ## 9. Repository docs
 
@@ -235,7 +251,8 @@ A record commit for Heddle workspace files is optional; the runtime never stages
 or commits them, and completion does not move the baseline.
 
 1. **Final checkpoint (user-owned; required for every formal feature).** Present the
-   complete close package: handoff results, memory and pattern candidates with
+   complete close package: handoff results, any declared alignment assessment
+   and separate quality observations, memory and pattern candidates with
    recommendations, and the disclosed cleanup set. Apply existing explicit
    authorization to its approved scope; ask only for an outstanding owner choice.
    Proposed candidates do not enter durable stores before their required approval.

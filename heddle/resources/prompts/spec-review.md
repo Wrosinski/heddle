@@ -39,7 +39,8 @@ Assess each of these seven native dimension IDs exactly once:
   Approved MVP, an authorized Implementation Part, a named deferral, or an
   unmapped addition. Preserve the approved decomposition and changed-part
   authorization evidence. Check that the core is a usable end-to-end slice,
-  with a conceptual integrated acceptance outline; name a necessary scope
+  with a conceptual integrated acceptance outline stating e2e/live posture and
+  its reason; name a necessary scope
   decision without substituting your own approval.
 - **conceptual-coherence:** Check whether terms, observable interactions,
   invariants, commitments, ACs, and settled decisions agree. A genuinely
@@ -100,6 +101,11 @@ source; do not claim the owner approved it through this review. On reruns,
 respect the supplied existing owner and resolution rather than reopening or
 duplicating the question. Missing Approved MVP or a core unable to satisfy the
 stated purpose retains its Critical consequence.
+
+The checkpoint lead also confirms witness shape and explicit lane execution
+grants with scope. Note that duty in the scope question without inspecting the
+plan or designing its concrete witness here. The lead owns the separate bundled
+live/declined-live question; this reviewer must not create a duplicate owner.
 
 ## Findings, evidence, and history
 

@@ -210,6 +210,14 @@ consumer; chosen implementation interfaces otherwise belong in the plan and
 actual source. Standing enforcement and native commands are referenced, not
 copied. Record delegated internals explicitly where that affects review.
 
+After drafting both documents, propose the integrated witness in the plan's
+`### Integrated Witness Proposal`. Name the complete flow, e2e and feasible live
+lanes, AC coverage and concrete fallback witnesses, pass conditions, real versus
+doubled systems, alignment criteria/artifacts, prerequisites, execution stages,
+caps and finishing criterion. State the conceptual lane posture in the spec.
+Draft checkpoint questions here; create their native records at Checkpoint 1
+because unresolved decisions block progression. The proposal grants no execution.
+
 ## Phase 3: Automated Spec Review & Refinement (CLI Gate)
 
 Follow the selected native spec-review assignment. It evaluates the observable
@@ -229,6 +237,19 @@ even when the review finds scope adequate.** Do not silently authorize a part
 or replace the original pending question on a rerun. Record the actual ruling
 and reconcile affected spec/plan content and review evidence.
 
+The spec-review lead confirms the integrated witness in this batch even when
+spec review is Off. The scope ruling explicitly includes the e2e shape, execution
+stages and bounded reruns for every posture; no separate e2e decision is needed.
+A live lane, or declining live for a real-provider feature, needs one class-5
+question bundling posture, user-required prerequisites, effects, per-attempt and
+aggregate caps, execution stages and bounded retries, or the reason and fallback.
+Recommend e2e during implementation/milestone/final proof and live at the owning
+final boundary. Record actual grants, actor and native decision IDs; scope
+confirmation without an execution grant is not permission. Resolve user choices
+before progression; scheduled auto-resolvable setup may remain a plan task.
+Where no scope decision exists, including with review Off, the lead records
+that scope question as class 8 and obtains the authorized ruling.
+
 ## Phase 4: Plan Review (CLI Gate)
 
 The plan explains why its approach meets the spec, what owns each change and
@@ -242,14 +263,24 @@ discard evidence. Lines, hours, task counts and a copied Design Context do not
 establish plan quality. Run the selected assignment and record closure natively
 before scaffolding when the runtime requires it.
 
+Check that the confirmed witness drives the approved flow through the real
+application boundary, doubles only external systems, covers required ACs across
+its routes, and has credible prerequisites, caps and explicit grants. Follow the
+referenced native rulings; plan prose alone cannot establish approval.
+
 ## Phase 5: Test Scaffolding
 
 Translate ACs into executable, non-tautological assertions at the actual
 production boundary, using the reviewed plan's architecture and real interfaces.
 Inspect existing tests, fixtures and infrastructure before choosing commands.
 Classify effects and execution authority separately from purpose and cost under
-the testing strategy. Scaffolding can safely collect ungranted e2e/live witnesses;
-collection is not execution proof.
+the testing strategy. Realize the confirmed proposal and bind exact acceptance
+and declared live commands within the checkpoint grants. Scaffolding can safely
+collect e2e/live witnesses; collection is not execution proof and scaffold
+execution needs its own explicit coverage in a grant. A material change to lane
+coverage, conditions, real/doubled systems, effects, stages, caps or user-required
+prerequisites is a class-2 question referencing the original ruling before
+dependent work. Preserve complete AC coverage through named fallback witnesses.
 
 Record exact commands natively, prerequisites and AC coverage in their plan
 reader sections, and actual test links under Verified-by. Follow the selected
@@ -267,7 +298,8 @@ Preserve the failure as red, with its disposition separate from the result.
 ## Phase 6: Milestoned Implementation with Continuous Verification
 
 Read the current milestone, governing ACs/Design Commitments, plan architecture
-and actual interfaces. Expand tasks at the current frontier through native
+and actual interfaces, plus the witness proposal and its native rulings. Expand
+tasks at the current frontier through native
 operations. Implement the owned slice, run affected authorized checks, repair
 change-caused failures, and record evidence and task completion truthfully.
 
@@ -362,6 +394,23 @@ checks and review evidence. Peer review owns final proof when Overlay R is Off;
 when R is selected, robustness owns final post-hardening proof. Follow native
 applicability and do not infer an extra broad test grant from this stage.
 
+At the owning final boundary, the lead retains current milestone, acceptance and
+smoke proof under existing smoke-disposition rules, plus declared live proof and
+any declared alignment assessment. Live never replaces acceptance. With R Off,
+the lead still owes declared live proof here although native enforcement starts
+at robustness, which is traversed even with R Off, and applies again at complete.
+After the last relevant fix and final applicable pass,
+assess retained artifacts against the declared criteria. Misalignment blocks;
+quality beyond the contract is observational, and explicit quality criteria bind.
+Record one Assessment entry under the plan's `### Verification Commands` with assessor,
+native run/source reference, exact artifacts, conclusion and limitations. Session
+and spec summaries reference it. Refresh after relevant fixes or new output;
+judgment is not a verification fact. Reviewer inspections may precede final
+execution. There is no independent assessment-only review, but authored plan
+changes can stale existing evidence. Record the entry before a required qualifying
+final rereview, or revalidate and refresh affected native closure evidence
+afterward; originating-inspection and allowance requirements still apply.
+
 ## Checkpoint 2: User Decision Batch
 
 Resolve outstanding owned review questions with their original identity,
@@ -384,6 +433,11 @@ formal feature owes final proof even when all review roles are Off. A required
 unrun witness remains pending and blocks the claim it proves; optional ungranted
 broad regression is a reported limitation, not an invented completion gate.
 
+The robustness lead performs or refreshes the declared alignment assessment on
+that final evidence, using the same finishing contract as the peer-review lead.
+Deferring a required lane leaves it pending; only an explicit contract decision
+with reconciled coverage, command facts and evidence changes the obligation.
+
 ## Phase 9: Completion & Knowledge Capture
 
 Entering `complete` accepts nothing. This is a human-owned close stage; the
@@ -393,7 +447,8 @@ protocol. Work within the existing grant and stop for outstanding owner choices.
 Sweep propagation tags, mine durable lessons, disposition deferred enforcement,
 classify gate effectiveness and write concise spec outcomes. Prepare the native
 decision journal and friction retrospective. Audit Verified-by routes against
-the final tests and required current evidence. Keep detailed logs and qualification
+the final tests and required current evidence, including the final alignment
+assessment and its retained artifacts when declared. Keep detailed logs and qualification
 records at their retained source rather than dumping them into the spec.
 
 Present memory and pattern candidates with the close package. Proposed durable

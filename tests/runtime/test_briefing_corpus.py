@@ -341,6 +341,28 @@ class TestAC7KickoffRendersClean:
         assert briefing == _text("decision-routing.md") + "\n\n---\n\n" + _text(
             f"{stage}.briefing.md"
         )
+        # Delivered stage duties survive selected and all-Off review policy.
+        # These are instruction-delivery checks, not model-judgment evidence.
+        folded = " ".join(briefing.split())
+        if stage == "specify":
+            assert "do not record that future native question at specify" in folded
+            assert "unresolved decision blocks progression" in folded
+        elif stage == "spec-review":
+            assert "including when spec review is Off" in folded
+            assert "no separate e2e decision is needed" in folded
+            assert "scope question with class 8" in folded
+            assert "class-5 `question`" in folded
+            assert "per-attempt/aggregate cost caps" in folded
+        elif stage in {"peer-review", "robustness"}:
+            assert "Assessment" in briefing and "passing run" in briefing
+            assert "replacement output" in briefing
+            assert "quality beyond the contract" in folded
+            assert "native freshness" in folded.lower()
+            assert "qualifying" in folded and "rereview" in folded
+            assert "live does not replace acceptance" in folded
+        elif stage == "complete":
+            assert "final native run and relevant source identity" in folded
+            assert "Execution deferral remains pending" in folded
         assert path.read_bytes() == before
 
 
@@ -478,7 +500,11 @@ class TestStageSemanticContracts:
         assert "heddle verify scope acceptance" in robust
         assert "heddle verify scope smoke" in robust
         assert "heddle verify scope live" in robust
-        assert "live evidence or an explicit live disposition" in robust
+        assert "declared live evidence is current" in robust
+        assert "mere execution deferral does not qualify exit" in robust
+        assert (
+            "authorized change to the obligation must already be reconciled" in robust
+        )
         assert "documentary drift under an unchanged approved contract" in robust
         assert all(
             token in robust for token in ("criterion", "assumption", "settled decision")
@@ -486,7 +512,7 @@ class TestStageSemanticContracts:
         assert "report route until it is resolved" in robust
         assert "unreviewed mutation" in complete
         assert "verified by" in complete
-        assert "live lane was applicable" in complete
+        assert "declared live proof is additional to acceptance" in complete
 
     def test_complete_checkpoint_allows_mutable_close_work_but_not_persistence(
         self,

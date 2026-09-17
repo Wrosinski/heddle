@@ -22,6 +22,12 @@ def test_ac12_native_admission_renders_one_ac_home_and_distinct_document_owners(
     assert "## Acceptance Criteria" not in plan
     assert "{{tier}}" not in plan and "Tier None" not in plan
     assert "heddle:begin plan-status" in plan
+    assert "### Integrated Witness Proposal" in plan
+    assert "per-attempt/aggregate" in plan
+    assert "Assessment entry" in plan
+    assert "e2e-plus-live posture" in spec
+    brief = (host / "plans" / FEATURE / "brief.md").read_text()
+    assert "## External Services (optional)" in brief
 
 
 def test_ac12_native_milestone_authoring_needs_low_high_not_hours(
@@ -106,3 +112,76 @@ def test_ac12_kickoff_preserves_native_commands_and_scaffold_prerequisites(
     assert "prerequisite" in text.lower()
     assert "Design Context derived" not in text
     assert path.read_bytes() == before
+
+
+def test_alignment_assessment_edit_preserves_originating_review_freshness(
+    tmp_path, monkeypatch, run_cli
+):
+    from tests.structured_review_helpers import disposition as reviewer_disposition
+    from tests.structured_review_helpers import finding_ref
+    from tests.tiering_helpers import entry, snapshot
+    from tests.tiering_review_helpers import (
+        current_host,
+        dispose,
+        disposition,
+        gate_command,
+        open_round,
+        provider_transport,
+        review_content,
+        review_status,
+    )
+
+    role = "behavior-review"
+    host, path = current_host(
+        tmp_path, monkeypatch, stage="peer-review", overrides={role: entry(role)}
+    )
+    content = review_content(role)
+    calls = provider_transport(monkeypatch, content)
+    _, first = gate_command(run_cli, "run-gate", role)
+    assert first["ok"] and first["data"]["accepted"], first
+    origin = first["data"]["run_id"]
+    assert dispose(
+        path,
+        [disposition(origin, "@coverage", status="retained", requires_inspection=True)],
+    ).ok
+    assert open_round(path, role=role).ok
+    content["prior_dispositions"] = [
+        reviewer_disposition(finding_ref(origin, "@coverage"), action="addressed")
+    ]
+    _, second = gate_command(run_cli, "run-gate", role)
+    assert second["ok"] and second["data"]["accepted"], second
+    reviewed = disposition(
+        origin,
+        "@coverage",
+        evidence_kind="review",
+        review_run_id=second["data"]["run_id"],
+        requires_inspection=True,
+    )
+    closed = dispose(
+        path, [reviewed, disposition(second["data"]["run_id"], "@coverage")]
+    )
+    assert closed.ok, closed.to_envelope()
+    assert review_status(path, role=role)["closed"]
+
+    # Recording the lead's final judgment is authored plan content even though
+    # implementation bytes are unchanged. Existing review freshness still binds.
+    plan = path.with_name("plan.md")
+    plan.write_text(
+        plan.read_text() + "\n### Verification Commands\n\n"
+        "Assessment: lead inspected synthetic run fixture-run-1, "
+        "artifact fixture-output.json; aligned with declared criteria.\n"
+    )
+    assert not review_status(path, role=role)["closed"]
+    before = snapshot(host)
+    for evidence, predicate in (
+        (reviewed, "review-not-qualifying"),
+        (
+            disposition(origin, "@coverage", requires_inspection=True),
+            "reviewer-inspection-not-qualifying",
+        ),
+    ):
+        rejected = dispose(path, [evidence])
+        assert not rejected.ok
+        assert rejected.error.details["rows"][0]["predicate"] == predicate
+        assert snapshot(host) == before
+    assert len(calls) == 2

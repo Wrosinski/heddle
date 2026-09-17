@@ -113,6 +113,31 @@ proof. Disabling all peer roles never waives those final proofs or older open
 obligations. A deferral remains pending unless an authorized contract decision
 actually changes what is required.
 
+Read the Integrated Witness Proposal and its exact native ruling IDs. Reuse the
+confirmed grants for both lanes within their stages, effects and bounded reruns;
+live does not replace acceptance. With R Off, discharge declared live via
+`heddle verify --scope live` before handoff even though the native peer boundary
+does not require that scope. Native enforcement applies at robustness (traversed
+even with R Off) and complete. Resolve missing or materially changed
+choices with the original owner; older active work reuses sufficient approvals
+without fabricating a past checkpoint or restarting completed stages.
+
+When this is the final boundary, the lead performs any declared alignment check
+after the last relevant fix and applicable passing run. Read the exact retained
+artifacts against the declared spec/plan criteria. Misalignment blocks finishing;
+quality beyond the contract is an observation, and explicit quality thresholds
+remain binding. Under the plan's `### Verification Commands`, record one
+Assessment: criteria,
+assessor, native run reference and relevant source identity, exact artifacts,
+conclusion, limits and separate quality observations. Session and spec summaries
+reference it. Refresh after a relevant fix or replacement output; judgment is
+not a verification fact. Source reviews may precede this final run. Preserve
+their pending-proof limits. Recording the Assessment adds no independent review
+obligation, but it changes authored plan inputs: native freshness and required
+originating inspection still govern closure. Write it before any required
+qualifying final rereview; otherwise validate and refresh affected dispositions
+and review evidence afterward. When R is On, hand these duties to robustness.
+
 Exit readiness requires closed applicable assignments, committed IMPLEMENT
 fixes, resolved blocking decisions, and current applicable evidence. Follow
 native routing toward **robustness** or **complete** without claiming feature

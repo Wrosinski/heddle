@@ -40,12 +40,25 @@ Read these context-only sources:
 
 - Each milestone's **Decisions** and **Discoveries** subsections (Implementation Plan)
 - **Technical Architecture** and relevant context/decision pointers
+- **Integrated Witness Proposal** and its exact native ruling references, and
+  any **Assessment** under `### Verification Commands`, solely to judge proof adequacy
 - The workspace `state.yaml` session entries (for known limitations or deferred work)
 
 Consult the ratified enforcement baseline through its maintained pointer when
 needed. Do not require a copied Active Enforcement Rules or Design Context block.
 
-Do not read milestone scope descriptions, task lists, or verification sections for correctness evaluation. These describe the implementation route, not the design contract.
+Milestone scope and task lists are implementation routing, not the correctness
+contract. Use witness and assessment evidence to evaluate proof against the spec;
+it cannot redefine the spec. Acceptance remains required alongside declared live.
+An Assessment names its criteria, final native run/source reference and retained
+artifacts. Misalignment is a defect; noncontractual quality is observational and
+explicit quality thresholds still bind. The final-boundary lead assesses output
+after relevant fixes and the applicable passing run. Source review can precede
+that execution: identify pending evidence honestly, without requiring a premature
+assessment. No independent assessment-only review is introduced; authored plan
+edits can invalidate source-bound evidence, and existing native freshness and
+originating-inspection duties still apply. Do not execute the witness or author
+the lead's assessment.
 
 **Step 2: Read the Feature Spec in full.**
 

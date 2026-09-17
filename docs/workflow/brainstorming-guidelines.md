@@ -196,6 +196,17 @@ belong in the spec only when they are consumer-facing contracts. The plan owns
 the technical architecture and approach; neither document needs a file-by-file
 implementation recipe or a second Acceptance Criteria list.
 
+**Propose the integrated witness after drafting both documents.** The plan owns
+the complete flow, e2e and feasible live lanes, AC coverage/fallback witnesses,
+pass conditions, real versus doubled systems, alignment criteria/artifacts,
+prerequisites, execution stages, caps and finishing criterion. State conceptual
+lane posture in the spec. Draft the question at specify; the spec-review lead
+records the native witness batch with scope and obtains its authorized ruling at Checkpoint 1,
+including when the reviewer is Off. Confirm explicit grants for both proposed
+lanes and settle user-required prerequisites there; reuse those grants at their
+approved stages. Native unresolved questions block progression, so recording one
+at specify cannot defer it to the later checkpoint.
+
 **Immerse in the codebase before writing the spec.** Before creating
 the Feature Spec, examine the actual code areas the feature will
 touch. Read existing modules, trace dependencies upstream and
@@ -286,6 +297,11 @@ follow-ups in Scope Decomposition, which are out for now, not forever.]
 ## Related Features (optional)
 
 [Features you know are related.]
+
+## External Services (optional)
+
+[Real providers/services the feature calls; available credentials by reference,
+representative data and freshness, cost sensitivity, side effects and recovery.]
 ```
 
 Begin with research and a durable brief, before formal document creation.

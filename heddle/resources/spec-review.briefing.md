@@ -33,6 +33,33 @@ the post-spec-review scope checkpoint and its native recording duties.
 
 ## Resolve and exit
 
+At Checkpoint 1, the lead presents the plan's Integrated Witness Proposal with
+the scope batch, including when spec review is Off. Keep the gate review at spec
+altitude; the lead checks the plan's concrete proposal and any changed spec
+commitments. The scope ruling explicitly confirms the e2e shape, execution
+stages and bounded reruns for every posture; no separate e2e decision is needed.
+Recommend e2e during implementation, milestone and final verification.
+Reuse an existing scope decision; if none exists, including when the reviewer
+is Off, record the lead-owned scope question with class 8. Apply only the
+authorized owner's ruling or an identified standing grant.
+
+Record one class-5 `question`, titled `Live witness: <slug>`, when proposing
+live or declining it for a real-provider feature. Bundle the posture and reason,
+all user-required prerequisites, allowed effects and cleanup/recovery,
+time/turn/retry and per-attempt/aggregate cost caps, live stages and bounded
+reruns, or the reason and concrete fallback. Recommend live at the owning final
+boundary. Scope confirmation and credentials alone are not execution grants.
+Record the actual ruling, actor and authority natively and reference exact
+decision IDs from the plan. Preserve already applicable grants.
+
+Settle user-required choices before progression; unresolved native questions
+are blockers. Scheduled auto-resolvable setup may remain a plan task after
+feasibility and authority are settled. A material change later is a class-2
+question naming the original ruling, not a silent narrowing of proof.
+For existing active work lacking this section, reconcile existing design and
+approvals; ask only about missing or materially changed choices, without
+fabricating a past checkpoint or restarting completed stages.
+
 Apply supported IMPLEMENT refinements to the spec. `heddle run-gate` records
 eligible REPORT decisions; reuse those exact owners and resolve them only from
 the authorized owner's ruling. Use `heddle decisions add` for new lead questions.

@@ -264,7 +264,7 @@ ESCALATION_CLASS_SUMMARIES: dict[int, str] = {
     2: "a discovery invalidates a prior user decision's analysis",
     3: "a required gate cap was reached (driver surfaces the batch)",
     4: "gate-recorded REPORT findings (run-gate records these, never decisions add)",
-    5: "live-E2E prerequisite not pre-authorized",
+    5: "live witness shape, prerequisite or execution grant not pre-authorized",
     6: "no progress across two sessions (driver-raised)",
     7: "session attempt cap or verification retry limit reached (driver-raised)",
     8: "irreversible open question no principle covers",

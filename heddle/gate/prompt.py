@@ -885,6 +885,7 @@ def build_test_scaffolding_context(
 
     for heading_variants, title in (
         (("## Technical Architecture",), "Technical Architecture"),
+        (("### Integrated Witness Proposal",), "Integrated Witness Proposal"),
         (("### Verification Commands",), "Verification Commands"),
         (("### Live E2E Test Prerequisites",), "Live E2E Test Prerequisites"),
         (("## AC Coverage Matrix", "### AC Coverage Matrix"), "AC Coverage Matrix"),

@@ -254,6 +254,23 @@ heddle validate
 heddle orient
 ```
 
+## Adopting integrated witness guidance
+
+New features specified with the updated briefings propose witness design at
+specify and confirm it, prerequisites and explicit execution grants at the
+post-spec-review checkpoint. Existing active features already beyond specify
+reconcile their design and approvals at the next relevant lead session: reuse
+sufficient grants, fill missing references, and ask only about missing or
+materially changed choices. Do not invent retrospective checkpoint approval or
+restart completed stages. Accepted features keep their original contract.
+
+Inspect effective stage briefings, scaffolds and gate prompts before claiming
+adoption: `.heddle/overrides/` and `.heddle/generated/` can shadow the package.
+Updating the installation does not rewrite those resources or authored plans;
+sync's managed regions do not migrate witness design. Reconcile only selected
+host customizations under the existing authority. Packaged guidance is
+self-contained; the host need not install this checkout's workflow documents.
+
 ## Shared decision policy
 
 Kickoff and reviewer preparation both capture `decision-routing.md` through

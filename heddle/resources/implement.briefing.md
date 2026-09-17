@@ -161,14 +161,21 @@ formal gate artifacts retain their required structure and non-narration rules.
    edits require fresh evidence at the existing boundary. The next session
    resumes from native facts. Milestone advance remains boundary-owned.
 
-Before starting the final milestone, inspect the live E2E prerequisites and
-their recorded approvals/deferments. Surface an unresolved prerequisite
-through the decision ledger before it becomes a last-minute blocker. Do not
-spend money, use credentials, or run the live lane without recorded authority;
-carry an approved fallback or deferral into the final handoff.
+Before starting the final milestone, read the Integrated Witness Proposal and
+its exact native decision references, then inspect the live E2E prerequisites and
+their recorded approvals. Checkpoint 1 settles user-required choices and explicit
+grants for both lanes; scheduled auto-resolvable setup may still need completing.
+Reopen a materially changed choice through a class-2 question naming its original
+ruling. Record a genuinely missing live choice with class 5; obtain missing e2e
+authority in the scope ruling, using class 8 for a new lead-owned scope question.
+A required lane deferred from execution stays pending. For older active work,
+reconcile existing design and approvals without
+inventing a retrospective checkpoint or restarting completed stages.
 
-Normally execute local e2e and live workflows only after implementation or at
-final verification; an earlier diagnostic needs a specific request. Design or
+Use the checkpoint's explicit grant for e2e iteration at its approved
+implementation/milestone stages and for live at its approved final boundary.
+Without such earlier authority, local e2e and live workflows remain scheduled
+after implementation or at final verification. Design or
 collection does not establish execution, and a skipped case does not prove its AC.
 
 Verification and a clean scoped commit remain required even when the confirmed
@@ -324,6 +331,18 @@ The final proof boundary is peer review when Overlay R is off and robustness
 when it is on. Follow native applicable scopes and repair instructions. Turning
 reviews off does not waive acceptance, smoke, declared live proof, or retained
 originating obligations; an unrun required witness remains pending.
+
+The confirmed witness adds declared live proof to acceptance; a live pass never
+replaces the e2e lane. Finishing also requires any declared alignment assessment.
+Hand the criteria and retained artifact locations to the owning final-boundary
+lead, who performs the assessment after the last relevant fix and applicable
+passing run. Tests cover every deterministically assessable AC condition;
+misalignment in remaining declared content is a defect. Quality beyond the
+contract is observational, while explicit quality thresholds remain binding.
+One Assessment entry under the plan's `### Verification Commands` records criteria, assessor,
+native run/source reference, exact artifacts, conclusion and limitations. Session
+and spec summaries reference it. Refresh after relevant fixes or replacement
+output; judgment is never a verification fact or a way to turn red proof green.
 
 Required facts must match the current declared relevant content, commands and
 source inputs. A commit that leaves that content unchanged does not itself

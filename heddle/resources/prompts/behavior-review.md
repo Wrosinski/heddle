@@ -14,6 +14,17 @@ paths beyond the latest diff. Do not design a second architecture review.
 - final-proof-adequacy: inspect the tests and current accepted verification
   evidence that support completion. An unrun, stale or narrower check remains
   pending; acceptance and smoke duties survive all-off review policy.
+  Declared live evidence supplements acceptance. Inspect the plan's witness
+  criteria, exact ruling references and any Assessment under the plan's
+  `### Verification Commands`, with its native
+  run/source binding and retained output. Misalignment violates the contract;
+  quality beyond it is observational unless an explicit quality threshold binds.
+  The final-boundary lead owns the assessment after final execution and relevant
+  fixes. If this review precedes that run, identify pending proof without
+  pretending it passed or demanding an assessment before its scheduled run.
+  Do not invent an assessment-only review obligation. An Assessment is authored
+  plan content; native freshness and required originating-reviewer inspection
+  still govern qualification after it changes.
 
 Use BR finding IDs. Describe residual uncertainty and missing execution without
 turning a clean source inspection into feature acceptance.

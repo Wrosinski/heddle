@@ -27,7 +27,8 @@ authorization; do not silently replace its approved shape.)_
 ### Conceptual end-to-end outline
 
 _(How the authorized parts work together and what an integrated witness must
-observe. This is an outline, not a second acceptance-criteria inventory.)_
+observe. State e2e-only or e2e-plus-live posture and why; concrete witness design
+belongs in the plan. This is an outline, not a second acceptance-criteria inventory.)_
 
 ## Conceptual Design
 

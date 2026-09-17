@@ -29,6 +29,18 @@ runs require explicit scope authority even at a phase boundary; a stored command
 or confirmed prerequisite does not supply it. Keep required unrun proof pending
 rather than narrowing the obligation. Use the host's runner conventions.
 
+Check the confirmed Integrated Witness Proposal: complete flow through the real
+application boundary, external-only doubles, meaningful pass conditions, AC
+coverage with concrete fallback witnesses, justified live posture, prerequisites,
+safe effects, credible caps with headroom, and explicit grants for both proposed
+lanes. Follow the exact native decision IDs in workspace state; a lead-authored
+checkpoint question is not automatically supplied as prior review ground.
+Unresolved user-required choices are REPORT questions, not scheduled setup or
+reviewer choices. The final proof includes acceptance even when live is declared.
+Any alignment check names criteria and retained artifacts; quality beyond the
+contract remains observational. For existing active work, reconcile existing
+design and approvals rather than requiring a retrospective checkpoint.
+
 Read the plan and native milestone facts with the spec's commitments and ACs.
 Check approach soundness, architecture fit, AC coverage, dependency sequencing,
 verification feasibility, necessary environment context, risk/recovery, and

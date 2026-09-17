@@ -14,3 +14,8 @@ _(Relevant code and precedents, consequential uncertainties, and the smallest
 useful end-to-end approach. Record the proposed scope, complexity, and
 testability axes and workflow route for explicit confirmation, not a
 tier-derived approval.)_
+
+## External Services (optional)
+
+_(Real providers/services the feature calls, credential sources by reference,
+representative data/freshness, cost sensitivity, effects and recovery needs.)_

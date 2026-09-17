@@ -2,7 +2,7 @@
 
 You are at the **scaffold** stage. Build the verification system that makes the
 implementation target observable before production code changes: milestone
-tests, integrated acceptance coverage, a live lane where applicable, and a
+tests, the confirmed integrated witness (e2e and declared live lanes), and a
 fast health check. Tests come before implementation so every later milestone
 has a concrete feedback loop — a failing test is a compass, not retroactive
 confirmation. Preserve useful pre-existing behavior with survivor pins; new or
@@ -23,7 +23,11 @@ Ground the scaffold in the repository before writing tests:
 
 1. Read `heddle status --json`, the Feature Spec's canonical AC set and relevant
    Design Commitments, and the plan's Technical Architecture, verification/
-   environment context, and milestones.
+   environment context, Integrated Witness Proposal, and milestones. Follow its
+   exact decision IDs in workspace state to establish grants. For active work
+   predating this proposal section, reconcile existing design and approvals;
+   ask only for missing or materially changed choices, without inventing a past
+   checkpoint or restarting completed stages.
 2. Confirm every AC ID appears in some milestone's `satisfies` entry. Repair
    missing assignments with `heddle milestone edit` — reading the AC and each
    milestone's scope for best fit — before writing that AC's tests; an
@@ -75,23 +79,28 @@ Create and record all applicable lanes:
    owner; the implement session completes it before claiming that AC verified.
 2. **Integrated acceptance test.** Define one command that answers "does the
    composed feature work end-to-end": it crosses the feature's internal
-   module boundaries, covers every AC, mocks only true external systems, and
-   asserts AC-granular observable outcomes. When its success criteria are not
-   already approved, record them as a user-owned decision whose payload
-   names: the end-to-end flow exercised, which assertions cover which AC IDs,
-   the conditions under which the test counts as passing, and what is mocked
-   versus real.
-3. **Live E2E lane.** Where the feature integrates with external services or
-   real data, isolate a no-mock test behind a dedicated marker, never in the
-   default suite or CI. It repeats the acceptance flow against real
-   dependencies with representative data and must be idempotent. Enumerate
-   every prerequisite and classify each as auto-resolvable (this session or
-   the existing dev setup provides it) or user-required: credentials, network
-   reach, data availability and freshness windows, estimated cost and quota,
-   side effects, environment variables. Route user-required prerequisites
-   through `heddle decisions add`; a prerequisite the user defers needs a
-   recorded fallback (cached session, smaller data subset, named ACs excluded
-   from live coverage) noted in the plan.
+   module boundaries, mocks only true external systems, and asserts the
+   confirmed AC-granular outcomes. Realize the approved proposal; any AC excluded
+   from this lane has a concrete fallback witness and remains required overall.
+   Bind `acceptance_test` within the scope ruling's explicit e2e grant. Record a
+   new class-2 question naming the original ruling only for a material change:
+   an AC leaves a lane, a pass condition weakens, real/doubled systems, effects
+   or stages change, caps/cost are exceeded, or a user-required prerequisite
+   appears. Its payload identifies the flow, AC assertions, pass conditions and
+   real/doubled systems. Stop dependent work until the ruling is settled.
+3. **Live E2E lane.** Bind the confirmed live lane as `live_e2e_test`. Isolate
+   real-provider/service execution behind the host's live marker and e2e marker
+   for a full workflow, outside default runs. It repeats the applicable e2e flow
+   with representative data under the recorded grant. Effects are idempotent or
+   reversible with the approved cleanup/recovery plan. Retain the confirmed
+   prerequisites and caps: timeouts, turn/retry and per-attempt/aggregate cost
+   bounds have expected healthy-run headroom within host limits, never unbounded
+   retries. A declined lane stays N/A-by-design with its ruling, reason and
+   fallback. Do not silently add live or substitute cached output for declared
+   real execution. Newly discovered prerequisites are auto-resolvable setup or
+   user-required choices; material changes use class 2 against the original
+   ruling. Execution deferral leaves required proof pending; only an explicit
+   contract change with reconciled coverage and commands changes the obligation.
 4. **Smoke test.** Provide a fast session-start check proving the repository
    is healthy enough for new work. It exercises pre-existing behavior only —
    run it now and keep it green. Classify any red result as feature-caused,
@@ -109,18 +118,27 @@ Create and record all applicable lanes:
 
    | AC ID | Milestone test route            | Acceptance | Live               | Notes |
    | ----- | ------------------------------ | ---------- | ------------------ | ----- |
-   | AC-1  | `tests/.../test_x.py::test_ac1` | covered    | deferred: fallback |       |
+   | AC-1  | `tests/.../test_x.py::test_ac1` | covered    | excluded: fallback |       |
 
-   Mark each lane cell covered, deferred (name the recorded fallback), or not
-   applicable (state why). The milestone column must agree with the spec's
-   `Verified-by:` routes. A blank cell requires a reason.
+   Mark each lane cell covered, excluded (name the approved concrete fallback),
+   or not applicable (state why). These are design coverage dispositions, not
+   execution results: an unrun required witness remains pending proof. The
+   milestone column must agree with the spec's `Verified-by:` routes. A blank
+   cell requires a reason.
 
 Create supporting infrastructure as the lanes need it: fixtures, mock
 services, seed data, conftest entries.
 
+For a declared alignment check, retain the artifacts needed to judge its stated
+criteria. Tests prove every deterministically assessable AC condition; judgment
+does not replace them. The final-boundary lead performs the check after the last
+relevant fix and applicable passing run, recording one Assessment entry in the
+plan's verification note. Scaffold designs retention, not the final assessment.
+
 ## Command facts
 
-Record concise contract evidence in the existing `### Verification Commands`,
+Record concise contract evidence in the `### Integrated Witness Proposal`,
+`### Verification Commands`,
 `### Live E2E Test Prerequisites`, `## Technical Architecture`, or `## AC Coverage
 Matrix` sections so the scaffold reviewer can assess tests without reading
 production source. For each affected consumer promise, name the actual public
@@ -239,7 +257,8 @@ absolute quality round limit. It invokes no provider and does not resolve a stop
 or open a round; follow the separate native actions in their emitted order.
 
 The stage is ready for **implement** when the AC coverage matrix is complete,
-approved/deferred acceptance and live decisions are recorded, smoke is green,
+the confirmed e2e and declared live commands are bound within their grants,
+user-required decisions are resolved, smoke is green,
 every changed-behavior AC has a correctly failing discriminator, survivor pins
 are green, command facts are executable, and required review assignments are
 closed. A coverage design or authorized test is not evidence that it ran.

@@ -89,6 +89,8 @@ Use the packaged scaffold and this document structure:
 - `## Approved MVP (from brief)`: preserve the approved decomposition verbatim
   as provenance, then add a labeled scope-delta assessment, the Implementation
   Parts authorization table, and a conceptual integrated acceptance-test outline.
+  State the proposed e2e-only or e2e-plus-live posture and its reason in that
+  outline; the plan owns the concrete witness design.
   If a part changed shape, retain its approved form and mark the revision as
   requiring authorization at Checkpoint 1.
 - Conceptual Design: terms, observable interactions, labeled assumptions,
@@ -127,8 +129,21 @@ Populate `plans/<feature>/plan.md` with:
 - Implementation Strategy: dependency-ordered, independently verifiable
   milestones with Scope, Work, Decisions, and Discoveries.
 - Verification and Environment: references to native commands, non-obvious
-  setup and live-test prerequisites, and recovery notes for destructive steps.
-  Planned or unapproved execution remains explicitly pending.
+  setup and recovery notes, and `### Integrated Witness Proposal`. After both
+  documents are drafted, propose the complete flow through the real application
+  boundary, an e2e lane doubling only external systems, and live whenever the
+  feature calls a real provider/service and a run is feasible. Name ACs per lane
+  and concrete fallback witnesses for exclusions, deterministic pass conditions,
+  real/doubled systems, alignment criteria and retained artifacts. Include
+  live prerequisites (targets, credential references, data/freshness, network,
+  quota/cost, effects and evidence destination), classified auto-resolvable or
+  user-required; effects must be idempotent or reversible with cleanup/recovery.
+  Propose stages and bounded reruns for both lanes, with live time/turn/retry and
+  per-attempt/aggregate cost caps based on expected healthy cost with headroom
+  within host limits. Finishing needs current milestone, acceptance and smoke
+  proof under existing disposition rules, plus declared live and alignment
+  evidence. Live does not replace acceptance. Planned or unapproved execution
+  remains explicitly pending.
 - The managed plan-status region. Native task/session commands own changing
   progress and handoffs; the plan is not a duplicate operational ledger.
 
@@ -150,6 +165,13 @@ both documents agree, milestone `satisfies` covers the canonical ACs, and the
 authorized/deferred boundary and remaining decisions are explicit. Readiness
 uses the confirmed matrix; a disabled gate is intentionally not run, not passed.
 
-Checkpoint 1 re-assesses Implementation Parts after the applicable spec-review
-work. Do not claim that later authorization here. Follow native next actions
-and the caller's phase-exit authority.
+Checkpoint 1 re-assesses Implementation Parts and confirms witness shape and
+explicit execution grants after the applicable spec-review work. Draft the
+witness question in the plan here; do not record that future native question at
+specify, because an unresolved decision blocks progression. The checkpoint lead
+includes e2e authority in the scope ruling for every posture and records one
+class-5 question for live or declining live for a real-provider feature, bundling
+user-required prerequisites, effects, stages and caps. Recommend e2e during
+implementation/milestone/final proof and live at the owning final boundary.
+Do not claim that later authorization here. Follow native next actions and the
+caller's phase-exit authority.

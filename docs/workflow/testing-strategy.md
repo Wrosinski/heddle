@@ -83,6 +83,93 @@ enforced timeouts. Diagnose and redesign expensive fast
 tests before considering a documented separate-lane exception; relabeling alone
 does not improve their cost or discharge their proof obligation.
 
+## Integrated witness lanes
+
+Features specified under this guidance propose an integrated witness after the
+spec and plan are drafted. The plan's `### Integrated Witness Proposal` owns
+the design; the spec's conceptual end-to-end outline states the lane posture.
+The e2e lane drives the whole approved flow through the real application
+boundary, doubling only true external systems. Bind it as `acceptance_test`.
+Keep fast milestone and public-boundary checks independently selectable; the
+integrated lane complements their feedback rather than repeating their matrix.
+
+Propose a live lane, bound as `live_e2e_test`, whenever the contract calls a real
+provider/service and representative input, obtainable credentials, bounded cost
+and safe effects make it feasible. Live repeats the applicable flow with real
+dependencies. Effects must be idempotent or reversible under an approved cleanup
+and recovery plan. Declining live for such a feature requires an owner-confirmed
+reason and fallback. A feature without a real provider/service proposes e2e only.
+
+Record flow, ACs per lane, discriminating deterministic conditions, real versus
+doubled systems, any alignment criteria and retained artifacts, prerequisites,
+execution stages, caps and finishing criterion. Every required AC needs proof;
+an AC excluded from one lane names its concrete fallback witness. Exclusion
+from a lane never waives the AC. Classify prerequisites as auto-resolvable setup
+or user-required decisions, including targets, credentials by reference, data
+freshness, network, quotas/cost, effects and evidence destination.
+
+Draft at specify; record questions and obtain authorized rulings at the post-spec-review
+Checkpoint 1, including when spec review is Off. An unresolved native question
+blocks progression, so do not create a future checkpoint question during
+specify. The scope ruling explicitly confirms the e2e shape and its execution
+stages and bounded reruns for every posture; no separate e2e decision is needed.
+Recommend e2e authority during implementation, milestone and final verification.
+A live lane or declining live has one class-5 question bundling posture,
+user-required prerequisites, allowed effects, per-attempt and aggregate cost
+caps, execution stages and bounded retries. Recommend live at the owning final
+boundary. Neither scope approval alone nor prerequisites imply execution grants.
+
+The plan references exact native decision IDs; scaffold binds exact commands
+within their approved scope. Reuse grants for those stages and bounds. Earlier
+execution, including at scaffold, needs explicit coverage in a grant. Material
+changes to coverage, pass conditions, real/doubled systems, effects, stages,
+caps or user-required prerequisites reopen the original ruling through a class-2
+question. Scheduled auto-resolvable setup may remain a task; unresolved owner
+choices remain blockers. Broad suites retain their separate authority.
+
+Size live timeout, turn, retry and cost caps from expected healthy cost with
+headroom, within the lane ceilings above and the approved aggregate budget.
+Finite caps stop runaway work; they cannot guarantee every healthy run succeeds.
+A timeout is failed/incomplete proof, and a failure grants no extra paid retries.
+
+Finishing requires current milestone, acceptance and smoke proof under existing
+smoke-disposition rules, plus declared live proof and any declared alignment
+assessment. Live does not replace acceptance. Partial passes, skipped cases,
+timeouts and unrun required lanes remain unfinished. Execution deferral leaves
+proof pending; changing an obligation requires an explicit contract decision
+and reconciled commands, AC coverage and evidence.
+
+### Alignment assessment and quality observation
+
+Where deterministic assertions cannot judge a promised outcome, declare the
+remaining alignment criteria and artifacts in the proposal. Tests still prove
+every deterministically assessable AC condition. After the final applicable
+passing run and last relevant fix, the execution-owning lead at peer review
+(Overlay R Off) or robustness (R On) judges the retained output against the
+spec and plan. Misalignment is a defect and blocks finishing. Quality beyond the
+contract is an observation; an explicit contract quality threshold still binds.
+
+The plan's verification note under `### Verification Commands` owns one
+Assessment entry with criteria, assessor,
+native run reference and relevant source identity, exact retained artifacts,
+conclusion and limitations. Session handoffs and spec Outcomes reference it.
+Refresh it after a relevant fix or replacement output; an old assessment cannot
+qualify a new run. Retain artifacts in durable local evidence, preferably within
+the workspace archive, or name their external retention location. Judgment never
+becomes a verification fact or turns a red witness green. Reviewers inspect
+criteria and cited evidence within their role; they do not author the lead's
+assessment. Source review may precede final execution without inventing a pass.
+There is no independent assessment-only review obligation, but the entry is
+authored plan content and can invalidate source-bound evidence. Record it before
+any required qualifying final rereview, or validate and refresh affected
+dispositions/review evidence after recording it. Native freshness, originating
+inspection and review-allowance requirements remain unchanged.
+
+For active features already beyond specify, reconcile existing design and grants
+at the next relevant lead session. Reuse sufficient approvals and ask only about
+missing or materially changed choices; do not invent a retrospective checkpoint
+or restart completed stages. Accepted features retain their original contract.
+
 ## Start here before selecting tests
 
 1. Identify the changed behavior, acceptance criteria (ACs), public contracts,
@@ -168,8 +255,9 @@ execution evidence; imports and collection hooks must not launch external work.
 
 | Work stage | Test activity |
 | --- | --- |
-| Research and specification | Inspect existing contracts/tests and identify proof obligations; no broad baseline by default |
-| Plan review and scaffolding | Declare exact selections, meaningful red/green expectations, costs, fixtures, and separately authorized e2e/live proof |
+| Research and specification | Inspect contracts/tests and propose integrated witness lanes, prerequisites, caps and grants; no broad baseline by default |
+| Spec review / Checkpoint 1 | Confirm witness shape and explicit execution grants with scope, including when the reviewer is Off; settle owner-required prerequisites |
+| Plan review and scaffolding | Review feasibility, realize the confirmed design, bind exact commands, and retain meaningful red/green expectations, costs and fixtures |
 | Task implementation | Run affected behavior and direct-consumer checks; include related slow cases for a concrete reason |
 | Milestone boundary | Execute the applicable recorded milestone proof within its authority; preserve required unrun obligations |
 | Review and remediation | Reuse applicable evidence; rerun affected checks after fixes; reviewers retain their role limits |
@@ -298,6 +386,7 @@ Record in the existing plan/session verification note:
 | Cost | Expected setup/time/resources, or explicitly unknown |
 | Outcome | Selected/executed/passed/failed/skipped counts and actual exit |
 | Applicability | Relevant source and environment, linked native fact where required |
+| Assessment | When declared: criteria, assessor, native run/source reference, exact retained artifacts, alignment conclusion, limitations and separate quality observations; one entry in the plan referenced by session/spec summaries |
 | Unrun | Required pending proof separately from optional unrequested regression |
 
 Reuse evidence only while Heddle's relevant-content and command identity rules

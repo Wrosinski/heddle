@@ -121,14 +121,30 @@ heddle verify --scope acceptance
 heddle verify --scope smoke
 ```
 
-When a live lane is declared and its prerequisites and
-cost/credential use are approved, also run `heddle verify --scope live` against
-the same current relevant content.
-When it is inapplicable or deferred, preserve the recorded reason and substitute
-evidence instead of silently omitting it. An unrun required witness remains
-pending; a deferral is not permission to waive an acceptance criterion. Review
-authority and available prerequisites do not grant broad, full-workflow, or
-real-provider test execution.
+Read the Integrated Witness Proposal and follow its exact native ruling IDs.
+Use the confirmed grants for both lanes within their approved stages, effects
+and bounds. When live is declared, also run `heddle verify --scope live` against
+the same relevant content; live does not replace acceptance. A declined lane
+retains its owner-confirmed reason and concrete fallback. Deferring execution
+leaves required proof pending; changing the obligation requires an explicit
+contract ruling and reconciled commands and coverage. Route missing or materially
+changed choices to the original owner. For older active work, reconcile existing
+design/grants without inventing past approval or restarting completed stages.
+Prerequisites and review authority do not grant external execution.
+
+After the last relevant fix and final applicable passing run, the lead performs
+any declared alignment assessment against the retained artifacts and spec/plan
+criteria. Misalignment and unmet contract quality thresholds block finishing;
+observations about quality beyond the contract do not. Keep one Assessment in
+the plan under `### Verification Commands`, with criteria, assessor, native run/source
+reference, exact artifacts, conclusion, limitations and separate quality
+observations. Session/spec summaries reference it. Refresh after relevant changes
+or replacement output; an old assessment cannot qualify a new run. Judgment is
+not a verification fact. The robustness-analysis gate retains its existing
+charter; there is no separate assessment-only review. Native freshness still
+applies to authored plan edits and required originating-reviewer inspection.
+Finish the Assessment before a needed qualifying rereview. If it is recorded
+later, revalidate closure and refresh any invalidated disposition or review proof.
 
 If any required result fails, repair the regression, rerun the affected tests
 and any review dimension invalidated by the fix, then rerun the applicable
@@ -138,9 +154,11 @@ stale.
 
 Exit toward **complete** only when selected robustness assignments are closed,
 originating findings and coverage are qualified, the tree is clean, and the applicable
-post-hardening verification is green, with required live evidence or an
-explicit live disposition recorded (the `phase-exit` boundary is driver- or
-user-owned).
+post-hardening verification is green under existing smoke-disposition rules,
+declared live evidence is current and any declared alignment assessment is
+recorded. An authorized change to the obligation must already be reconciled;
+mere execution deferral does not qualify exit (the `phase-exit` boundary is
+driver- or user-owned).
 
 After hardening, replace any earlier degraded-smoke ruling with a
 current-stage, user-resolved `smoke_disposition`. The command schema is available

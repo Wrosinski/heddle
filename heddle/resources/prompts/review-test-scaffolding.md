@@ -83,14 +83,21 @@ Plan at `[plan-path]`):
 - **Per-milestone `verification` payloads** — each milestone's
   `verification.command` and `verification.expected`
 - **Feature-level `commands:`** — smoke_test, test_command,
-  acceptance_test, live_e2e_test (entries may be legitimately empty when
-  per-milestone verification carries the posture)
+  acceptance_test, live_e2e_test. Require smoke_test and acceptance_test, plus
+  live_e2e_test when live is declared. Milestone checks cannot replace required
+  final-scope commands. Omit live only for a genuinely inapplicable or
+  owner-confirmed declined posture; inspect test_command where applicable.
 - **AC Coverage Matrix** — if the plan or spec carries one, the mapping
   of ACs to test types
 - **Supplied contract evidence** — public help, manifest, type, or interface
   observations; fixture preconditions; intended red assertions and their
   observed causes; and whether each observation came from inspection,
   collection, or execution
+- **Integrated Witness Proposal** — the plan's confirmed lanes, conditions,
+  coverage fallbacks, prerequisites, effects, caps and explicit grants. Follow
+  its exact decision IDs in workspace state; a lead-authored ruling is not
+  automatically delivered as prior review ground. Existing active features may
+  use reconciled prior design/approvals without a retrospective checkpoint.
 
 From the plan, read verification infrastructure and the Technical Architecture
 needed to assess test boundaries and integration coverage. Use architecture as
@@ -208,11 +215,16 @@ merely because it passes in the red phase.
 
 Evaluate the feature acceptance test design:
 
-- Does it exercise the full data/control flow across module boundaries (not just per-milestone isolation)?
-- Does it cover every AC ID (each AC should have at least one assertion)?
+- Does it realize the confirmed complete flow across internal module boundaries?
+- Does it assert the confirmed AC outcomes, with concrete fallback witnesses for
+  ACs excluded from this lane and complete required coverage across proof routes?
 - Does it avoid mocking cross-module interfaces (only external services mocked)?
 - Will it produce a clear pass/fail result with AC-level granularity?
 - Is the test command documented and runnable?
+- Does the bound exact command fit the recorded e2e grant's scope and stages?
+  Material departures in AC coverage, pass conditions, real/doubled systems,
+  effects, stages, caps or user-required prerequisites need a class-2 question
+  referencing the original ruling before dependent work.
 - Does the acceptance test follow established patterns from related features? When the area has existing acceptance or live E2E tests, does the scaffolding reuse shared fixtures and follow the same structural conventions?
 - When installed lifecycle behavior is affected, does the fixture include the
   minimum state-birth, milestone/final-proof, frontmatter, close-result, and
@@ -223,14 +235,24 @@ Evaluate the feature acceptance test design:
 Evaluate the live end-to-end test design against the acceptance test:
 
 - Does the live E2E test exercise the same data/control flow as the acceptance test?
-- Are all ACs covered by the live E2E test, or are some intentionally deferred? If deferred, is the reason documented?
+- Are its assigned ACs covered, with a concrete fallback for every lane exclusion?
+  Exclusion from live cannot waive a required AC or an otherwise declared lane.
 - Is the test isolated behind a marker (e.g., `@pytest.mark.live`) and excluded from CI/default test runs?
-- Is the test idempotent (safe to run repeatedly)?
+- Are effects idempotent or safely reversible under the approved cleanup and
+  recovery plan, including bounded reruns?
+- For a real-provider feature without live, is the owner's reason and fallback
+  recorded? A substitute alone cannot authorize declining a feasible live lane.
+- Do time, turn, retry and per-attempt/aggregate cost caps leave expected healthy
+  runs headroom within the host's limits and explicit grant?
+- Does a declared alignment check retain its artifacts and specify criteria for
+  the final-boundary lead? Tests still assert all deterministically assessable
+  conditions; judgment never turns red proof green or replaces acceptance.
 
 Evaluate the prerequisites checklist:
 
 - Are all prerequisite categories addressed (credentials, network, data availability, cost/quotas, idempotency, environment variables, timing)?
-- Is each prerequisite classified as auto-resolvable or user-required?
+- Do prerequisites match the ruling, with scheduled auto-resolvable setup
+  distinguished from unresolved user-required choices and material changes routed?
 - Are estimated costs documented?
 - Is the live-E2E posture recorded honestly (a real command in `commands.live_e2e_test`, or an explicit N/A-by-design record in the spec/plan)?
 
@@ -359,11 +381,13 @@ findings do not. Source references prove accounting, not causal truth.
 `details.ac_tests` covers every supplied AC ID once with its
 covered/partial/gap/conflict/unverifiable assessment, concrete milestone test,
 acceptance test and live test references, and checked evidence. Explain missing,
-deferred or N-A-by-design live coverage in evidence rather than inventing a
-test. `details.infrastructure` contains exactly three assessments, each with
+lane-excluded or N-A-by-design coverage with its concrete fallback in evidence
+rather than inventing a test. Execution deferral leaves required proof pending.
+`details.infrastructure` contains exactly three assessments, each with
 its exact ID, checked status and evidence: `commands` covers smoke_test,
 test_command, acceptance_test and live_e2e_test; `prerequisites` covers
-live_e2e_prerequisites_confirmed and the applicable live-E2E posture;
+the exact native live/declined-live ruling, applicable execution grant and setup
+status, distinguishing scheduled setup from unresolved owner choices;
 `milestone-verification` covers every milestone verification payload and the AC
 Coverage Matrix. Preserve each named command, prerequisite and milestone's
 status and evidence within its owning assessment. Preserve labelled survivor pins,
@@ -443,7 +467,7 @@ Stop after these criteria are met.
 | Document                    | Gate Table Says              | Prompt Instructs                                 | Match |
 | --------------------------- | ---------------------------- | ------------------------------------------------ | ----- |
 | Feature Spec                | Acceptance Criteria and their defining references | AC section plus explicitly referenced commitments (Step 2) | ✓ |
-| Implementation Plan         | Verification and test-boundary context | Native verification payloads plus relevant Technical Architecture (Step 3) | ✓ |
+| Implementation Plan         | Verification and test-boundary context | Technical Architecture, witness proposal and ruling references, native verification payloads, prerequisites and coverage (Steps 1 and 3) | ✓ |
 | Code — test files           | Test files                   | Test files discovered and read in full (Step 4)  | ✓     |
 | Code — implementation files | Not listed (no access)       | Excluded — feature changes absent; production code out of lane | ✓     |
 

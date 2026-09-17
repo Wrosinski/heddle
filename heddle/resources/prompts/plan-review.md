@@ -23,6 +23,8 @@ and supplied milestone facts. Read the full plan and native milestone/command
 context. Read the spec's Approved MVP, Design Commitments, and canonical
 Acceptance Criteria; consult a linked settled decision needed to interpret a
 commitment. Do not re-review the spec or access production implementation code.
+The workspace `state.yaml` sits alongside the plan at `[plan-path]`; read the
+proposal's exact decision IDs there to establish the actual rulings and grants.
 
 Identify every AC and milestone, including its satisfies, owns, dependencies,
 complexity, and verification facts. Distinguish new files the plan will create
@@ -78,6 +80,20 @@ Assess each of these eight native dimension IDs exactly once:
   Preserve pending scaffolding, applicable live/installed prerequisites, and
   separate execution grants. Include recovery evidence when the approach can
   destroy or overwrite data; do not demand a blanket Idempotence section.
+  Inspect the Integrated Witness Proposal: the full approved flow crosses the
+  real application boundary, internal composition is real, and doubles replace
+  only external systems. Verify lane-specific AC coverage and concrete fallback
+  witnesses, justified live posture, discriminating conditions, safe effects and
+  feasible prerequisites. Check headroom within host time limits and approved
+  per-attempt/aggregate cost and retry bounds. Follow referenced decision IDs in
+  workspace state to check shape and explicit grants for both proposed lanes;
+  lead questions are not automatically embedded as prior review decisions.
+  Owner choices cannot be disguised as scheduled auto-resolvable setup. Missing
+  or materially changed choices are REPORT; reuse adequate existing rulings,
+  including for active work predating the proposal section. Do not demand a
+  retrospective checkpoint. Acceptance remains required alongside declared live.
+  Any alignment check identifies criteria and retained output, its final-boundary
+  lead owner and Assessment record; noncontractual quality is observational.
 - **related-context-and-reusability:** Assess the existing owners, patterns,
   dependencies, and constraints the plan cites. Prefer extending a demonstrated
   seam to adding parallel machinery. Limit conclusions to supplied evidence;

@@ -43,6 +43,34 @@ packaging, local e2e and live proof separate. For a shared fixture, inspect its
 first-order consumers and select representative cross-consumer coverage instead
 of defaulting to the full suite. A plan is not execution authority.)_
 
+### Integrated Witness Proposal
+
+_(After drafting spec and plan, propose the complete user-visible flow through
+the real application boundary. The e2e lane doubles only external systems;
+propose live too whenever real providers/services, representative input,
+obtainable credentials, bounded cost and safe effects make it feasible. Name
+ACs per lane and concrete fallback witnesses for exclusions, deterministic pass
+conditions, real/doubled systems, alignment criteria and retained artifacts.
+List prerequisites as auto-resolvable setup or user-required decisions, effects
+and idempotency or reversible-effect cleanup/recovery. Propose execution stages
+and bounds for both lanes; give live time/turn/retry and per-attempt/aggregate
+cost caps expected to accommodate healthy runs with headroom.)_
+
+_(Draft at specify; the lead records the witness batch and obtains its ruling at
+Checkpoint 1 after spec review, including when the reviewer is Off. The scope
+ruling includes explicit e2e execution authority for every posture; live or
+declining live for a real-provider feature has a bundled class-5 question.
+Reference exact native decision IDs and grants here. Unresolved owner choices
+block progression; scheduled auto-resolvable setup may remain a task. Scaffold
+binds exact commands within the grant and routes material changes as class-2
+questions naming the original ruling. The proposal itself grants no execution.)_
+
+_(Finishing needs current milestone, acceptance and smoke proof under existing
+smoke-disposition rules, plus declared live proof and alignment assessment.
+Live does not replace acceptance; an unrun required lane stays pending.
+For existing active work, reconcile design and prior grants without fabricating
+a retrospective checkpoint or restarting completed stages.)_
+
 ### Verification Commands
 
 _(Reference the native command facts and owned source declarations. Explain
@@ -52,11 +80,24 @@ required proof exceeds its budget, record a measured, scoped exception with a
 cause, owner and review point. Separate planned, authorized, executed, and
 current proof.)_
 
+_(When an alignment check was declared, this verification note owns one
+Assessment entry: criteria, assessor, native run/source reference, exact retained
+artifacts, conclusion, limitations and separate quality observations. The final
+peer-review/robustness lead records it after the last relevant fix and applicable
+passing run, refreshing after changed output or relevant changes. Misalignment
+blocks; quality beyond the contract does not. Session/spec summaries reference
+this entry. Judgment never substitutes for a verification fact. This is authored
+plan content: record it before a required qualifying final rereview, or refresh
+affected closure evidence afterward. Native freshness and originating-inspection
+requirements still apply.)_
+
 ### Live E2E Test Prerequisites
 
-_(State applicability and any required data, credentials, cost, or effects.
-Separate auto-resolvable setup from user-required choices and execution grants.
-Retain unresolved or unrun required proof as pending.)_
+_(Reference applicability, prerequisite design and native rulings from the
+Integrated Witness Proposal. Record setup status and material changes here
+without duplicating design or grants. Separate scheduled auto-resolvable work
+from unresolved owner choices, which block progression. Execution deferral leaves
+required proof pending; changing the obligation needs an explicit contract ruling.)_
 
 ### AC Coverage Matrix
 

@@ -63,10 +63,10 @@ before admission; the workflow guide's phase numbers are explanatory labels.
 
 | Stage | Work and boundary |
 | --- | --- |
-| `specify` | Author the spec, plan and milestone skeleton. |
-| `spec-review` | Review the product contract and settle scope decisions. |
+| `specify` | Author the spec, plan, integrated witness proposal and milestone skeleton; draft checkpoint questions without recording future blockers. |
+| `spec-review` | Review the product contract; the lead confirms scope, witness shape, prerequisites and explicit lane grants at Checkpoint 1, even with the reviewer Off. |
 | `plan-review` | Review approach, architecture and delivery strategy. |
-| `scaffold` | Design executable witnesses, bind acceptance criteria and declare verification commands. |
+| `scaffold` | Realize the confirmed witness, bind acceptance criteria and exact commands within the recorded grants; route material changes to the original owner. |
 | `implement` | Complete tasks, verify and review each milestone, then advance it. |
 | `peer-review` | Review the integrated change; perform final proof when robustness is Off. |
 | `robustness` | Perform selected robustness work and final post-hardening proof; Off adds no substitute inline review. |
@@ -124,6 +124,24 @@ The progressive `test_command` is feedback, not a native `feature` verification
 scope. Required final proof remains applicable even when no model review runs.
 The [testing strategy](../workflow/testing-strategy.md) governs exact selection,
 cost and execution authority; an inherited command is not an execution grant.
+
+The integrated witness design and any declared alignment assessment are authored
+plan judgments, not new state fields or verification scopes. Current milestone,
+acceptance and smoke evidence remain required under existing disposition rules;
+declared live proof is additional. The owning final-boundary lead assesses final
+retained output after the last relevant fix and applicable passing run, with
+native run/source and artifact references. Misalignment blocks the finishing
+claim; quality beyond the contract is observational. Session/spec summaries
+reference the plan's assessment instead of creating another evidence owner.
+Assessment edits are authored plan changes, so source-bound review evidence can
+become stale; existing qualification and originating-inspection duties remain.
+
+These documentary duties do not change native enforcement: declared live is
+required at robustness and complete; robustness is traversed even with R Off.
+The peer-review lead then owes live before handoff even though the peer boundary
+does not enforce it.
+Checkpoint witness questions use existing decisions, and unresolved questions
+block progression. Recorded grants remain separate from design and prerequisites.
 
 Verification records the exact command, exit code, log, declared source set and
 before/after source-evidence manifests. Freshness compares the current command,

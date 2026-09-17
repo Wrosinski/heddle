@@ -75,6 +75,7 @@ def test_ac12_shipped_plan_template_owns_approach_without_duplicate_contract():
     text = (ROOT / "heddle/resources/plan.scaffold.md").read_text()
     assert "## Technical Architecture" in text
     assert "## Implementation Strategy" in text
+    assert "### Integrated Witness Proposal" in text
     assert "Milestone <id>:" in text
     assert "heddle:begin plan-status" in text
     for retired in (
@@ -121,6 +122,11 @@ def test_ac12_scaffold_review_reads_plan_test_boundary_and_binds_fresh_changes(
     plan_text = (
         "# Plan\n\n## Technical Architecture\n\n"
         "The public read_value boundary owns VALUE; test through that boundary.\n\n"
+        "## Verification and Environment\n\n"
+        "### Integrated Witness Proposal\n\n"
+        "E2e boundary: query -> published artifact.\n"
+        "Checkpoint ruling: D-WITNESS-1 in state.yaml; implementation and final "
+        "e2e execution granted. No external service, so live is inapplicable.\n\n"
         "## Implementation Strategy\n\n"
         "### Verification Commands\n\n"
         "Inspect the native command facts; tests/check.py is the local witness.\n"
@@ -157,6 +163,7 @@ def test_ac12_scaffold_review_reads_plan_test_boundary_and_binds_fresh_changes(
     assert "Do not read other Feature Spec sections" not in prompt
     assert first.ac_ids == ("AC-1",)
     for heading in (
+        "Integrated Witness Proposal",
         "Verification Commands",
         "Live E2E Test Prerequisites",
         "AC Coverage Matrix",
@@ -167,6 +174,17 @@ def test_ac12_scaffold_review_reads_plan_test_boundary_and_binds_fresh_changes(
     assert "===== BEGIN RELEVANT TEST FILES =====\ntests/check.py" in prompt
     assert "Contract evidence (inspection): public help exposes query VALUE" in prompt
     assert "Collection has not established execution" in prompt
+    assert "E2e boundary: query -> published artifact." in prompt
+    assert "D-WITNESS-1 in state.yaml" in prompt
+    assert "implementation and final e2e execution granted" in prompt
+    assert "Follow its exact decision IDs in workspace state" in " ".join(
+        first.prompt.effective_instructions.split()
+    )
+    assert "live_e2e_prerequisites_confirmed" not in first.prompt.effective_instructions
+    instructions = " ".join(first.prompt.effective_instructions.split())
+    assert "Require smoke_test and acceptance_test" in instructions
+    assert "live_e2e_test when live is declared" in instructions
+    assert "the exact native live/declined-live ruling" in instructions
     scaffold_context = next(
         section
         for section in first.runtime_sections
@@ -195,6 +213,24 @@ def test_ac12_scaffold_review_reads_plan_test_boundary_and_binds_fresh_changes(
     assert fresh.review_basis_hash != first.review_basis_hash
     assert fresh.input_hash != first.input_hash
 
+    # A witness-only edit must change delivered evidence and current identity;
+    # the earlier captured input remains stable. No provider or witness runs.
+    plan_path.write_text(
+        plan_text.replace("read_value", "query_value").replace(
+            "query -> published artifact", "query -> recovered artifact"
+        )
+    )
+    witness_changed = prepare(
+        capture_context(host, role="review-test-scaffolding", lane="codex")
+    )
+    assert "query -> recovered artifact" in witness_changed.transport.stdin
+    assert "query -> published artifact" not in witness_changed.transport.stdin
+    assert witness_changed.review_basis_hash != fresh.review_basis_hash
+    assert witness_changed.effective_prompt_sha256 != fresh.effective_prompt_sha256
+    assert witness_changed.input_hash != fresh.input_hash
+    assert witness_changed.prompt_version == fresh.prompt_version
+    assert prepare(context).transport == first.transport
+
     # The model may read defining references from the resolved spec. The existing
     # complete-spec capture must bind those bytes even though the inline slice
     # stays AC-only; no second reference parser or copied commitments are needed.
@@ -208,8 +244,8 @@ def test_ac12_scaffold_review_reads_plan_test_boundary_and_binds_fresh_changes(
     changed_spec = prepare(
         capture_context(host, role="review-test-scaffolding", lane="codex")
     )
-    assert changed_spec.review_basis_hash != fresh.review_basis_hash
-    assert changed_spec.input_hash != fresh.input_hash
+    assert changed_spec.review_basis_hash != witness_changed.review_basis_hash
+    assert changed_spec.input_hash != witness_changed.input_hash
     assert prepare(context).review_basis_hash == first.review_basis_hash
     assert state_path.read_bytes() == state_before
 

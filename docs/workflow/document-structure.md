@@ -60,6 +60,8 @@ The authoring shape is:
   named deferred scope, and the Implementation Parts authorization table. A part
   without authorization is deferred. Checkpoint scope confirmation remains an
   explicit owner choice, including when the review finds the scope adequate.
+  Its conceptual end-to-end outline states the e2e/live lane posture and reason;
+  concrete witness design belongs in the plan.
 - **Conceptual Design:** terms, interactions, competing goals where consequential,
   labeled assumptions, invariants, domain challenges and relevant failure classes.
   Cover what changes a decision. Do not substitute a component tour for behavior.
@@ -105,13 +107,19 @@ operational frontmatter and is not another state ledger.
 - **Environment and verification:** prerequisites, limitations and evidence
   expectations. Exact commands live in native `commands` and milestone
   `verification`, not a second copied command inventory.
+- **Integrated Witness Proposal:** complete flow, lanes, ACs per lane and
+  concrete fallback witnesses, deterministic conditions, real/doubled systems,
+  alignment criteria/artifacts, prerequisites, execution stages, caps and
+  finishing criterion. Draft at specify; confirm shape and grants at Checkpoint 1;
+  realize at scaffold. Reference exact native rulings rather than copying them.
 - **Implementation Strategy:** independently verifiable milestones with scope,
   expected capability, approach, owned write surface, dependencies and acceptance
   evidence. Expand tasks at the current milestone through native operations.
 
 Keep `### Milestone <id>:` joined to native milestone IDs and preserve the
 `heddle:begin plan-status` / `heddle:end plan-status` managed region. Preserve the
-`### Verification Commands`, `### Live E2E Test Prerequisites` and
+`### Integrated Witness Proposal`, `### Verification Commands`,
+`### Live E2E Test Prerequisites` and
 `### AC Coverage Matrix` reader anchors where scaffold context uses them; their
 content points to native commands and records proof coverage/prerequisites,
 not duplicate AC definitions. A prerequisite is not execution approval.
@@ -121,6 +129,17 @@ contract and direct-consumer selections, expected cost including nested launches
 and required pending proof separately from optional regression. Broad suites and
 both local full-workflow e2e and live tests require explicit scope authority,
 including at phase exit or pre-merge. Prerequisites do not grant execution.
+
+The plan's verification note under `### Verification Commands` owns a declared
+alignment Assessment: criteria,
+assessor, native run reference and relevant source identity, exact retained
+artifacts, conclusion, limitations and separate quality observations. The owning
+final-boundary lead records it after the applicable pass and last relevant fix;
+replacement output or relevant changes require refresh. Session handoffs and
+spec Outcomes reference this entry. Judgment is not a native verification result.
+The entry is authored content: its edits remain subject to source-bound review
+freshness. Record it before any required qualifying final rereview, or refresh
+affected closure evidence afterward.
 
 ### Complexity Levels for Milestones
 
@@ -198,6 +217,8 @@ user chose the option directly or a lead applied a standing user grant.
   identify the current grant, the scope it covers, the selected choice, and why
   that choice falls inside the grant. Keep this in the first-write rationale and
   point `routes_to` at the real repository document where the ruling applies.
+  A Checkpoint 1 witness grant is one example: name the approved lane, stages,
+  effects and bounds, and verify that the scaffold-bound exact command fits it.
 - For an ordinary reversible choice derived from ratified engineering policy,
   use `heddle decisions record-policy --from-file <path>`. Its policy fact and
   matching journal entry own the attribution; do not route it through user
