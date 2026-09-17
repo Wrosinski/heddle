@@ -251,13 +251,10 @@ an addressed prior defect, or an observed regression. Retain affected AC IDs,
 source quotations, dimension/category and severity rationale in the finding's
 problem, impact and evidence, without inventing additional machine fields.
 
-IMPLEMENT is work the implementing agent can perform without owner judgment;
-REPORT needs an owner ruling; IGNORE is awareness-only. Consult the ratified
-engineering principles by their supplied path. When a principle settles an
-engineering issue, identify the principle and why it settles the issue in the
-evidence explanation. Principles do not settle product, UX or domain intent.
-Genuine ambiguity remains REPORT. Preserve the role's Phase 6 Minor precedence
-where applicable.
+Apply the delivered Decision routing policy and the reviewer adapter in
+`prompt-authoring-standards.md#finding-structure`. Preserve this role's Phase 6
+Minor precedence where applicable; record the decisive engineering principle in
+the evidence explanation. The native fields below represent that judgment.
 
 Every REPORT has a `decision` containing context, two or three distinct named
 options with trade-offs, a preferred resolution, its rationale,

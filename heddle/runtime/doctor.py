@@ -37,6 +37,7 @@ from heddle.contracts.schemas import AGENTS_KEYS, STAGES
 from heddle.gate import entry as gate_entry
 from heddle.gate import prompt as gate_prompt
 from heddle.gate.registry import GATES
+from heddle.kernel.decision_guidance import load_decision_guidance
 from heddle.kernel.model import (
     FeatureSnapshot,
     is_terminal,
@@ -65,6 +66,7 @@ from heddle.runtime.output import emit_envelope
 from heddle.runtime.readiness import validate_retained_reviews
 
 _STATIC_PROBE_ASSETS = (
+    "decision-routing.md",
     "autonomy-addendum.md",
     "gate-failure-guide.md",
     "prompt-authoring-standards.md",
@@ -184,7 +186,11 @@ def doctor(operation: ops.Doctor) -> HeddleResult:
     # deeper resource-integrity probing belongs to the artifact qualifier.
     for asset in _probe_assets():
         try:
-            _path, source = resolve_resource(asset, config)
+            if asset == "decision-routing.md":
+                policy = load_decision_guidance(config)
+                source = policy.source
+            else:
+                _path, source = resolve_resource(asset, config)
             diagnostics.append(
                 Diagnostic(
                     Severity.INFO,
@@ -194,7 +200,9 @@ def doctor(operation: ops.Doctor) -> HeddleResult:
             )
         except KernelError as error:
             diagnostics.append(
-                Diagnostic(Severity.FATAL, "resource-missing", error.message)
+                Diagnostic(
+                    Severity.FATAL, "resource-missing", f"{error.message}; {error.hint}"
+                )
             )
     # Gate prompts use the same resolver as show-prompt and run-gate. Keep one
     # representative prompt diagnostic explicit so operators can distinguish

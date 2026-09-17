@@ -337,10 +337,12 @@ POLICY_BATCH_INPUT_SCHEMA: dict[str, Any] = {
         "confidence is high, medium or low",
         "scope is feature or the current milestone ID; irreversible, "
         "contract-changing and wider-scope choices must escalate",
-        "basis names the decisive principle; none or conflict requires [REVIEW]; "
+        "basis names the decisive principle; none requires [REVIEW]; "
+        "new conflict choices require an owner ruling via decisions add; "
         "authored judgment remains author-trusted",
-        "identical retry is a no-op or repairs an unbacked journal entry; "
-        "changed data at an existing ID refuses",
+        "identical complete-fact retries remain supported, including conflict; "
+        "nonconflict journal-only entries allow identical retry, but journal-only "
+        "conflict requires an owner ruling; changed data at an existing ID refuses",
     ],
 }
 

@@ -364,9 +364,12 @@ def _unbacked_journal_diagnostics(
             code="policy-journal-unbacked",
             message=f"{feature}: policy journal entries "
             "without accepted facts: "
-            f"{', '.join(audit.unbacked)}; retry the identical policy batch with "
+            f"{', '.join(audit.unbacked)}; for nonconflict entries, retry the "
+            "identical policy batch with "
             "heddle decisions record-policy "
-            f"--feature {feature} --from-file <path>",
+            f"--feature {feature} --from-file <path>; journal-only conflict "
+            "requires an owner ruling: record the owner question with "
+            f"heddle decisions add --feature {feature} --input-json <path>",
         ),
     )
 

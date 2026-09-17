@@ -299,10 +299,11 @@ Then act by level:
   affected milestones for the boundary owner and mark durable knowledge for
   propagation.
 - **Level 3:** an AC, labeled assumption, or prior user decision is invalid.
-  Stop implementation. Write the invalidation evidence, update the affected
-  spec contracts and Decision Log, draft the milestone changes and revised
-  reading pointers, and record the invalidation with `heddle decisions add` for
-  boundary resolution.
+  Stop dependent implementation. Write the invalidation evidence and proposed
+  amendments to spec contracts, Decision Log, milestones and reading pointers.
+  Record the owner question with `heddle decisions add`; apply the amendment as
+  governing only after the authorized ruling. Independent work follows the
+  delivered Decision routing policy and current native legal actions.
 
 Do not continue from contradictory spec, plan, and code. The spec owns design
 intent, code reveals current state, and native task/session facts own operational

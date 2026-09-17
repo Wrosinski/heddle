@@ -703,7 +703,7 @@ def _write_prompt(
     scratch_dir: Path | None = None,
 ) -> Path | HeddleResult:
     # Route the work prompt through the kickoff briefing bridge — the
-    # rendered <stage>.briefing.md is the stage's instructions (artifacts are
+    # composed policy and stage body are the session instructions (artifacts are
     # the only inter-phase channel). Fail-loud: a failed or
     # degenerate kickoff halts the run instead of degrading to a minimal
     # header, and the raw briefing body is delivered byte-identically.

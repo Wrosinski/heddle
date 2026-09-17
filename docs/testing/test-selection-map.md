@@ -154,3 +154,25 @@ owning tests/issues, with the map pointing to a substitute witness when required
 
 Automated selection, import graphs as completeness proof, and automatic broad
 fallback are not supplied by this map. This map supports agent judgment.
+
+### Shared decision policy
+
+Initial fast proof uses `tests/kernel/test_decision_guidance.py`,
+`tests/runtime/test_decision_routing.py`, and `tests/gate/test_decision_routing.py`.
+They cover tiered capture/invalid inputs, exact kickoff-to-driver delivery,
+conflict admission and transaction recovery, mixed policy/template tiers,
+preview/doctor provenance, and identity invalidation. Synthetic temporary hosts
+and injected filesystem failure are hermetic; no provider or full workflow runs.
+The initial 19-case selection took 0.76 seconds on Python 3.13 with one worker;
+that observation is not a permanent budget or proof of later added cases.
+
+Prompt-partial fast classes and the toolchain `TestConventionCheckerExpansion`
+class are separate strict selections: selecting their mixed-band file as a whole
+cannot prove complete collection. Installed delivery uses the existing explicit
+`--test-band toolchain` node
+`tests/runtime/test_packaged_prompt_floor.py::test_built_wheel_renders_every_gate_prompt_outside_the_checkout`,
+which builds/installs offline and checks the common policy in all eight public
+reviewer previews and kickoff. It is not a full lifecycle or provider test.
+Rendered corpus, skill mirrors and native permission/closure witnesses complement
+these behavior checks. A custom fresh-context coherence review assesses judgment
+rules; deterministic tests do not demonstrate measured model-behavior improvement.

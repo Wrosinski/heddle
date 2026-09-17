@@ -6,8 +6,9 @@ Claude Fable 5.1, Claude Fable 5, Claude Opus 5, GPT-6 Astra, and GPT-5.6.
 The notes describe guidance inputs, not Heddle's configured model selection.
 
 This reference ships beside [prompt-authoring-standards.md](prompt-authoring-standards.md).
-The standards own gate output contracts; stage briefings own the instructions
-delivered to workflow sessions. This document supplies authoring rationale,
+The standards own gate output contracts; `decision-routing.md` owns the shared
+ownership and question procedure delivered alongside role and stage instructions.
+Stage briefings own workflow-session actions. This document supplies authoring rationale,
 not another runtime policy or a required host-side document.
 
 **Resolution rule.** When model defaults differ, write the shared condition

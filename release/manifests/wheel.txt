@@ -56,6 +56,7 @@ heddle/io/process.py
 heddle/io/source.py
 heddle/kernel/__init__.py
 heddle/kernel/blockers.py
+heddle/kernel/decision_guidance.py
 heddle/kernel/feature_policy.py
 heddle/kernel/knowledge.py
 heddle/kernel/knowledge_search.py
@@ -78,6 +79,7 @@ heddle/kernel/write_path.py
 heddle/resources/autonomy-addendum.md
 heddle/resources/brief.scaffold.md
 heddle/resources/complete.briefing.md
+heddle/resources/decision-routing.md
 heddle/resources/engineering-principles.seed.md
 heddle/resources/feature-index.scaffold.yaml
 heddle/resources/feature-spec.scaffold.md

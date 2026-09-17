@@ -24,10 +24,17 @@ from heddle.gate.types import (
     ResolvedGatePrompt,
     ResolvedResource,
 )
+from heddle.kernel.decision_guidance import (
+    DecisionGuidance,
+    compose_decision_guidance,
+    load_decision_guidance,
+)
 from heddle.kernel.project_config import (
+    DEFAULT_AUTOPILOT,
     DEFAULT_LAYOUT,
     HEDDLE_CONFIG_FILENAME,
     KernelError,
+    ProjectConfig,
     load_project_config,
 )
 from heddle.kernel.resources import resolve_host_override
@@ -294,7 +301,8 @@ def resolve_gate_prompt(
         "review-file-suffix": ("" if selected_cli == "claude" else f".{selected_cli}"),
     }
     rendered = render_template(captured.expanded, variables, strip_validation=True)
-    logical_instructions = rendered.strip()
+    policy = _decision_policy(context.repo_root)
+    logical_instructions = compose_decision_guidance(policy, rendered.strip())
     constraint = output_constraint(selected_cli)
     effective = "\n\n".join([constraint, logical_instructions])
     transport = PromptTransport(
@@ -315,16 +323,32 @@ def resolve_gate_prompt(
             authoring_text=template_text,
         ),
         partials=partials,
+        decision_policy=policy,
         logical_instructions=logical_instructions,
         effective_instructions=effective,
-        prompt_version=_prompt_version_digest(template_text, authoring_by_name),
+        prompt_version=_prompt_version_digest(
+            template_text, authoring_by_name, policy.text
+        ),
         effective_prompt_sha256=hashlib.sha256(effective.encode("utf-8")).hexdigest(),
         output_constraint=constraint,
         transport=transport,
     )
 
 
-def _prompt_version_digest(template_text: str, partials: Mapping[str, str]) -> str:
+def _decision_policy(repo_root: Path) -> DecisionGuidance:
+    config = (
+        load_project_config(repo_root)
+        if (repo_root / HEDDLE_CONFIG_FILENAME).exists()
+        else ProjectConfig(
+            repo_root, DEFAULT_LAYOUT, {}, {}, None, DEFAULT_AUTOPILOT, ()
+        )
+    )
+    return load_decision_guidance(config)
+
+
+def _prompt_version_digest(
+    template_text: str, partials: Mapping[str, str], policy: str
+) -> str:
     """Hash one prompt's authoring sources with stable bare-name ordering."""
     digest = hashlib.sha256(template_text.encode("utf-8"))
     for name in sorted(partials):
@@ -332,6 +356,8 @@ def _prompt_version_digest(template_text: str, partials: Mapping[str, str]) -> s
         digest.update(partials[name].encode("utf-8"))
     digest.update(b"\0")
     digest.update(PACKAGED_STANDARDS_DOC.read_bytes())
+    digest.update(b"\0decision-routing.md\0")
+    digest.update(policy.encode("utf-8"))
     return digest.hexdigest()[:16]
 
 
@@ -411,7 +437,9 @@ def compute_prompt_version(gate_type: GateType, repo_root: Path) -> str | None:
         # buckets invisibly, while an absent one is visible in the summary.
         if not PACKAGED_STANDARDS_DOC.is_file():
             return None
-        return _prompt_version_digest(template, captured.authoring_by_name())
+        return _prompt_version_digest(
+            template, captured.authoring_by_name(), _decision_policy(repo_root).text
+        )
     except (OSError, KernelError):
         return None
 

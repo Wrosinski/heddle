@@ -988,6 +988,7 @@ def _canonical_logical_instructions(
     absent optional lane and its later concrete artifact on one source basis.
     """
     from heddle.gate.prompt import expand_captured_partials
+    from heddle.kernel.decision_guidance import compose_decision_guidance
 
     expanded = expand_captured_partials(
         prompt.template.effective_text,
@@ -1005,6 +1006,7 @@ def _canonical_logical_instructions(
         "review-file-suffix": "" if cli == "claude" else f".{cli}",
     }
     logical = render_template(expanded, variables, strip_validation=True).strip()
+    logical = compose_decision_guidance(prompt.decision_policy, logical)
     return "\n\n".join((prompt.output_constraint, logical))
 
 

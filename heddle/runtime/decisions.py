@@ -402,6 +402,18 @@ def record_policy(operation: ops.RecordPolicy) -> HeddleResult:
                         detail = "policy fields differ: " + ", ".join(changed)
                     raise _policy_collision(item.id, target.state_path, detail)
             else:
+                if item.basis.casefold() == "conflict":
+                    raise KernelError(
+                        code="usage",
+                        message=f"policy {item.id!r} has an unresolved conflict",
+                        hint=(
+                            "record an owner question with heddle decisions add; "
+                            "journal-only legacy conflict recovery also requires "
+                            "an owner ruling because the journal cannot prove "
+                            "structured identity. Only exact complete-fact retries "
+                            "may use record-policy"
+                        ),
+                    )
                 additions.append(candidate)
         try:
             text = journal.read_text(encoding="utf-8")

@@ -9,6 +9,13 @@ Challenge a proposed architecture before implementation. Determine whether the
 proposal is factually grounded, serves its real consumers, uses the right
 system boundary, and offers a sound delivery shape.
 
+## Decision ownership
+
+Use `heddle/resources/decision-routing.md` for ownership and question quality;
+feature kickoff delivers the resolved host policy in full. Preserve this skill's
+analysis/authoring boundary and applicable standing authorization. A review or
+diagnosis request alone grants no implementation authority.
+
 ## Inputs and boundary
 
 Use the proposal documents named by the user. If no identifiable proposal is

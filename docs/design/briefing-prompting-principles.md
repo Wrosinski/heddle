@@ -6,8 +6,9 @@ That document owns the vendor sources, covered-model list, resolution rule,
 and per-model notes. This companion owns their application to packaged stage
 briefings in `heddle/resources/`.
 
-The briefings are delivered byte-identically as the
-phase-session work-prompt head through `heddle kickoff`, so the session must
+Kickoff composes the shared `decision-routing.md` policy with a separately
+validated stage body. That composed result is delivered byte-identically as the
+phase-session work-prompt head, so the session must
 receive the complete operative contract without depending on this design note.
 
 ## Principles
@@ -32,9 +33,8 @@ receive the complete operative contract without depending on this design note.
    For example, tests precede implementation so each milestone has a feedback
    loop. Reserve prohibitions for invariants such as runtime-owned state writes.
 4. **One autonomy policy, in one place.** Apply "Define done and the
-   boundaries, once". Each briefing's Authority section
-   is the single statement of what the session does freely, what routes to
-   the decision ledger, and what stays boundary-owned. Stop conditions are
+   boundaries, once". The shared decision policy owns classification and question quality; each
+   briefing's Authority section owns that stage's actions and boundary-owned writes. Stop conditions are
    enumerated there, not sprinkled through the process text — scattered
    approval language causes unnecessary stops. Within recorded authority the
    session acts and completes independent work while a question is open.

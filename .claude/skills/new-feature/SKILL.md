@@ -50,6 +50,13 @@ the generated `plans/<slug>/brief.md` without rewriting the approved provenance.
 6. Run `heddle orient --feature <slug> --json`, then `heddle kickoff --feature
    <slug>` only when orientation routes there.
 
+## Decision ownership
+
+Use `heddle/resources/decision-routing.md` for ownership and question quality;
+feature kickoff delivers the resolved host policy in full. Preserve this skill's
+analysis/authoring boundary and applicable standing authorization. A review or
+diagnosis request alone grants no implementation authority.
+
 ## Research and Specification Contract
 
 For an admitted feature, kickoff and the packaged specify briefing own the

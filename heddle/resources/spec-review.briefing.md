@@ -28,8 +28,8 @@ Private helper names, routine algorithms, and file layouts may remain delegated.
 Missing EARS copies, implementation architecture, enforcement restatements,
 hour estimates, or a particular document length are not defects. A missing
 consequential commitment or observable acceptance clause still is a defect.
-The ratified engineering principles can resolve engineering choices, not product
-intent or scope authorization.
+Use the delivered Decision routing policy for ownership; this briefing retains
+the post-spec-review scope checkpoint and its native recording duties.
 
 ## Resolve and exit
 

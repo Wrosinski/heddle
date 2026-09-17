@@ -34,12 +34,10 @@ intent. Engineering tradeoffs remain governed by
   or trust-destroying failures (data loss, privacy, false completion). The
   first class may defer; the owner decides the second; the third belongs in
   the first slice's contract.
-- **User-owned decision classes.** Route unresolved product direction,
-  user-visible behavior, trust, money, privacy, data-loss exposure, and scope
-  changes through the existing user-decision mechanism. Prior authorization
-  still applies; do not ask again for a decision already made. Outside these
-  classes, use engineering's "Reversibility beats optimality" for the smallest
-  defensible interpretation, recorded with its rationale and flagged for review.
+- **Decision ownership.** Apply the [shared decision policy](../../heddle/resources/decision-routing.md)
+  to research questions and proposals. The product edge cases above identify
+  consequential scope, not an additional permission procedure. Research and
+  post-spec-review scope confirmation remain distinct checkpoints below.
 - **The domain boundary.** In Heddle, the first slice must preserve runtime
   write ownership, authorization, recoverable state, and truthful evidence
   and completion. Thin means fewer supported paths, each meeting its full

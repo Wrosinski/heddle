@@ -18,6 +18,7 @@ from heddle.contracts.review_assignments import (
     ReviewAssignment,
 )
 from heddle.io.process import MonitorResult
+from heddle.kernel.decision_guidance import DecisionGuidance
 from heddle.kernel.source_manifest import ObservedPath
 
 
@@ -74,6 +75,7 @@ class ResolvedGatePrompt:
     gate: str
     template: ResolvedResource
     partials: tuple[ResolvedResource, ...]
+    decision_policy: DecisionGuidance
     logical_instructions: str
     effective_instructions: str
     prompt_version: str

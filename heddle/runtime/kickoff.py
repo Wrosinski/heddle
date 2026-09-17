@@ -19,6 +19,10 @@ from heddle.contracts.result import (
     HeddleError,
     HeddleResult,
 )
+from heddle.kernel.decision_guidance import (
+    compose_decision_guidance,
+    load_decision_guidance,
+)
 from heddle.kernel.model import derive_authoring_guidance, is_terminal
 from heddle.kernel.project_config import KernelError
 from heddle.kernel.resources import resolve_resource
@@ -75,6 +79,14 @@ def kickoff(operation: ops.Kickoff) -> HeddleResult:
     try:
         briefing_path, source = resolve_resource(asset, config)
         briefing = briefing_path.read_text(encoding="utf-8")
+        if not briefing.strip():
+            raise KernelError(
+                code="workspace-invalid",
+                message=f"the {asset} stage briefing is blank",
+                hint=f"restore the selected {asset} resource before starting a session",
+            )
+        policy = load_decision_guidance(config)
+        briefing = compose_decision_guidance(policy, briefing)
         from heddle.runtime.review_assignments import projection
 
         policy_data = projection(config, snapshot)
@@ -102,6 +114,8 @@ def kickoff(operation: ops.Kickoff) -> HeddleResult:
             "feature": resolved.feature,
             "stage": snapshot.stage,
             "source": source,
+            "decision_policy_source": policy.source,
+            "decision_policy_path": str(policy.path),
             "briefing": briefing,
             "authoring_guidance": asdict(authoring_guidance),
             "close_obligation": close_obligation(config),

@@ -182,6 +182,11 @@ safely continue under the unresolved contract, escalating owner choices as neede
 
 ### 5.4 Decision Actor and Authority
 
+[Decision routing](../../heddle/resources/decision-routing.md) owns classification
+and question quality. This section owns recording attribution, not another
+procedure for deciding when to ask. Canonical review `decision` fields retain the
+complete REPORT question; a compact native decision listing does not replace it.
+
 Use the existing decision operation and rationale to preserve both who supplied
 the reasoning and what authorized it. `resolution_source: user` identifies a
 successful `heddle decisions resolve` path; by itself it does not say whether the

@@ -372,5 +372,18 @@ def test_built_wheel_renders_every_gate_prompt_outside_the_checkout(
         assert "[partial-" not in prompt, (
             f"installed public show-prompt left a partial token in {gate_name}"
         )
+        assert envelope["data"]["decision_policy_source"] == "packaged"
+        policy_path = Path(envelope["data"]["decision_policy_path"])
+        assert policy_path.is_relative_to(target_site)
+        expected_policy = (
+            REPO_ROOT / "heddle/resources/decision-routing.md"
+        ).read_text()
+        assert prompt.count(expected_policy) == 1
         public_rendered.add(envelope["data"]["gate"])
     assert public_rendered == set(GATES)
+
+    kickoff = installed.run("kickoff", "--feature", "nl-screening", "--json", cwd=host)
+    assert kickoff.returncode == 0, kickoff.stdout + kickoff.stderr
+    data = json.loads(kickoff.stdout)["data"]
+    assert data["decision_policy_source"] == "packaged"
+    assert data["briefing"].count(expected_policy) == 1

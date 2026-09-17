@@ -198,6 +198,7 @@ def show_prompt(parsed: ops.ShowPrompt) -> HeddleResult:
             )
             prompt_text = resolved_prompt.effective_instructions
             prompt_source = resolved_prompt.template.source
+            decision_policy = resolved_prompt.decision_policy
             run_identity = None
             identity_status = "no run identity was prepared"
             prompt_identity = entry.prompt_identity_projection(
@@ -228,6 +229,7 @@ def show_prompt(parsed: ops.ShowPrompt) -> HeddleResult:
             }
             prompt_text = prepared.prompt.effective_instructions
             prompt_source = prepared.prompt.template.source
+            decision_policy = prepared.prompt.decision_policy
             run_identity = prepared.input_hash
             identity_status = "prepared"
             prompt_identity = entry.prompt_identity_projection(
@@ -273,6 +275,8 @@ def show_prompt(parsed: ops.ShowPrompt) -> HeddleResult:
             "feature": parsed.feature,
             "prompt": prompt_text,
             "prompt_source": prompt_source,
+            "decision_policy_source": decision_policy.source,
+            "decision_policy_path": str(decision_policy.path),
             "run_identity": run_identity,
             "identity_status": identity_status,
             "execution": entry.execution_projection(invocation),

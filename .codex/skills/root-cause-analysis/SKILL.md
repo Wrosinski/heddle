@@ -13,6 +13,13 @@ the change that would remove it. Distinguish a verified mechanism from proof
 that it caused this particular incident. If the incident cannot be established,
 report the remaining uncertainty and the evidence needed to resolve it.
 
+## Decision ownership
+
+Use `heddle/resources/decision-routing.md` for ownership and question quality;
+feature kickoff delivers the resolved host policy in full. Preserve this skill's
+analysis/authoring boundary and applicable standing authorization. A review or
+diagnosis request alone grants no implementation authority.
+
 ## Scope and Authority
 
 Investigate the reported symptom, relevant failure paths, and plausible causes.

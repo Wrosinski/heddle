@@ -227,14 +227,16 @@ Use the schema's exact spelling and keep rationale in its designated fields.
 Current canonical JSON owns the finding; Markdown renderings and historical
 text extractors are not alternate current authority.
 
-Consult the Inviolables and ranked principles in
-`docs/workflow/engineering-principles.md` by path. Except for the Minor
-override below, when a decisive principle settles a finding, classify it
-`IMPLEMENT` and add the principle audit line. Principles do not settle product,
-UX, or domain intent. Genuine ambiguity is `REPORT`; when uncertain whether a
-finding is `IMPLEMENT` or `REPORT`, default to `REPORT`. Every REPORT finding
-must preserve one complete owner question with distinct options, trade-offs and
-a preferred resolution in the role's native decision fields.
+Apply the delivered Decision routing policy, whose authoring home is
+`decision-routing.md`, to determine ownership. This section owns the reviewer
+adapter. Except for the Minor override below, a supported in-scope correction
+settled by a decisive principle is `IMPLEMENT`; name that principle and evidence
+from `docs/workflow/engineering-principles.md`. An unresolved owner choice is
+`REPORT`; if ownership remains uncertain after the shared procedure, default to
+`REPORT`. `IGNORE` retains awareness without creating implementation work.
+Every REPORT preserves the complete useful-question content in its native
+`decision`: context, options with trade-offs, recommendation and rationale,
+deferral impact, and route. Reviewers never settle the decision themselves.
 
 The corresponding human-view fields illustrate the conditional meaning; the
 schema owns their native representation:

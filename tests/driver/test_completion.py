@@ -1524,7 +1524,7 @@ class TestCompletionKickoffFailLoud:
         )
         assert notify_capture.received(), "FAIL AC-4: the FATAL halt must notify"
 
-    def test_completion_blank_briefing_success_becomes_synthetic_internal_fatal(
+    def test_completion_blank_stage_is_rejected_before_policy_composition(
         self,
         run_json,
         driver_corpus,
@@ -1541,21 +1541,13 @@ class TestCompletionKickoffFailLoud:
         monkeypatch.chdir(host)
 
         code, envelope, _out, _err = run_json(["drive", "--feature", SLUG, "--json"])
-        assert code == 3 and envelope["error"]["code"] == "internal", (
-            "FAIL AC-4/REQ-4: a successful envelope with a blank briefing "
-            "must synthesize the FATAL internal delivery failure — never "
+        assert code == 3 and envelope["error"]["code"] == "workspace-invalid", (
+            "FAIL AC-4/REQ-4: a blank stage body "
+            "must preserve kickoff's typed FATAL delivery failure — never "
             f"the minimal fallback prompt, got exit {code}: "
             f"{envelope.get('error')}"
         )
-        remediation = (
-            " ".join(action["command"] for action in envelope["next_actions"])
-            + " "
-            + envelope["error"]["hint"]
-        )
-        assert f"heddle kickoff --feature {SLUG}" in remediation, (
-            "FAIL REQ-4: the synthetic failure must name direct "
-            "`heddle kickoff --feature <slug>` inspection"
-        )
+        assert "specify.briefing.md" in envelope["error"]["hint"]
         assert fake_claude.calls() == [], (
             "FAIL AC-4/INV-3: the malformed-success path must not spawn"
         )
@@ -1722,15 +1714,22 @@ class TestCompletionBriefingDelivery:
 
         host = auto_tier2_workspace(chdir=False)
         monkeypatch.chdir(host)
-        run_json(["drive", "--feature", SLUG, "--json"])
+        outcome = run_json(["drive", "--feature", SLUG, "--json"])
         calls = fake_claude.calls()
-        assert calls, "FIXTURE ROT: the specify drive must spawn a session"
+        assert calls, f"FIXTURE ROT: the specify drive must spawn a session: {outcome}"
         raw = (
             _Path(driver_loop.__file__).resolve().parent.parent
             / "resources"
             / "specify.briefing.md"
         ).read_text(encoding="utf-8")
         stdin = calls[0]["stdin"]
+        policy = (
+            _Path(driver_loop.__file__).resolve().parent.parent
+            / "resources"
+            / "decision-routing.md"
+        ).read_text(encoding="utf-8")
+        assert stdin.count(policy) == 1
+        assert stdin.index(policy) < stdin.index(raw)
         assert stdin.count(raw) == 1, (
             "FAIL AC-2: the spawned session's prompt must carry the raw "
             f"briefing exactly once, found {stdin.count(raw)}"

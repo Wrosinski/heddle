@@ -338,7 +338,9 @@ class TestAC7KickoffRendersClean:
         assert "{{" not in briefing, (
             f"FAIL {ctx}: unresolved template-variable residue in the served briefing"
         )
-        assert briefing == _text(f"{stage}.briefing.md")
+        assert briefing == _text("decision-routing.md") + "\n\n---\n\n" + _text(
+            f"{stage}.briefing.md"
+        )
         assert path.read_bytes() == before
 
 
@@ -725,7 +727,9 @@ class TestCompletionCompleteBriefingProtocol:
         code, out, _err = run_cli(["kickoff", "--json", "--feature", V7_FEATURE])
         assert code == 0, f"FAIL AC-3({selection}): kickoff exited {code}"
         envelope = envelope_tools.parse(out)
-        assert envelope["data"]["briefing"] == _text("complete.briefing.md"), (
+        assert envelope["data"]["briefing"] == _text(
+            "decision-routing.md"
+        ) + "\n\n---\n\n" + _text("complete.briefing.md"), (
             f"FAIL AC-3({selection}): kickoff must deliver the canonical "
             "complete briefing byte-for-byte"
         )

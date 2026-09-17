@@ -112,6 +112,7 @@ heddle/io/process.py
 heddle/io/source.py
 heddle/kernel/__init__.py
 heddle/kernel/blockers.py
+heddle/kernel/decision_guidance.py
 heddle/kernel/feature_policy.py
 heddle/kernel/knowledge.py
 heddle/kernel/knowledge_search.py
@@ -134,6 +135,7 @@ heddle/kernel/write_path.py
 heddle/resources/autonomy-addendum.md
 heddle/resources/brief.scaffold.md
 heddle/resources/complete.briefing.md
+heddle/resources/decision-routing.md
 heddle/resources/engineering-principles.seed.md
 heddle/resources/feature-index.scaffold.yaml
 heddle/resources/feature-spec.scaffold.md
@@ -422,6 +424,7 @@ tests/gate/test_claude_classification.py
 tests/gate/test_codex_classification.py
 tests/gate/test_codex_diagnostics.py
 tests/gate/test_codex_runner.py
+tests/gate/test_decision_routing.py
 tests/gate/test_diff.py
 tests/gate/test_document_altitude.py
 tests/gate/test_extraction.py
@@ -465,6 +468,7 @@ tests/kernel/test_authoring_transforms.py
 tests/kernel/test_auto_resolution_deferral.py
 tests/kernel/test_boundaries.py
 tests/kernel/test_content_identity.py
+tests/kernel/test_decision_guidance.py
 tests/kernel/test_findings_taxonomy.py
 tests/kernel/test_knowledge_search.py
 tests/kernel/test_project_config.py
@@ -510,6 +514,7 @@ tests/runtime/test_content_identity.py
 tests/runtime/test_contracts.py
 tests/runtime/test_current_contract_boundary.py
 tests/runtime/test_decision_recording.py
+tests/runtime/test_decision_routing.py
 tests/runtime/test_deletion_milestone_rails.py
 tests/runtime/test_dispatch.py
 tests/runtime/test_distinct_gate_concurrency.py

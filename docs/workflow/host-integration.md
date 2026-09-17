@@ -253,3 +253,17 @@ sync. Confirm the repository remains healthy instead:
 heddle validate
 heddle orient
 ```
+
+## Shared decision policy
+
+Kickoff and reviewer preparation both capture `decision-routing.md` through
+`.heddle/overrides/` > `.heddle/generated/` > installed package precedence. A host
+can override that resource independently of its stage or gate template. Kickoff
+composes it with the validated stage body; the driver delivers that result once.
+Reviewer authoring, effective, and reusable review identities include the policy.
+`show-prompt` and kickoff expose `decision_policy_source` and `decision_policy_path`
+separately from template/stage provenance; doctor validates readable nonblank UTF-8.
+
+An override changes guidance, not command permissions or scope authority. Existing
+host prose is not automatically rewritten or semantically checked; reconcile any
+conflicting local rules when adopting this shared resource.

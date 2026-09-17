@@ -200,6 +200,19 @@ human typed the command. Ordinary reversible choices derived from ratified
 principles use the constrained `heddle decisions record-policy` path. Generic
 autonomy does not authorize scope expansion or irreversible choices.
 
+The [shared decision policy](../../heddle/resources/decision-routing.md) owns
+classification and question quality. A `none` policy basis requires `[REVIEW]`;
+new explicit `conflict` entries refuse with an owner route even when flagged.
+Existing complete conflict facts remain readable and support exact retries.
+Basis and rationale remain authored judgment, not a grant of authority.
+
+Policy recording validates the whole batch before publishing its journal and
+then state facts. Status/orient diagnose journal-only entries: nonconflict
+entries support an identical batch retry; journal-only conflict recovery requires
+an owner ruling because comma-joined alternatives cannot prove structured
+identity. Changed-content collisions refuse. Final close audits require every
+accepted policy fact to have a matching complete journal entry.
+
 ## Completion and recovery
 
 `heddle feature complete` accepts one typed fact after current qualification and

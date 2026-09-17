@@ -112,11 +112,11 @@ write. This reference grants neither delegation nor external execution.
 
 ### Decision Classification Protocol
 
-Apply the ratified engineering principles before escalating a defensible
-engineering choice. Record the decisive principle and evidence at the decision's
-owner. Genuine product choices, irreversible or precedent-setting changes,
-ratified-contract amendments and unresolved principle conflicts remain owner
-decisions. Do not infer approval from silence or a recommendation.
+The [shared decision policy](../../heddle/resources/decision-routing.md) owns
+when to apply existing authority, investigate, decide, ask, or stop dependent
+work. Kickoff and gate preparation deliver it in full. Engineering principles
+own preferences; this workflow owns checkpoints and native recording actions.
+Decision ownership, severity, and execution permission remain separate.
 
 Review findings preserve their native IMPLEMENT, REPORT and IGNORE meanings.
 Act on in-scope IMPLEMENT work, route REPORT to its owner, and retain IGNORE as
@@ -155,11 +155,11 @@ current milestone and final proof still qualify against live evidence. See the
 
 ### Batching Protocol
 
-Batch independent questions with their context, evidence, recommendation and
-trade-off. Keep the actual owner's answer in native decisions and the decision
-journal. The spec's Decision Log holds lasting alternatives-and-rationale, not
-checkpoint transcripts or a second operational ledger. Existing authorization
-continues within its scope; ask again only for a genuinely outstanding choice.
+Use the shared policy's question types and content. Keep the actual owner's
+answer in native decisions and the decision journal. The spec's Decision Log
+holds lasting alternatives and rationale, not checkpoint transcripts or a second
+operational ledger. A lead applying a standing grant records that grant and its
+scope in the rationale; the resolution-source field alone does not name the actor.
 
 ## Workflow Overview
 
