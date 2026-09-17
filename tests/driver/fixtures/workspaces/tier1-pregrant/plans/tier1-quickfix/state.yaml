@@ -1,0 +1,60 @@
+# Pre-granted current fixture. `authorized_through: complete` is the batch grant
+# recorded at feature start; all review roles are explicitly Off.
+schema: heddle.state/v9
+completion: null
+feature: tier1-quickfix
+spec: docs/features/example/tier1-quickfix.md
+revision: 2
+created: 2026-06-16T08:00Z
+updated: 2026-06-16T08:00Z
+stage: specify
+authorized_through: complete
+commands:
+  test_command: pytest -q
+milestones:
+- id: m1
+  title: Quickfix
+  satisfies:
+  - AC-1
+  depends_on: []
+  owns:
+  - src/example/quickfix.py
+  complexity: low
+  estimated_hours:
+  - 1
+  - 1
+  verification:
+    command: pytest -q
+    expected: all tests pass
+  status: todo
+gates: []
+verifications: []
+decisions: []
+sessions: []
+feature_inputs: []
+feature_policy:
+  schema: heddle.feature-policy/v1
+  revision: 1
+  axes:
+    scope: small
+    complexity: low
+    testability: full
+    scope_rationale: Localized quick fix fixture
+    complexity_rationale: Low uncertainty walking skeleton
+    testability_rationale: Hermetic command coverage
+  approval: Authored current pre-grant fixture policy
+  entries:
+  - {role: spec-review, scope: feature, mode: 'off', limit: null, minimum_rounds: 0, primary: {cli: codex, model: gpt-6-astra, reasoning_effort: high}, secondary: null, trigger: null}
+  - {role: plan-review, scope: feature, mode: 'off', limit: null, minimum_rounds: 0, primary: {cli: codex, model: gpt-6-astra, reasoning_effort: high}, secondary: null, trigger: null}
+  - {role: review-test-scaffolding, scope: feature, mode: 'off', limit: null, minimum_rounds: 0, primary: {cli: codex, model: gpt-6-astra, reasoning_effort: high}, secondary: null, trigger: null}
+  - {role: milestone-review, scope: milestone, mode: 'off', limit: null, minimum_rounds: 0, primary: {cli: codex, model: gpt-6-astra, reasoning_effort: high}, secondary: null, trigger: null}
+  - {role: peer-review-sequential, scope: feature, mode: 'off', limit: null, minimum_rounds: 0, primary: {cli: codex, model: gpt-6-astra, reasoning_effort: high}, secondary: null, trigger: null}
+  - {role: behavior-review, scope: feature, mode: 'off', limit: null, minimum_rounds: 0, primary: {cli: codex, model: gpt-6-astra, reasoning_effort: high}, secondary: null, trigger: null}
+  - {role: complexity-review, scope: feature, mode: 'off', limit: null, minimum_rounds: 0, primary: {cli: codex, model: gpt-6-astra, reasoning_effort: high}, secondary: null, trigger: null}
+  - {role: robustness-analysis, scope: feature, mode: 'off', limit: null, minimum_rounds: 0, primary: {cli: codex, model: gpt-6-astra, reasoning_effort: high}, secondary: null, trigger: null}
+review_assignments:
+  schema: heddle.review-assignments/v3
+  assignments: []
+  attempts: []
+  dispositions: []
+  acceptances: []

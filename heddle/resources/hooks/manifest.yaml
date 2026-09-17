@@ -1,0 +1,93 @@
+# Packaged workflow-hook manifest.
+#
+# Each hook is a stdlib-only, standalone-executable Python file. Template
+# parameters use `{{name|default}}` placeholders: unrendered files run with
+# the default (the Heddle repository uses them this way); `heddle init` bakes
+# host `.heddle.yaml` values in at
+# projection time by replacing the whole token, projecting into the host's
+# `.heddle/hooks/` namespace. The `snippet` block is the source the init
+# projection renders into the generated `pre-commit-snippet.yaml` the host
+# operator splices into `.pre-commit-config.yaml` manually (managed
+# pre-commit entries remain host-owned.
+version: 1
+hooks:
+  - id: check-no-committed-gate-locks
+    stage: pre-commit
+    description: >-
+      Gate locks under <plans>/.gate-locks/ are transient flock coordination
+      files and must never be committed. Union semantics: staged-index scan
+      (rename-aware) plus tracked-file scan. Bypass:
+      ALLOW_COMMITTED_GATE_LOCKS=1.
+    params:
+      - name: layout_plans
+        source: layout.plans
+        default: plans
+    snippet:
+      name: check no committed gate locks
+      entry: python3 .heddle/hooks/check-no-committed-gate-locks.py
+      language: system
+      files: ^{{layout_plans|plans}}/
+  - id: check-bypass-justification
+    stage: commit-msg
+    description: >-
+      Any active ALLOW_* environment bypass requires a non-empty
+      Bypass-Justification commit trailer (or BYPASS_JUSTIFICATION env).
+    params: []
+    snippet:
+      name: check bypass justification
+      entry: python3 .heddle/hooks/check-bypass-justification.py
+      language: system
+      stages: [commit-msg]
+  - id: check-test-deletions
+    stage: pre-commit
+    description: >-
+      Staged test-file deletions or removed test functions/classes under the
+      host tests root require ALLOW_TEST_DELETION=1 (paired with the
+      Bypass-Justification trailer contract).
+    params:
+      - name: layout_tests
+        source: layout.tests
+        default: tests
+    snippet:
+      name: check test deletions
+      entry: python3 .heddle/hooks/check-test-deletions.py
+      language: system
+      pass_filenames: false
+      always_run: true
+  - id: check-skip-only-test-scaffolding
+    stage: pre-commit
+    description: >-
+      Newly-added skips and non-executable xfails in tests are rejected;
+      strict xfail requires a non-constant assertion, while semantic AC
+      fidelity remains a scaffolding-review judgment.
+    params:
+      - name: layout_tests
+        source: layout.tests
+        default: tests
+    snippet:
+      name: check skip-only test scaffolding
+      entry: python3 .heddle/hooks/check-skip-only-test-scaffolding.py
+      language: system
+      pass_filenames: false
+      always_run: true
+  - id: check-principles-amendment
+    stage: commit-msg
+    description: >-
+      A commit staging the engineering-principles doc must carry a
+      Principles-Amendment trailer; no bypass variable by design. Project
+      this hook iff the principles doc is projected.
+    params:
+      - name: principles_doc
+        source: (projected doc path)
+        default: docs/workflow/engineering-principles.md
+    snippet:
+      name: check principles amendment
+      entry: python3 .heddle/hooks/check-principles-amendment.py
+      language: system
+      stages: [commit-msg]
+utilities:
+  - id: git-commit-retry.sh
+    description: >-
+      Commit; when pre-commit hooks mutate staged files, re-stage exactly
+      those files and retry once. Shipped verbatim as the sole non-Python
+      asset; no parameters.

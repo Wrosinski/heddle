@@ -1,0 +1,77 @@
+# AC-8 (a): stage ordinal > authorized_through ordinal (§2.2 invariant
+# violated) — fires exactly `not-authorized`. m1 is mid-flight so the
+# family-B exit-readiness trigger stays unarmed.
+schema: heddle.state/v9
+feature_policy:
+  schema: heddle.feature-policy/v1
+  revision: 1
+  axes: {scope: small, complexity: low, testability: full, scope_rationale: Authored fixture, complexity_rationale: Authored fixture, testability_rationale: Authored fixture}
+  approval: Authored current test fixture
+  entries:
+  - {role: spec-review, scope: feature, mode: 'off', limit: null, minimum_rounds: 0, primary: {cli: codex, model: gpt-6-astra, reasoning_effort: high}}
+  - {role: plan-review, scope: feature, mode: 'off', limit: null, minimum_rounds: 0, primary: {cli: codex, model: gpt-5.6-sol, reasoning_effort: high}}
+  - {role: review-test-scaffolding, scope: feature, mode: 'off', limit: null, minimum_rounds: 0, primary: {cli: codex, model: gpt-5.6-sol, reasoning_effort: xhigh}}
+  - {role: milestone-review, scope: milestone, mode: 'off', limit: null, minimum_rounds: 0, primary: {cli: codex, model: gpt-5.6-sol, reasoning_effort: high}}
+  - {role: peer-review-sequential, scope: feature, mode: 'off', limit: null, minimum_rounds: 0, primary: {cli: claude, model: claude-opus-5, reasoning_effort: xhigh}}
+  - {role: behavior-review, scope: feature, mode: 'off', limit: null, minimum_rounds: 0, primary: {cli: claude, model: claude-opus-5, reasoning_effort: xhigh}}
+  - {role: complexity-review, scope: feature, mode: 'off', limit: null, minimum_rounds: 0, primary: {cli: codex, model: gpt-5.6-sol, reasoning_effort: high}}
+  - {role: robustness-analysis, scope: feature, mode: 'off', limit: null, minimum_rounds: 0, primary: {cli: codex, model: gpt-5.6-sol, reasoning_effort: xhigh}}
+completion: null
+feature: blocked-not-authorized
+spec: docs/features/example/edge-cases.md
+revision: 5
+created: 2026-06-11T09:00Z
+updated: 2026-06-11T09:00Z
+stage: implement
+authorized_through: scaffold
+commands:
+  test_command: pytest -q
+milestones:
+- id: m1
+  title: Parser core
+  satisfies:
+  - AC-1
+  depends_on: []
+  owns:
+  - src/example/edge/parser
+  - src/tests/edge/parser
+  complexity: low
+  estimated_hours:
+  - 1
+  - 2
+  verification:
+    command: pytest src/tests/edge/parser -q
+    expected: all tests pass
+  status: current
+  tasks:
+  - id: t1
+    text: Parse the input format
+    status: current
+- id: m2
+  title: Validator wiring
+  satisfies:
+  - AC-2
+  depends_on:
+  - m1
+  owns:
+  - src/example/edge/validate
+  - src/tests/edge/validate
+  complexity: low
+  estimated_hours:
+  - 1
+  - 2
+  verification:
+    command: pytest src/tests/edge/validate -q
+    expected: all tests pass
+  status: todo
+gates: []
+verifications: []
+decisions: []
+sessions: []
+feature_inputs: []
+review_assignments:
+  schema: heddle.review-assignments/v3
+  assignments: []
+  attempts: []
+  dispositions: []
+  acceptances: []

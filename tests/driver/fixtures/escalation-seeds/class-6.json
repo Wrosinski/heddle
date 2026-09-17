@@ -1,0 +1,9 @@
+{
+  "class": 6,
+  "mechanism": "decisions-batch",
+  "stage": "implement",
+  "state_seed": {
+    "kind": "no-progress",
+    "sessions": 2
+  }
+}

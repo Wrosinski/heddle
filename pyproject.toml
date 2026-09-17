@@ -1,0 +1,71 @@
+[build-system]
+requires = ["hatchling==1.32.0"]
+build-backend = "hatchling.build"
+
+[project]
+name = "heddle"
+version = "0.0.1"
+description = "Heddle — a local protocol runtime for agent-driven development workflows."
+readme = "README.md"
+requires-python = ">=3.13"
+authors = [{ name = "Wojtek Rosinski", email = "rosinskiws@gmail.com" }]
+license = { text = "MIT" }
+urls = { Repository = "https://github.com/Wrosinski/heddle", Issues = "https://github.com/Wrosinski/heddle/issues" }
+dependencies = [
+  "pyyaml>=6.0",
+  "loguru>=0.7",
+  "markdown-it-py>=4.2,<5.0",
+  "jsonschema>=4.26,<5",
+]
+
+[project.scripts]
+heddle = "heddle.cli:main"
+
+[project.optional-dependencies]
+dev = [
+  "build==1.6.1",
+  "hatchling==1.32.0",
+  "pytest>=8.0",
+  "ruff==0.15.21",
+  "mypy==2.3.1",
+  "types-pyyaml==6.0.12.20260906",
+  "types-jsonschema==4.26.0.20260518",
+  "pre-commit>=3.8",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["heddle"]
+
+[tool.hatch.build.targets.sdist]
+include = ["/heddle", "/LICENSE", "/README.md", "/pyproject.toml"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q --import-mode=importlib --strict-markers --strict-config"
+markers = [
+  "acceptance: acceptance-criterion witness; independent of execution band",
+  "live: real external dependencies; requires explicit execution opt-in",
+  "e2e: complete user workflow; requires explicit execution opt-in",
+  "toolchain: executes build, install, or hook infrastructure",
+  "slow: measured expensive test with a recorded reason and review point",
+]
+
+[tool.ruff]
+target-version = "py313"
+line-length = 88
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]
+
+[tool.mypy]
+python_version = "3.13"
+files = ["heddle"]
+ignore_missing_imports = false
+check_untyped_defs = true
+disallow_untyped_defs = true
+warn_return_any = true
+warn_redundant_casts = true
+warn_unused_configs = true
+warn_unused_ignores = true
+strict_equality = true
+warn_unreachable = true

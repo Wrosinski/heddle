@@ -1,0 +1,109 @@
+# Heddle's own dev guardrails (not the workflow guardrails it ships to hosts).
+# Run `pre-commit autoupdate` to refresh the pinned revs.
+# Wire both git hook types so a plain `pre-commit install` installs the
+# commit-msg guard (check-bypass-justification) and not only pre-commit (AC-16).
+default_install_hook_types: [pre-commit, commit-msg]
+exclude: >
+  (?x)^(
+    docs/gate-trajectories/\.raw/|
+    plans/(?![^/]+\.plan\.md$)(?![^/]+\.events\.jsonl$)[^/]+\.(?:md|json)$
+  )
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+        exclude: ^(?:plans/[^/]+/(?:verification|reviews)/)
+      - id: end-of-file-fixer
+        # Frozen model inputs and raw provider responses must retain exact hashes.
+        exclude: ^(?:plans/[^/]+/(?:verification|reviews)/)
+      - id: check-yaml
+        exclude: ^(tests/fixtures/configs/malformed/\.heddle\.yaml|tests/fixtures/invalid-states/unparsable\.yaml)$
+      - id: check-toml
+      - id: check-json
+      - id: check-merge-conflict
+      - id: check-case-conflict
+      - id: debug-statements
+      - id: detect-private-key
+      - id: check-symlinks
+      - id: check-executables-have-shebangs
+      - id: check-shebang-scripts-are-executable
+      - id: check-added-large-files
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.15.21
+    hooks:
+      - id: ruff-check
+        args: [--fix]
+        files: ^(heddle|tests|scripts)/.*\.py$
+      - id: ruff-format
+        files: ^(heddle|tests|scripts)/.*\.py$
+  - repo: local
+    hooks:
+      - id: mypy
+        name: mypy
+        entry: .venv/bin/mypy
+        language: system
+        pass_filenames: false
+      - id: check-prompt-conventions
+        name: check prompt conventions
+        entry: .venv/bin/python scripts/check-prompt-conventions.py
+        language: system
+        pass_filenames: false
+        always_run: true
+      - id: check-no-src-print
+        name: check no source print calls
+        entry: .venv/bin/python scripts/check-no-src-print.py
+        language: system
+        files: ^heddle/.*\.py$
+      # The four workflow guards below run the PACKAGED hook library
+      # (heddle/resources/hooks/) — the repo
+      # dogfoods the unrendered files with their placeholder defaults.
+      - id: check-test-deletions
+        name: check test deletions
+        entry: python3 heddle/resources/hooks/check-test-deletions.py
+        language: system
+        pass_filenames: false
+        always_run: true
+      - id: check-subprocess-handlers
+        name: check subprocess handlers
+        entry: .venv/bin/python scripts/check-subprocess-handlers.py
+        language: system
+        files: ^heddle/(gate|io)/.*\.py$
+      - id: check-bypass-justification
+        name: check bypass justification
+        entry: python3 heddle/resources/hooks/check-bypass-justification.py
+        language: system
+        stages: [commit-msg]
+      - id: check-principles-amendment
+        name: check principles amendment
+        entry: python3 heddle/resources/hooks/check-principles-amendment.py
+        language: system
+        stages: [commit-msg]
+      - id: check-no-committed-gate-locks
+        name: check no committed gate locks
+        entry: python3 heddle/resources/hooks/check-no-committed-gate-locks.py
+        language: system
+        files: ^plans/
+      - id: check-skill-sync
+        name: check skill sync
+        entry: .venv/bin/python scripts/check-skill-sync.py
+        language: system
+        files: ^\.(?:claude|codex)/skills/
+        pass_filenames: false
+      - id: check-skip-only-test-scaffolding
+        name: check skip-only test scaffolding
+        entry: python3 heddle/resources/hooks/check-skip-only-test-scaffolding.py
+        language: system
+        pass_filenames: false
+        always_run: true
+      - id: check-enforcement-baseline-doc-language-aware
+        name: check enforcement baseline doc
+        entry: .venv/bin/python scripts/check-enforcement-baseline-doc-language-aware.py
+        language: system
+        files: ^docs/workflow/enforcement-baseline\.md$
+      - id: check-ac-test-coverage
+        name: check AC test coverage
+        entry: .venv/bin/python scripts/check-ac-test-coverage.py
+        language: system
+        pass_filenames: false
+        always_run: true

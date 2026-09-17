@@ -1,0 +1,36 @@
+# Heddle project configuration scaffold.
+# Defaults apply to every absent key; an empty file is valid.
+# Uncomment only the settings this host intentionally overrides.
+#
+# layout:
+#   specs: docs/features
+#   plans: plans
+#   prompts: .heddle/prompts
+#   schemas: .heddle/schemas
+#   tests: tests
+#   source: src
+#
+# commands:
+#   test: pytest
+#   lint: ruff check .
+#   typecheck: mypy
+#
+# agents:
+#   claude: true
+#   codex: true
+#
+# gates:
+#   enabled: [spec-review, plan-review]
+#
+# autopilot:
+#   flow: hitl
+#   notify_command: notify-send
+#   notify_timeout_s: 10
+#   max_turns: 100
+#   max_budget_usd: 150.0
+#   test_command: pytest
+#
+# The AGENTS.md mirror is on by default (CLAUDE.md is kept byte-identical by
+# sync and init); declare another path, or set it to null to opt out.
+# sync:
+#   mirror: CLAUDE.md

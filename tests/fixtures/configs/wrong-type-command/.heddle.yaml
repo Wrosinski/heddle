@@ -1,0 +1,3 @@
+# AC-2 (e): non-string command value — commands.test is a list.
+commands:
+  test: [pytest, -q]

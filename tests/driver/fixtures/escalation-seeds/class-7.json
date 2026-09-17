@@ -1,0 +1,9 @@
+{
+  "class": 7,
+  "mechanism": "decisions-batch",
+  "stage": "implement",
+  "state_seed": {
+    "kind": "attempt-cap",
+    "sessions": 5
+  }
+}

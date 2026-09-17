@@ -1,0 +1,3 @@
+# AC-2 (e): non-bool agent value — agents.codex is a string.
+agents:
+  codex: definitely

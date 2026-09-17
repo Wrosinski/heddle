@@ -1,0 +1,9 @@
+{
+  "class": 3,
+  "mechanism": "decisions-batch",
+  "stage": "spec-review",
+  "state_seed": {
+    "kind": "review-cap",
+    "nonconverged_runs": 5
+  }
+}

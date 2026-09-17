@@ -1,0 +1,12 @@
+{
+  "class": 8,
+  "mechanism": "decisions-batch",
+  "stage": "implement",
+  "state_seed": {
+    "kind": "pending-decision",
+    "decision_id": "E8",
+    "source": "session",
+    "title": "class 8 escalation",
+    "routes_to": "plans/autopilot-demo/plan.md"
+  }
+}

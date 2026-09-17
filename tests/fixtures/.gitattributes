@@ -1,0 +1,9 @@
+# Generated canonical fixture payloads remain fully readable at their paths.
+# Keep their builders and semantic assertions visible in review diffs.
+workspaces/golden/plans/nl-screening/reviews/*.review.json -diff
+# Generated current canonical/view pairs retain their state oracles,
+# semantic assertions and authoring evidence remain visible and hash-bound.
+workspaces/edge/plans/*/reviews/*.review.json -diff
+workspaces/edge/plans/*/reviews/*.md -diff
+workspaces/completed-boundary/plans/complete-boundary/reviews/*.review.json -diff
+workspaces/completed-boundary/plans/complete-boundary/reviews/*.md -diff

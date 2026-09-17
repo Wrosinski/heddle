@@ -1,0 +1,9 @@
+# Current pre-grant host contract. The feature's explicit policy turns every
+# review role Off, so `heddle drive` needs no provider launch.
+layout:
+  specs: docs/features
+  plans: plans
+  prompts: .heddle/prompts
+  schemas: .heddle/schemas
+  tests: tests
+  source: src

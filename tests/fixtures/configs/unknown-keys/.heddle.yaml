@@ -1,0 +1,8 @@
+# AC-2 (b): one unknown top-level section (`ci`) and one unknown layout key
+# (`docs`) — loads successfully with one advisory config-unknown-key
+# diagnostic per unknown key.
+layout:
+  tests: tests
+  docs: documentation
+ci:
+  provider: example

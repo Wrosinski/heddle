@@ -1,0 +1,33 @@
+# AC-7 selection narrowing: identical to the golden host's .heddle.yaml but
+# with `code-quality` absent from gates.enabled — implement × Tier 3 ∩
+# enabled must yield (self-review,) for nl-screening, proving gates.enabled
+# actually narrows the matrix.
+layout:
+  specs: docs/features
+  plans: plans
+  prompts: .heddle/prompts
+  schemas: .heddle/schemas
+  tests: src/tests
+  source: src/example
+
+commands:
+  test: poetry run pytest -q -n auto
+  lint: poetry run flake8
+  typecheck: poetry run mypy --config-file=pyproject.toml
+
+agents:
+  claude: true
+  codex: true
+
+gates:
+  enabled:
+    - spec-review
+    - plan-review
+    - self-review
+    - review-test-scaffolding
+    - review-correctness
+    - review-architecture
+    - review-robustness
+    - review-tests
+    - review-synthesis
+    - robustness-analysis

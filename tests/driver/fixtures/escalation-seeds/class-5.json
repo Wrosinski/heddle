@@ -1,0 +1,12 @@
+{
+  "class": 5,
+  "mechanism": "decisions-batch",
+  "stage": "implement",
+  "state_seed": {
+    "kind": "pending-decision",
+    "decision_id": "E5",
+    "source": "session",
+    "title": "class 5 escalation",
+    "routes_to": "plans/autopilot-demo/plan.md"
+  }
+}

@@ -1,0 +1,324 @@
+{
+  "content": {
+    "details": {
+      "ac_specificity": [
+        {
+          "ac_id": "AC-1",
+          "assessment": "concrete",
+          "reason": "The AC names a value and its observation."
+        },
+        {
+          "ac_id": "AC-2",
+          "assessment": "concrete",
+          "reason": "The AC names a value and its observation."
+        },
+        {
+          "ac_id": "AC-3",
+          "assessment": "concrete",
+          "reason": "The AC names a value and its observation."
+        },
+        {
+          "ac_id": "AC-4",
+          "assessment": "concrete",
+          "reason": "The AC names a value and its observation."
+        }
+      ],
+      "dimensions": [
+        {
+          "assessment": "adequate",
+          "evidence": {
+            "explanation": "src/example.py:1 declares VALUE = 7.",
+            "kind": "trace",
+            "references": [
+              "src/example.py:1"
+            ]
+          },
+          "id": "self-containment"
+        },
+        {
+          "assessment": "adequate",
+          "evidence": {
+            "explanation": "src/example.py:1 declares VALUE = 7.",
+            "kind": "trace",
+            "references": [
+              "src/example.py:1"
+            ]
+          },
+          "id": "acceptance-criteria-quality"
+        },
+        {
+          "assessment": "adequate",
+          "evidence": {
+            "explanation": "src/example.py:1 declares VALUE = 7.",
+            "kind": "trace",
+            "references": [
+              "src/example.py:1"
+            ]
+          },
+          "id": "architectural-completeness"
+        },
+        {
+          "assessment": "adequate",
+          "evidence": {
+            "explanation": "src/example.py:1 declares VALUE = 7.",
+            "kind": "trace",
+            "references": [
+              "src/example.py:1"
+            ]
+          },
+          "id": "assumption-clarity"
+        },
+        {
+          "assessment": "adequate",
+          "evidence": {
+            "explanation": "src/example.py:1 declares VALUE = 7.",
+            "kind": "trace",
+            "references": [
+              "src/example.py:1"
+            ]
+          },
+          "id": "enforcement-awareness"
+        },
+        {
+          "assessment": "adequate",
+          "evidence": {
+            "explanation": "src/example.py:1 declares VALUE = 7.",
+            "kind": "trace",
+            "references": [
+              "src/example.py:1"
+            ]
+          },
+          "id": "conceptual-coherence"
+        },
+        {
+          "assessment": "adequate",
+          "evidence": {
+            "explanation": "src/example.py:1 declares VALUE = 7.",
+            "kind": "trace",
+            "references": [
+              "src/example.py:1"
+            ]
+          },
+          "id": "ambiguity-detection"
+        },
+        {
+          "assessment": "adequate",
+          "evidence": {
+            "explanation": "src/example.py:1 declares VALUE = 7.",
+            "kind": "trace",
+            "references": [
+              "src/example.py:1"
+            ]
+          },
+          "id": "milestone-readiness"
+        },
+        {
+          "assessment": "adequate",
+          "evidence": {
+            "explanation": "src/example.py:1 declares VALUE = 7.",
+            "kind": "trace",
+            "references": [
+              "src/example.py:1"
+            ]
+          },
+          "id": "related-context-and-reusability"
+        },
+        {
+          "assessment": "adequate",
+          "evidence": {
+            "explanation": "src/example.py:1 declares VALUE = 7.",
+            "kind": "trace",
+            "references": [
+              "src/example.py:1"
+            ]
+          },
+          "id": "mvp-and-increment-scoping"
+        },
+        {
+          "assessment": "adequate",
+          "evidence": {
+            "explanation": "src/example.py:1 declares VALUE = 7.",
+            "kind": "trace",
+            "references": [
+              "src/example.py:1"
+            ]
+          },
+          "id": "approach-necessity"
+        }
+      ],
+      "refinements": [],
+      "scope": {
+        "approved_mvp_present": true,
+        "challenge": "One independently observable value is sufficient.",
+        "confirmation": "The fixture scope matches its approved increment.",
+        "delta": [
+          {
+            "authorization": "Fixture approved scope",
+            "classification": "approved",
+            "item": "Declared value",
+            "reason": "AC-1 requires the value."
+          }
+        ],
+        "increment_ladder": [],
+        "integrated_acceptance": "Read the module and execute tests/check.py.",
+        "sizing": "right-sized"
+      }
+    },
+    "enforcement_suggestions": [],
+    "findings": [
+      {
+        "classification": "implement",
+        "confidence": "high",
+        "decision": null,
+        "evidence": {
+          "explanation": "src/example.py:1 declares VALUE = 7.",
+          "kind": "trace",
+          "references": [
+            "src/example.py:1"
+          ]
+        },
+        "id": "SP-I1",
+        "impact": "Future edits could update one owner and leave the other stale.",
+        "location": "src/example.py:1",
+        "problem": "Two proposed owners would maintain the same declared value.",
+        "recommendation": "Keep src/example.py as the single declared owner.",
+        "severity": "important",
+        "title": "Choose the owner of the declared value"
+      },
+      {
+        "classification": "implement",
+        "confidence": "high",
+        "decision": null,
+        "evidence": {
+          "explanation": "src/example.py:1 declares VALUE = 7.",
+          "kind": "trace",
+          "references": [
+            "src/example.py:1"
+          ]
+        },
+        "id": "SP-I2",
+        "impact": "Future edits could update one owner and leave the other stale.",
+        "location": "src/example.py:1",
+        "problem": "Two proposed owners would maintain the same declared value.",
+        "recommendation": "Keep src/example.py as the single declared owner.",
+        "severity": "important",
+        "title": "Choose the owner of the declared value"
+      },
+      {
+        "classification": "implement",
+        "confidence": "high",
+        "decision": null,
+        "evidence": {
+          "explanation": "src/example.py:1 declares VALUE = 7.",
+          "kind": "trace",
+          "references": [
+            "src/example.py:1"
+          ]
+        },
+        "id": "SP-I3",
+        "impact": "Future edits could update one owner and leave the other stale.",
+        "location": "src/example.py:1",
+        "problem": "Two proposed owners would maintain the same declared value.",
+        "recommendation": "Keep src/example.py as the single declared owner.",
+        "severity": "important",
+        "title": "Choose the owner of the declared value"
+      },
+      {
+        "classification": "implement",
+        "confidence": "high",
+        "decision": null,
+        "evidence": {
+          "explanation": "src/example.py:1 declares VALUE = 7.",
+          "kind": "trace",
+          "references": [
+            "src/example.py:1"
+          ]
+        },
+        "id": "SP-I4",
+        "impact": "Future edits could update one owner and leave the other stale.",
+        "location": "src/example.py:1",
+        "problem": "Two proposed owners would maintain the same declared value.",
+        "recommendation": "Keep src/example.py as the single declared owner.",
+        "severity": "important",
+        "title": "Choose the owner of the declared value"
+      },
+      {
+        "classification": "ignore",
+        "confidence": "high",
+        "decision": null,
+        "evidence": {
+          "explanation": "src/example.py:1 declares VALUE = 7.",
+          "kind": "trace",
+          "references": [
+            "src/example.py:1"
+          ]
+        },
+        "id": "SP-M1",
+        "impact": "Future edits could update one owner and leave the other stale.",
+        "location": "src/example.py:1",
+        "problem": "Two proposed owners would maintain the same declared value.",
+        "recommendation": "Keep src/example.py as the single declared owner.",
+        "severity": "minor",
+        "title": "Choose the owner of the declared value"
+      }
+    ],
+    "limitations": [
+      {
+        "evidence": {
+          "explanation": "No live execution is supplied.",
+          "kind": "unavailable",
+          "references": []
+        },
+        "text": "No external integration was executed."
+      },
+      {
+        "evidence": {
+          "explanation": "The captured plan has no active rules.",
+          "kind": "absence",
+          "references": []
+        },
+        "text": "The fixture plan supplies no active-rule section."
+      }
+    ],
+    "observations": [
+      {
+        "evidence": {
+          "explanation": "src/example.py:1 declares VALUE = 7.",
+          "kind": "trace",
+          "references": [
+            "src/example.py:1"
+          ]
+        },
+        "text": "The implementation is one constant."
+      }
+    ],
+    "prior_dispositions": [],
+    "regressions": [],
+    "role": "spec-review",
+    "summary": "The declared value and its explicit acceptance route were reviewed.",
+    "verdict": {
+      "reason": "The declared material finding needs a disposition pass.",
+      "rerun_recommended": true,
+      "status": "pass_with_conditions"
+    }
+  },
+  "invocation": {
+    "effective_prompt_sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+    "execution": {
+      "cli": "claude",
+      "model": "fixture-review-model",
+      "reasoning_effort": "high",
+      "sandbox": "read-only"
+    },
+    "feature": "nl-screening",
+    "gate": "spec-review",
+    "input_hash": "8a490982d4dd6a616004261cec5eb09c5f4c72adf3382c8b28cbdc4acfe90812",
+    "output_contract_sha256": "2306dc151aaeeb1f86b7033cdcd389ad58b16f4ba3c9579b182da477bd72832f",
+    "output_contract_version": "heddle.review-content/v1",
+    "prompt_version": "authored-fixture-v1",
+    "review_basis_hash": "79891adf5e4799bf098bcf20ddb73bd68753971e710eb7d1a7515d43f330ff09",
+    "review_policy_id": null,
+    "scope": "feature"
+  },
+  "schema": "heddle.review-result/v2"
+}

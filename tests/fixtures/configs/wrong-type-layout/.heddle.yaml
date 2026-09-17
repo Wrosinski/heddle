@@ -1,0 +1,3 @@
+# AC-2 (e): non-string layout value — layout.tests is an integer.
+layout:
+  tests: 7

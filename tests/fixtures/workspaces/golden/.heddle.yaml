@@ -1,0 +1,29 @@
+# Full host contract — every D2 section, shaped like a realistic adopter
+# (poetry commands, src/example source root; sanitized to the example domain).
+layout:
+  specs: docs/features
+  plans: plans
+  prompts: .heddle/prompts
+  schemas: .heddle/schemas
+  tests: src/tests
+  source: src/example
+
+commands:
+  test: poetry run pytest -q -n auto
+  lint: poetry run flake8
+  typecheck: poetry run mypy --config-file=pyproject.toml
+
+agents:
+  claude: true
+  codex: true
+
+gates:
+  enabled:
+    - spec-review
+    - plan-review
+    - review-test-scaffolding
+    - milestone-review
+    - peer-review-sequential
+    - behavior-review
+    - complexity-review
+    - robustness-analysis

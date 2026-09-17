@@ -1,0 +1,28 @@
+conventions:
+  EARS:
+    keywords: [EARS, Requirements]
+  RFC2119:
+    keywords: [MUST, SHOULD, MAY, Priority]
+  VerifiedBy:
+    keywords: [Verified-by]
+  Gherkin:
+    keywords: [Scenario Outline, Gherkin]
+  DispositionLedger:
+    mode: all
+    keywords: [settled ground, re-raise]
+  ThreatActor:
+    mode: all
+    keywords:
+      - must name its threat actor
+      - only the routing of out-of-model gaps changes
+
+prompts:
+  spec-review.md: [RFC2119, Gherkin, DispositionLedger, ThreatActor]
+  plan-review.md: [DispositionLedger, ThreatActor]
+  review-test-scaffolding.md:
+    [VerifiedBy, Gherkin, DispositionLedger, ThreatActor]
+  milestone-review.md: [DispositionLedger]
+  peer-review-sequential.md: [RFC2119, DispositionLedger, ThreatActor]
+  behavior-review.md: [DispositionLedger]
+  complexity-review.md: [DispositionLedger]
+  robustness-analysis.md: [DispositionLedger, ThreatActor]

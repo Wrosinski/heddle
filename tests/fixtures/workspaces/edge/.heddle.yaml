@@ -1,0 +1,21 @@
+# Edge-case host contract (M2 kernel read-model scaffolding) — golden-shaped
+# layout with the full current review-role selection. The narrowing counter-case lives in
+# tests/fixtures/configs/narrowed-golden/.
+layout:
+  specs: docs/features
+  plans: plans
+  prompts: .heddle/prompts
+  schemas: .heddle/schemas
+  tests: src/tests
+  source: src/example
+
+gates:
+  enabled:
+    - spec-review
+    - plan-review
+    - review-test-scaffolding
+    - milestone-review
+    - peer-review-sequential
+    - behavior-review
+    - complexity-review
+    - robustness-analysis

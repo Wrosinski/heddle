@@ -1,0 +1,13 @@
+{
+  "class": 4,
+  "mechanism": "blocking-condition",
+  "stage": "spec-review",
+  "state_seed": {
+    "kind": "pending-decision",
+    "decision_id": "spec-review#1",
+    "source": "spec-review#1",
+    "title": "REPORT: a review finding needing a user decision",
+    "status": "pending",
+    "routes_to": []
+  }
+}

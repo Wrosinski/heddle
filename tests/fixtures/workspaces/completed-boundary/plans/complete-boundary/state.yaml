@@ -1,0 +1,74 @@
+schema: heddle.state/v9
+feature_policy:
+  schema: heddle.feature-policy/v1
+  revision: 1
+  axes: {scope: small, complexity: low, testability: full, scope_rationale: Authored fixture, complexity_rationale: Authored fixture, testability_rationale: Authored fixture}
+  approval: Authored current test fixture
+  entries:
+  - {role: spec-review, scope: feature, mode: 'off', limit: null, minimum_rounds: 0, primary: {cli: codex, model: gpt-6-astra, reasoning_effort: high}}
+  - {role: plan-review, scope: feature, mode: 'off', limit: null, minimum_rounds: 0, primary: {cli: codex, model: gpt-5.6-sol, reasoning_effort: high}}
+  - {role: review-test-scaffolding, scope: feature, mode: 'off', limit: null, minimum_rounds: 0, primary: {cli: codex, model: gpt-5.6-sol, reasoning_effort: xhigh}}
+  - {role: milestone-review, scope: milestone, mode: 'off', limit: null, minimum_rounds: 0, primary: {cli: codex, model: gpt-5.6-sol, reasoning_effort: high}}
+  - {role: peer-review-sequential, scope: feature, mode: 'off', limit: null, minimum_rounds: 0, primary: {cli: claude, model: claude-opus-5, reasoning_effort: xhigh}}
+  - {role: behavior-review, scope: feature, mode: 'off', limit: null, minimum_rounds: 0, primary: {cli: claude, model: claude-opus-5, reasoning_effort: xhigh}}
+  - {role: complexity-review, scope: feature, mode: 'off', limit: null, minimum_rounds: 0, primary: {cli: codex, model: gpt-5.6-sol, reasoning_effort: high}}
+  - {role: robustness-analysis, scope: feature, mode: 'off', limit: null, minimum_rounds: 0, primary: {cli: codex, model: gpt-5.6-sol, reasoning_effort: xhigh}}
+completion: null
+feature: complete-boundary
+spec: docs/features/example/complete-boundary.md
+revision: 21
+created: 2026-06-15T08:00Z
+updated: 2026-06-15T08:00Z
+stage: robustness
+authorized_through: robustness
+commands:
+  smoke_test: pytest -q
+  test_command: pytest -q
+milestones:
+- id: m1
+  title: Complete boundary fixture
+  satisfies:
+  - AC-1
+  depends_on: []
+  owns:
+  - src/example/complete.py
+  complexity: low
+  estimated_hours:
+  - 1
+  - 1
+  verification:
+    command: pytest -q
+    expected: all tests pass
+  status: done
+  tasks:
+  - id: t1
+    text: Prepare complete boundary
+    status: done
+gates: []
+verifications:
+- scope: m1
+  command: pytest -q
+  exit_code: 0
+  at: 2026-06-15T08:20Z
+  log: verification/m1.log
+  evidence:
+    schema: heddle.verification-evidence/v1
+    before:
+      schema: heddle.source-evidence-ref/v1
+      artifact: verification/source-evidence.560d9c81dbafa9979bbdded3da239e3bf26b7c4055bfc4d2c58d816b6555255c.yaml
+      artifact_sha256: 560d9c81dbafa9979bbdded3da239e3bf26b7c4055bfc4d2c58d816b6555255c
+      source_sha256: 08f71cf3cdbdbaabe50f658d522a77cb15165ceb91da1f9fabaca396abe2d8ea
+    after:
+      schema: heddle.source-evidence-ref/v1
+      artifact: verification/source-evidence.560d9c81dbafa9979bbdded3da239e3bf26b7c4055bfc4d2c58d816b6555255c.yaml
+      artifact_sha256: 560d9c81dbafa9979bbdded3da239e3bf26b7c4055bfc4d2c58d816b6555255c
+      source_sha256: 08f71cf3cdbdbaabe50f658d522a77cb15165ceb91da1f9fabaca396abe2d8ea
+decisions: []
+sessions: []
+feature_inputs: []
+review_assignments:
+  schema: heddle.review-assignments/v3
+  assignments: []
+  attempts: []
+  dispositions: []
+  acceptances: []

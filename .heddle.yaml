@@ -1,0 +1,28 @@
+# Host contract for the Heddle repository itself.
+layout:
+  specs:   docs/features
+  plans:   plans
+  # Heddle's own prompt corpus is the packaged floor, so the engine validates
+  # the same tree it ships rather than a repo-root copy.
+  # Adopting hosts keep the default `prompts/` projection root.
+  prompts: heddle/resources/prompts
+  schemas: .heddle/schemas
+  tests:   tests
+  source:  heddle
+
+commands:
+  test:      .venv/bin/python -m tests.proof_runner tests/kernel/test_project_config.py tests/runtime/test_schemas.py tests/runtime/test_boundaries.py::TestRuntimeImportBoundary::test_runtime_modules_import_only_declared_roots
+  lint:      .venv/bin/ruff check heddle/ tests/
+  typecheck: .venv/bin/mypy heddle
+
+agents:
+  claude: true
+  codex:  true
+
+autopilot:
+  # `flow: auto` refuses to drive without test_command. notify_command is
+  # deliberately unset, so an absent key degrades to polling `heddle status`.
+  test_command: .venv/bin/python -m tests.proof_runner tests/kernel/test_project_config.py tests/runtime/test_schemas.py tests/runtime/test_boundaries.py::TestRuntimeImportBoundary::test_runtime_modules_import_only_declared_roots
+  # Phase sessions run without a turn cap. max_turns absent/null means no
+  # --max-turns flag; the budget remains the resource rail.
+  max_budget_usd: 150

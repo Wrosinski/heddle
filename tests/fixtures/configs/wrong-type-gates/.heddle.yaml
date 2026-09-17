@@ -1,0 +1,3 @@
+# AC-2 (e): non-list gates.enabled — a bare string.
+gates:
+  enabled: spec-review

@@ -1,0 +1,32 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.attempt*.md
+/prompt
+/prompt2
+
+# Feature-run outputs belong to each host and are not regression fixtures.
+*.log
+.raw/
+/docs/gate-trajectories/
+/docs/proposals/evidence/**/runs/
+/docs/proposals/evidence/**/baseline/
+/docs/proposals/evidence/**/candidates/
+
+# Heddle's own development records stay local to each checkout. The empty
+# feature index and the two product feedback seeds remain public scaffolds.
+/docs/proposals/
+/docs/features/**
+!/docs/features/_descriptions.yaml
+/plans/**
+!/plans/gate-effectiveness.md
+!/plans/friction-log.md
+/.heddle/intake/

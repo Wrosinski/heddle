@@ -1,0 +1,3 @@
+# AC-5: unparsable YAML — the flow sequence never closes.
+schema: [heddle.state/v0
+feature: broken

@@ -1,0 +1,29 @@
+# M4A auto-flow host contract. The `autopilot:` block is a net-new namespaced
+# section (M4A additive to the D2 vocabulary); it does NOT conform to the
+# current HEDDLE_YAML_SECTIONS, which is why this fixture lives under
+# tests/driver/fixtures/ (outside the green corpus-conformance sweep) and is a
+# red-phase asset until pm1 lands the autopilot config block.
+layout:
+  specs: docs/features
+  plans: plans
+  prompts: .heddle/prompts
+  schemas: .heddle/schemas
+  tests: tests
+  source: src
+
+gates:
+  enabled:
+    - spec-review
+    - plan-review
+    - review-test-scaffolding
+    - milestone-review
+    - peer-review-sequential
+    - robustness-analysis
+
+autopilot:
+  flow: auto
+  notify_timeout_s: 10
+  # RA-1.1: a flow: auto feature must configure the Phase-9 clean-venv close suite,
+  # or `drive` halts at startup. `true` is the trivially-green placeholder for the
+  # fixture; close tests that exercise a non-green suite override it per-test.
+  test_command: "true"

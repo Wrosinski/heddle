@@ -1,0 +1,18 @@
+# AC-5: missing top-level collection key — `sessions` absent (all fifteen
+# §10.1 keys are required; collections must be present even when empty).
+schema: heddle.state/v6
+completion: null
+feature: missing-collection-key
+spec: docs/features/example/sample-feature.md
+tier: 2
+revision: 7
+created: 2026-06-04T09:00Z
+updated: 2026-06-10T15:30Z
+stage: implement
+authorized_through: implement
+commands: {}
+milestones: []
+gates: []
+verifications: []
+decisions: []
+feature_inputs: []

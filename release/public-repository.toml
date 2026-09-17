@@ -1,0 +1,23 @@
+schema_version = 1
+
+[repository]
+manifest = "release/manifests/repository.txt"
+private_globs = [
+  ".heddle/intake/**",
+  "docs/features/**",
+  "docs/gate-trajectories/**",
+  "docs/proposals/**",
+  "plans/**",
+]
+exceptions = [
+  "docs/features/_descriptions.yaml",
+  "plans/friction-log.md",
+  "plans/gate-effectiveness.md",
+]
+
+[artifacts.sdist]
+manifest = "release/manifests/sdist.txt"
+generated = ["PKG-INFO"]
+
+[artifacts.wheel]
+manifest = "release/manifests/wheel.txt"

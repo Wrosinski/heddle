@@ -1,0 +1,18 @@
+# Schema version ahead of this runtime — the hint must name
+# upgrading the runtime, not `heddle migrate` (migrate only advances behind
+# versions to current).
+schema: heddle.state/v99
+feature: schema-ahead
+spec: docs/features/example/sample-feature.md
+tier: 2
+revision: 7
+created: 2026-06-04T09:00Z
+updated: 2026-06-10T15:30Z
+stage: implement
+authorized_through: implement
+commands: {}
+milestones: []
+gates: []
+verifications: []
+decisions: []
+sessions: []

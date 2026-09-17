@@ -1,0 +1,15 @@
+# M4-specific fixture host for write-path boundary cases.
+layout:
+  specs: docs/features
+  plans: plans
+  prompts: .heddle/prompts
+  schemas: .heddle/schemas
+  tests: tests
+  source: src
+
+commands:
+  test: pytest -q
+
+gates:
+  enabled:
+    - robustness-analysis

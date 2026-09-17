@@ -1,0 +1,127 @@
+schema: heddle.state/v9
+feature_policy:
+  schema: heddle.feature-policy/v1
+  revision: 1
+  axes: {scope: small, complexity: low, testability: full, scope_rationale: Authored fixture, complexity_rationale: Authored fixture, testability_rationale: Authored fixture}
+  approval: Authored current test fixture
+  entries:
+  - {role: spec-review, scope: feature, mode: 'off', limit: null, minimum_rounds: 0, primary: {cli: codex, model: gpt-6-astra, reasoning_effort: high}}
+  - {role: plan-review, scope: feature, mode: 'off', limit: null, minimum_rounds: 0, primary: {cli: codex, model: gpt-5.6-sol, reasoning_effort: high}}
+  - {role: review-test-scaffolding, scope: feature, mode: 'off', limit: null, minimum_rounds: 0, primary: {cli: codex, model: gpt-5.6-sol, reasoning_effort: xhigh}}
+  - {role: milestone-review, scope: milestone, mode: 'off', limit: null, minimum_rounds: 0, primary: {cli: codex, model: gpt-5.6-sol, reasoning_effort: high}}
+  - {role: peer-review-sequential, scope: feature, mode: 'off', limit: null, minimum_rounds: 0, primary: {cli: claude, model: claude-opus-5, reasoning_effort: xhigh}}
+  - {role: behavior-review, scope: feature, mode: 'off', limit: null, minimum_rounds: 0, primary: {cli: claude, model: claude-opus-5, reasoning_effort: xhigh}}
+  - {role: complexity-review, scope: feature, mode: 'off', limit: null, minimum_rounds: 0, primary: {cli: codex, model: gpt-5.6-sol, reasoning_effort: high}}
+  - {role: robustness-analysis, scope: feature, mode: 'off', limit: null, minimum_rounds: 0, primary: {cli: codex, model: gpt-5.6-sol, reasoning_effort: xhigh}}
+completion: null
+feature: nl-screening
+spec: docs/features/analysis/nl-screening.md
+revision: 41
+created: 2026-06-02T09:14Z
+updated: 2026-06-10T11:03Z
+stage: implement
+authorized_through: implement
+commands:
+  smoke_test: poetry run pytest -q -m smoke
+  dev_setup: poetry install --with dev
+  test_command: poetry run pytest -q -n auto
+  lint_command: poetry run flake8
+  acceptance_test: poetry run pytest -q -m "acceptance and nl_screening"
+  live_e2e_test: poetry run pytest -q -m "live and nl_screening"
+milestones:
+- id: m1
+  title: Query parser
+  satisfies:
+  - AC-1
+  - AC-2
+  depends_on: []
+  owns:
+  - src/example/screening/parser
+  - src/tests/screening/parser
+  complexity: low
+  estimated_hours:
+  - 2
+  - 4
+  verification:
+    command: poetry run pytest src/tests/screening/parser -q
+    expected: all tests pass
+  status: done
+- id: m2
+  title: Criteria validation
+  satisfies:
+  - AC-3
+  depends_on:
+  - m1
+  owns:
+  - src/example/screening/validate
+  - src/tests/screening/validate
+  complexity: low
+  estimated_hours:
+  - 2
+  - 4
+  verification:
+    command: poetry run pytest src/tests/screening/validate -q
+    expected: all tests pass
+  status: current
+  tasks:
+  - id: t1
+    text: Define ScreeningCriteria validators
+    status: done
+  - id: t2
+    text: Wire validators into parser output
+    status: current
+  - id: t3
+    text: 'Unit tests: valid/edge/malformed'
+    status: todo
+gates: []
+verifications:
+- scope: m1
+  command: poetry run pytest src/tests/screening/parser -q
+  exit_code: 0
+  at: 2026-06-08T16:30Z
+  log: verification/m1-20260608.log
+  evidence:
+    schema: heddle.verification-evidence/v1
+    before:
+      schema: heddle.source-evidence-ref/v1
+      artifact: verification/source-evidence.66346d0200cbcae43ed3cde55a2583057166736b1c6d9918e854192b0875ecd9.yaml
+      artifact_sha256: 66346d0200cbcae43ed3cde55a2583057166736b1c6d9918e854192b0875ecd9
+      source_sha256: bf52fe37091ac71dc6cee9e60b0fbd6f6732d523abbb8abf51d23ef32cbf10a1
+    after:
+      schema: heddle.source-evidence-ref/v1
+      artifact: verification/source-evidence.66346d0200cbcae43ed3cde55a2583057166736b1c6d9918e854192b0875ecd9.yaml
+      artifact_sha256: 66346d0200cbcae43ed3cde55a2583057166736b1c6d9918e854192b0875ecd9
+      source_sha256: bf52fe37091ac71dc6cee9e60b0fbd6f6732d523abbb8abf51d23ef32cbf10a1
+decisions:
+- id: D1
+  source: spec-review#1
+  title: Cache invalidation strategy
+  status: resolved
+  resolution:
+    kind: disposition
+  routes_to:
+  - spec.decision-log
+  - plan.m4
+  created_at: 2026-06-03T10:20Z
+  resolved_at: 2026-06-03T14:02Z
+  kind: question
+  class: 1
+  rationale: 'hybrid: short TTL + data-change invalidation'
+  resolution_source: user
+sessions:
+- started_at: 2026-06-08T14:00Z
+  ended_at: 2026-06-08T17:10Z
+  completed:
+  - m1 all tasks, verified, self-review clean
+  started:
+  - m2 task expansion
+  key_context: "parser AST reused from query_search \u2014 see plan m2 notes"
+  next_steps: implement t2, then validators unit tests
+  blockers: []
+feature_inputs: []
+review_assignments:
+  schema: heddle.review-assignments/v3
+  assignments: []
+  attempts: []
+  dispositions: []
+  acceptances: []
