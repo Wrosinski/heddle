@@ -94,6 +94,8 @@ def journey(installed, tmp_path):
         "Preserve user-owned bytes.\n"
     )
     (root / "brief.md").write_text("# Research\nDeliver one observable value.\n")
+    git(root, "add", ".")
+    git(root, "commit", "-qm", "installed host source baseline")
     return result
 
 

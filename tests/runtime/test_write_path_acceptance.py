@@ -4,16 +4,13 @@ Integrated acceptance coverage for the workflow write.
 
 from __future__ import annotations
 
+import json
 import sys
 from pathlib import Path
 from typing import Any
 
 import pytest
 
-from tests.operational_model_helpers import native_run_fields, new_run_id
-from tests.runtime.write_path_helpers import (
-    authored_clean_reviews,
-)
 from tests.runtime.write_path_helpers import (
     copy_host as _copy_host,
 )
@@ -36,8 +33,6 @@ COMPLETED_BOUNDARY_FIXTURE = (
 
 PASS_REVIEW = scripted_review(summary="The scripted review found no issues.")
 
-IMPLEMENT_REQUIRED_GATES = ("code-quality", "self-review")
-
 
 def _prepare_alpha_loop_host(tmp_path: Path) -> Path:
     host = _copy_host(tmp_path, GOLDEN)
@@ -48,9 +43,12 @@ def _prepare_alpha_loop_host(tmp_path: Path) -> Path:
     state["authorized_through"] = "implement"
     for milestone in state["milestones"]:
         if milestone["id"] == "m1":
-            milestone["status"] = "done"
-        if milestone["id"] == "m2":
             milestone["status"] = "current"
+            milestone["verification"]["command"] = (
+                f"{sys.executable} -c \"print('m1 verification ok')\""
+            )
+        if milestone["id"] == "m2":
+            milestone["status"] = "todo"
             milestone["verification"]["command"] = (
                 f"{sys.executable} -c \"print('m2 verification ok')\""
             )
@@ -62,57 +60,14 @@ def _prepare_alpha_loop_host(tmp_path: Path) -> Path:
     state["verifications"] = [
         fact for fact in state["verifications"] if fact["scope"] != "m2"
     ]
-    for fact in state["gates"]:
-        if fact["gate"] in IMPLEMENT_REQUIRED_GATES and fact["scope"] == "m1":
-            fact["runs"][-1]["verdict"] = {
-                "status": "pass",
-                "rerun_recommended": False,
-            }
-    if not any(
-        fact["gate"] == IMPLEMENT_REQUIRED_GATES[0] and fact["scope"] == "m1"
-        for fact in state["gates"]
-    ):
-        state["gates"].append(
-            {
-                "gate": "code-quality",
-                "scope": "m1",
-                "runs": [
-                    {
-                        **native_run_fields("codex"),
-                        "run_id": new_run_id(),
-                        "report_findings": [],
-                        "at": "2026-06-15T12:00Z",
-                        "cli": "codex",
-                        "artifact": "reviews/code-quality-m1.codex.review.json",
-                        "input_hash": "sha256:alpha-loop-m1",
-                        "verdict": {
-                            "status": "pass",
-                            "rerun_recommended": False,
-                        },
-                        "findings": {
-                            "by_severity": {
-                                "critical": 0,
-                                "important": 0,
-                                "minor": 0,
-                            },
-                            "by_classification": {
-                                "implement": 0,
-                                "report": 0,
-                                "ignore": 0,
-                                "unknown": 0,
-                            },
-                            "total": 0,
-                            "contradictions": 0,
-                        },
-                    }
-                ],
-            }
-        )
-    state["gates"] = [
-        fact
-        for fact in state["gates"]
-        if not (fact["gate"] in IMPLEMENT_REQUIRED_GATES and fact["scope"] == "m2")
-    ]
+    for entry in state["feature_policy"]["entries"]:
+        if entry["role"] == "milestone-review":
+            entry.update(mode="upper-limit", limit=2, minimum_rounds=1)
+    state["gates"] = []
+    reviews = state_path.parent / "reviews"
+    for artifact in reviews.glob("*"):
+        if artifact.is_file():
+            artifact.unlink()
     # Materialize the reviewed inputs before recording verification, so the
     # later engine fixture does not change their content after a passing fact.
     from tests.runtime.conftest import _ensure_current_owned_input
@@ -121,7 +76,7 @@ def _prepare_alpha_loop_host(tmp_path: Path) -> Path:
     _write_yaml(state_path, state)
     _ensure_current_owned_input(host)
     for milestone in state["milestones"]:
-        if milestone["status"] == "done":
+        if milestone["id"] == "m1":
             state["verifications"] = [
                 fact
                 for fact in state["verifications"]
@@ -144,7 +99,6 @@ def _prepare_alpha_loop_host(tmp_path: Path) -> Path:
         ["commit", "-qm", "fixture birth"],
     ):
         subprocess.run(["git", *args], cwd=host, check=True)
-    authored_clean_reviews(state_path, milestone_ids=("m1",))
     return host
 
 
@@ -176,6 +130,96 @@ class TestWritePathAcceptance:
         fixture_state_path = GOLDEN / "plans" / "nl-screening" / "state.yaml"
         fixture_before = fixture_state_path.read_bytes()
 
+        def close_current_milestone_review(label: str) -> None:
+            fake_gate_runner(review=PASS_REVIEW, prepare_owned=False)
+            code, out, review_err = run_cli(
+                [
+                    "run-gate",
+                    "milestone-review",
+                    "--feature",
+                    "nl-screening",
+                    "--json",
+                ]
+            )
+            review = envelope_tools.parse(out)
+            assert code in {0, 4} and review["ok"] is True, (
+                f"FAIL AC-15: {label} needs a native current review, got exit "
+                f"{code}: {review!r}; stderr={review_err!r}"
+            )
+            state = _state(host)
+            run = next(
+                run
+                for fact in reversed(state["gates"])
+                if fact["gate"] == "milestone-review"
+                for run in reversed(fact["runs"])
+            )
+            payload = tmp_path / f"{label}-coverage.json"
+            payload.write_text(
+                json.dumps(
+                    {
+                        "schema": "heddle.review-disposition-input/v1",
+                        "dispositions": [
+                            {
+                                "run_id": run["run_id"],
+                                "finding_id": "@coverage",
+                                "status": "settled",
+                                "evidence_kind": "inspection",
+                                "references": [
+                                    "src/tests/screening/"
+                                    f"{'parser' if label == 'm1' else 'validate'}"
+                                    "/heddle_fake_reviewed_input.py"
+                                ],
+                                "reason": (
+                                    "The milestone verification directly exercises "
+                                    "the declared owned behavior."
+                                ),
+                            }
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            code, out, _err = run_cli(
+                [
+                    "review",
+                    "disposition",
+                    "--input-json",
+                    str(payload),
+                    "--expect-revision",
+                    str(state["revision"]),
+                    "--feature",
+                    "nl-screening",
+                    "--json",
+                ]
+            )
+            disposition = envelope_tools.parse(out)
+            assert code == 0 and disposition["data"]["closure"]["closed"] is True, (
+                f"FAIL AC-15: {label} review disposition failed: {disposition!r}"
+            )
+
+        close_current_milestone_review("m1")
+        code, out, _err = run_cli(
+            ["verify", "--scope", "m1", "--feature", "nl-screening", "--json"]
+        )
+        assert code == 0 and envelope_tools.parse(out)["ok"] is True, out
+        for _attempt in range(2):
+            if (
+                next(
+                    milestone
+                    for milestone in _state(host)["milestones"]
+                    if milestone["id"] == "m2"
+                )["status"]
+                == "current"
+            ):
+                break
+            code, out, _err = run_cli(
+                ["milestone", "advance", "--feature", "nl-screening", "--json"]
+            )
+            promoted = envelope_tools.parse(out)
+            assert code == 0 and promoted["ok"] is True, (
+                f"FAIL AC-15: m1 advancement failed: {promoted!r}"
+            )
+
         code, out, _err = run_cli(["orient", "--feature", "nl-screening", "--json"])
         orient = envelope_tools.parse(out)
         assert code == 0 and orient["data"]["current_task"]["id"] == "t2", (
@@ -187,6 +231,16 @@ class TestWritePathAcceptance:
         assert code == 0 and kickoff["data"]["stage"] == "implement", (
             "FAIL AC-15: kickoff must render the implement briefing"
         )
+
+        for relative in (
+            "src/example/screening/validate",
+            "src/tests/screening/validate",
+        ):
+            owned = host / relative
+            owned.mkdir(parents=True, exist_ok=True)
+            (owned / "heddle_fake_reviewed_input.py").write_text(
+                "VALUE = 7\n", encoding="utf-8"
+            )
 
         before_task = _state(host)["revision"]
         code, out, _err = run_cli(
@@ -221,17 +275,7 @@ class TestWritePathAcceptance:
             "FAIL AC-7: verify must capture output to the recorded log path"
         )
 
-        for gate_name in IMPLEMENT_REQUIRED_GATES:
-            fake_gate_runner(
-                review=PASS_REVIEW,
-            )
-            code, out, _err = run_cli(
-                ["run-gate", gate_name, "--feature", "nl-screening", "--json"]
-            )
-            gate = envelope_tools.parse(out)
-            assert code == 0 and gate["ok"] is True, (
-                f"FAIL AC-15: run-gate must converge the required {gate_name} gate"
-            )
+        close_current_milestone_review("m2")
 
         before_advance = _state(host)["revision"]
         code, out, _err = run_cli(

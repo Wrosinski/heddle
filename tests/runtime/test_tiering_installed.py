@@ -11,7 +11,11 @@ import json
 import pytest
 import yaml
 
-from tests.runtime.wheel_harness import build_installed_wheel, write_claude_shim
+from tests.runtime.wheel_harness import (
+    build_installed_wheel,
+    parse_envelope,
+    write_claude_shim,
+)
 from tests.structured_review_helpers import finding
 from tests.tiering_helpers import FABLE, entry, snapshot, wire_policy
 from tests.tiering_history_helpers import legacy_host
@@ -221,8 +225,6 @@ def test_ac14_installed_review_preserves_original_finding_across_disable_and_tam
 def test_ac14_installed_v6_conversion_preserves_original_bytes(
     installed, tmp_path, monkeypatch
 ):
-    import hashlib
-
     root, path = legacy_host(tmp_path, monkeypatch, stage="implement")
     original = path.read_bytes()
     payload = tmp_path / "migration.json"
@@ -244,15 +246,12 @@ def test_ac14_installed_v6_conversion_preserves_original_bytes(
     )
     env = isolated_env(installed, tmp_path)
     preview = installed.run(*args, "--dry-run", cwd=root, env=env)
-    assert preview.returncode == 0, preview.stdout + preview.stderr
+    assert preview.returncode == 2, preview.stdout + preview.stderr
+    assert parse_envelope(preview)["error"]["code"] == "usage"
     assert snapshot(root) == before
     converted = installed.run(*args, cwd=root, env=env)
-    assert converted.returncode == 0, converted.stdout + converted.stderr
-    assert yaml.safe_load(path.read_text())["schema"] == "heddle.state/v9"
-    saved = (
-        path.parent
-        / "migration"
-        / f"v6-state-{hashlib.sha256(original).hexdigest()}.yaml"
-    )
-    assert saved.read_bytes() == original
+    assert converted.returncode == 2, converted.stdout + converted.stderr
+    assert parse_envelope(converted)["error"]["code"] == "usage"
+    assert path.read_bytes() == original
+    assert not (path.parent / "migration").exists()
     assert_isolated(installed)

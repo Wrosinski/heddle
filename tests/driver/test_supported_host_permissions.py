@@ -49,7 +49,7 @@ def permission_host(root: Path, *, foreign: bool = True):
     target_spec.parent.mkdir(parents=True, exist_ok=True)
     if target_spec != old_spec:
         shutil.copyfile(old_spec, target_spec)
-    state.update(tier=3, stage="implement", authorized_through="complete", flow="hitl")
+    state.update(stage="implement", authorized_through="complete", flow="hitl")
     state["milestones"][0].update(
         status="current", owns=["feature code", "scripts/check.sh", "pyproject.toml"]
     )
@@ -207,7 +207,12 @@ def assert_probe_evidence(exit_code, events, targets, observed):
         and targets["allowed"] not in denied
         and not outcomes[targets["allowed"]].get("is_error")
     ), "FAIL AC-4: authorized write did not succeed"
-    for name in ("plan-contract", "workflow-contract", "principles", "state"):
+    for name in (
+        "architecture-contract",
+        "workflow-contract",
+        "principles",
+        "state",
+    ):
         assert (
             targets[name] in denied
             and observed[name] == "KEEP\n"
@@ -232,7 +237,7 @@ def test_ac4_acceptance_observations_require_actual_attempts(
     """Oracle fixtures cover denial channels, auto outcomes and invalid evidence."""
     names = (
         "allowed",
-        "plan-contract",
+        "architecture-contract",
         "workflow-contract",
         "principles",
         "state",

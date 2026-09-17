@@ -121,7 +121,6 @@ def _complete_implement_stage(feature: str) -> None:
             task["status"] = "done"
 
     _append_missing_verifications(state_path, state, milestones, now)
-    _append_missing_gate_runs(state, feature, milestones, now)
     state["revision"] = int(state.get("revision", 0)) + 1
     state["updated"] = now
     state_path.write_text(
@@ -151,59 +150,3 @@ def _append_missing_verifications(
             state["verifications"].append(
                 authored_milestone_verification(state_path.resolve(), milestone, at=now)
             )
-
-
-def _append_missing_gate_runs(
-    state: dict[str, Any],
-    feature: str,
-    milestones: list[dict[str, Any]],
-    now: str,
-) -> None:
-    existing = {
-        (fact.get("gate"), fact.get("scope")) for fact in state.setdefault("gates", [])
-    }
-    for milestone in milestones:
-        mid = milestone.get("id")
-        for gate in ("code-quality", "self-review"):
-            if mid and (gate, mid) not in existing:
-                state["gates"].append(
-                    {
-                        "gate": gate,
-                        "scope": mid,
-                        "runs": [_seed_gate_run(feature, gate, milestone, now)],
-                    }
-                )
-
-
-def _seed_gate_run(feature, gate, milestone, now):
-    from heddle.gate.findings import render_review_markdown
-    from heddle.gate.results import decode_review_result
-    from tests.readiness_helpers import authored_current_event
-
-    workspace = Path("plans") / feature
-    event = authored_current_event(
-        workspace / "state.yaml",
-        gate,
-        milestone["id"],
-        cli="codex",
-        at=now,
-        artifact=f"reviews/{gate}-{milestone['id']}.review.json",
-    )
-    result = decode_review_result((workspace / event["artifact"]).read_bytes())
-    view = workspace / f"reviews/{gate}-{milestone['id']}.md"
-    view.write_text(render_review_markdown(result))
-    return event
-
-
-def _findings() -> dict[str, Any]:
-    return {
-        "by_severity": {"critical": 0, "important": 0, "minor": 0},
-        "by_classification": {
-            "implement": 0,
-            "report": 0,
-            "ignore": 0,
-            "unknown": 0,
-        },
-        "total": 0,
-        "contradictions": 0,
-    }

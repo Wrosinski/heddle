@@ -13,32 +13,8 @@
   },
   "artifact_paths": [
     "docs/features/example/autopilot-demo.md",
-    "plans/autopilot-demo/plan.md",
-    "plans/autopilot-demo/reviews/code-quality-m1.md",
-    "plans/autopilot-demo/reviews/code-quality-m2.md",
-    "plans/autopilot-demo/reviews/self-review-m1.md",
-    "plans/autopilot-demo/reviews/self-review-m2.md"
+    "plans/autopilot-demo/brief.md",
+    "plans/autopilot-demo/plan.md"
   ],
-  "gate_iteration_counts": [
-    {
-      "gate": "code-quality",
-      "scope": "m1",
-      "run_count": 1
-    },
-    {
-      "gate": "code-quality",
-      "scope": "m2",
-      "run_count": 1
-    },
-    {
-      "gate": "self-review",
-      "scope": "m1",
-      "run_count": 1
-    },
-    {
-      "gate": "self-review",
-      "scope": "m2",
-      "run_count": 1
-    }
-  ]
+  "gate_iteration_counts": []
 }

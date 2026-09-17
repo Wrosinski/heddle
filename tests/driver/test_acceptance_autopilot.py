@@ -102,6 +102,17 @@ def _gate_iteration_counts(state: dict) -> list[dict[str, int | str]]:
     )
 
 
+def _disable_reviews_for_driver_oracle(state_path, driver_corpus) -> None:
+    """Keep this driver oracle on the explicitly all-off policy path."""
+    state = driver_corpus.read_yaml(state_path)
+    for entry in state["feature_policy"]["entries"]:
+        entry.update(mode="off", limit=None, minimum_rounds=0)
+    driver_corpus.write_yaml(state_path, state)
+    (state_path.parent / "brief.md").write_text(
+        "# Brief\n\nExercise the unattended driver path.\n", encoding="utf-8"
+    )
+
+
 # --------------------------------------------------------------------------- #
 # AC-9 — clean auto run end-to-end vs the checked-in golden HITL baseline
 # --------------------------------------------------------------------------- #
@@ -120,12 +131,9 @@ def test_ac09_clean_auto_run_matches_golden_hitl_baseline(
     kernel/runtime/driver paths perform the loop, writes, and close validation."""
     host = auto_tier2_workspace(chdir=False)  # principles ratified, no blockers
     state_path = driver_corpus.state(host, SLUG)
-    # The frozen HITL oracle covers the two implement gates. Declare that
-    # restricted schedule explicitly; the shared host now has a valid peer
-    # requirement, exercised by the composed typed-action acceptance case.
-    config = driver_corpus.read_yaml(host / ".heddle.yaml")
-    config["gates"]["enabled"] = ["code-quality", "self-review"]
-    driver_corpus.write_yaml(host / ".heddle.yaml", config)
+    # Reviews are explicitly Off in this driver-loop oracle. Native review
+    # journeys are covered by the installed and concurrency acceptance lanes.
+    _disable_reviews_for_driver_oracle(state_path, driver_corpus)
     authored_boundary_verifications(state_path)
     initialize_fixture_git(host)
     fake_claude.enable_autopilot_completion()
@@ -200,13 +208,13 @@ def test_ac09_clean_auto_run_matches_golden_hitl_baseline(
         "FAIL AC-9: per-gate iteration counts must equal the golden HITL baseline"
     )
 
-    # The decision journal is driver-authored from the session's policy payload
-    # and must be present (AC-18 integrated; AC-16 source: policy on grants).
+    # With every review role explicitly Off, the driver has no policy decision
+    # to journal before the human completion handoff.
     # completion: the friction retrospective is a completion artifact the HITL close
     # actor authors — the unattended run must NOT have produced it (robustness
     # sessions carry no completion writer).
-    assert (host / AUTO_TIER2_DECISION_JOURNAL).exists(), (
-        "FAIL AC-9/AC-18: the auto run must produce the decision journal"
+    assert not (host / AUTO_TIER2_DECISION_JOURNAL).exists(), (
+        "FAIL AC-9/AC-18: an all-off review path must not fabricate a decision journal"
     )
     assert not (host / AUTO_TIER2_FRICTION_RETRO).exists(), (
         "FAIL AC-9/completion: the friction retrospective is HITL completion stage "
@@ -339,12 +347,9 @@ def test_completion_auto_run_stops_at_handoff_and_hitl_fact_makes_terminal(
 
     host = auto_tier2_workspace(chdir=False)
     state_path = driver_corpus.state(host, SLUG)
-    # The frozen HITL oracle covers the two implement gates. Declare that
-    # restricted schedule explicitly; the shared host now has a valid peer
-    # requirement, exercised by the composed typed-action acceptance case.
-    config = driver_corpus.read_yaml(host / ".heddle.yaml")
-    config["gates"]["enabled"] = ["code-quality", "self-review"]
-    driver_corpus.write_yaml(host / ".heddle.yaml", config)
+    # Reviews are explicitly Off in this driver-loop oracle. Native review
+    # journeys are covered by the installed and concurrency acceptance lanes.
+    _disable_reviews_for_driver_oracle(state_path, driver_corpus)
     authored_boundary_verifications(state_path)
     initialize_fixture_git(host)
     fake_claude.enable_autopilot_completion()
@@ -379,7 +384,7 @@ def test_completion_auto_run_stops_at_handoff_and_hitl_fact_makes_terminal(
         journal.write_text("# Decision Journal\n", encoding="utf-8")
     code, out, _err = run_cli(["feature", "complete", "--feature", SLUG, "--json"])
     close_envelope = envelope_tools.parse(out)
-    assert code == 4 and close_envelope["data"]["accepted"], (
+    assert code == 0 and close_envelope["data"]["accepted"], (
         "FAIL AC-8/AC-9: the qualifying HITL fact must be accepted (policy "
         "close grant + the fixture's configured suite), got exit "
         f"{code}: {close_envelope.get('error')}"

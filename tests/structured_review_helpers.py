@@ -192,7 +192,16 @@ def scripted_result(review, prepared, feature):
         if any(x["severity"] == "important" for x in items)
         else "pass"
     )
-    payload = content(prepared.gate, findings=items, status=status)
+    if prepared.gate in {
+        "milestone-review",
+        "behavior-review",
+        "complexity-review",
+    }:
+        from tests.tiering_review_helpers import review_content
+
+        payload = review_content(prepared.gate, findings=items)
+    else:
+        payload = content(prepared.gate, findings=items, status=status)
     payload["summary"] = review["summary"]
     complete_fixture_coverage(payload, prepared.ac_ids, prepared.active_rules)
     if prepared.gate in SYNTHESIS_ROLES:

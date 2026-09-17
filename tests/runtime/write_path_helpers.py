@@ -114,6 +114,9 @@ def complete_boundary_host(tmp_path, source):
     host = copy_host(tmp_path, source)
     authored_boundary_verifications(host / "plans/complete-boundary/state.yaml")
     authored_clean_reviews(host / "plans/complete-boundary/state.yaml")
+    (host / "plans/complete-boundary/brief.md").write_text(
+        "# Brief\n\nExercise the complete boundary.\n"
+    )
     for args in (
         ["init", "-q"],
         ["config", "user.email", "test@example.test"],
@@ -125,26 +128,46 @@ def complete_boundary_host(tmp_path, source):
     return host
 
 
-def authored_clean_reviews(state_path, *, milestone_ids=()):
+def authored_clean_reviews(
+    state_path,
+    *,
+    milestone_ids=(),
+    milestone_gates=("code-quality", "self-review"),
+):
     """Give transition fixtures the current review evidence they require."""
-    from tests.readiness_helpers import STAGE_REVIEWS, authored_current_event
+    from tests.readiness_helpers import authored_current_event
     from tests.runtime.validation_helpers import ensure_files
 
     state = read_yaml(state_path)
     host = state_path.parents[2]
     ensure_files(host, [p for m in state["milestones"] for p in m["owns"]])
-    lanes = (
-        [
+    if milestone_ids:
+        lanes = [
             (gate, "codex", scope)
             for scope in milestone_ids
-            for gate in ("code-quality", "self-review")
+            for gate in milestone_gates
         ]
-        if milestone_ids
-        else [
-            (gate, cli, "feature")
-            for gate, cli in STAGE_REVIEWS[(state["stage"], state["tier"])]
+    else:
+        roles_by_stage = {
+            "spec-review": ("spec-review",),
+            "plan-review": ("plan-review",),
+            "scaffold": ("review-test-scaffolding",),
+            "peer-review": (
+                "peer-review-sequential",
+                "behavior-review",
+                "complexity-review",
+            ),
+            "robustness": ("robustness-analysis",),
+        }
+        entries = {
+            entry["role"]: entry
+            for entry in state.get("feature_policy", {}).get("entries", [])
+        }
+        lanes = [
+            (role, entries[role]["primary"]["cli"], "feature")
+            for role in roles_by_stage.get(state["stage"], ())
+            if role in entries and entries[role]["mode"] != "off"
         ]
-    )
     for gate, cli, scope in lanes:
         event = authored_current_event(state_path, gate, scope, cli=cli)
         fact = next(

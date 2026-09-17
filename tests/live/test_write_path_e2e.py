@@ -12,6 +12,9 @@ import pytest
 import yaml
 
 from tests.runtime.write_path_helpers import (
+    complete_boundary_host,
+)
+from tests.runtime.write_path_helpers import (
     copy_host as _copy_host,
 )
 from tests.runtime.write_path_helpers import (
@@ -211,7 +214,9 @@ def test_local_write_path_no_mocks(tmp_path: Path) -> None:
         "FAIL live AC-13: phase-exit must emit a summary skeleton"
     )
 
-    complete = _copy_host(tmp_path, COMPLETED_BOUNDARY_FIXTURE, "complete")
+    complete = complete_boundary_host(
+        tmp_path / "complete-host", COMPLETED_BOUNDARY_FIXTURE
+    )
     spec_path = complete / "docs" / "features" / "example" / "complete-boundary.md"
     body_before = spec_path.read_text(encoding="utf-8").split("---\n", 2)[2]
     code, envelope, _stderr = _run_heddle(
@@ -247,7 +252,7 @@ def test_local_write_path_no_mocks(tmp_path: Path) -> None:
         "--feature",
         "complete-boundary",
     )
-    assert code == 4 and envelope["data"]["accepted"] is True, (
+    assert code == 0 and envelope["data"]["accepted"] is True, (
         f"FAIL live AC-9/AC-10: qualifying final acceptance failed: exit={code}, "
         f"envelope={envelope!r}"
     )
@@ -264,7 +269,7 @@ def test_local_write_path_no_mocks(tmp_path: Path) -> None:
         "--feature",
         "complete-boundary",
     )
-    assert code == 4 and envelope["data"]["wrote"] is False, (
+    assert code == 0 and envelope["data"]["wrote"] is False, (
         f"FAIL live AC-8: the qualifying retry must be a wrote: false no-op, "
         f"exit={code}, envelope={envelope!r}"
     )

@@ -326,7 +326,7 @@ def _prepare_peer_boundary(
         "milestone-completed"
     )
     assert all(row["status"] == "done" for row in journey.read()["milestones"])
-    git(journey.root, "add", "src", "tests", SPEC)
+    git(journey.root, "add", "src", "tests")
     git(journey.root, "commit", "-qm", "implement both declared values")
 
     proof: dict[str, dict] = {}
@@ -452,7 +452,7 @@ def test_installed_guidance_progresses_once_and_preserves_handoff(
     before_preview = snapshot_tree(journey.root)
     journey.run("feature", "complete", "--dry-run")
     assert snapshot_tree(journey.root) == before_preview
-    accepted = journey.run("feature", "complete", expected=4)
+    accepted = journey.run("feature", "complete")
     assert accepted["data"]["accepted"] is True
     assert journey.calls.read_text().splitlines().count("close") == 1
     accepted_state = journey.state.read_bytes()

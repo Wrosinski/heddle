@@ -182,7 +182,7 @@ def test_ac14_installed_review_drift_restore_completion_and_terminal_retry(tmp_p
         )
         + "\n"
     )
-    close = execute("feature", "complete", expected=4)
+    close = execute("feature", "complete")
     assert close["data"]["wrote"] is True and close["data"]["accepted"]
     archive = host / f"docs/gate-trajectories/.raw/{FEATURE}/completion.tar.gz"
     assert archive.is_file()

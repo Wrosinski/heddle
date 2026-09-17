@@ -234,6 +234,7 @@ def _install_fixture_diff_projection(monkeypatch, production_resolve_diff) -> No
         temp_dir=None,
         *,
         owned_paths=None,
+        feature_baseline=None,
         feature_baseline_probe=None,
     ):
         resolved = production_resolve_diff(
@@ -241,6 +242,7 @@ def _install_fixture_diff_projection(monkeypatch, production_resolve_diff) -> No
             repo_root,
             temp_dir,
             owned_paths=owned_paths,
+            feature_baseline=feature_baseline,
             feature_baseline_probe=feature_baseline_probe,
         )
         if resolved.changed_files or not owned_paths:

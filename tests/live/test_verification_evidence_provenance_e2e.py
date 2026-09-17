@@ -72,6 +72,7 @@ def test_current_evidence_survives_workspace_cleanup(
     accepted = run(host, "feature", "complete", "--feature", "sample-feature")
     assert accepted["data"]["accepted"]
     assert accepted["data"]["effects"]["archive"]["status"] == "complete"
+    assert accepted["data"]["effects"]["cleanup"]["preserved"] == []
     archive = host / "docs/gate-trajectories/.raw/sample-feature/completion.tar.gz"
     before = state_path.read_bytes(), archive.read_bytes()
     _git(host, "add", "-f", "plans", "docs")
@@ -79,6 +80,6 @@ def test_current_evidence_survives_workspace_cleanup(
     retry = run(host, "feature", "complete", "--feature", "sample-feature")
     assert retry["data"]["effects"]["cleanup"]["status"] == "complete"
     assert (state_path.parent / "plan.md").exists()
-    assert "plan.md" in retry["data"]["effects"]["cleanup"]["preserved"]
+    assert retry["data"]["effects"]["cleanup"]["preserved"] == []
     assert (state_path.read_bytes(), archive.read_bytes()) == before
     assert run(host, "status", "--feature", "sample-feature")["data"]["accepted"]

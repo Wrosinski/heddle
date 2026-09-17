@@ -72,22 +72,9 @@ def _clone_workspace(host: Path, slug: str, *, schema: str) -> None:
     _write_yaml(state_path, state)
 
 
-def _normalize_v1(host: Path) -> None:
+def _materialize_owned_files(host: Path) -> None:
     state_path = _state_path(host)
     state = _read_yaml(state_path)
-    state["schema"] = "heddle.state/v1"
-    state.setdefault("flow", "hitl")
-    state.setdefault(
-        "authorizations",
-        [
-            {
-                "through": state["authorized_through"],
-                "source": "user",
-                "at": state["updated"],
-            }
-        ],
-    )
-    _write_yaml(state_path, state)
     for milestone in state["milestones"]:
         for owned in milestone.get("owns", []):
             target = host / owned
@@ -199,53 +186,22 @@ def test_local_migrate_and_validate_no_mocks(tmp_path: Path) -> None:
     before = _read_yaml(state_path)
     before_bytes = state_path.read_bytes()
 
-    code, envelope, _stderr = _run_heddle(host, "migrate", "--dry-run")
-    assert code == 0 and envelope["data"]["dry_run"] is True, (
-        f"FAIL live M5 AC-4: migrate --dry-run failed: exit={code}, "
-        f"envelope={envelope!r}"
-    )
-    assert state_path.read_bytes() == before_bytes, (
-        "FAIL live M5 AC-4: migrate --dry-run changed state.yaml"
-    )
+    for arguments in (
+        ("migrate", "--dry-run"),
+        ("migrate",),
+        ("migrate", "--from-legacy"),
+    ):
+        code, envelope, _stderr = _run_heddle(host, *arguments)
+        assert code == 2 and envelope["error"]["code"] == "usage", (
+            f"FAIL live M5 AC-3..AC-5: retired migration surface accepted "
+            f"{arguments!r}: exit={code}, envelope={envelope!r}"
+        )
+        assert state_path.read_bytes() == before_bytes, (
+            "FAIL live M5 AC-4: retired migration command changed state.yaml"
+        )
+    assert _read_yaml(state_path) == before
 
-    code, envelope, _stderr = _run_heddle(host, "migrate")
-    assert code == 0 and envelope["ok"] is True, (
-        f"FAIL live M5 AC-3: migrate failed: exit={code}, envelope={envelope!r}"
-    )
-    migrated = _read_yaml(state_path)
-    assert migrated["schema"] == "heddle.state/v1", (
-        "FAIL live M5 AC-3: migrate must stamp schema v1"
-    )
-    assert migrated["flow"] == "hitl"
-    assert migrated["authorizations"] == [
-        {
-            "through": before["authorized_through"],
-            "source": "user",
-            "at": before["updated"],
-        }
-    ]
-    assert migrated["revision"] == before["revision"] + 1
-
-    after_first = state_path.read_bytes()
-    code, envelope, _stderr = _run_heddle(host, "migrate")
-    assert code == 0 and envelope["ok"] is True, (
-        f"FAIL live M5 AC-5: repeated migrate failed: exit={code}, "
-        f"envelope={envelope!r}"
-    )
-    assert state_path.read_bytes() == after_first, (
-        "FAIL live M5 AC-4: repeated migrate must be a no-op"
-    )
-
-    code, envelope, _stderr = _run_heddle(host, "migrate", "--from-legacy")
-    assert code == 3 and envelope["error"]["code"] == "not-implemented", (
-        f"FAIL live M5 AC-5: --from-legacy failed incorrectly: exit={code}, "
-        f"envelope={envelope!r}"
-    )
-    assert "M8" in envelope["error"]["hint"], (
-        "FAIL live M5 AC-5: --from-legacy deferral must name M8"
-    )
-
-    _normalize_v1(host)
+    _materialize_owned_files(host)
     code, envelope, _stderr = _run_heddle(host, "validate")
     assert code == 0 and envelope["ok"] is True and envelope["diagnostics"] == [], (
         f"FAIL live M5 AC-6: clean validate failed: exit={code}, envelope={envelope!r}"
@@ -291,7 +247,7 @@ def test_local_migrate_and_validate_no_mocks(tmp_path: Path) -> None:
         )
 
     validate_global_host = shutil.copytree(TINY, tmp_path / "m5-global-validate")
-    _normalize_v1(validate_global_host)
+    _materialize_owned_files(validate_global_host)
     _clone_workspace(validate_global_host, "future-lab", schema="heddle.state/v2")
     _clone_workspace(validate_global_host, "drift-lab", schema="heddle.state/v1")
     _seed_single_pattern_violation(validate_global_host)
@@ -317,43 +273,26 @@ def test_local_migrate_and_validate_no_mocks(tmp_path: Path) -> None:
 
     global_host = shutil.copytree(TINY, tmp_path / "m5-global")
     _clone_workspace(global_host, "future-lab", schema="heddle.state/v2")
+    global_before = {
+        path: path.read_bytes()
+        for path in (
+            _state_path(global_host),
+            _state_path(global_host, "future-lab"),
+        )
+    }
     code, envelope, _stderr = _run_heddle(global_host, "migrate")
-    assert code == 3 and envelope["error"]["code"] == "workspace-invalid", (
-        f"FAIL live M5 AC-13: repo-global migrate split failed: exit={code}, "
+    assert code == 2 and envelope["error"]["code"] == "usage", (
+        f"FAIL live M5 AC-13: retired repo-global migrate was accepted: exit={code}, "
         f"envelope={envelope!r}"
     )
-    assert _read_yaml(_state_path(global_host))["schema"] == "heddle.state/v1"
-    assert _read_yaml(_state_path(global_host, "future-lab"))["schema"] == (
-        "heddle.state/v2"
-    )
+    assert {path: path.read_bytes() for path in global_before} == global_before
     assert "data" not in envelope, (
         "FAIL live M5 AC-13: failure envelopes must preserve data-xor-error; "
-        "migrate split belongs in diagnostics"
+        "retired migration must remain write-free"
     )
-    migrated_messages = "\n".join(
-        d["message"]
-        for d in envelope["diagnostics"]
-        if d["severity"] == "info" and d["code"] == "workspace-migrated"
-    )
-    skipped_messages = "\n".join(
-        d["message"]
-        for d in envelope["diagnostics"]
-        if d["severity"] == "fatal" and "workspace-invalid" in d["code"]
-    )
-    assert "sample-feature" in migrated_messages and "future-lab" not in (
-        migrated_messages
-    ), (
-        "FAIL live M5 AC-13: migrated behind workspace must be reported via "
-        f"diagnostics, got {migrated_messages!r}"
-    )
-    assert "future-lab" in skipped_messages and "sample-feature" not in (
-        skipped_messages
-    ), (
-        "FAIL live M5 AC-13: skipped ahead workspace must be reported via "
-        f"workspace-invalid diagnostics, got {skipped_messages!r}"
-    )
+    assert envelope["diagnostics"] == []
 
     code, envelope, _stderr = _run_heddle(host, "help")
     by_name = {entry["name"]: entry for entry in envelope["data"]["commands"]}
     assert by_name["validate"]["output_schema"] == "heddle.validate/v0"
-    assert by_name["migrate"]["output_schema"] == "heddle.migrate/v0"
+    assert "migrate" not in by_name

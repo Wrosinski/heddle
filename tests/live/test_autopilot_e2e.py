@@ -71,6 +71,18 @@ def _read_state(host: Path) -> dict:
     )
 
 
+def _copy_live_host(tmp_path: Path) -> Path:
+    """Copy the host with an explicit finite live-session cost ceiling."""
+    import yaml
+
+    host = shutil.copytree(AUTO_FIXTURE, tmp_path / "auto-tier2")
+    config_path = host / ".heddle.yaml"
+    config = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+    config["autopilot"].update(max_turns=40, max_budget_usd=5.0)
+    config_path.write_text(yaml.safe_dump(config, sort_keys=False), encoding="utf-8")
+    return host
+
+
 def test_live_ac02_ac05_bounded_real_drive_advances_one_boundary(tmp_path):
     """
     Bounded live coverage of AC-5 (the `--until` stop) and AC-2 (the
@@ -79,7 +91,7 @@ def test_live_ac02_ac05_bounded_real_drive_advances_one_boundary(tmp_path):
         segment. This is NOT full AC-9 (that would drive to completion and compare the
         golden HITL baseline — deferred per the AC Coverage Matrix / review).
     """
-    host = shutil.copytree(AUTO_FIXTURE, tmp_path / "auto-tier2")
+    host = _copy_live_host(tmp_path)
     code, envelope, _stderr = _run_drive_live(
         host, "drive", "--feature", SLUG, "--until", "spec-review"
     )
@@ -102,7 +114,7 @@ def test_live_ac02_ac05_bounded_real_drive_advances_one_boundary(tmp_path):
 def test_live_idempotent_reinvocation(tmp_path):
     """The stateless driver is re-invocable: a second bounded drive over the
     already-advanced workspace re-resolves and does not corrupt state."""
-    host = shutil.copytree(AUTO_FIXTURE, tmp_path / "auto-tier2")
+    host = _copy_live_host(tmp_path)
     # review: assert the first (setup) drive itself succeeded before taking the
     # baseline — a degraded first run would make the idempotency comparison
     # meaningless (it would compare two failures).

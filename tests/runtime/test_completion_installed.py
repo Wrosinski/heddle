@@ -422,7 +422,7 @@ def test_sealed_boundaries_installed_completion_retains_receipts_and_dependencie
         for entry in receipt["assignments"]
     )
 
-    accepted = journey.run("feature", "complete", expected=4)
+    accepted = journey.run("feature", "complete")
 
     assert accepted["data"]["accepted"] is True
     state_bytes = journey.state.read_bytes()
@@ -589,8 +589,8 @@ def test_ac9_installed_completed_review_publication_recovers_without_provider_re
 ):
     """A published canonical result is recoverable before another paid attempt."""
     journey = start_host(installed, tmp_path, reviewed=True)
-    (journey.root / "src").mkdir()
-    (journey.root / "tests").mkdir()
+    (journey.root / "src").mkdir(exist_ok=True)
+    (journey.root / "tests").mkdir(exist_ok=True)
     (journey.root / "src/example.py").write_text("VALUE = 7\n")
     (journey.root / "tests/check.py").write_text(
         "def test_declared_value():\n    assert True\n"
@@ -840,7 +840,7 @@ def test_ac13_installed_accepted_spec_conflict_is_repairable(installed, tmp_path
     journey.run("orient")
     journey.run("drive", expected=4)
     (journey.root / SPEC).write_bytes(original)
-    journey.run("feature", "complete", expected=4)
+    journey.run("feature", "complete")
     journey.retain()
     journey.run("feature", "complete")
     assert journey.state.read_bytes() == state
@@ -1227,6 +1227,9 @@ def test_distinct_gate_concurrency_installed_partial_publication_recovery(
         "## Prompt gaps\n\nNone.\n\n"
         "## Validator false-positives\n\nNone.\n\n"
         "## Escalations that should have been policy-resolvable\n\nNone.\n"
+    )
+    (host / f"plans/{V7_FEATURE}/brief.md").write_text(
+        "# Brief\n\nExercise installed concurrent review recovery.\n"
     )
     accepted = installed.run(
         "feature",

@@ -96,14 +96,15 @@ def test_ac11_old_v3_pass_refuses_all_public_entrypoints(
 def test_ac11_native_current_close_then_old_state_refusal(
     tmp_path, monkeypatch, run_cli
 ):
-    from tests.runtime.test_operational_model import native_tier1_close_fixture
+    from tests.tiering_completion_helpers import final_host
 
-    app, _ops, host, path, _spec, operation = native_tier1_close_fixture(
-        tmp_path, monkeypatch, run_cli
-    )
+    fixture = final_host(tmp_path, monkeypatch)
+    app, ops = application()
+    path = fixture.state
+    operation = ops.FeatureComplete(feature=FEATURE)
     value = read(path)
-    assert value["schema"] == "heddle.state/v6", (
-        "FAIL AC-11: native creation still admits the old state schema"
+    assert value["schema"] == "heddle.state/v9", (
+        "FAIL AC-11: the authored close fixture must use the current state schema"
     )
     control = app.execute(replace(operation, dry_run=True))
     assert control.ok, control
@@ -113,7 +114,7 @@ def test_ac11_native_current_close_then_old_state_refusal(
     result = app.execute(operation)
     assert not result.ok and result.error.code == "workspace-invalid"
     assert path.read_bytes() == before
-    assert not list(host.glob("docs/completion-receipts/*native-example*"))
+    assert not fixture.archive.exists()
 
 
 @pytest.mark.toolchain
