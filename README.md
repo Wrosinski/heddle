@@ -1,4 +1,11 @@
-# Heddle
+<picture>
+  <source media="(prefers-color-scheme: dark)"
+          srcset="assets/brand/logos/heddle-horizontal-inverse.svg">
+  <source media="(prefers-color-scheme: light)"
+          srcset="assets/brand/logos/heddle-horizontal-graphite.svg">
+  <img alt="Heddle" src="assets/brand/logos/heddle-horizontal-graphite.svg"
+       width="360">
+</picture>
 
 Heddle is an open-source local workflow runtime for LLM-assisted software
 engineering. It combines flexibility with formal verification: agents can adapt

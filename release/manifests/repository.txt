@@ -19,6 +19,8 @@ CONTRIBUTING.md
 LICENSE
 README.md
 SECURITY.md
+assets/brand/logos/heddle-horizontal-graphite.svg
+assets/brand/logos/heddle-horizontal-inverse.svg
 docs/design/architecture.md
 docs/design/briefing-prompting-principles.md
 docs/design/workflow-model.md
