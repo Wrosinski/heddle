@@ -636,7 +636,7 @@ def _state_mutating_claude(bin_dir: Path) -> Path:
 
 
 def test_ac07_session_progress_markers_are_computed_from_pre_post_state(
-    run_cli, driver_corpus, tmp_path, monkeypatch, auto_tier2_workspace
+    run_cli, driver_corpus, tmp_path, monkeypatch, auto_tier2_workspace, fake_claude
 ):
     host = auto_tier2_workspace(chdir=False)
     state_path = _arm_at_stage(driver_corpus, host, "implement")
@@ -644,6 +644,8 @@ def test_ac07_session_progress_markers_are_computed_from_pre_post_state(
     bin_dir = tmp_path / "mutating-bin"
     bin_dir.mkdir()
     _state_mutating_claude(bin_dir)
+    # The mutating claude shadows the fixture's fake; the fixture still supplies
+    # the codex presence double the implement-stage capability probe requires.
     monkeypatch.setenv("PATH", f"{bin_dir}{os.pathsep}{os.environ.get('PATH', '')}")
     monkeypatch.chdir(host)
 

@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 import textwrap
 from collections.abc import Callable
 from pathlib import Path
@@ -207,12 +208,15 @@ def arranged_auto_tier2(prepared_auto_tier2):
 
 
 def _write_fake_cli(bin_dir: Path, name: str, log: Path) -> Path:
+    # Run the fake under the test interpreter: its runtime imports the repo's
+    # dependencies (yaml), which a bare `python3` on PATH (CI's non-activated
+    # venv) does not carry.
     script = bin_dir / name
     return write_executable_script(
         script,
         textwrap.dedent(
             f"""\
-            #!/usr/bin/env python3
+            #!{sys.executable}
             import sys
             sys.path.insert(0, {str(REPO_ROOT)!r})
             from tests.driver.fake_claude_runtime import main
@@ -233,12 +237,17 @@ def fake_claude(tmp_path, monkeypatch):
     (AC-5/AC-9/AC-14) and the spawn-profile AC (AC-6) run deterministically
     with zero billed model calls. ``calls()`` returns the parsed invocation
     records; ``last_argv()`` the most recent argv list.
+
+    A ``codex`` double sits beside it so the driver's per-stage capability
+    probe (a presence check once a required gate rides the Codex lane) passes
+    hermetically instead of depending on a real ``codex`` on the host PATH.
     """
 
     bin_dir = tmp_path / "fakebin"
     bin_dir.mkdir()
     argv_log = tmp_path / "cli-invocations.jsonl"
     _write_fake_cli(bin_dir, "claude", argv_log)
+    _write_fake_cli(bin_dir, "codex", argv_log)
     monkeypatch.setenv("PATH", f"{bin_dir}{os.pathsep}{os.environ.get('PATH', '')}")
 
     def _calls() -> list[dict]:

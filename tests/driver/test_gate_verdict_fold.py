@@ -242,6 +242,7 @@ def _stub_sessions(
 
     monkeypatch.setattr(loop_mod, "spawn_phase_session", fake_spawn)
     monkeypatch.setattr(loop_mod, "probe_claude_capabilities", lambda: None)
+    monkeypatch.setattr(loop_mod, "probe_codex_capabilities", lambda: None)
 
 
 def test_advisory_gate_verdict_folds_and_drive_continues_to_convergence(

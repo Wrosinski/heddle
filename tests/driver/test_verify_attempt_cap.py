@@ -57,6 +57,7 @@ def _no_sessions(monkeypatch) -> None:
 
     monkeypatch.setattr(loop_mod, "spawn_phase_session", _fail_spawn)
     monkeypatch.setattr(loop_mod, "probe_claude_capabilities", lambda: None)
+    monkeypatch.setattr(loop_mod, "probe_codex_capabilities", lambda: None)
 
 
 def test_consecutive_verify_failures_raise_attempt_cap_batch(

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import re
+import sys
 import textwrap
 from pathlib import Path
 
@@ -73,7 +74,7 @@ def install_fake_claude(tmp_path: Path, monkeypatch) -> Path:
         bin_dir / "claude",
         textwrap.dedent(
             f"""\
-            #!/usr/bin/env python3
+            #!{sys.executable}
             import sys
             sys.path.insert(0, {str(REPO_ROOT)!r})
             from tests.driver.fake_claude_runtime import main
