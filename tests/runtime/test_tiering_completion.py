@@ -41,6 +41,34 @@ def _add_session_and_refresh(
     verify(host.state, "m1", "m2", "acceptance", "smoke")
 
 
+def _assert_terminal_effect_repair_reads_are_invariant(host, effect: str) -> None:
+    accepted_state = host.state.read_bytes()
+    state = read(host.state)
+    verification_facts = state["verifications"]
+    review_attempts = state["review_assignments"]["attempts"]
+    close_calls = tuple(host.suite_calls())
+    before = snapshot(host.root)
+
+    for operation in (
+        ops.Status(feature=FEATURE),
+        ops.Orient(feature=FEATURE),
+        ops.Kickoff(feature=FEATURE),
+    ):
+        observed = execute(operation)
+        assert observed.ok, observed.to_envelope()
+        assert observed.data["effects"][effect]["status"] == "conflict"
+        assert [action.reason for action in observed.next_actions] == [
+            f"repair accepted {effect} effect",
+            "retry pending effects of accepted completion",
+        ]
+        current = read(host.state)
+        assert current["verifications"] == verification_facts
+        assert current["review_assignments"]["attempts"] == review_attempts
+        assert host.state.read_bytes() == accepted_state
+        assert tuple(host.suite_calls()) == close_calls
+        assert snapshot(host.root) == before
+
+
 def test_terminal_orient_keeps_session_history_out_of_current_guidance(
     tmp_path, monkeypatch
 ) -> None:
@@ -214,6 +242,7 @@ def test_completion_retention_report_does_not_claim_damaged_archive_binding(
     report = retry.data["retained_evidence"]
     assert report["status"] == "conflict"
     assert all("archive_member" not in row for row in report["artifacts"])
+    _assert_terminal_effect_repair_reads_are_invariant(host, effect)
 
 
 @pytest.mark.parametrize("failure", ["candidate", "archive-revalidation"])
@@ -258,6 +287,8 @@ def test_completion_retention_report_keeps_effect_failures_distinct(
         )
     else:
         assert all("archive_member" not in row for row in report["artifacts"])
+    if failure == "candidate":
+        _assert_terminal_effect_repair_reads_are_invariant(host, "cleanup")
 
 
 def test_completion_legacy_read_only_omits_retained_evidence(

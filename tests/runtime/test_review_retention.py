@@ -913,9 +913,70 @@ def test_final_boundary_requires_interpretation_and_archives_original_capture(
     assert dispose(
         host.state, [disposition(data["run_id"], "@coverage", status="settled")]
     ).ok
+    from heddle.contracts.review_assignments import (
+        ArtifactRef,
+        AttemptInvocation,
+        EngineFailure,
+        ReviewAttempt,
+        review_attempt_document,
+    )
+    from tests.operational_model_helpers import read, write
+    from tests.readiness_helpers import verify
+
+    evidence_path = host.state.parent / "reviews/supporting-evidence.json"
+    evidence_path.write_text('{"fixture":"retained evidence"}\n')
+    evidence_relative = evidence_path.relative_to(host.state.parent).as_posix()
+    evidence_reference = ArtifactRef(
+        evidence_relative,
+        hashlib.sha256(evidence_path.read_bytes()).hexdigest(),
+        "evidence",
+        mode=stat.S_IMODE(evidence_path.stat().st_mode),
+    )
+    value = read(host.state)
+    value["review_assignments"]["attempts"].append(
+        review_attempt_document(
+            ReviewAttempt(
+                attempt_id="00000000-0000-4000-8000-000000000920",
+                assignment_id="retained-evidence:fixture:p1",
+                round_number=1,
+                reviewer_slot="primary",
+                invocation=AttemptInvocation(
+                    cli="codex",
+                    model="fixture",
+                    reasoning_effort="high",
+                    sandbox="read-only",
+                    input_hash="1" * 64,
+                    review_basis_hash="2" * 64,
+                    prompt_version="fixture",
+                    effective_prompt_sha256="3" * 64,
+                ),
+                outcome=EngineFailure("fixture", "retained supporting evidence"),
+                created_at="2026-09-18T00:00Z",
+                artifacts=(evidence_reference,),
+            )
+        )
+    )
+    write(host.state, value)
+    verify(host.state, "m1", "m2", "acceptance", "smoke")
     completed = host.complete()
     assert completed.ok and completed.data["accepted"], completed.to_envelope()
     report = completed.data["retained_evidence"]
+    supported_roles = {role for row in report["artifacts"] for role in row["roles"]}
+    assert {
+        "accepted-ledger",
+        "canonical",
+        "capture",
+        "evidence",
+        "log",
+        "review-record",
+        "verification-evidence",
+        "verification-log",
+        "close-suite-log",
+    } <= supported_roles
+    assert any(
+        {"canonical", "review-record"} <= set(row["roles"])
+        for row in report["artifacts"]
+    )
     captured_row = next(
         row
         for row in report["artifacts"]
@@ -932,9 +993,43 @@ def test_final_boundary_requires_interpretation_and_archives_original_capture(
     with tarfile.open(host.archive, "r:gz") as archive:
         assert archive.extractfile(relative).read() == captured
     host.commit_retention()
+    accepted_state = host.state.read_bytes()
+    before_reads = snapshot(host.root)
+    close_calls = tuple(host.suite_calls())
     cleaned = host.complete()
-    assert cleaned.ok and capture_path.read_bytes() == captured
-    assert execute(ops.Status(feature=V7_FEATURE)).ok and len(calls) == 1
+    assert cleaned.ok and cleaned.data["retained_evidence"] == report
+
+    for operation in (
+        ops.Status(feature=V7_FEATURE),
+        ops.Orient(feature=V7_FEATURE),
+        ops.Kickoff(feature=V7_FEATURE),
+    ):
+        observed = execute(operation)
+        assert observed.ok, observed.to_envelope()
+        assert observed.data["retained_evidence"] == report
+
+    for command in (
+        ("feature", "complete"),
+        ("status",),
+        ("orient",),
+        ("kickoff",),
+    ):
+        code, output, error = run_cli([*command, "--feature", V7_FEATURE, "--json"])
+        assert code == 0, error
+        assert json.loads(output)["data"]["retained_evidence"] == report
+
+        code, output, error = run_cli([*command, "--feature", V7_FEATURE])
+        assert code == 0
+        rendered = output + error
+        assert f"retained local evidence: {relative}" in rendered
+        assert "roles: capture" in rendered
+        assert f"verified archive member: {report['archive']}::{relative}" in rendered
+
+    assert capture_path.read_bytes() == captured
+    assert host.state.read_bytes() == accepted_state
+    assert snapshot(host.root) == before_reads
+    assert tuple(host.suite_calls()) == close_calls
+    assert len(calls) == 1
 
 
 def test_completion_preview_reports_no_attempt_gate_record_once(

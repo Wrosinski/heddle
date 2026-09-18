@@ -998,18 +998,16 @@ def _cleanup(
         raise CleanupArchiveConflict(
             f"archive no longer matches accepted retention: {archive}"
         )
-    if dry_run:
-        effect["status"] = "pending"
-        return effect
-    removed = []
     from heddle.kernel.review_assignments import attempt_artifacts
 
     inventory = {
         reference.path: reference
         for reference in attempt_artifacts(state.review_assignments.attempts)
     }
+    validated: list[tuple[str, Path]] = []
     for name in candidates:
         path = workspace / name
+        _no_symlinks(root, path)
         expected = inventory.get(name)
         observed = _entry(workspace, path)
         if (
@@ -1025,7 +1023,12 @@ def _cleanup(
                 f"bytes/type/mode in {archive}; restore the candidate to those "
                 "exact bytes/type/mode before retry"
             )
-        _no_symlinks(root, path)
+        validated.append((name, path))
+    if dry_run:
+        effect["status"] = "pending"
+        return effect
+    removed = []
+    for name, path in validated:
         os.unlink(path)
         removed.append(name)
     # Only archived directories made empty by eligible removals are considered.
