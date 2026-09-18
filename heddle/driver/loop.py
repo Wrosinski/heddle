@@ -145,15 +145,19 @@ def run_loop(config: ProjectConfig, slug: str, *, until: str | None) -> HeddleRe
             if is_terminal(snap.state):
                 return _accepted_result(snap)
 
+            # A bounded stop precedes the per-stage re-probe: the run does no
+            # work at its --until stage, so that stage's gate lanes (a Codex
+            # binary, say) are not a startup requirement of reaching it. The
+            # startup probe above still validates the stage the run begins at.
+            if until is not None and snap.stage == until:
+                return _success(snap, "until-reached")
+
             if _capability_probe_needed(capability_stage, snap):
                 capability_failure = _capability_probe_result(False, snap)
                 if capability_failure is not None:
                     return capability_failure
                 capability_checked = True
                 capability_stage = snap.stage
-
-            if until is not None and snap.stage == until:
-                return _success(snap, "until-reached")
 
             command_result = _next_command(config, snap, validation_problem)
             if isinstance(command_result, HeddleResult):

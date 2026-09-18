@@ -1003,6 +1003,42 @@ def test_ac22_capability_probe_halts_before_first_spawn_naming_capability(
     )
 
 
+def test_bounded_stop_precedes_the_until_stage_capability_probe(
+    run_json, driver_corpus, fake_claude, monkeypatch, auto_tier2_workspace
+):
+    """A `--until` stop does no work at its stage, so reaching it must not
+    require that stage's gate lanes. With the Codex lane absent, a drive bounded
+    at spec-review (whose fixture gate rides Codex) stops cleanly from specify;
+    the same start bounded one stage further still halts on the spec-review
+    re-probe, so the absence is reachable and the clean stop is not vacuous."""
+    from heddle.driver import loop as loop_mod
+
+    monkeypatch.setattr(loop_mod, "probe_codex_capabilities", lambda: "codex binary")
+
+    bounded = auto_tier2_workspace(chdir=False)
+    monkeypatch.chdir(bounded)
+    code, envelope, _out, _err = run_json(
+        ["drive", "--feature", SLUG, "--until", "spec-review", "--json"]
+    )
+    assert code == 0 and envelope["data"]["status"] == "until-reached", (
+        "FAIL bounded stop: reaching the --until stage must not probe that "
+        f"stage's Codex lane, got exit {code} with {envelope!r}"
+    )
+    assert driver_corpus.read_yaml(driver_corpus.state(bounded, SLUG))["stage"] == (
+        "spec-review"
+    ), "FAIL bounded stop: the run must still have advanced to the --until stage"
+
+    working = auto_tier2_workspace(chdir=False)
+    monkeypatch.chdir(working)
+    code, envelope, _out, _err = run_json(
+        ["drive", "--feature", SLUG, "--until", "plan-review", "--json"]
+    )
+    assert code == 3 and "Codex" in envelope["error"]["message"], (
+        "FAIL bounded stop: a run that would work at spec-review must still halt "
+        f"on its missing Codex lane, got exit {code} with {envelope!r}"
+    )
+
+
 def test_ac22_capability_probe_halts_before_first_write_action(
     run_cli, envelope_tools, driver_corpus, tmp_path, monkeypatch, auto_tier2_workspace
 ):
