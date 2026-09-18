@@ -26,4 +26,5 @@ venv/
 /docs/features/**
 /plans/**
 /.heddle/intake/
+/.heddle/live-evidence/
 /.heddle.lock

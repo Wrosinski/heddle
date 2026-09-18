@@ -189,6 +189,7 @@ def test_private_workflow_records_are_ignored(tmp_path: Path) -> None:
         "plans/gate-effectiveness.md",
         "plans/friction-log.md",
         ".heddle/intake/local-work.yaml",
+        ".heddle/live-evidence/local-run/result.json",
     )
     root = tmp_path / "repository"
     root.mkdir()

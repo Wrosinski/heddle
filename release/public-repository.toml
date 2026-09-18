@@ -5,6 +5,7 @@ manifest = "release/manifests/repository.txt"
 private_globs = [
   ".heddle.lock",
   ".heddle/intake/**",
+  ".heddle/live-evidence/**",
   "docs/features/**",
   "docs/gate-trajectories/**",
   "docs/proposals/**",
