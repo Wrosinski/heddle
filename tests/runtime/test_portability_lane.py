@@ -240,6 +240,7 @@ def _expected_doctor_resource_assets() -> set[str]:
         *(gate.prompt_template for gate in GATES.values()),
         *(f"{stage}.briefing.md" for stage in STAGES),
         *_SCAFFOLD_ASSETS,
+        "decision-routing.md",
         "autonomy-addendum.md",
         "gate-failure-guide.md",
         "prompt-authoring-standards.md",
