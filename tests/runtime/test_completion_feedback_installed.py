@@ -7,7 +7,9 @@ import os
 import shutil
 import stat
 import tarfile
+import tempfile
 from hashlib import sha256
+from pathlib import Path
 
 import pytest
 
@@ -159,42 +161,62 @@ def _expected_roles(state: dict) -> dict[str, set[str]]:
     return roles
 
 
-def _publish_evidence(journey, installed, report: dict) -> None:
-    base = (
-        REPO_ROOT
-        / "plans/completion-feedback-contracts-v1/archive/acceptance"
-        / "installed-completion-feedback"
-    )
+def _publish_evidence(
+    journey, wheel: Path, report: dict, *, base: Path | None = None
+) -> Path:
+    if base is None:
+        base = (
+            REPO_ROOT
+            / "plans/completion-feedback-contracts-v1/archive/acceptance"
+            / "installed-completion-feedback"
+        )
     ledger = next(row for row in report["artifacts"] if row["path"] == "state.yaml")
-    destination = base / ledger["sha256"]
-    destination.mkdir(parents=True, exist_ok=True)
-    wheel = next((installed.root / "dist").glob("heddle-*.whl"))
-    copied_wheel = destination / wheel.name
-    shutil.copy2(wheel, copied_wheel)
-    copied_archive = destination / "completion.tar.gz"
-    shutil.copy2(journey.archive, copied_archive)
-    (destination / "transcript.json").write_text(
-        json.dumps(journey.transcript, indent=2) + "\n"
-    )
-    (destination / "retained-evidence.json").write_text(
-        json.dumps(report, indent=2) + "\n"
-    )
+    artifacts = {
+        wheel.name: wheel.read_bytes(),
+        "completion.tar.gz": journey.archive.read_bytes(),
+        "transcript.json": (json.dumps(journey.transcript, indent=2) + "\n").encode(),
+        "retained-evidence.json": (json.dumps(report, indent=2) + "\n").encode(),
+    }
     manifest = {
         "schema": "heddle.completion-feedback-acceptance/v1",
         "feature": FEATURE,
         "fixture_ledger_identity": ledger["sha256"],
         "artifacts": {
-            copied_wheel.name: sha256(copied_wheel.read_bytes()).hexdigest(),
-            copied_archive.name: sha256(copied_archive.read_bytes()).hexdigest(),
-            "transcript.json": sha256(
-                (destination / "transcript.json").read_bytes()
-            ).hexdigest(),
-            "retained-evidence.json": sha256(
-                (destination / "retained-evidence.json").read_bytes()
-            ).hexdigest(),
+            name: sha256(content).hexdigest() for name, content in artifacts.items()
         },
     }
-    (destination / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
+    manifest_bytes = (json.dumps(manifest, indent=2) + "\n").encode()
+    package = {**artifacts, "manifest.json": manifest_bytes}
+    ledger_directory = base / ledger["sha256"]
+    destination = ledger_directory / sha256(manifest_bytes).hexdigest()
+
+    def validate_existing() -> Path:
+        assert destination.is_dir(), f"evidence collision at {destination}"
+        for name, expected in package.items():
+            path = destination / name
+            assert path.is_file() and path.read_bytes() == expected, (
+                f"non-identical evidence collision at {path}"
+            )
+        return destination
+
+    if destination.exists():
+        return validate_existing()
+
+    ledger_directory.mkdir(parents=True, exist_ok=True)
+    staged = Path(tempfile.mkdtemp(prefix=".pending-", dir=ledger_directory))
+    try:
+        for name, content in package.items():
+            (staged / name).write_bytes(content)
+        try:
+            staged.rename(destination)
+        except OSError:
+            if destination.exists():
+                return validate_existing()
+            raise
+    finally:
+        if staged.exists():
+            shutil.rmtree(staged)
+    return destination
 
 
 def test_completion_feedback_contract_installed(
@@ -378,4 +400,21 @@ def test_completion_feedback_contract_installed(
     repaired = journey.run("feature", "complete", expected=(0, 4))
     assert repaired["data"]["retained_evidence"] == report
 
-    _publish_evidence(journey, installed, report)
+    wheel = next((installed.root / "dist").glob("heddle-*.whl"))
+    collision_base = tmp_path / "publication-collision"
+    first_receipt = _publish_evidence(journey, wheel, report, base=collision_base)
+    (first_receipt / "native-binding.json").write_text(
+        '{"schema":"test-existing-binding/v1"}\n'
+    )
+    first_snapshot = snapshot_tree(first_receipt)
+    changed_wheel = tmp_path / "changed-candidate" / wheel.name
+    changed_wheel.parent.mkdir()
+    changed_wheel.write_bytes(wheel.read_bytes() + b"changed candidate\n")
+    second_receipt = _publish_evidence(
+        journey, changed_wheel, report, base=collision_base
+    )
+    assert second_receipt != first_receipt
+    assert snapshot_tree(first_receipt) == first_snapshot
+    assert not (second_receipt / "native-binding.json").exists()
+
+    _publish_evidence(journey, wheel, report)
