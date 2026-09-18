@@ -1,4 +1,5 @@
 <!-- heddle:begin session-entry -->
+
 This repository's feature workflow runs through the `heddle` CLI.
 
 To enter a feature-work session:
@@ -6,6 +7,7 @@ To enter a feature-work session:
 1. Run `heddle orient`.
 2. Follow the `next_actions` it returns.
 3. Run `heddle kickoff` only when `orient` routes there.
+
 <!-- heddle:end session-entry -->
 
 Engineering preferences are governed by `docs/workflow/engineering-principles.md`.
