@@ -394,14 +394,10 @@ def test_built_wheel_renders_every_gate_prompt_outside_the_checkout(
 
 
 @pytest.mark.toolchain
-@pytest.mark.xfail(
-    strict=True,
-    reason="completion-feedback-contracts-v1 packaged review guidance is absent",
-)
 def test_built_wheel_delivers_review_assessment_location_guidance(
     tmp_path: Path,
 ) -> None:
-    """AC-7/AC-8 red: installed public Kickoff ships both review contracts."""
+    """AC-7/AC-8: installed public Kickoff ships both review contracts."""
     installed = build_installed_wheel(tmp_path)
     host = _prepare_show_prompt_host(tmp_path)
     state_path = host / "plans/nl-screening/state.yaml"

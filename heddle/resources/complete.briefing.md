@@ -42,6 +42,15 @@ the entire workspace. Once accepted, historical verification logs and raw archiv
 are optional on subsequent hosts; their absence does not block new feature work.
 Keep the structured ledger, canonical reviews and verification manifests.
 
+Completion, terminal Status, Orient and Kickoff expose one deterministic
+`retained_evidence` report from the same validated local identities. Each
+path-sorted row carries its exact supported roles, kind, SHA-256 and mode.
+`archive_member` appears only after verified archive readback. Treat `pending`,
+`archive-bound` and `conflict` as binding states, not lifecycle verdicts. Human
+diagnostics render the same paths, roles and verified archive locations. Unknown
+preserved files and disposable cleanup candidates remain in their existing
+effect classes rather than entering this retained-artifact report.
+
 At close, feature-caused or unattributed smoke red blocks. Only proven
 outside-owned failure enters the exception path: keep its command and log,
 prove that it predates the feature and falls beyond the full ownership union,
@@ -313,6 +322,14 @@ or commits them, and completion does not move the baseline.
    the whole `plans/<slug>/` directory. The Feature Spec, decision journal,
    friction retrospective, gate-effectiveness log, trajectory, raw archive and
    approved durable knowledge also survive.
+
+   Keep cleanup-candidate conflicts distinct from archive-validation conflicts.
+   A changed candidate can leave the already verified retained report
+   `archive-bound`; damage to the archive or a failed cleanup-time archive
+   revalidation makes the report `conflict` and removes every unchecked member
+   claim. Terminal reads are effect-free but preserve the exact repair and retry
+   actions. The compatible historical read-only branch does not synthesize a
+   current retained-evidence report.
 
 Accepted completion stands if stamping, archival or cleanup is interrupted.
 Use the returned manual recovery instruction for the exact conflict, then retry

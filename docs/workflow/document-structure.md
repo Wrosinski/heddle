@@ -259,6 +259,14 @@ changed files are reported, not silently removed. Never delete the whole
 workspace. Exit 4 can mean accepted with pending effects; retry does not reopen
 acceptance.
 
+Completion and accepted Status, Orient and Kickoff share a `retained_evidence`
+projection. Use it to distinguish validated local retention from verified
+archive membership: `pending` has no member claim, `archive-bound` names verified
+members, and `conflict` removes unchecked claims. Rows report exact path, roles,
+kind, SHA-256 and mode. Cleanup candidates and unknown preserved files keep their
+separate effect classifications. Human diagnostics render the same facts and
+repair actions; terminal reads never run qualification, a suite or a provider.
+
 ## 7. Scaling to Feature Complexity
 
 Assess scope, complexity and testability independently after research. These axes
@@ -282,6 +290,14 @@ live under `plans/<slug>/` with native `state.yaml`, plan/brief prose, `reviews/
 and `verification/`. Root-level close journals, retrospectives and
 `plans/gate-effectiveness.md` survive cleanup. Split milestone prose into workspace
 siblings only when useful; the native ID join and root navigation remain clear.
+
+For configurable layouts, obtain the real workspace from
+`heddle orient --feature <slug> --json`. An optional lead-authored assessment used
+to support review closure is a workflow review record only when placed under
+`<data.workspace>/reviews/` and bound after its final bytes and location are
+known. Native dispositions still decide closure. Product assessments remain
+owned product artifacts outside the protected workspace; Kickoff does not create,
+move or require either assessment.
 
 ## 10. Reading older records
 

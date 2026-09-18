@@ -11,6 +11,7 @@ from hashlib import sha256
 
 import pytest
 
+from tests.content_identity_helpers import git
 from tests.runtime import test_completion_installed as installed_flow
 from tests.runtime.test_completion_installed import FEATURE, start_host
 from tests.runtime.wheel_harness import (
@@ -196,14 +197,10 @@ def _publish_evidence(journey, installed, report: dict) -> None:
     (destination / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="completion-feedback-contracts-v1 installed behavior is not implemented yet",
-)
 def test_completion_feedback_contract_installed(
     installed, tmp_path, monkeypatch
 ) -> None:
-    """AC-1..AC-8 red: one installed CLI crosses every feature boundary."""
+    """AC-1..AC-8: one installed CLI crosses every feature boundary."""
     review = start_host(installed, tmp_path / "review-host", reviewed=False)
     review.run("phase-exit", "--through", "complete")
     _review_briefing_contract(review, "spec-review")
@@ -223,6 +220,8 @@ def test_completion_feedback_contract_installed(
     )
     misplaced = journey.state.parent / "lead-assessment.md"
     misplaced.write_text("# Optional lead review assessment\n")
+    misplaced_relative = misplaced.relative_to(journey.root).as_posix()
+    git(journey.root, "add", "-f", misplaced_relative)
     repair_baseline = snapshot_tree(journey.root)
     repair_calls = journey.count(journey.calls)
     for flags in (("--dry-run",), ()):
@@ -235,6 +234,7 @@ def test_completion_feedback_contract_installed(
         assert snapshot_tree(journey.root) == repair_baseline
         assert journey.count(journey.calls) == repair_calls
         assert journey.read()["completion"] is None
+    git(journey.root, "reset", "--", misplaced_relative)
     legal = journey.state.parent / "reviews/lead-assessment.md"
     legal.parent.mkdir(exist_ok=True)
     misplaced.rename(legal)
@@ -287,9 +287,10 @@ def test_completion_feedback_contract_installed(
     capture = next(row for row in report["artifacts"] if "capture" in row["roles"])
     assert "operator-notes.bin" not in {row["path"] for row in report["artifacts"]}
     assert completed["data"]["effects"]["cleanup"]["paths"] == cleanup_candidates
-    assert completed["data"]["effects"]["cleanup"]["preserved"] == [
-        "operator-notes.bin"
-    ]
+    preserved = set(completed["data"]["effects"]["cleanup"]["preserved"])
+    assert {"operator-notes.bin", "reviews/lead-assessment.md"} <= preserved
+    assert preserved.isdisjoint(cleanup_candidates)
+    assert preserved.isdisjoint(row["path"] for row in report["artifacts"])
     assert all(
         not (journey.state.parent / path).exists() for path in cleanup_candidates
     )

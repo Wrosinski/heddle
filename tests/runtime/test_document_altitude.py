@@ -18,14 +18,10 @@ PRODUCT_ASSESSMENT_GUIDANCE = (
 
 
 @pytest.mark.parametrize("stage", ["spec-review", "plan-review"])
-@pytest.mark.xfail(
-    strict=True,
-    reason="completion-feedback-contracts-v1 review briefing contract is absent",
-)
 def test_review_kickoff_delivers_legal_assessment_location(
     tmp_path, monkeypatch, stage
 ) -> None:
-    """AC-7 red: both public review briefings use Orient's workspace identity."""
+    """AC-7: both public review briefings use Orient's workspace identity."""
     from tests.tiering_review_helpers import V7_FEATURE, current_host
 
     host, _path = current_host(tmp_path, monkeypatch, stage=stage)

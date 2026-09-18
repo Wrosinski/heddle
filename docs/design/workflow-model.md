@@ -193,6 +193,14 @@ Exact replay is distinct from closure. The reuse owner validates original
 identity and artifact integrity before returning retained output without a new
 provider call or event. Reusing a result does not make unresolved findings pass.
 
+A lead may author an optional workflow review record to support a native
+disposition. Its legal location is `reviews/` under the exact workspace returned
+by `heddle orient --feature <slug> --json`; callers must not reconstruct a
+`plans/<slug>/` path when a host can configure another layout. Finalize its bytes
+and location before evidence binding. Native dispositions remain the closure
+authority. Product assessments remain owned product artifacts outside the
+protected workflow workspace, and Kickoff guidance creates or moves neither kind.
+
 The one declared concurrent group is eligible initial `behavior-review` and
 `complexity-review`. `heddle run-gates` admits the pair from one snapshot,
 runs isolated workers and serializes result publication. Other states follow
@@ -255,6 +263,15 @@ stamp, archive or cleanup effects return accepted data and recovery actions;
 retry retains the original acceptance identity and runs no new qualification or
 suite. Pending effects use exit 4. Dry-run writes nothing and launches no suite
 or provider. Historical acceptance does not claim current source is fresh.
+
+Completion and terminal Status, Orient and Kickoff project one deterministic
+retained-evidence report from validated local identities. Rows are path-sorted
+and carry exact unique roles, kind, digest and mode. Verified member names appear
+only while archive readback matches. A cleanup-candidate conflict can preserve
+an `archive-bound` report; retained-file damage, archive damage or cleanup-time
+archive revalidation failure yields `conflict` without unchecked member claims.
+Unknown preserved files and disposable candidates remain in the existing effect
+report. The compatible historical read-only branch omits the current report.
 
 ## State publication and compatibility
 

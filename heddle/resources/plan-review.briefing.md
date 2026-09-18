@@ -16,6 +16,15 @@ Closure belongs to native evidence-bound lead dispositions, not a synthesis or
 the newest report. Preserve original findings, coverage gaps, exact REPORT
 owners, and required originating inspections across rounds and policy changes.
 
+An optional lead-authored assessment that supports native review closure is a workflow review record.
+First run `heddle orient --feature <slug> --json` and use
+its `data.workspace`; the legal directory is `<data.workspace>/reviews/`, even
+when the host uses a nondefault workspace layout. Choose the record's final bytes
+and location before binding it as evidence. Native dispositions remain
+authoritative for review closure; Kickoff neither creates nor moves the record,
+and an assessment is not required.
+A product assessment remains an owned product artifact outside the protected workflow workspace.
+
 ## What the review pressures
 
 For every assignment, check that the plan starts from the host's chosen time
