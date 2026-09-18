@@ -11,10 +11,45 @@ from pathlib import Path
 import pytest
 import yaml
 
+from tests.completion_helpers import CompletionHost
+from tests.content_identity_helpers import git
 from tests.operational_model_helpers import FEATURE, read, write
 from tests.readiness_helpers import verify
 from tests.tiering_completion_helpers import final_host
 from tests.tiering_helpers import snapshot
+
+
+def _nondefault_final_host(tmp_path, monkeypatch) -> CompletionHost:
+    host = final_host(tmp_path, monkeypatch, verify_now=False)
+    config_path = host.root / ".heddle.yaml"
+    config = yaml.safe_load(config_path.read_text())
+    config.setdefault("layout", {})["plans"] = "journey-plans"
+    config_path.write_text(yaml.safe_dump(config, sort_keys=False))
+    git(host.root, "add", ".heddle.yaml")
+    git(host.root, "commit", "-qm", "use nondefault synthetic workspace")
+
+    source = host.root / "plans"
+    target = host.root / "journey-plans"
+    target.mkdir()
+    (source / FEATURE).rename(target / FEATURE)
+    for suffix in ("decision-journal.md", "friction-retrospective.md"):
+        (source / f"{FEATURE}.{suffix}").rename(target / f"{FEATURE}.{suffix}")
+    git(host.root, "add", "-A", "-f", "plans", "journey-plans")
+    git(host.root, "commit", "-qm", "move synthetic workflow workspace")
+    state_path = target / FEATURE / "state.yaml"
+    value = read(state_path)
+    value["schema"] = "heddle.state/v10"
+    value["source_baseline"] = {
+        "kind": "git-commit",
+        "oid": git(host.root, "rev-parse", "HEAD").decode().strip(),
+    }
+    write(state_path, value)
+    verify(state_path, "m1", "m2", "acceptance", "smoke")
+    return CompletionHost(
+        host.root,
+        state_path,
+        state_path.parent / "verification" / "close-suite.calls",
+    )
 
 
 def _retro(host) -> Path:
@@ -247,6 +282,67 @@ def test_local_history_completion_uses_exact_workflow_control_exclusions(
         f"plans/{FEATURE}/verification",
         f"docs/gate-trajectories/.raw/{FEATURE}",
     }.issubset(set(observed["runtime_owned_roots"]))
+
+
+@pytest.mark.parametrize("dry_run", [True, False], ids=["preview", "apply"])
+def test_completion_root_review_record_reports_legal_location_without_ownership_bypass(
+    tmp_path, monkeypatch, dry_run
+) -> None:
+    """AC-6 red: a misplaced review record gets a narrow legal repair."""
+    host = _nondefault_final_host(tmp_path, monkeypatch)
+    misplaced = host.state.parent / "lead-assessment.md"
+    misplaced.write_text("# Lead assessment\n")
+    before = snapshot(host.root)
+
+    refused = host.complete(dry_run=dry_run)
+
+    assert not refused.ok and refused.error.code == "workspace-invalid"
+    message = refused.error.message + "\n" + refused.error.hint
+    assert "lead-assessment.md" in message
+    assert f"journey-plans/{FEATURE}/reviews/" in message
+    assert "review record" in message.lower()
+    assert snapshot(host.root) == before
+    assert read(host.state)["completion"] is None
+    assert host.suite_calls() == []
+
+
+def test_completion_accepts_unbound_review_record_in_reviews_and_archives_it(
+    tmp_path, monkeypatch
+) -> None:
+    """AC-6 survivor pin: the legal review directory stays outside ownership."""
+    host = final_host(tmp_path, monkeypatch)
+    record = host.state.parent / "reviews/lead-assessment.md"
+    record.parent.mkdir(exist_ok=True)
+    record.write_text("# Lead assessment\n")
+
+    completed = host.complete()
+
+    assert completed.ok, completed.to_envelope()
+    with __import__("tarfile").open(host.archive, "r:gz") as archive:
+        assert (
+            archive.extractfile("reviews/lead-assessment.md").read()
+            == record.read_bytes()
+        )
+
+
+def test_completion_mixed_unresolved_paths_keep_all_required_repairs(
+    tmp_path, monkeypatch
+) -> None:
+    """AC-6 red: review guidance augments rather than replaces mixed repairs."""
+    host = final_host(tmp_path, monkeypatch)
+    (host.state.parent / "lead-assessment.md").write_text("# Review record\n")
+    (host.state.parent / "product.py").write_text("VALUE = 9\n")
+    foreign = host.root / "foreign-feature-note.md"
+    foreign.write_text("foreign change\n")
+
+    refused = host.complete(dry_run=True)
+
+    assert not refused.ok and refused.error.code == "workspace-invalid"
+    message = refused.error.message + "\n" + refused.error.hint
+    assert "lead-assessment.md" in message
+    assert "product.py" in message
+    assert "foreign-feature-note.md" in message
+    assert f"plans/{FEATURE}/reviews/" in message
 
 
 def test_f3_a2_public_json_and_human_reports_expose_the_same_ordered_repairs(

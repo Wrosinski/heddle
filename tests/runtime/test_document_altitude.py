@@ -1,10 +1,52 @@
 """AC-12/13 authoring, milestone and briefing composition on fresh hosts."""
 
+import pytest
 import yaml
 
 from heddle.contracts import operations as ops
 from heddle.runtime.application import execute
-from tests.tiering_helpers import FEATURE, blank_host, confirmed, invoke
+from tests.tiering_helpers import FEATURE, blank_host, confirmed, invoke, snapshot
+
+REVIEW_RECORD_GUIDANCE = (
+    "An optional lead-authored assessment that supports native review closure "
+    "is a workflow review record."
+)
+PRODUCT_ASSESSMENT_GUIDANCE = (
+    "A product assessment remains an owned product artifact outside the "
+    "protected workflow workspace."
+)
+
+
+@pytest.mark.parametrize("stage", ["spec-review", "plan-review"])
+@pytest.mark.xfail(
+    strict=True,
+    reason="completion-feedback-contracts-v1 review briefing contract is absent",
+)
+def test_review_kickoff_delivers_legal_assessment_location(
+    tmp_path, monkeypatch, stage
+) -> None:
+    """AC-7 red: both public review briefings use Orient's workspace identity."""
+    from tests.tiering_review_helpers import V7_FEATURE, current_host
+
+    host, _path = current_host(tmp_path, monkeypatch, stage=stage)
+    before = snapshot(host)
+
+    orient = execute(ops.Orient(feature=V7_FEATURE))
+    kickoff = execute(ops.Kickoff(feature=V7_FEATURE))
+
+    assert orient.ok and kickoff.ok, (orient.to_envelope(), kickoff.to_envelope())
+    assert orient.data["workspace"]
+    text = kickoff.data["briefing"]
+    assert REVIEW_RECORD_GUIDANCE in text
+    assert PRODUCT_ASSESSMENT_GUIDANCE in text
+    assert "data.workspace" in text
+    assert "reviews/" in text
+    assert "final" in text.lower() and "binding" in text.lower()
+    assert "native dispositions" in text.lower()
+    assert "plans/<slug>/reviews/" not in text
+    assert "every assessment is a workflow review record" not in text.lower()
+    assert "assessment is required" not in text.lower()
+    assert snapshot(host) == before
 
 
 def test_ac12_native_admission_renders_one_ac_home_and_distinct_document_owners(

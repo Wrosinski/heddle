@@ -290,7 +290,9 @@ def _read_surface(
                     "accepted_at",
                     "revision",
                     "effects",
+                    "retained_evidence",
                 )
+                if key in observed.data
             }
         )
         if "effective_policy" in observed.data:
@@ -462,7 +464,7 @@ def _orient_payload(snapshot: FeatureSnapshot) -> dict[str, Any]:
     payload = _snapshot_base_payload(snapshot) | {
         "current_task": {"id": task.id, "text": task.text} if task else None,
         "entry": snapshot.entry,
-        "next_steps": snapshot.next_steps,
+        "next_steps": None if is_terminal(snapshot.state) else snapshot.next_steps,
         "latest_session": _latest_session_payload(snapshot),
     }
     return payload

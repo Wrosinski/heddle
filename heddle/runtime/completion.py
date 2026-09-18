@@ -92,6 +92,11 @@ _SCRATCH_NAMES = frozenset(
 class CompletionQualification:
     assessment: BoundaryAssessment
     stamp: SpecStampIdentity
+    retained: dict[str, ArchiveEntry]
+
+
+class CleanupArchiveConflict(ValueError):
+    """Cleanup could not revalidate the archive that established binding."""
 
 
 def run_feature_complete(args: list[str], json_mode: bool) -> int:
@@ -134,6 +139,15 @@ def complete_feature(operation: ops.FeatureComplete) -> HeddleResult:
             return qualification
         identity = qualification.stamp
         if operation.dry_run:
+            retained_evidence = _retained_evidence_report(
+                state,
+                qualification.retained,
+                workspace=context.snapshot.workspace,
+                archive=archive_path(context.config, state.feature)
+                .relative_to(context.config.root)
+                .as_posix(),
+                status="pending",
+            )
             return HeddleResult.success(
                 {
                     "feature": state.feature,
@@ -157,8 +171,12 @@ def complete_feature(operation: ops.FeatureComplete) -> HeddleResult:
                             "cleanup": [context.snapshot.workspace],
                         }.items()
                     },
+                    "retained_evidence": retained_evidence,
                 },
-                diagnostics=context.diagnostics,
+                diagnostics=(
+                    *context.diagnostics,
+                    *_retained_evidence_diagnostics(retained_evidence),
+                ),
             )
         suite = run_close_suite(context)
         if isinstance(suite, HeddleResult):
@@ -284,11 +302,14 @@ def _qualify(
         baseline_probe=context.state_path.relative_to(context.config.root).as_posix(),
         runtime_owned_roots=controls.roots,
         excluded_paths=controls.exact,
+        workspace=context.snapshot.workspace,
     )
     if not archive_path(context.config, state.feature).exists():
         _validate_archive_inputs(context.config.root, context.state_path.parent, state)
-    _retained_evidence_snapshot(context.config.root, context.state_path.parent, state)
-    return CompletionQualification(assessment, stamp)
+    retained = _retained_evidence_snapshot(
+        context.config.root, context.state_path.parent, state
+    )
+    return CompletionQualification(assessment, stamp, retained)
 
 
 def archive_path(config: ProjectConfig, feature: str) -> Path:
@@ -588,6 +609,106 @@ def _retained_evidence_snapshot(
     return observed
 
 
+def _retained_evidence_report(
+    state: StateFile,
+    observed: dict[str, ArchiveEntry],
+    *,
+    workspace: str,
+    archive: str,
+    status: str,
+    archived: dict[str, ArchiveEntry] | None = None,
+) -> dict[str, Any]:
+    """Project validated retained identities and their direct state relationships."""
+    if status not in {"pending", "archive-bound", "conflict"}:
+        raise ValueError(f"unsupported retained-evidence status: {status}")
+    if status == "archive-bound" and archived is None:
+        raise ValueError("archive-bound retained evidence needs validated members")
+
+    roles: dict[str, set[str]] = {
+        "state.yaml": {"accepted-ledger" if state.completion is not None else "ledger"}
+    }
+
+    def add(path: str, role: str) -> None:
+        roles.setdefault(path, set()).add(role)
+
+    from heddle.kernel.review_assignments import attempt_artifacts
+
+    for reference in attempt_artifacts(state.review_assignments.attempts):
+        if reference.role in {"canonical", "capture", "evidence", "log"}:
+            add(reference.path, reference.role)
+    for gate in state.gates:
+        for run in gate.runs:
+            if run.verdict.get("status") != "error":
+                add(run.artifact, "review-record")
+    for fact in state.verifications:
+        add(fact.log, "verification-log")
+        add(fact.evidence.before.artifact, "verification-evidence")
+        add(fact.evidence.after.artifact, "verification-evidence")
+    if state.completion is not None and state.completion.close_suite is not None:
+        add(state.completion.close_suite.log, "close-suite-log")
+
+    artifacts: list[dict[str, Any]] = []
+    for path, entry in sorted(observed.items()):
+        artifact_roles = roles.get(path)
+        if not artifact_roles:
+            raise ValueError(f"retained artifact has no report role: {path}")
+        row: dict[str, Any] = {
+            "path": path,
+            "roles": sorted(artifact_roles),
+            "kind": entry.kind,
+            "sha256": entry.sha256,
+            "mode": entry.mode,
+        }
+        if status == "archive-bound":
+            assert archived is not None
+            if archived.get(path) != entry:
+                raise ValueError(f"validated archive member differs: {path}")
+            row["archive_member"] = path
+        artifacts.append(row)
+    return {
+        "status": status,
+        "workspace": workspace,
+        "archive": archive,
+        "artifacts": artifacts,
+    }
+
+
+def _retained_evidence_diagnostics(
+    report: dict[str, Any],
+) -> tuple[Diagnostic, ...]:
+    status = report["status"]
+    diagnostics: list[Diagnostic] = []
+    if status == "conflict":
+        diagnostics.append(
+            Diagnostic(
+                Severity.ADVISORY,
+                "completion-retained-evidence-conflict",
+                "retained evidence conflict: verified archive membership is "
+                "unavailable until the reported completion effect is repaired",
+                report["archive"],
+            )
+        )
+    for artifact in report["artifacts"]:
+        message = (
+            f"retained local evidence: {artifact['path']}; roles: "
+            f"{', '.join(artifact['roles'])}"
+        )
+        member = artifact.get("archive_member")
+        if member is not None:
+            message += f"; verified archive member: {report['archive']}::{member}"
+        else:
+            message += f"; archive binding: {status}"
+        diagnostics.append(
+            Diagnostic(
+                Severity.ADVISORY,
+                "completion-retained-evidence",
+                message,
+                artifact["path"],
+            )
+        )
+    return tuple(diagnostics)
+
+
 def _required_authored_archive_inputs(
     root: Path, workspace: Path
 ) -> dict[str, ArchiveEntry]:
@@ -870,11 +991,13 @@ def _cleanup(
     try:
         archive_entries = _read_archive(archive, ledger)
     except (OSError, ValueError, EOFError, tarfile.TarError, zlib.error) as error:
-        raise ValueError(
+        raise CleanupArchiveConflict(
             f"archive no longer matches accepted retention: {archive}: {error}"
         ) from error
     if archive_entries != entries:
-        raise ValueError(f"archive no longer matches accepted retention: {archive}")
+        raise CleanupArchiveConflict(
+            f"archive no longer matches accepted retention: {archive}"
+        )
     if dry_run:
         effect["status"] = "pending"
         return effect
@@ -957,6 +1080,11 @@ def completion_result(
         )
     root, workspace = context.config.root, context.state_path.parent
     spec, archive = root / state.spec, archive_path(context.config, state.feature)
+    workspace_identity = context.snapshot.workspace
+    archive_identity = archive.relative_to(root).as_posix()
+    retained: dict[str, ArchiveEntry] = {}
+    archived: dict[str, ArchiveEntry] | None = None
+    binding_status = "pending"
     effects: dict[str, dict[str, Any]] = {
         "stamp": {"status": "pending", "paths": [state.spec]},
         "archive": {
@@ -995,6 +1123,8 @@ def completion_result(
                     )
                     _validate_archive_contract(archive, state, authored, entries)
                     _validate_retained_archive(retained, entries)
+                    archived = entries
+                    binding_status = "archive-bound"
                     effect["status"] = "complete"
                     effect = effects["cleanup"]
                     effects["cleanup"] = _cleanup(
@@ -1016,6 +1146,9 @@ def completion_result(
     ) as error:
         effect["status"] = "conflict"
         effect["error"] = str(error)
+        if effect is effects["archive"] or isinstance(error, CleanupArchiveConflict):
+            binding_status = "conflict"
+            archived = None
     pending = [
         (name, value)
         for name, value in effects.items()
@@ -1044,6 +1177,14 @@ def completion_result(
                 "retry pending effects of accepted completion",
             )
         )
+    retained_evidence = _retained_evidence_report(
+        state,
+        retained,
+        workspace=workspace_identity,
+        archive=archive_identity,
+        status=binding_status,
+        archived=archived,
+    )
     return HeddleResult.success(
         {
             "feature": state.feature,
@@ -1053,6 +1194,7 @@ def completion_result(
             "wrote": wrote,
             "dry_run": dry_run,
             "effects": effects,
+            "retained_evidence": retained_evidence,
             "trajectory": trajectory,
             "effective_policy": ops.decoded_payload(
                 effective_policy(state.feature_policy)
@@ -1060,6 +1202,7 @@ def completion_result(
         },
         diagnostics=(
             *context.diagnostics,
+            *_retained_evidence_diagnostics(retained_evidence),
             *(
                 Diagnostic(
                     Severity.ADVISORY,

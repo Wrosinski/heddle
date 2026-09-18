@@ -357,6 +357,7 @@ def reconcile_current_source(
     baseline_probe: str,
     runtime_owned_roots: tuple[str, ...],
     excluded_paths: tuple[str, ...] = (),
+    workspace: str | None = None,
 ) -> CoverageReconciliation:
     """Fail closed unless the final declaration covers feature-baseline changes."""
     declaration = resolve_source_declaration(state, scope)
@@ -376,13 +377,29 @@ def reconcile_current_source(
         excluded_paths=(*excluded_paths, *attributed),
     )
     if reconciliation.status != "complete":
+        action = reconciliation.action or "correct verification ownership and retry"
+        normalized_workspace = workspace.rstrip("/") if workspace else None
+        if normalized_workspace is not None and any(
+            path == normalized_workspace or path.startswith(f"{normalized_workspace}/")
+            for path in reconciliation.unresolved_paths
+        ):
+            reviews = f"{normalized_workspace}/reviews/"
+            action += (
+                f". An optional lead-authored review record that supports native "
+                f"review closure belongs under {reviews} with its final location "
+                "and bytes settled before evidence binding; a product assessment "
+                "or product source remains owned outside the protected workflow "
+                "workspace. Resolve every listed path by its actual role, preserve "
+                "already bound evidence, and do not add the workspace to milestone "
+                "ownership"
+            )
         raise KernelError(
             code="workspace-invalid",
             message=(
                 f"verification source for {scope!r} has incomplete final "
                 f"coverage: {reconciliation.status}"
             ),
-            hint=reconciliation.action or "correct verification ownership and retry",
+            hint=action,
         )
     return reconciliation
 

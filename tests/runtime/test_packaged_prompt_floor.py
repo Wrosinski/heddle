@@ -44,13 +44,17 @@ from heddle.gate.registry import GATES
 from heddle.kernel.model import ENGINEERING_PRINCIPLES_REL
 from tests.operational_model_helpers import document
 from tests.runtime.adoption_helpers import adopt_fixture_host
+from tests.runtime.test_document_altitude import (
+    PRODUCT_ASSESSMENT_GUIDANCE,
+    REVIEW_RECORD_GUIDANCE,
+)
 from tests.runtime.wheel_harness import (
     build_installed_wheel,
 )
 from tests.runtime.wheel_harness import (
     run as _run,
 )
-from tests.tiering_helpers import wire_policy
+from tests.tiering_helpers import snapshot, wire_policy
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 GOLDEN = REPO_ROOT / "tests/fixtures/workspaces/golden"
@@ -387,3 +391,45 @@ def test_built_wheel_renders_every_gate_prompt_outside_the_checkout(
     data = json.loads(kickoff.stdout)["data"]
     assert data["decision_policy_source"] == "packaged"
     assert data["briefing"].count(expected_policy) == 1
+
+
+@pytest.mark.toolchain
+@pytest.mark.xfail(
+    strict=True,
+    reason="completion-feedback-contracts-v1 packaged review guidance is absent",
+)
+def test_built_wheel_delivers_review_assessment_location_guidance(
+    tmp_path: Path,
+) -> None:
+    """AC-7/AC-8 red: installed public Kickoff ships both review contracts."""
+    installed = build_installed_wheel(tmp_path)
+    host = _prepare_show_prompt_host(tmp_path)
+    state_path = host / "plans/nl-screening/state.yaml"
+
+    for stage in ("spec-review", "plan-review"):
+        state = yaml.safe_load(state_path.read_text(encoding="utf-8"))
+        state["stage"] = stage
+        state["authorized_through"] = stage
+        state_path.write_text(yaml.safe_dump(state, sort_keys=False), encoding="utf-8")
+        before = snapshot(host)
+
+        orient = installed.run(
+            "orient", "--feature", "nl-screening", "--json", cwd=host
+        )
+        kickoff = installed.run(
+            "kickoff", "--feature", "nl-screening", "--json", cwd=host
+        )
+        assert orient.returncode == 0, orient.stdout + orient.stderr
+        assert kickoff.returncode == 0, kickoff.stdout + kickoff.stderr
+        orient_data = json.loads(orient.stdout)["data"]
+        text = json.loads(kickoff.stdout)["data"]["briefing"]
+        assert orient_data["workspace"] == "plans/nl-screening/"
+        assert REVIEW_RECORD_GUIDANCE in text
+        assert PRODUCT_ASSESSMENT_GUIDANCE in text
+        assert "data.workspace" in text
+        assert "reviews/" in text
+        assert "native dispositions" in text.lower()
+        assert "plans/<slug>/reviews/" not in text
+        assert "every assessment is a workflow review record" not in text.lower()
+        assert "assessment is required" not in text.lower()
+        assert snapshot(host) == before

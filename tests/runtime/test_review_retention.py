@@ -1,8 +1,10 @@
 """Completed imperfect responses remain usable without another provider call."""
 
 import base64
+import hashlib
 import io
 import json
+import stat
 import sys
 import tarfile
 from copy import deepcopy
@@ -913,6 +915,18 @@ def test_final_boundary_requires_interpretation_and_archives_original_capture(
     ).ok
     completed = host.complete()
     assert completed.ok and completed.data["accepted"], completed.to_envelope()
+    report = completed.data["retained_evidence"]
+    captured_row = next(
+        row
+        for row in report["artifacts"]
+        if row["path"] == capture_path.relative_to(host.state.parent).as_posix()
+    )
+    assert captured_row["roles"] == ["capture"]
+    assert len(captured_row["roles"]) == len(set(captured_row["roles"]))
+    assert captured_row["kind"] == "file"
+    assert captured_row["sha256"] == hashlib.sha256(captured).hexdigest()
+    assert captured_row["mode"] == stat.S_IMODE(capture_path.stat().st_mode)
+    assert captured_row["archive_member"] == captured_row["path"]
     assert capture_path.read_bytes() == captured and len(calls) == 1
     relative = capture_path.relative_to(host.state.parent).as_posix()
     with tarfile.open(host.archive, "r:gz") as archive:
@@ -921,3 +935,66 @@ def test_final_boundary_requires_interpretation_and_archives_original_capture(
     cleaned = host.complete()
     assert cleaned.ok and capture_path.read_bytes() == captured
     assert execute(ops.Status(feature=V7_FEATURE)).ok and len(calls) == 1
+
+
+def test_completion_preview_reports_no_attempt_gate_record_once(
+    tmp_path, monkeypatch, run_cli
+) -> None:
+    """AC-3 red: compatible gate evidence derives only review-record."""
+    from heddle.kernel.state import GateFact, GateRun, read_state_file
+    from heddle.runtime.completion import (
+        _retained_evidence_report,
+        _retained_evidence_snapshot,
+    )
+    from tests.tiering_completion_helpers import final_host
+
+    del run_cli  # The compatibility fact is intentionally constructed without a call.
+    host = final_host(tmp_path, monkeypatch)
+    artifact = "reviews/no-attempt.review.json"
+    path = host.state.parent / artifact
+    path.parent.mkdir(exist_ok=True)
+    path.write_text('{"verdict":"pass"}\n')
+    digest = hashlib.sha256(path.read_bytes()).hexdigest()
+    run = GateRun(
+        run_id="00000000-0000-4000-8000-000000000919",
+        report_findings=(),
+        at="2026-09-18T00:00Z",
+        cli="codex",
+        artifact=artifact,
+        input_hash="1" * 64,
+        verdict={"status": "pass", "rerun_recommended": False},
+        findings={
+            "by_severity": {"critical": 0, "important": 0, "minor": 0},
+            "by_classification": {
+                "implement": 0,
+                "report": 0,
+                "ignore": 0,
+                "unknown": 0,
+            },
+            "total": 0,
+            "contradictions": 0,
+        },
+        artifact_sha256=digest,
+    )
+    state = replace(
+        read_state_file(host.state),
+        gates=(GateFact("behavior-review", "feature", (run,)),),
+    )
+    observed = _retained_evidence_snapshot(host.root, host.state.parent, state)
+
+    report = _retained_evidence_report(
+        state,
+        observed,
+        workspace=f"plans/{V7_FEATURE}/",
+        archive=f"docs/gate-trajectories/.raw/{V7_FEATURE}/completion.tar.gz",
+        status="pending",
+    )
+
+    row = next(item for item in report["artifacts"] if item["path"] == artifact)
+    assert row == {
+        "path": artifact,
+        "roles": ["review-record"],
+        "kind": "file",
+        "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+        "mode": stat.S_IMODE(path.stat().st_mode),
+    }

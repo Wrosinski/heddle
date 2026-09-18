@@ -19,6 +19,285 @@ from tests.tiering_completion_helpers import final_host
 from tests.tiering_helpers import ROLES, entry, invoke, snapshot, wire_policy
 
 
+def _session(next_steps: str = "continue the historical implementation") -> dict:
+    return {
+        "started_at": "2026-09-17T10:00Z",
+        "ended_at": "2026-09-17T10:30Z",
+        "completed": ["recorded historical handoff"],
+        "started": [],
+        "key_context": "terminal handoff fixture",
+        "next_steps": next_steps,
+        "blockers": [],
+        "stage": "complete",
+    }
+
+
+def _add_session_and_refresh(
+    host, next_steps: str = "continue the historical implementation"
+):
+    value = read(host.state)
+    value["sessions"].append(_session(next_steps))
+    write(host.state, value)
+    verify(host.state, "m1", "m2", "acceptance", "smoke")
+
+
+def test_terminal_orient_keeps_session_history_out_of_current_guidance(
+    tmp_path, monkeypatch
+) -> None:
+    """AC-1 red: accepted history stays visible without becoming current advice."""
+    host = final_host(tmp_path, monkeypatch)
+    historical = "continue the historical implementation"
+    _add_session_and_refresh(host, historical)
+    completed = host.complete()
+    assert completed.ok, completed.to_envelope()
+
+    orient = execute(ops.Orient(feature=FEATURE))
+
+    assert orient.ok, orient.to_envelope()
+    assert orient.data["next_steps"] is None
+    assert orient.data["latest_session"]["next_steps"] == historical
+
+
+def test_terminal_orient_preserves_pending_effect_repair_actions(
+    tmp_path, monkeypatch, run_cli
+) -> None:
+    """AC-2 red: suppress stale prose while retaining typed repair routing."""
+    host = final_host(tmp_path, monkeypatch)
+    _add_session_and_refresh(host)
+    original_replace = os.replace
+
+    def fail_stamp(source, target, *args, **kwargs):
+        if Path(target) == host.spec:
+            raise OSError("injected accepted stamp publication failure")
+        return original_replace(source, target, *args, **kwargs)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(os, "replace", fail_stamp)
+        accepted = host.complete()
+    assert accepted.ok and accepted.data["effects"]["stamp"]["status"] == "conflict"
+    assert accepted.data["retained_evidence"] == {
+        "status": "pending",
+        "workspace": f"plans/{FEATURE}/",
+        "archive": f"docs/gate-trajectories/.raw/{FEATURE}/completion.tar.gz",
+        "artifacts": [],
+    }
+    accepted_state = host.state.read_bytes()
+    before = snapshot(host.root)
+    close_calls = tuple(host.suite_calls())
+
+    for operation in (
+        ops.Status(feature=FEATURE),
+        ops.Orient(feature=FEATURE),
+        ops.Kickoff(feature=FEATURE),
+    ):
+        observed = execute(operation)
+        assert observed.ok, observed.to_envelope()
+        if isinstance(operation, ops.Orient):
+            assert observed.data["next_steps"] is None
+            assert (
+                observed.data["latest_session"]["next_steps"]
+                == _session()["next_steps"]
+            )
+        assert observed.data["retained_evidence"]["status"] == "pending"
+        assert any(
+            action.reason == "retry pending effects of accepted completion"
+            for action in observed.next_actions
+        )
+        assert snapshot(host.root) == before
+        assert tuple(host.suite_calls()) == close_calls
+        assert host.state.read_bytes() == accepted_state
+
+    code, stdout, stderr = run_cli(["orient", "--feature", FEATURE])
+    assert code == 0
+    assert _session()["next_steps"] not in stdout + stderr
+    assert "retry pending effects" in stdout + stderr
+    assert snapshot(host.root) == before
+
+
+def test_complete_stage_without_acceptance_keeps_existing_orientation_contract(
+    tmp_path, monkeypatch
+) -> None:
+    """AC-1 survivor pin: display stage alone is not terminal authority."""
+    host = final_host(tmp_path, monkeypatch)
+    historical = "finish the still-current completion work"
+    _add_session_and_refresh(host, historical)
+
+    orient = execute(ops.Orient(feature=FEATURE))
+
+    assert orient.ok, orient.to_envelope()
+    assert read(host.state)["completion"] is None
+    assert orient.data["next_steps"] == historical
+    assert orient.data["latest_session"]["next_steps"] == historical
+
+
+def test_terminal_orient_without_sessions_has_no_current_handoff(
+    tmp_path, monkeypatch
+) -> None:
+    """AC-1 survivor pin: an accepted sessionless feature remains readable."""
+    host = final_host(tmp_path, monkeypatch)
+    assert host.complete().ok
+
+    orient = execute(ops.Orient(feature=FEATURE))
+
+    assert orient.ok, orient.to_envelope()
+    assert orient.data["next_steps"] is None
+    assert orient.data["latest_session"] is None
+
+
+def test_completion_reports_retained_and_unknown_files_in_distinct_classes(
+    tmp_path, monkeypatch
+) -> None:
+    """AC-3/AC-5 red: selected evidence and operator files never share a class."""
+    host = final_host(tmp_path, monkeypatch)
+    accepted = host.complete()
+    assert accepted.ok, accepted.to_envelope()
+    host.commit_retention()
+    unknown = host.state.parent / "operator-notes.bin"
+    unknown.write_bytes(b"operator-owned\x00notes\n")
+
+    completed = host.complete()
+
+    report = completed.data["retained_evidence"]
+    assert report["status"] == "archive-bound"
+    assert report["workspace"] == f"plans/{FEATURE}/"
+    assert report["archive"].endswith(f"/{FEATURE}/completion.tar.gz")
+    paths = [row["path"] for row in report["artifacts"]]
+    assert paths == sorted(set(paths))
+    assert "state.yaml" in paths
+    assert "operator-notes.bin" not in paths
+    assert "operator-notes.bin" in completed.data["effects"]["cleanup"]["preserved"]
+    ledger = next(row for row in report["artifacts"] if row["path"] == "state.yaml")
+    assert ledger["roles"] == ["accepted-ledger"]
+    assert ledger["archive_member"] == "state.yaml"
+
+
+def test_completion_preview_reports_pending_retention_without_writes(
+    tmp_path, monkeypatch
+) -> None:
+    """AC-3/AC-4 red: preview exposes validated local identity without binding."""
+    host = final_host(tmp_path, monkeypatch)
+    before = snapshot(host.root)
+
+    preview = host.complete(dry_run=True)
+
+    report = preview.data["retained_evidence"]
+    assert report["status"] == "pending"
+    assert report["artifacts"]
+    assert all("archive_member" not in row for row in report["artifacts"])
+    ledger = next(row for row in report["artifacts"] if row["path"] == "state.yaml")
+    assert ledger["roles"] == ["ledger"]
+    assert ledger["kind"] == "file"
+    assert ledger["sha256"] == hashlib.sha256(host.state.read_bytes()).hexdigest()
+    assert ledger["mode"] == stat.S_IMODE(host.state.stat().st_mode)
+    assert snapshot(host.root) == before
+
+
+@pytest.mark.parametrize("damage", ["archive", "retained-file"])
+def test_completion_retention_report_does_not_claim_damaged_archive_binding(
+    tmp_path, monkeypatch, damage
+) -> None:
+    """AC-4 red: damaged retained bytes clear every unchecked member claim."""
+    host = final_host(tmp_path, monkeypatch)
+    assert host.complete().ok
+    if damage == "archive":
+        host.archive.write_bytes(host.archive.read_bytes() + b"corrupt")
+        effect = "archive"
+    else:
+        value = read(host.state)
+        retained = host.state.parent / value["verifications"][0]["log"]
+        retained.write_bytes(retained.read_bytes() + b"corrupt")
+        effect = "archive"
+
+    retry = host.complete()
+
+    assert retry.data["effects"][effect]["status"] == "conflict"
+    report = retry.data["retained_evidence"]
+    assert report["status"] == "conflict"
+    assert all("archive_member" not in row for row in report["artifacts"])
+
+
+@pytest.mark.parametrize("failure", ["candidate", "archive-revalidation"])
+def test_completion_retention_report_keeps_effect_failures_distinct(
+    tmp_path, monkeypatch, failure
+) -> None:
+    """AC-4 red: typed cleanup failures preserve or revoke binding correctly."""
+    host, candidate, relative, _content = _local_cleanup_fixture(tmp_path, monkeypatch)
+    from heddle.runtime import completion
+
+    original_publish = completion._publish_archive
+    original_read = completion._read_archive
+    reads = 0
+
+    def inject_failure(*args, **kwargs):
+        entries = original_publish(*args, **kwargs)
+        if failure == "candidate":
+            candidate.write_bytes(b"changed after archive\n")
+        return entries
+
+    def read_archive(*args, **kwargs):
+        nonlocal reads
+        reads += 1
+        if failure == "archive-revalidation" and reads == 3:
+            raise ValueError("injected cleanup archive revalidation failure")
+        return original_read(*args, **kwargs)
+
+    monkeypatch.setattr(completion, "_publish_archive", inject_failure)
+    monkeypatch.setattr(completion, "_read_archive", read_archive)
+
+    completed = host.complete()
+
+    assert completed.data["effects"]["cleanup"]["status"] == "conflict"
+    if failure == "candidate":
+        assert relative in completed.data["effects"]["cleanup"]["error"]
+    report = completed.data["retained_evidence"]
+    expected = "archive-bound" if failure == "candidate" else "conflict"
+    assert report["status"] == expected
+    if failure == "candidate":
+        assert all(
+            row.get("archive_member") == row["path"] for row in report["artifacts"]
+        )
+    else:
+        assert all("archive_member" not in row for row in report["artifacts"])
+
+
+def test_completion_legacy_read_only_omits_retained_evidence(
+    tmp_path, monkeypatch
+) -> None:
+    """AC-4 survivor pin: policy-less history is never upgraded by inference."""
+    from dataclasses import replace
+
+    from heddle.runtime.completion import completion_result
+    from heddle.runtime.feature_context import resolve_write_context
+
+    host = final_host(tmp_path, monkeypatch)
+    assert host.complete().ok
+    context = resolve_write_context(FEATURE, allow_terminal=True)
+    assert not hasattr(context, "error")
+    historical = replace(context.snapshot.state, feature_policy=None)
+    context = replace(context, snapshot=replace(context.snapshot, state=historical))
+
+    result = completion_result(context)
+
+    assert result.ok, result.to_envelope()
+    assert "retained_evidence" not in result.data
+    assert result.data["effects"]["historical"]["status"] == "read-only"
+
+
+def test_completion_retention_report_is_stable_across_retries(
+    tmp_path, monkeypatch
+) -> None:
+    """AC-3/AC-4 red: unchanged evidence produces the same ordered report."""
+    host = final_host(tmp_path, monkeypatch)
+    first = host.complete()
+    assert first.ok, first.to_envelope()
+    host.commit_retention()
+
+    retry = host.complete()
+
+    assert retry.ok, retry.to_envelope()
+    assert retry.data["retained_evidence"] == first.data["retained_evidence"]
+
+
 def _temporary_attempt(relative: str, data: bytes, mode: int):
     from heddle.contracts.review_assignments import (
         ArtifactRef,
