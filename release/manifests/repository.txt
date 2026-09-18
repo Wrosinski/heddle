@@ -509,6 +509,7 @@ tests/runtime/test_command_manifest_flip.py
 tests/runtime/test_commands_set.py
 tests/runtime/test_commands_unset.py
 tests/runtime/test_completion_contracts.py
+tests/runtime/test_completion_feedback_installed.py
 tests/runtime/test_completion_installed.py
 tests/runtime/test_completion_repairs.py
 tests/runtime/test_completion_repairs_installed.py
