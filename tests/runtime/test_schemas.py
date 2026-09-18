@@ -143,6 +143,7 @@ class TestAC14StateVocabularyValueLock:
 
     def test_state_optional_top_level_keys(self):
         assert schemas.STATE_V9_OPTIONAL_TOP_LEVEL_KEYS == (
+            "source_attributions",
             "flow",
             "authorizations",
             "flow_changes",
