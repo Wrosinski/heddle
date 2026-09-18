@@ -238,8 +238,11 @@ _PRIVATE_REVIEW_ID = re.compile(
     r"\b(?:SR|XF|XS|CQ|TS|RA|INV|SY|RR)-[A-Z0-9][A-Z0-9./-]*\b",
     re.IGNORECASE,
 )
+# An owner-decision label is a number, date, short code (D12, CP-4) or single
+# capital letter; prose such as "owner ruling because" is public vocabulary.
 _PRIVATE_DECISION_LABEL = re.compile(
-    r"\b(?:owner[- ]rul(?:e|ed|ing)\s+[A-Za-z0-9-]+|"
+    r"\b(?:owner[- ]rul(?:e|ed|ing)\s+"
+    r"(?:[A-Za-z]{0,2}-?\d[A-Za-z0-9-]*|(?-i:[A-Z]))|"
     r"checkpoint\s+\d+\s+[DR]\d+|m\d+[a-z]?\s+dogfood|"
     r"M\d+[A-Z]?\s+(?:host-tooling|[^\n()]{0,30}?\bincrement\b|"
     r"wave(?:-|\s)|pm\d))\b",

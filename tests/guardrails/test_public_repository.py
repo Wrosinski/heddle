@@ -334,8 +334,9 @@ def test_retained_public_surfaces_are_self_contained() -> None:
         ("docs/patterns/example.md", "Milestone M3 review finding SR-I2.\n"),
         ("heddle/example.py", '"""Rationale inherited from D42."""\n'),
         ("heddle/resources/example.briefing.md", "Apply the D37 verification rider.\n"),
+        ("docs/design/example.md", "Shipped verbatim under owner ruling 3.\n"),
     ),
-    ids=("public-doc", "source-docstring", "packaged-briefing"),
+    ids=("public-doc", "source-docstring", "packaged-briefing", "decision-label"),
 )
 def test_public_surface_policy_rejects_opaque_history_fixture(
     tmp_path: Path, relative: str, body: str
@@ -354,6 +355,28 @@ def test_public_surface_policy_rejects_opaque_history_fixture(
 
     assert result.returncode == 1
     assert f"{relative}:1" in result.stdout
+
+
+# "Owner ruling" is public product vocabulary: only a trailing label denotes
+# a private decision record, so prose continuations stay accepted.
+def test_public_surface_policy_accepts_owner_ruling_prose(tmp_path: Path) -> None:
+    root = tmp_path / "repository"
+    _init_repository(root)
+    relative = "docs/design/example.md"
+    document = root / relative
+    manifest = root / "release" / "manifests" / "repository.txt"
+    document.parent.mkdir(parents=True)
+    manifest.parent.mkdir(parents=True)
+    document.write_text(
+        "New conflict choices require an owner ruling via decisions add "
+        "because the journal cannot prove structured identity.\n"
+    )
+    manifest.write_text(f"{relative}\n")
+    subprocess.run(["git", "add", "."], cwd=root, check=True)
+
+    result = _run_checker("surfaces", "--root", str(root), "--policy", str(POLICY))
+
+    assert result.returncode == 0, result.stdout + result.stderr
 
 
 # AC-4 discriminator: the public test tree and its encoded node inventory are
