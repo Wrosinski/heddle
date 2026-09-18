@@ -548,11 +548,13 @@ def _workspace_entries(workspace: Path) -> dict[str, ArchiveEntry]:
 
 
 def _retained_evidence_snapshot(
-    root: Path, workspace: Path, state: StateFile
+    root: Path,
+    workspace: Path,
+    state: StateFile,
+    *,
+    attempt_references: tuple[ArtifactRef, ...] | None = None,
 ) -> dict[str, ArchiveEntry]:
     """Validate and snapshot every artifact that accepted completion must retain."""
-    from heddle.kernel.review_assignments import attempt_artifacts
-
     expected: dict[str, tuple[str, str, int | None]] = {}
 
     def register(
@@ -564,20 +566,26 @@ def _retained_evidence_snapshot(
             raise ValueError(f"conflicting retained artifact identity: {path}")
         expected[path] = identity
 
-    for reference in attempt_artifacts(state.review_assignments.attempts):
-        if reference.role in {"canonical", "capture", "evidence", "log"}:
-            register(
-                reference.path,
-                reference.sha256,
-                reference.kind,
-                reference.mode,
-            )
-    for fact in state.verifications:
-        for evidence_reference in (fact.evidence.before, fact.evidence.after):
-            register(evidence_reference.artifact, evidence_reference.artifact_sha256)
-
     observed: dict[str, ArchiveEntry] = {}
     try:
+        if attempt_references is None:
+            from heddle.kernel.review_assignments import attempt_artifacts
+
+            attempt_references = attempt_artifacts(state.review_assignments.attempts)
+        for reference in attempt_references:
+            if reference.role in {"canonical", "capture", "evidence", "log"}:
+                register(
+                    reference.path,
+                    reference.sha256,
+                    reference.kind,
+                    reference.mode,
+                )
+        for fact in state.verifications:
+            for evidence_reference in (fact.evidence.before, fact.evidence.after):
+                register(
+                    evidence_reference.artifact,
+                    evidence_reference.artifact_sha256,
+                )
         for name in sorted(_retained_paths(state)):
             parsed = PurePosixPath(name)
             if (
@@ -617,6 +625,7 @@ def _retained_evidence_report(
     archive: str,
     status: str,
     archived: dict[str, ArchiveEntry] | None = None,
+    attempt_references: tuple[ArtifactRef, ...] | None = None,
 ) -> dict[str, Any]:
     """Project validated retained identities and their direct state relationships."""
     if status not in {"pending", "archive-bound", "conflict"}:
@@ -631,9 +640,11 @@ def _retained_evidence_report(
     def add(path: str, role: str) -> None:
         roles.setdefault(path, set()).add(role)
 
-    from heddle.kernel.review_assignments import attempt_artifacts
+    if attempt_references is None:
+        from heddle.kernel.review_assignments import attempt_artifacts
 
-    for reference in attempt_artifacts(state.review_assignments.attempts):
+        attempt_references = attempt_artifacts(state.review_assignments.attempts)
+    for reference in attempt_references:
         if reference.role in {"canonical", "capture", "evidence", "log"}:
             add(reference.path, reference.role)
     for gate in state.gates:
@@ -1086,6 +1097,7 @@ def completion_result(
     workspace_identity = context.snapshot.workspace
     archive_identity = archive.relative_to(root).as_posix()
     retained: dict[str, ArchiveEntry] = {}
+    retained_attempts: tuple[ArtifactRef, ...] = ()
     archived: dict[str, ArchiveEntry] | None = None
     binding_status = "pending"
     effects: dict[str, dict[str, Any]] = {
@@ -1111,7 +1123,15 @@ def completion_result(
             if effect["status"] == "complete":
                 effect = effects["archive"]
                 ledger = context.state_path.read_bytes()
-                retained = _retained_evidence_snapshot(root, workspace, state)
+                from heddle.kernel.review_assignments import attempt_artifacts
+
+                retained_attempts = attempt_artifacts(state.review_assignments.attempts)
+                retained = _retained_evidence_snapshot(
+                    root,
+                    workspace,
+                    state,
+                    attempt_references=retained_attempts,
+                )
                 _no_symlinks(root, archive)
                 authored = (
                     _required_authored_archive_inputs(root, workspace)
@@ -1187,6 +1207,7 @@ def completion_result(
         archive=archive_identity,
         status=binding_status,
         archived=archived,
+        attempt_references=retained_attempts,
     )
     return HeddleResult.success(
         {

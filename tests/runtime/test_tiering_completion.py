@@ -248,6 +248,63 @@ def test_completion_retention_report_does_not_claim_damaged_archive_binding(
     _assert_terminal_effect_repair_reads_are_invariant(host, effect)
 
 
+def test_terminal_reads_type_cross_attempt_identity_conflict(
+    tmp_path, monkeypatch
+) -> None:
+    """AC-2/AC-4: damaged accepted ledgers retain typed repair routing."""
+    from dataclasses import replace
+
+    from heddle.contracts.review_assignments import review_attempt_document
+
+    host = final_host(tmp_path, monkeypatch)
+    assert host.complete().ok
+    relative = "reviews/conflicting-evidence.json"
+    evidence = host.state.parent / relative
+    evidence.parent.mkdir(exist_ok=True)
+    evidence.write_bytes(b"first retained identity\n")
+    mode = stat.S_IMODE(evidence.stat().st_mode)
+    template = _temporary_attempt(relative, evidence.read_bytes(), mode)
+    first_reference = replace(template.artifacts[0], role="evidence")
+    first = replace(template, artifacts=(first_reference,))
+    second = replace(
+        first,
+        attempt_id="00000000-0000-4000-8000-000000000778",
+        artifacts=(replace(first_reference, sha256="f" * 64),),
+    )
+    value = read(host.state)
+    value["review_assignments"]["attempts"].extend(
+        [review_attempt_document(first), review_attempt_document(second)]
+    )
+    write(host.state, value)
+    accepted_state = host.state.read_bytes()
+    before = snapshot(host.root)
+
+    for operation in (
+        ops.Status(feature=FEATURE),
+        ops.Orient(feature=FEATURE),
+        ops.Kickoff(feature=FEATURE),
+        ops.FeatureComplete(feature=FEATURE),
+    ):
+        observed = execute(operation)
+        assert observed.ok, observed.to_envelope()
+        assert observed.data["effects"]["archive"]["status"] == "conflict"
+        assert (
+            "artifact identity conflict" in observed.data["effects"]["archive"]["error"]
+        )
+        assert observed.data["retained_evidence"] == {
+            "status": "conflict",
+            "workspace": f"plans/{FEATURE}/",
+            "archive": (f"docs/gate-trajectories/.raw/{FEATURE}/completion.tar.gz"),
+            "artifacts": [],
+        }
+        assert [action.reason for action in observed.next_actions] == [
+            "repair accepted archive effect",
+            "retry pending effects of accepted completion",
+        ]
+        assert host.state.read_bytes() == accepted_state
+        assert snapshot(host.root) == before
+
+
 @pytest.mark.parametrize("failure", ["candidate", "archive-revalidation"])
 def test_completion_retention_report_keeps_effect_failures_distinct(
     tmp_path, monkeypatch, failure
