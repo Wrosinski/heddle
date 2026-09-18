@@ -99,6 +99,41 @@ class CleanupArchiveConflict(ValueError):
     """Cleanup could not revalidate the archive that established binding."""
 
 
+_CLEANUP_CANDIDATE_REASONS = {
+    "symlink": "is a symlink rather than the regular file indexed and archived",
+    "drift": "differs from its indexed and archived bytes/type/mode",
+}
+
+
+class CleanupCandidateConflict(OSError):
+    """A cleanup candidate lost qualification; archive binding is unaffected.
+
+    The message and repair instruction name the candidate, the archive and the
+    reason, so operators see the same guidance whichever check observed it.
+    """
+
+    def __init__(self, path: Path, archive: Path, reason: str) -> None:
+        self.path = path
+        self.archive = archive
+        self.reason = reason
+        super().__init__(
+            f"cleanup candidate {path} {_CLEANUP_CANDIDATE_REASONS[reason]} "
+            f"in {archive}; restore the candidate to those exact bytes/type/mode "
+            "before retry"
+        )
+
+    def repair_instruction(self) -> str:
+        if self.reason == "symlink":
+            return (
+                f"Replace the symlink at {self.path} with its indexed and archived "
+                f"bytes/type/mode in {self.archive}, then retry"
+            )
+        return (
+            f"Restore {self.path} to its indexed and archived bytes/type/mode "
+            f"in {self.archive}, then retry"
+        )
+
+
 def run_feature_complete(args: list[str], json_mode: bool) -> int:
     parsed, _values, _positionals, failure = parse_write_args(
         args,
@@ -1018,7 +1053,10 @@ def _cleanup(
     validated: list[tuple[str, Path]] = []
     for name in candidates:
         path = workspace / name
-        _no_symlinks(root, path)
+        try:
+            _no_symlinks(root, path)
+        except OSError as error:
+            raise CleanupCandidateConflict(path, archive, "symlink") from error
         expected = inventory.get(name)
         observed = _entry(workspace, path)
         if (
@@ -1029,11 +1067,7 @@ def _cleanup(
             or name not in entries
             or observed != entries[name]
         ):
-            raise OSError(
-                f"cleanup candidate {path} differs from its indexed and archived "
-                f"bytes/type/mode in {archive}; restore the candidate to those "
-                "exact bytes/type/mode before retry"
-            )
+            raise CleanupCandidateConflict(path, archive, "drift")
         validated.append((name, path))
     if dry_run:
         effect["status"] = "pending"
@@ -1100,6 +1134,7 @@ def completion_result(
     retained_attempts: tuple[ArtifactRef, ...] = ()
     archived: dict[str, ArchiveEntry] | None = None
     binding_status = "pending"
+    candidate_conflict: CleanupCandidateConflict | None = None
     effects: dict[str, dict[str, Any]] = {
         "stamp": {"status": "pending", "paths": [state.spec]},
         "archive": {
@@ -1169,6 +1204,8 @@ def completion_result(
     ) as error:
         effect["status"] = "conflict"
         effect["error"] = str(error)
+        if isinstance(error, CleanupCandidateConflict):
+            candidate_conflict = error
         if effect is effects["archive"] or isinstance(error, CleanupArchiveConflict):
             binding_status = "conflict"
             archived = None
@@ -1182,12 +1219,17 @@ def completion_result(
         for name, value in pending:
             if not value.get("error") or value["status"] != "conflict":
                 continue
-            instruction = (
-                "Restore every cleanup candidate to its indexed and archived "
-                f"bytes/type/mode in {archive}, then retry"
-                if name == "cleanup"
-                else f"Inspect and repair {', '.join(value['paths'])}: {value['error']}"
-            )
+            if name != "cleanup":
+                instruction = (
+                    f"Inspect and repair {', '.join(value['paths'])}: {value['error']}"
+                )
+            elif candidate_conflict is not None:
+                instruction = candidate_conflict.repair_instruction()
+            else:
+                instruction = (
+                    "Restore every cleanup candidate to its indexed and archived "
+                    f"bytes/type/mode in {archive}, then retry"
+                )
             actions.append(
                 NextAction(
                     ops.ManualAction(instruction),

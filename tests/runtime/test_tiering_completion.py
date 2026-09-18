@@ -609,6 +609,8 @@ def test_local_history_public_completion_preserves_damaged_cleanup_inputs(
     assert str(host.archive) in cleanup["error"]
     if damage != "archive":
         assert relative in cleanup["error"]
+        reason = "is a symlink" if damage == "candidate-symlink" else "differs from"
+        assert reason in cleanup["error"]
     instructions = [
         action.action.instruction
         for action in result.next_actions
@@ -617,9 +619,64 @@ def test_local_history_public_completion_preserves_damaged_cleanup_inputs(
     assert any(
         str(host.archive) in instruction
         and "indexed and archived bytes/type/mode" in instruction
+        and (damage == "archive" or str(candidate) in instruction)
         for instruction in instructions
     )
     assert candidate.exists() or candidate.is_symlink()
+
+
+@pytest.mark.parametrize(
+    ("damage", "reason"),
+    [("candidate-bytes", "drift"), ("candidate-symlink", "symlink")],
+)
+def test_local_history_cleanup_candidate_conflicts_are_typed_by_reason(
+    tmp_path, monkeypatch, damage, reason
+) -> None:
+    """AC-6 red: candidate conflicts carry path, archive and reason as fields."""
+    from heddle.runtime import completion
+
+    host, candidate, _relative, _content = _local_cleanup_fixture(tmp_path, monkeypatch)
+    outside = host.state.parent / "reviews/operator-owned.txt"
+    outside.write_text("operator owned\n")
+    original_publish = completion._publish_archive
+    original_cleanup = completion._cleanup
+    raised: list[BaseException] = []
+
+    def damage_after_publish(*args, **kwargs):
+        entries = original_publish(*args, **kwargs)
+        if damage == "candidate-bytes":
+            candidate.write_bytes(b"changed after archive\n")
+        else:
+            candidate.unlink()
+            candidate.symlink_to(outside)
+        return entries
+
+    def observe_cleanup(*args, **kwargs):
+        try:
+            return original_cleanup(*args, **kwargs)
+        except Exception as error:
+            raised.append(error)
+            raise
+
+    monkeypatch.setattr(completion, "_publish_archive", damage_after_publish)
+    monkeypatch.setattr(completion, "_cleanup", observe_cleanup)
+
+    result = host.complete()
+
+    (error,) = raised
+    assert isinstance(error, completion.CleanupCandidateConflict)
+    assert (error.path, error.archive, error.reason) == (
+        candidate,
+        host.archive,
+        reason,
+    )
+    assert not isinstance(error, completion.CleanupArchiveConflict)
+    assert result.data["retained_evidence"]["status"] == "archive-bound"
+    assert error.repair_instruction() in [
+        action.action.instruction
+        for action in result.next_actions
+        if isinstance(action.action, ops.ManualAction)
+    ]
 
 
 def test_local_history_reserved_authored_paths_cannot_be_disposable() -> None:
