@@ -135,11 +135,14 @@ def test_terminal_orient_preserves_pending_effect_repair_actions(
         assert tuple(host.suite_calls()) == close_calls
         assert host.state.read_bytes() == accepted_state
 
-    code, stdout, stderr = run_cli(["orient", "--feature", FEATURE])
-    assert code == 0
-    assert _session()["next_steps"] not in stdout + stderr
-    assert "retry pending effects" in stdout + stderr
-    assert snapshot(host.root) == before
+    for command in ("status", "orient", "kickoff"):
+        code, stdout, stderr = run_cli([command, "--feature", FEATURE])
+        rendered = stdout + stderr
+        assert code == 0
+        if command == "orient":
+            assert _session()["next_steps"] not in rendered
+        assert "retry pending effects" in rendered
+        assert snapshot(host.root) == before
 
 
 def test_complete_stage_without_acceptance_keeps_existing_orientation_contract(

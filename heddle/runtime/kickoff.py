@@ -146,6 +146,8 @@ def _render_human(result: HeddleResult) -> None:
         obligation = data.get("close_obligation")
         if isinstance(obligation, dict):
             print(close_obligation_text(obligation))
+        for action in result.next_actions:
+            print(f"  next: {action.command} — {action.reason}")
     for diagnostic in result.diagnostics:
         print(f"note: {diagnostic.code}: {diagnostic.message}", file=sys.stderr)
 
