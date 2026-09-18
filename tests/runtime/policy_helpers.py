@@ -198,6 +198,7 @@ RUNTIME_IMPORT_EDGES = {
     "guardrails.py": {"heddle.gate.entry", "heddle.gate.prompt"},
     "validate.py": {"heddle.io.git"},
     "verification.py": {"heddle.io.git", "heddle.io.source"},
+    "source_attribution.py": {"heddle.io.source"},
     "completion.py": {"heddle.io.git"},
     "verify_exec.py": {"heddle.io.process"},
     "drive.py": {"heddle.driver.results", "heddle.driver.loop"},

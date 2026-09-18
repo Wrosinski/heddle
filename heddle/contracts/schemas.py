@@ -97,6 +97,7 @@ CLOSE_SUITE_KEYS = ("command", "log", "exit_code")
 
 # Additive current metadata.
 STATE_V9_OPTIONAL_TOP_LEVEL_KEYS = (
+    "source_attributions",
     "flow",
     "authorizations",
     "flow_changes",

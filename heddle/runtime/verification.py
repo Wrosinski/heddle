@@ -366,11 +366,14 @@ def reconcile_current_source(
         baseline_probe,
         source_baseline=state.source_baseline,
     )
+    from heddle.runtime.source_attribution import qualified_attribution_paths
+
+    attributed = qualified_attribution_paths(root, state)
     reconciliation = reconcile_source_coverage(
         declaration,
         inventory,
         runtime_owned_roots,
-        excluded_paths=excluded_paths,
+        excluded_paths=(*excluded_paths, *attributed),
     )
     if reconciliation.status != "complete":
         raise KernelError(

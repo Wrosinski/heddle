@@ -156,6 +156,14 @@ class FeatureInputsSet:
 
 
 @dataclass(frozen=True)
+class AttributeSources:
+    payload: dict[str, Any]
+    feature: str | None = None
+    expect_revision: int | None = None
+    dry_run: bool = False
+
+
+@dataclass(frozen=True)
 class CommandsSet:
     key: str
     command: str
@@ -370,6 +378,7 @@ type Operation = (
     | FeatureSwitch
     | FeatureComplete
     | FeatureInputsSet
+    | AttributeSources
     | CommandsSet
     | CommandsUnset
     | MilestoneAdd
@@ -412,6 +421,7 @@ _OPERATION_NAMES: dict[type, str] = {
     FeatureSwitch: "feature switch",
     FeatureComplete: "feature complete",
     FeatureInputsSet: "feature inputs set",
+    AttributeSources: "feature sources attribute",
     CommandsSet: "commands set",
     CommandsUnset: "commands unset",
     MilestoneAdd: "milestone add",
@@ -513,7 +523,13 @@ def operation_command(operation: Operation) -> str:
             pass
         case MilestoneEdit():
             arguments.extend((operation.milestone_id, "--from-file", "-"))
-        case MilestoneAdd() | FeatureInputsSet() | RecordSession() | RecordPolicy():
+        case (
+            MilestoneAdd()
+            | FeatureInputsSet()
+            | AttributeSources()
+            | RecordSession()
+            | RecordPolicy()
+        ):
             arguments.extend(("--from-file", "-"))
         case DecisionsAdd():
             arguments.extend(("--input-json", "-"))

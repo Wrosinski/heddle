@@ -276,6 +276,57 @@ DECISION_BATCH_INPUT_SCHEMA: dict[str, Any] = {
     ],
 }
 
+SOURCE_ATTRIBUTION_INPUT_SCHEMA: dict[str, Any] = {
+    "id": "heddle.source-attribution-input/v1",
+    "media_type": "application/json",
+    "delivered_by": "--from-file <path|->",
+    "summary": "explicit attribution of exact changes to other work",
+    "fields": {
+        "schema": {
+            "type": "string",
+            "required": True,
+            "const": "heddle.source-attribution-input/v1",
+            "summary": "payload schema id, exact match",
+        },
+        "attributions": {
+            "type": "list",
+            "required": True,
+            "min_items": 1,
+            "summary": "atomic batch with no repeated target paths",
+            "items": {
+                "type": "object",
+                "fields": {
+                    "paths": {
+                        "type": "list",
+                        "required": True,
+                        "min_items": 1,
+                        "summary": "exact unresolved repo-relative leaf paths",
+                    },
+                    "references": {
+                        "type": "list",
+                        "required": True,
+                        "min_items": 1,
+                        "summary": "existing repo-relative evidence files",
+                    },
+                    "reason": {
+                        "type": "string",
+                        "required": True,
+                        "non_empty": True,
+                        "summary": "why these paths belong to other work",
+                    },
+                },
+            },
+        },
+    },
+    "constraints": [
+        "closed envelope and rows; directories and owned paths are rejected",
+        "binds source and reference bytes, file kinds and executable bits",
+        "append-only history; changed bindings require explicit re-attribution",
+        "does not alter the baseline, ownership or verification proof",
+    ],
+}
+
+
 POLICY_BATCH_INPUT_SCHEMA: dict[str, Any] = {
     "id": "heddle.policy-batch/v1",
     "media_type": "application/json",
@@ -996,6 +1047,22 @@ COMMAND_SURFACE: tuple[CommandContract, ...] = (
         ),
         exit_codes=(0, 1, 2, 3, 4, 5),
         output_schema="heddle.feature-complete/v0",
+    ),
+    CommandContract(
+        name=ops.operation_type_name(ops.AttributeSources),
+        cli_binding=("source_attribution", "run_attribute_sources"),
+        summary="record evidence-bound attribution of exact outside-feature changes",
+        input_schema=SOURCE_ATTRIBUTION_INPUT_SCHEMA,
+        mutating=True,
+        dry_run=True,
+        args=(),
+        flags=(
+            *_FLAGS_JSON_FEATURE_DRY_RUN,
+            FlagSpec("--from-file", "source attribution JSON file or -"),
+            _EXPECT_REVISION,
+        ),
+        exit_codes=_EXIT_CAS,
+        output_schema=None,
     ),
     CommandContract(
         name=ops.operation_type_name(ops.FeatureInputsSet),

@@ -1137,6 +1137,7 @@ type _StateMutationOperation = (
     | ops.TaskDone
     | ops.FlowSet
     | ops.FeatureInputsSet
+    | ops.AttributeSources
 )
 
 

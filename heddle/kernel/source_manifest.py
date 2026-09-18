@@ -16,7 +16,9 @@ from heddle.kernel.project_config import KernelError
 SOURCE_MANIFEST_SCHEMA = "heddle.verification-source/v2"
 SOURCE_EVIDENCE_SCHEMA = "heddle.source-evidence/v1"
 SOURCE_EVIDENCE_REFERENCE_SCHEMA = "heddle.source-evidence-ref/v1"
-SourceSetKind = Literal["milestone-owns", "feature-owned-union", "feature-inputs"]
+SourceSetKind = Literal[
+    "milestone-owns", "feature-owned-union", "feature-inputs", "outside-feature"
+]
 SOURCE_SET_KINDS: frozenset[str] = frozenset(get_args(SourceSetKind))
 HEDDLE_OWNED_ROOTS = ("plans",)
 _HEDDLE_OWNED_ROOTS = tuple(tuple(root.split("/")) for root in HEDDLE_OWNED_ROOTS)

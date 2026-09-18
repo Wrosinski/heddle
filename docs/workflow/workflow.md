@@ -317,6 +317,35 @@ command additionally requires that strict expansion and must preserve the
 recorded expected result; filling a previously blank command remains the narrow
 one-way repair.
 
+When a long-lived feature incorporates unrelated work, inspect every unresolved
+path before completion. Add the feature's own omissions to milestone ownership
+and refresh the affected verification. Attribute exact outside-feature changes
+with `heddle feature sources attribute --feature <slug> --from-file <json>`.
+The command accepts `--dry-run` and `--expect-revision` and publishes an atomic,
+append-only batch:
+
+```json
+{
+  "schema": "heddle.source-attribution-input/v1",
+  "attributions": [
+    {
+      "paths": ["src/other_feature.py"],
+      "references": ["docs/other-feature-scope.md"],
+      "reason": "Delivered by the separately accepted feature cited here."
+    }
+  ]
+}
+```
+
+This records the author's scope judgment; it does not infer ownership from Git
+or establish analytical acceptance. Heddle binds each leaf's content, type and
+executable bit, including deleted paths, and the cited regular evidence files.
+Owned paths, directories, unknown paths and mutable self-references are rejected.
+Changed bindings block coverage until explicitly re-inspected and attributed
+again; new unclassified paths still block. Later ownership takes precedence and
+requires normal source-bound proof. Attribution never rewrites the baseline,
+shrinks ownership or supplies verification evidence.
+
 ### Document Reconciliation
 
 The spec defines intended behavior, code shows current behavior, the plan

@@ -127,6 +127,7 @@ heddle/kernel/review_assignments.py
 heddle/kernel/review_closure.py
 heddle/kernel/reviews.py
 heddle/kernel/smoke_disposition.py
+heddle/kernel/source_attribution.py
 heddle/kernel/source_manifest.py
 heddle/kernel/spec_lifecycle.py
 heddle/kernel/state.py
@@ -208,6 +209,7 @@ heddle/runtime/recording.py
 heddle/runtime/review_assignments.py
 heddle/runtime/search.py
 heddle/runtime/show_prompt.py
+heddle/runtime/source_attribution.py
 heddle/runtime/state_store.py
 heddle/runtime/status.py
 heddle/runtime/sync.py
@@ -568,6 +570,7 @@ tests/runtime/test_sealed_review_boundaries.py
 tests/runtime/test_search.py
 tests/runtime/test_search_acceptance.py
 tests/runtime/test_show_prompt_command.py
+tests/runtime/test_source_attribution.py
 tests/runtime/test_source_evidence.py
 tests/runtime/test_structured_reviews.py
 tests/runtime/test_sync_command.py

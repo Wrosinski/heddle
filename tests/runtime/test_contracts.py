@@ -72,6 +72,7 @@ def _revision_guard_operations():
         ops.FeatureReassess("demo", {}, expect_revision=7),
         ops.FeatureComplete(expect_revision=7),
         ops.FeatureInputsSet(("src/demo.py",), expect_revision=7),
+        ops.AttributeSources({}, expect_revision=7),
         ops.CommandsSet("smoke_test", "true", expect_revision=7),
         ops.CommandsUnset("smoke_test", expect_revision=7),
         ops.MilestoneAdd(milestone, expect_revision=7),
@@ -229,6 +230,14 @@ EXPECTED_SURFACE = [
         [0, 1, 2, 3, 4, 5],
         [],
         {"--expect-revision", "--dry-run", "--feature", "--json"},
+    ),
+    (
+        "feature sources attribute",
+        True,
+        True,
+        [0, 1, 2, 3, 5],
+        [],
+        {"--expect-revision", "--from-file", "--feature", "--json", "--dry-run"},
     ),
     (
         "feature inputs set",
@@ -520,6 +529,7 @@ class TestAC2PerCommandPayloadLock:
         # input schema: input_schema is null until a payload body is pinned — the
         # output_schema additive-flip convention, input side.
         expected_input = {
+            "feature sources attribute": "heddle.source-attribution-input/v1",
             "review disposition": "heddle.review-disposition-input/v1",
             "review interpret": "heddle.review-interpretation-input/v1",
             "feature prepare": "heddle.intake-input/v1",

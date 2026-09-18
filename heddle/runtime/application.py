@@ -15,6 +15,7 @@ _BINDINGS: dict[type, tuple[str, str]] = {
     ops.FeaturePolicy: ("feature_policy", "confirm_policy"),
     ops.FeatureReassess: ("feature_policy", "reassess_feature"),
     ops.FeatureInputsSet: ("feature_inputs", "feature_inputs_set"),
+    ops.AttributeSources: ("source_attribution", "attribute_sources"),
     ops.FeatureSwitch: ("pointer", "feature_switch"),
     ops.FeatureComplete: ("completion", "complete_feature"),
     ops.Search: ("search", "search"),

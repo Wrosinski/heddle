@@ -62,6 +62,10 @@ from heddle.kernel.smoke_disposition import (
     validate_smoke_bindings,
     validate_smoke_disposition,
 )
+from heddle.kernel.source_attribution import (
+    SourceAttribution,
+    parse_source_attributions,
+)
 from heddle.kernel.source_manifest import (
     EvidenceReference,
     decode_evidence_reference,
@@ -331,6 +335,7 @@ class StateFile:  # §10.1 required keys plus additive optional keys
     sessions: tuple[SessionFact, ...]  # append order = time order
     completion: CompletionFact | None
     source_baseline: SourceBaseline | None = None
+    source_attributions: tuple[SourceAttribution, ...] = ()
     feature_inputs: tuple[str, ...] = ()
     flow: str | None = None
     authorizations: tuple[AuthorizationFact, ...] = ()
@@ -560,6 +565,9 @@ def parse_state_document(document: object, *, source: Path) -> StateFile:
         ),
         completion=None,
         source_baseline=source_baseline,
+        source_attributions=parse_source_attributions(
+            document.get("source_attributions", [])
+        ),
         feature_inputs=_str_tuple(path, "feature_inputs", document["feature_inputs"]),
         feature_policy=confirmed_policy,
         policy_history=history,
@@ -605,6 +613,17 @@ def validate_state_transition(before: dict[str, Any], after: dict[str, Any]) -> 
             Path("state.yaml"),
             "source_baseline is immutable after admission",
             "restore the baseline recorded at admission",
+        )
+    prior_attributions = before.get("source_attributions", [])
+    next_attributions = after.get("source_attributions", [])
+    if (
+        not isinstance(next_attributions, list)
+        or next_attributions[: len(prior_attributions)] != prior_attributions
+    ):
+        raise _invalid(
+            Path("state.yaml"),
+            "source_attributions is append-only",
+            "preserve retained attribution facts and append a fresh observation",
         )
 
 
