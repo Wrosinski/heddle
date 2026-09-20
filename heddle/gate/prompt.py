@@ -585,6 +585,13 @@ def build_rerun_ledger(ctx: GateContext) -> str:
             "Native document-review assignment context:\n"
             + ctx.document_review_context,
         )
+    if ctx.required_prior_references is not None:
+        lines.append(
+            "- Explicitly account in prior_dispositions for EVERY required "
+            "verification target, including @coverage and concerns already "
+            "resolved by the lead. Preserve originating run IDs and finding IDs: "
+            + json.dumps(ctx.required_prior_references)
+        )
     lines.append("")
     if ctx.prior_review_artifacts:
         lines.append("Prior review artifacts (captured before execution):")

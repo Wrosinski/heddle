@@ -80,6 +80,15 @@ class ReviewRoundOpen:
 
 
 @dataclass(frozen=True)
+class ReaffirmReview:
+    role: str
+    scope: str
+    feature: str | None = None
+    expect_revision: int | None = None
+    dry_run: bool = False
+
+
+@dataclass(frozen=True)
 class InterpretReview:
     feature: str | None = None
     payload: dict[str, Any] | None = None
@@ -369,6 +378,7 @@ type Operation = (
     | ShowPrompt
     | RecordReviewDisposition
     | ReviewRoundOpen
+    | ReaffirmReview
     | InterpretReview
     | ReviewAllowance
     | Search
@@ -412,6 +422,7 @@ _OPERATION_NAMES: dict[type, str] = {
     ShowPrompt: "show-prompt",
     RecordReviewDisposition: "review disposition",
     ReviewRoundOpen: "review round-open",
+    ReaffirmReview: "review reaffirm",
     InterpretReview: "review interpret",
     ReviewAllowance: "review allowance",
     Search: "search",
@@ -493,6 +504,8 @@ def operation_command(operation: Operation) -> str:
                     operation.approval,
                 )
             )
+        case ReaffirmReview():
+            arguments.extend(("--role", operation.role, "--scope", operation.scope))
         case RunGate() | ShowPrompt():
             arguments.append(operation.gate)
             for flag, value in (

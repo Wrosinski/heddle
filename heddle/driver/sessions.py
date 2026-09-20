@@ -404,6 +404,7 @@ def allowed_tools_for_stage(
         # explains that route must be able to invoke it.
         commands += (
             "Bash(heddle review disposition:*)",
+            "Bash(heddle review reaffirm:*)",
             "Bash(heddle review allowance:*)",
         )
     return READ_BASELINE + commands + tuple(dict.fromkeys(files))

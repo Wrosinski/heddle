@@ -398,6 +398,13 @@ def _validate_prior_dispositions(
         raise ValueError(
             "prior finding accounting must cover exactly the latest accepted findings"
         )
+    if (
+        prepared.required_prior_references is not None
+        and not set(prepared.required_prior_references) <= actual
+    ):
+        raise ValueError(
+            "prior finding accounting must cover every verification target"
+        )
     findings = {item.id for item in content.findings}
     retained = set()
     decisions = {item.id: item for item in prepared.review_decisions}

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 import subprocess
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -23,6 +24,14 @@ class FeatureBaselineError(GitError):
     def __init__(self, reason: str, message: str) -> None:
         super().__init__(message)
         self.reason = reason
+
+
+@dataclass(frozen=True)
+class GitStatusObservation:
+    """Path-safe working-tree observation for an exact candidate set."""
+
+    dirty_paths: tuple[str, ...]
+    warning: str | None = None
 
 
 def capture_head_commit(repo_root: Path) -> str:
@@ -200,6 +209,55 @@ def changed_name_status_paths(output: str) -> tuple[str, ...]:
         paths.extend(selected)
         index += count + 1
     return tuple(paths)
+
+
+def observe_dirty_paths(
+    repo_root: Path, candidate_paths: tuple[str, ...]
+) -> GitStatusObservation:
+    """Return dirty candidate endpoints without treating Git failure as clean."""
+    selected = tuple(sorted(set(candidate_paths), key=lambda value: value.encode()))
+    if not selected:
+        return GitStatusObservation(())
+    try:
+        output, warning = run_git(
+            [
+                "git",
+                "--literal-pathspecs",
+                "status",
+                "--porcelain=v1",
+                "-z",
+                "--untracked-files=all",
+                "--",
+                *selected,
+            ],
+            repo_root.resolve(),
+        )
+        if warning is not None:
+            return GitStatusObservation((), warning)
+        return GitStatusObservation(_porcelain_status_paths(output))
+    except GitError as error:
+        return GitStatusObservation((), str(error))
+
+
+def _porcelain_status_paths(output: str) -> tuple[str, ...]:
+    records = _git_path_records(output)
+    paths: list[str] = []
+    index = 0
+    while index < len(records):
+        record = records[index]
+        if len(record) < 4 or record[2] != " " or not record[3:]:
+            raise GitError("git status --porcelain=v1 -z returned an invalid record")
+        status, path = record[:2], record[3:]
+        paths.append(path)
+        index += 1
+        if "R" in status or "C" in status:
+            if index >= len(records) or not records[index]:
+                raise GitError(
+                    "git status --porcelain=v1 -z returned an incomplete rename record"
+                )
+            paths.append(records[index])
+            index += 1
+    return tuple(sorted(set(paths), key=lambda value: value.encode()))
 
 
 def discover_untracked_files(repo_root: Path) -> tuple[list[str], str | None]:

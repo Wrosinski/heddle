@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import multiprocessing
 import os
 import queue
@@ -777,6 +778,8 @@ def _execute_batch_workers(
     next_publication = 0
     publication_failure: tuple[_BatchMember, HeddleError] | None = None
     try:
+        for member in pending:
+            _present_preparation_diagnostics(member.preparation_diagnostics)
         for process in processes:
             process.start()
         while len(received) + len(worker_errors) < len(processes):
@@ -1316,6 +1319,7 @@ def _run_locked(
     else:
         try:
             if member.reuse == "none":
+                _present_preparation_diagnostics(member.preparation_diagnostics)
                 outcome = entry.run_gate_for_runtime(
                     gate_type,
                     member.context,
@@ -1613,9 +1617,62 @@ def _review_attempt(
     if accepted_slot:
         return _usage(
             "this round slot is already accepted and its input changed",
-            "record native dispositions, then explicitly open the next review round",
+            _accepted_slot_hint(state, policy.assignment),
         )
     return current.number
+
+
+def _accepted_slot_hint(state: StateFile, assignment: ReviewAssignment) -> str:
+    from heddle.kernel import review_assignments as core
+    from heddle.kernel.review_closure import assess_review_closure
+
+    if core.assignment_sealed(state, assignment):
+        return "Preserve the sealed acceptance; use a new feature for new review scope."
+    policy = core.selected_policy(state, assignment.role)
+    if policy.mode == "off":
+        return "The role is off; obtain an explicit feature policy amendment."
+    pending = next(
+        (
+            d
+            for d in state.decisions
+            if d.id == assignment.stop_decision_id and d.status == "pending"
+        ),
+        None,
+    )
+    if pending is not None:
+        return f"Use heddle decisions resolve for stop decision {pending.id} first."
+    closure = assess_review_closure(
+        core.closure_facts(state, assignment, current_basis="")
+    )
+    if closure.missing_slots:
+        return "Complete the missing reviewer slots first: " + ", ".join(
+            closure.missing_slots
+        )
+    if policy.limit is not None and len(assignment.rounds) >= policy.limit:
+        return (
+            "The round limit is reached; obtain an owner-approved heddle review "
+            "allowance or feature policy amendment."
+        )
+    payload = json.dumps(
+        {
+            "schema": "heddle.review-round-input/v1",
+            "role": assignment.role,
+            "scope": assignment.scope,
+            "purpose": "verification",
+            "reason": "Verify the original required concerns against current inputs.",
+        }
+    )
+    return (
+        "Use heddle review round-open --input-json <file> --feature "
+        + state.feature
+        + " with JSON "
+        + payload
+        + "; then run heddle run-gate "
+        + assignment.role
+        + ". Record ordinary review dispositions for every unresolved original "
+        "and the new @coverage duty. Opening is legal before or after lead closure "
+        "while the assignment is unsealed and allowance remains."
+    )
 
 
 def _cached_decision(policy: _ReviewPolicy, reuse: ReuseResult) -> _GateDecision:
@@ -2123,6 +2180,17 @@ def _progress_sink(checkpoint: Any) -> None:
     """Surface one engine monitor checkpoint as progress — a
     terse stderr line so the envelope on stdout stays clean."""
     print("heddle run-gate: …", file=sys.stderr)
+
+
+def _present_preparation_diagnostics(
+    diagnostics: tuple[Diagnostic, ...],
+) -> None:
+    """Surface advisory preparation facts before any provider dispatch."""
+    for diagnostic in diagnostics:
+        print(
+            f"note: {diagnostic.code}: {diagnostic.message}",
+            file=sys.stderr,
+        )
 
 
 def _usage(message: str, hint: str) -> HeddleResult:

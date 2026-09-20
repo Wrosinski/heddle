@@ -84,6 +84,7 @@ def capture_review(
             invocation.assignment_id,
             prepared.prior_reviews,
             prepared.review_decisions,
+            prepared.required_prior_references,
         ),
         read_bounded(execution.raw_out_path, MAX_STREAM_BYTES),
         read_bounded(selected, MAX_REVIEW_BYTES)
@@ -106,6 +107,7 @@ def _bytes(value: bytes | None) -> dict[str, Any] | None:
 
 
 def serialize_capture(capture: CapturedReview) -> bytes:
+    targets = capture.validation.required_prior_references
     value = {
         "schema": CAPTURE_SCHEMA,
         "invocation": asdict(capture.invocation),
@@ -129,6 +131,7 @@ def serialize_capture(capture: CapturedReview) -> bytes:
             "review_decisions": [
                 asdict(d) for d in capture.validation.review_decisions
             ],
+            **({"required_prior_references": targets} if targets is not None else {}),
         },
         "completion": {"exit_code": 0, "termination": "completed"},
         "response": {
@@ -173,6 +176,19 @@ def decode_capture(raw: bytes) -> CapturedReview:
         ):
             raise ValueError("captured review contract or completion differs")
         validation, response = value["validation"], value["response"]
+        targets = None
+        if "required_prior_references" in validation:
+            operand = validation["required_prior_references"]
+            if not isinstance(operand, list) or any(
+                not isinstance(row, list)
+                or len(row) != 2
+                or not all(isinstance(item, str) and item.strip() for item in row)
+                for row in operand
+            ):
+                raise ValueError("invalid captured prior target references")
+            targets = tuple((row[0], row[1]) for row in operand)
+            if len(set(targets)) != len(targets):
+                raise ValueError("captured prior target references must be distinct")
         prior_reviews = []
         for prior in validation["prior_reviews"]:
             result = decode_review_result(prior["result"].encode("utf-8"))
@@ -201,6 +217,7 @@ def decode_capture(raw: bytes) -> CapturedReview:
                 invocation.assignment_id,
                 tuple(prior_reviews),
                 tuple(ReviewDecision(**d) for d in validation["review_decisions"]),
+                targets,
             ),
             _decode_bytes(response["raw_stream"], MAX_STREAM_BYTES),
             _decode_bytes(response["selected_response"], MAX_REVIEW_BYTES)

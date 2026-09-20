@@ -49,6 +49,7 @@ EXPECTED_COMMAND_SUFFIXES = {
     + (
         "Bash(heddle validate:*)",
         "Bash(heddle review disposition:*)",
+        "Bash(heddle review reaffirm:*)",
         "Bash(heddle review allowance:*)",
     ),
     "plan-review": ("Bash(heddle run-gate:*)", "Bash(heddle review interpret:*)")
@@ -56,6 +57,7 @@ EXPECTED_COMMAND_SUFFIXES = {
     + (
         "Bash(heddle validate:*)",
         "Bash(heddle review disposition:*)",
+        "Bash(heddle review reaffirm:*)",
         "Bash(heddle review allowance:*)",
     ),
     "scaffold": (
@@ -64,6 +66,7 @@ EXPECTED_COMMAND_SUFFIXES = {
         "Bash(heddle commands set:*)",
         "Bash(heddle milestone edit:*)",
         "Bash(heddle review disposition:*)",
+        "Bash(heddle review reaffirm:*)",
         "Bash(heddle review allowance:*)",
     ),
     "implement": (
@@ -72,6 +75,7 @@ EXPECTED_COMMAND_SUFFIXES = {
         "Bash(heddle run-gate:*)",
         "Bash(heddle review interpret:*)",
         "Bash(heddle review disposition:*)",
+        "Bash(heddle review reaffirm:*)",
         "Bash(heddle review allowance:*)",
     ),
     "peer-review": (
@@ -80,6 +84,7 @@ EXPECTED_COMMAND_SUFFIXES = {
         "Bash(heddle verify:*)",
         "Bash(heddle validate:*)",
         "Bash(heddle review disposition:*)",
+        "Bash(heddle review reaffirm:*)",
         "Bash(heddle review allowance:*)",
     ),
     "robustness": (
@@ -88,6 +93,7 @@ EXPECTED_COMMAND_SUFFIXES = {
         "Bash(heddle verify:*)",
         "Bash(heddle validate:*)",
         "Bash(heddle review disposition:*)",
+        "Bash(heddle review reaffirm:*)",
         "Bash(heddle review allowance:*)",
     ),
 }

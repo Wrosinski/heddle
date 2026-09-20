@@ -732,17 +732,14 @@ def test_ac5_targeted_rounds_keep_all_origins_and_original_secondary_inspection(
                 ]
             )
         result = review_content()
-        if phase["value"] == 3:
-            result["prior_dispositions"] = [
-                reviewer_disposition(
-                    finding_ref(origins["secondary"], "SP-I2"),
-                    action="addressed",
-                    reason=(
-                        "I independently verified the original secondary concern "
-                        "against the current implementation."
-                    ),
-                )
-            ]
+        result["prior_dispositions"] = [
+            reviewer_disposition(finding_ref(run_id, identifier), action="addressed")
+            for run_id, identifier in (
+                (origins["primary"], "SP-I1"),
+                (origins["secondary"], "SP-I2"),
+                *((run["run_id"], "@coverage") for run in runs(path)),
+            )
+        ]
         return result
 
     calls = provider_transport(monkeypatch, report)
@@ -1380,14 +1377,30 @@ def test_ac4_native_stops_record_one_decision_and_preserve_original_refs(
     generation = {"number": 1}
 
     def report(_cli, _prompt):
+        from tests.structured_review_helpers import disposition as reviewer_disposition
+        from tests.structured_review_helpers import finding_ref
+
         identifier = f"SP-I{generation['number']}"
-        return review_content(
+        result = review_content(
             findings=(
                 []
-                if stop == "no-progress" and generation["number"] > 1
+                if stop != "no-decrease" and generation["number"] > 1
                 else [finding(identifier, classification="implement")]
             )
         )
+        if generation["number"] > 1 and stop != "no-decrease":
+            # Reviewer accounting does not replace the lead's retained resolution
+            # or constitute material progress on that still-open original.
+            result["prior_dispositions"] = [
+                reviewer_disposition(
+                    finding_ref(run_id, finding_id), action="addressed"
+                )
+                for run_id, finding_id in (
+                    (origin, "SP-I1"),
+                    *((run["run_id"], "@coverage") for run in runs(path)),
+                )
+            ]
+        return result
 
     calls = provider_transport(monkeypatch, report)
     code, result = gate_command(run_cli, "run-gate", "spec-review")

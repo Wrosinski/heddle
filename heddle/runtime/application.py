@@ -22,6 +22,7 @@ _BINDINGS: dict[type, tuple[str, str]] = {
     ops.ShowPrompt: ("show_prompt", "show_prompt"),
     ops.RecordReviewDisposition: ("review_assignments", "record_disposition"),
     ops.ReviewRoundOpen: ("review_assignments", "open_review_round"),
+    ops.ReaffirmReview: ("review_assignments", "reaffirm_review"),
     ops.InterpretReview: ("review_assignments", "interpret_review"),
     ops.ReviewAllowance: ("feature_policy", "review_allowance"),
     ops.Doctor: ("doctor", "doctor"),

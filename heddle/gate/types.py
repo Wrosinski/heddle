@@ -402,6 +402,7 @@ class PreparedGateRun:
     assignment_id: str | None = None
     round_number: int | None = None
     reviewer_slot: str | None = None
+    required_prior_references: tuple[tuple[str, str], ...] | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "runtime_sections", tuple(self.runtime_sections))
@@ -420,6 +421,7 @@ class ReviewValidationInputs:
     assignment_id: str
     prior_reviews: tuple[PriorReviewArtifact, ...]
     review_decisions: tuple[ReviewDecision, ...]
+    required_prior_references: tuple[tuple[str, str], ...] | None = None
 
 
 @dataclass(frozen=True)
@@ -494,6 +496,7 @@ class GateContext:
     review_assignment: ReviewAssignment | None = None
     assignment_round: AssignmentRound | None = None
     reviewer_slot: str | None = None
+    required_prior_references: tuple[tuple[str, str], ...] | None = None
 
 
 @dataclass(frozen=True)

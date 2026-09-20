@@ -705,6 +705,25 @@ def _qualify_evidence(
     return _EvidenceQualification()
 
 
+def _qualify_resolution(
+    frame: _Qualification, disposition: AssignmentDisposition, basis: str | None
+) -> _EvidenceQualification:
+    qualification = _qualify_evidence(frame, disposition, basis)
+    if (
+        qualification.qualifies
+        and disposition.requires_inspection
+        and disposition.evidence_kind != "review"
+    ):
+        return _rejected_evidence(
+            "reviewer-inspection-not-qualifying",
+            "required originating inspection is unavailable",
+            "supply a qualifying later-round review for required inspection",
+            field="evidence_kind",
+            reference=disposition.review_run_id,
+        )
+    return qualification
+
+
 def _evidence_explanation(
     frame: _Qualification,
     disposition: AssignmentDisposition,
@@ -761,23 +780,29 @@ class _Qualification:
             )
         return self.bases[assignment.id]
 
+    def effective_dispositions(
+        self, assignment: ReviewAssignment
+    ) -> tuple[tuple[int, AssignmentDisposition], ...]:
+        state = self.snapshot.state
+        source_ids = {
+            s.run_id
+            for s in core.authoritative_sources(state)
+            if s.assignment_id == assignment.id
+        }
+        latest = {
+            (d.run_id, d.finding_id): (index, d)
+            for index, d in enumerate(state.review_assignments.dispositions)
+            if d.run_id in source_ids
+        }
+        return tuple(latest.values())
+
     def assess(self, assignment: ReviewAssignment) -> ReviewClosure:
         if assignment.id not in self.assessments:
             basis = self.basis(assignment)
             state = self.snapshot.state
-            source_ids = {
-                s.run_id
-                for s in core.authoritative_sources(state)
-                if s.assignment_id == assignment.id
-            }
-            latest = {
-                (d.run_id, d.finding_id): (index, d)
-                for index, d in enumerate(state.review_assignments.dispositions)
-                if d.run_id in source_ids
-            }
             qualified_rows = tuple(
                 (index, d)
-                for index, d in latest.values()
+                for index, d in self.effective_dispositions(assignment)
                 if _qualify_evidence(self, d, basis).qualifies
             )
             qualified = tuple(d for _index, d in qualified_rows)
@@ -1691,7 +1716,7 @@ def _dispositions(
             )
             continue
         if disposition.status in {"addressed", "settled"}:
-            qualification = _qualify_evidence(
+            qualification = _qualify_resolution(
                 frame, disposition, disposition.evidence_basis
             )
             if not qualification.qualifies:
@@ -1704,19 +1729,6 @@ def _dispositions(
                     reference=qualification.reference,
                     verification_scope=qualification.verification_scope,
                     status=qualification.status,
-                )
-                continue
-            if (
-                disposition.requires_inspection
-                and disposition.evidence_kind != "review"
-            ):
-                failures[item.row_index] = _row_failure(
-                    item.row_index,
-                    row,
-                    "reviewer-inspection-not-qualifying",
-                    "supply a qualifying later-round review for required inspection",
-                    field="evidence_kind",
-                    reference=disposition.review_run_id,
                 )
                 continue
         if previous is not None and replace(previous, at=now) == disposition:
@@ -1740,6 +1752,65 @@ def _dispositions(
             },
         )
     return additions
+
+
+def _reaffirmations(
+    config: ProjectConfig, snapshot: FeatureSnapshot, operation: ops.ReaffirmReview
+) -> tuple[ReviewAssignment, list[dict[str, Any]]]:
+    assignment = next(
+        (
+            a
+            for a in snapshot.state.review_assignments.assignments
+            if (a.role, a.scope) == (operation.role, operation.scope)
+        ),
+        None,
+    )
+    if assignment is None:
+        raise core.invalid("reaffirm requires an existing review assignment")
+    if core.assignment_sealed(snapshot.state, assignment):
+        raise core.invalid("sealed acceptance cannot gain reaffirmed dispositions")
+    frame = _Qualification(config, snapshot)
+    if frame.assess(assignment).missing_slots:
+        raise core.invalid("complete missing reviewer slots before reaffirming")
+    basis = frame.basis(assignment)
+    additions = []
+    failures = []
+    now = utc_now_minutes()
+    for index, old in frame.effective_dispositions(assignment):
+        if old.status not in {"addressed", "settled"}:
+            continue
+        candidate = replace(old, evidence_basis=basis, at=now)
+        qualification = _qualify_resolution(frame, candidate, basis)
+        if not qualification.qualifies:
+            failures.append(
+                _row_failure(
+                    index,
+                    ops.decoded_payload(old),
+                    cast(str, qualification.predicate),
+                    qualification.remedy or "supply current qualifying evidence",
+                    field=qualification.field,
+                    reference=qualification.reference,
+                    verification_scope=qualification.verification_scope,
+                    status=qualification.status,
+                )
+            )
+        elif old.evidence_basis != basis:
+            additions.append(ops.decoded_payload(candidate))
+    if failures:
+        raise KernelError(
+            code="disposition-batch-invalid",
+            message="reaffirmation refused: original evidence no longer qualifies",
+            hint="inspect each original concern and submit corrected evidence; "
+            "no rows were written",
+            details={
+                "feature": snapshot.feature,
+                "revision": snapshot.state.revision,
+                "dry_run": operation.dry_run,
+                "wrote": False,
+                "rows": failures,
+            },
+        )
+    return assignment, additions
 
 
 def _scope_change(config: ProjectConfig, value: Any) -> ReviewScopeChange | None:
@@ -1777,8 +1848,12 @@ def _apply_round_open(
             "open rounds only at the assignment stage or a later repair boundary"
         )
     assignment = core.assignment_for(current.state, payload["role"], payload["scope"])
+    if core.assignment_sealed(current.state, assignment):
+        raise core.invalid("sealed acceptance cannot gain another review round")
+    if core.selected_policy(current.state, assignment.role).mode == "off":
+        raise core.invalid("review role is explicitly off; amend feature policy first")
     closed = _Qualification(config, current).assess(assignment)
-    if closed.closed:
+    if closed.closed and payload["purpose"] != "verification":
         raise core.invalid(
             "assignment is already closed; explicitly amend the confirmed "
             "minimum passes if another independent review is required"
@@ -1789,9 +1864,10 @@ def _apply_round_open(
         (d for d in current.state.decisions if d.id == assignment.stop_decision_id),
         None,
     )
-    if not closed.stop_reason and owner is not None and owner.status == "pending":
+    if owner is not None and owner.status == "pending":
         raise core.invalid(
-            f"resolve stop decision {owner.id} before opening another round"
+            f"use decisions resolve for stop decision {owner.id} "
+            "before opening another round"
         )
     if closed.stop_reason:
         if core.continuation_authorized(current.state, assignment):
@@ -1846,6 +1922,10 @@ def _apply_round_open(
             before_open=closed.open_refs,
             scope_change=_scope_change(config, payload.get("scope_change")),
         )
+        if closed.closed and not core.verification_targets(
+            current.state, assignment, row
+        ):
+            raise core.invalid("verification requires available original targets")
         stored = next(a for a in ledger["assignments"] if a["id"] == assignment.id)
         stored["rounds"].append(ops.decoded_payload(row))
         response = {
@@ -1856,7 +1936,9 @@ def _apply_round_open(
 
 
 def _operate(
-    operation: ops.ReviewRoundOpen | ops.RecordReviewDisposition, *, opening: bool
+    operation: ops.ReviewRoundOpen | ops.RecordReviewDisposition | ops.ReaffirmReview,
+    *,
+    opening: bool,
 ) -> HeddleResult:
     resolved = resolve_snapshot_from_cwd(operation.feature, writable=True)
     if isinstance(resolved, ResolveFeatureFailure):
@@ -1886,7 +1968,12 @@ def _operate(
                 "review_assignments",
                 ops.decoded_payload(current.state.review_assignments),
             )
-            if opening:
+            reaffirmed_id = None
+            if isinstance(operation, ops.ReaffirmReview):
+                assignment, additions = _reaffirmations(config, current, operation)
+                reaffirmed_id = assignment.id
+                ledger["dispositions"].extend(additions)
+            elif opening:
                 response, stopped = _apply_round_open(
                     config, current, updated, ledger, operation.payload
                 )
@@ -1903,7 +1990,13 @@ def _operate(
             after = replace(snapshot, state=parse_state_document(updated, source=path))
             observed = projection(config, after)
             response.update(observed)
-            if not opening:
+            if reaffirmed_id is not None:
+                response["closure"] = next(
+                    row
+                    for row in observed["review_closure"]["assignments"]
+                    if row["assignment_id"] == reaffirmed_id
+                )
+            elif not opening and not isinstance(operation, ops.ReaffirmReview):
                 origins = {
                     row["run_id"]
                     for row in cast(dict[str, Any], operation.payload)["dispositions"]
@@ -1933,6 +2026,7 @@ def _operate(
             wrote, revision = result.wrote, result.revision
         response.update(revision=revision, wrote=wrote, dry_run=operation.dry_run)
         if stopped:
+            assert not isinstance(operation, ops.ReaffirmReview)
             owner = next(
                 row["decision_id"]
                 for row in response["review_closure"]["assignments"]
@@ -1963,6 +2057,10 @@ def _operate(
 
 
 def record_disposition(operation: ops.RecordReviewDisposition) -> HeddleResult:
+    return _operate(operation, opening=False)
+
+
+def reaffirm_review(operation: ops.ReaffirmReview) -> HeddleResult:
     return _operate(operation, opening=False)
 
 
@@ -2194,3 +2292,37 @@ def run_round_open(args: list[str], json_mode: bool) -> int:
 
 def run_interpret(args: list[str], json_mode: bool) -> int:
     return _run_input(args, json_mode, opening=False, interpreting=True)
+
+
+def run_reaffirm(args: list[str], json_mode: bool) -> int:
+    parsed, values, _, failure = parse_write_args(
+        args,
+        value_flags={
+            flag: (f"{flag} requires a value", "use review reaffirm --help")
+            for flag in ("--role", "--scope")
+        },
+        unknown_hint="use --role <role> --scope <feature|mN> and --feature <slug>",
+        allow_positionals=False,
+    )
+    if failure is None:
+        assert parsed is not None
+        role, scope = values["--role"], values["--scope"]
+        if not role or not scope:
+            failure = usage_failure(
+                "--role and --scope are required", "use review reaffirm --help"
+            )
+        else:
+            from heddle.runtime.application import execute
+
+            result = execute(
+                ops.ReaffirmReview(
+                    role,
+                    scope,
+                    feature=parsed.feature,
+                    expect_revision=parsed.expect_revision,
+                    dry_run=parsed.dry_run,
+                )
+            )
+            return emit_envelope(result, json_mode, _render)
+    assert failure is not None
+    return emit_envelope(failure, json_mode, _render)

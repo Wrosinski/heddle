@@ -848,12 +848,33 @@ def test_prior_accepted_findings_and_report_owners_survive_a_later_retained_resp
     assert yaml.safe_load(path.read_text())["decisions"] == decisions
     status = review_status(path)
     assert not status["closed"] and status["calls_completed"] == 2
-    interpreted = execute(
+    # New verification captures require exact target accounting. Omitting it
+    # refuses interpretation without disturbing the retained owner or originals.
+    before = snapshot(host)
+    omitted = execute(
         ops.InterpretReview(payload=interpretation(result["data"], review_content()))
     )
+    assert not omitted.ok and snapshot(host) == before
+    from tests.structured_review_helpers import disposition as reviewer_disposition
+    from tests.structured_review_helpers import finding_ref
+
+    accounted = review_content()
+    accounted["prior_dispositions"] = [
+        reviewer_disposition(
+            finding_ref(original["run_id"], "SP-I1"),
+            action="awaiting_decision",
+            decision_id=decisions[0]["id"],
+            decision_origin=finding_ref(original["run_id"], "SP-I1"),
+        ),
+        reviewer_disposition(
+            finding_ref(original["run_id"], "@coverage"), action="addressed"
+        ),
+    ]
+    interpreted = execute(
+        ops.InterpretReview(payload=interpretation(result["data"], accounted))
+    )
     assert interpreted.ok, interpreted.to_envelope()
-    # Current assignments retain original obligations independently of a later
-    # review's optional prior-disposition prose; omission is never settlement.
+    # Reviewer accounting does not resolve the original REPORT owner or coverage.
     assert runs(path)[0] == original and len(runs(path)) == 2
     assert yaml.safe_load(path.read_text())["decisions"] == decisions
     assert not review_status(path)["closed"] and len(calls) == 1

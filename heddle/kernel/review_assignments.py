@@ -974,6 +974,42 @@ def launch_round(state: StateFile, assignment: ReviewAssignment) -> AssignmentRo
     return assignment.rounds[-1] if assignment.rounds else new_round(state, assignment)
 
 
+def assignment_sealed(state: StateFile, assignment: ReviewAssignment) -> bool:
+    return any(
+        entry.assignment_id == assignment.id
+        for receipt in state.review_assignments.acceptances
+        for entry in receipt.assignments
+    )
+
+
+def verification_targets(
+    state: StateFile, assignment: ReviewAssignment, row: AssignmentRound
+) -> tuple[tuple[str, str], ...] | None:
+    """Derive targets without changing the open-concern progress operand."""
+    from heddle.kernel.review_closure import required_obligation
+
+    if row.purpose != "verification" or row.number < 2:
+        return None
+    previous = {
+        source.run_id
+        for source in authoritative_sources(state)
+        if source.assignment_id == assignment.id
+        and source.round_number == row.number - 1
+    }
+    return tuple(
+        sorted(
+            set(row.before_open)
+            | {
+                (item.run_id, item.finding_id)
+                for item in closure_facts(
+                    state, assignment, current_basis=""
+                ).obligations
+                if item.run_id in previous and required_obligation(item)
+            }
+        )
+    )
+
+
 def source_run(state: StateFile, run_id: str) -> GateRun:
     for fact in state.gates:
         for run in fact.runs:
@@ -1444,7 +1480,10 @@ def validate_assignments(state: StateFile) -> None:
             == (disposition.run_id, disposition.finding_id)
             for d in state.decisions
         ):
-            raise invalid("disposition decision must name the original concern")
+            raise invalid(
+                "disposition decision must name the original concern "
+                f"{disposition.run_id}#{disposition.finding_id}"
+            )
         if disposition.review_run_id is not None:
             proof = sources.get(disposition.review_run_id)
             original = sources[disposition.run_id]

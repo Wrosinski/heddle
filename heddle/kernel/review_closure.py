@@ -128,7 +128,8 @@ def _validate(facts: ReviewClosureFacts) -> None:
             )
 
 
-def _required(row: ReviewObligation) -> bool:
+def required_obligation(row: ReviewObligation) -> bool:
+    """The shared selection for mandatory closure and verification targets."""
     return (
         row.finding_id == "@coverage"
         or row.severity == "critical"
@@ -172,7 +173,7 @@ def assess_review_closure(facts: ReviewClosureFacts) -> ReviewClosure:
     open_refs = tuple(
         _ref(row)
         for row in facts.obligations
-        if _required(row) and not _resolved(row, latest.get(_ref(row)), facts)
+        if required_obligation(row) and not _resolved(row, latest.get(_ref(row)), facts)
     )
     used = len(facts.rounds)
     calls = sum(len(row.accepted_slots) for row in facts.rounds)

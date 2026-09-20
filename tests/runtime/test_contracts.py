@@ -65,6 +65,7 @@ def _revision_guard_operations():
     return (
         ops.RecordReviewDisposition(expect_revision=7),
         ops.ReviewRoundOpen(expect_revision=7),
+        ops.ReaffirmReview("spec-review", "feature", expect_revision=7),
         ops.InterpretReview(expect_revision=7),
         ops.ReviewAllowance("spec-review", 2, "owner approval", "demo", 7),
         ops.FeatureStart("demo", expect_revision=7),
@@ -165,6 +166,14 @@ EXPECTED_SURFACE = [
         [0, 1, 2, 3, 5],
         [],
         {"--json", "--input-json", "--dry-run", "--feature", "--expect-revision"},
+    ),
+    (
+        "review reaffirm",
+        True,
+        True,
+        [0, 1, 2, 3, 5],
+        [],
+        {"--json", "--role", "--scope", "--dry-run", "--feature", "--expect-revision"},
     ),
     (
         "review interpret",

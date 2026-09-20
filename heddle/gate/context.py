@@ -124,10 +124,15 @@ def build_context_from_snapshot(
     assignment_context = ""
     from dataclasses import asdict
 
-    from heddle.kernel.review_assignments import assignment_for, launch_round
+    from heddle.kernel.review_assignments import (
+        assignment_for,
+        launch_round,
+        verification_targets,
+    )
 
     assignment = assignment_for(snapshot.state, gate_type.name, scope)
     assignment_round = launch_round(snapshot.state, assignment)
+    targets = verification_targets(snapshot.state, assignment, assignment_round)
     reviewer_slot = next(
         (s.name for s in assignment_round.slots if s.reviewer.cli == cli), None
     )
@@ -135,6 +140,7 @@ def build_context_from_snapshot(
         {
             "assignment_id": assignment.id,
             **asdict(assignment_round),
+            "required_prior_references": targets,
             "lead_dispositions": [
                 asdict(d)
                 for d in snapshot.state.review_assignments.dispositions
@@ -153,6 +159,7 @@ def build_context_from_snapshot(
         review_assignment=assignment,
         assignment_round=assignment_round,
         reviewer_slot=reviewer_slot,
+        required_prior_references=targets,
         gate_type=gate_type,
         feature=snapshot.feature,
         repo_root=repo_root,

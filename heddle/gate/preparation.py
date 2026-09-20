@@ -52,6 +52,7 @@ from heddle.gate.types import (
     ReviewDecision,
     ReviewedInput,
 )
+from heddle.io.git import observe_dirty_paths
 from heddle.io.source import (
     capture_source_path,
     observe_source,
@@ -158,6 +159,7 @@ class _CapturedReviewInputs:
     reviewed: tuple[ReviewedInput, ...]
     projections: tuple[ContextProjection, ...]
     rule_context: str
+    diagnostics: tuple[str, ...]
 
 
 def _capture_review_inputs(
@@ -203,8 +205,8 @@ def _capture_review_inputs(
         allowed_non_owned_paths=workflow_paths,
     )
     allow_missing = preflight_result.fatal_reason is not None
-    owned = _owned_content(context, contract, allow_empty=allow_missing)
-    projections = _context_projections(
+    owned, source_paths = _owned_content(context, contract, allow_empty=allow_missing)
+    projections, scaffold_paths = _context_projections(
         context,
         contract,
         diff,
@@ -216,6 +218,18 @@ def _capture_review_inputs(
         contract,
         projections,
         allow_missing_required=allow_missing,
+    )
+    document_paths = tuple(
+        _logical_document_path(context, path, label)
+        for required, path, label in (
+            (contract.requires_spec, context.spec_path, "spec"),
+            (contract.requires_plan, context.plan_path, "plan"),
+        )
+        if required and path is not None
+    )
+    source_advice = _review_source_advice(
+        context.repo_root,
+        tuple({*document_paths, *source_paths, *scaffold_paths}),
     )
     basis_records = _review_basis_records(
         context,
@@ -262,6 +276,7 @@ def _capture_review_inputs(
         reviewed=reviewed,
         projections=projections,
         rule_context="",
+        diagnostics=(*context.preparation_diagnostics, *source_advice),
     )
 
 
@@ -358,6 +373,7 @@ def _prepare_variant(
         if context.assignment_round
         else None,
         reviewer_slot=context.reviewer_slot,
+        required_prior_references=context.required_prior_references,
         feature=context.feature,
         gate=gate_type.name,
         scope=captured.scope,
@@ -374,7 +390,7 @@ def _prepare_variant(
         diff_text=captured.diff_text,
         overlap=captured.overlap,
         preflight=captured.preflight,
-        diagnostics=tuple(context.preparation_diagnostics),
+        diagnostics=captured.diagnostics,
         output_contract=gate_type.output_contract,
         output_contract_version=captured.output_version,
         output_contract_sha256=captured.output_digest,
@@ -607,11 +623,13 @@ def _context_projections(
     exec_config: GateExecutionConfig,
     *,
     diff_text: str,
-) -> tuple[ContextProjection, ...]:
+) -> tuple[tuple[ContextProjection, ...], tuple[str, ...]]:
     projections: list[ContextProjection] = []
+    selected_paths: set[str] = set()
     for builder in contract.context_builders:
         if builder == "test-scaffolding":
             declared_paths = declared_scaffold_paths(context, prepared_diff)
+            selected_paths.update(declared_paths)
             text = build_test_scaffolding_context(
                 context, prepared_diff, relevant_paths=declared_paths
             )
@@ -658,7 +676,9 @@ def _context_projections(
                 reviewed_inputs=tuple(reviewed_inputs),
             )
         )
-    return tuple(projections)
+    return tuple(projections), tuple(
+        sorted(selected_paths, key=lambda value: value.encode())
+    )
 
 
 def _required_fact_records(
@@ -726,9 +746,9 @@ def _owned_content(
     contract: GateInputContract,
     *,
     allow_empty: bool = False,
-) -> tuple[tuple[str, str, str], ...]:
+) -> tuple[tuple[tuple[str, str, str], ...], tuple[str, ...]]:
     if contract.source_selector == "none":
-        return ()
+        return (), ()
     declarations = (
         tuple(context.owned_paths)
         if contract.source_selector == "milestone-owns"
@@ -736,7 +756,7 @@ def _owned_content(
     )
     if not declarations:
         if allow_empty:
-            return ()
+            return (), ()
         raise _input_error(
             f"{context.gate_type.name} has no declared implementation source",
             "declare the applicable milestone ownership before review",
@@ -747,7 +767,32 @@ def _owned_content(
     observed = observe_source(
         context.repo_root, definition, observations=context.source_observations
     )
-    return (("declared-source", definition.kind, observed.source_sha256),)
+    return (
+        (("declared-source", definition.kind, observed.source_sha256),),
+        tuple(
+            sorted(
+                {*definition.declaration_paths, *definition.paths},
+                key=lambda value: value.encode(),
+            )
+        ),
+    )
+
+
+def _review_source_advice(repo_root: Path, paths: tuple[str, ...]) -> tuple[str, ...]:
+    observation = observe_dirty_paths(repo_root, paths)
+    if observation.warning is not None:
+        return (
+            "Git status for selected review inputs is unknown; review will continue "
+            "without claiming those inputs are clean: " + observation.warning,
+        )
+    if not observation.dirty_paths:
+        return ()
+    rendered = ", ".join(f"`{path}`" for path in observation.dirty_paths)
+    return (
+        "Selected review inputs have uncommitted Git changes: "
+        f"{rendered}. Format these exact paths and commit them before paid review "
+        "when appropriate; captured input identity remains authoritative.",
+    )
 
 
 def _authored_plan(content: str) -> str:
@@ -813,6 +858,7 @@ def declared_scaffold_paths(
     initial = list(explicit_paths)
     if diff is not None:
         initial.extend(diff.changed_files)
+        initial.extend(diff.untracked_files)
 
     explicit = set(explicit_paths)
 
