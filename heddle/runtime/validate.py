@@ -464,8 +464,13 @@ def _check_source_coverage(context: ValidationContext) -> list[Diagnostic]:
                     "Explicitly owned workflow records remain strict "
                     "proof dependencies: "
                     + ", ".join(dependencies)
-                    + ". Coverage already accounts for them; keep owns only when "
-                    "intentionally verifying these bytes.",
+                    + ". Bookkeeping edits to unowned workflow records do not "
+                    "invalidate verification. Keep material contract inputs "
+                    "intentionally owned: editing their bytes makes proof stale. "
+                    "Explicit citations retain separate evidence identity; "
+                    "editing cited bytes can invalidate a review disposition "
+                    "even when the record is unowned. Coverage exemptions do "
+                    "not remove declared dependencies or citation checks.",
                 )
             )
         return diagnostics

@@ -43,6 +43,11 @@ def test_explicit_record_dependency_is_explained_without_rewriting_it(
     result = execute(ops.Validate(feature=FEATURE))
     advice = diagnostics(result)
     assert SPEC in advice and "depend" in advice.lower(), advice
+    assert "Bookkeeping edits to unowned workflow records do not invalidate" in advice
+    assert "material contract inputs intentionally owned" in advice
+    assert "editing their bytes makes proof stale" in advice
+    assert "Explicit citations retain separate evidence identity" in advice
+    assert "even when the record is unowned" in advice
     assert snapshot(root) == before
 
 
