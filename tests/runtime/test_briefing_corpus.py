@@ -144,6 +144,67 @@ def _word_shingles(text: str, n: int) -> set[str]:
     return {" ".join(words[i : i + n]) for i in range(len(words) - n + 1)}
 
 
+@pytest.mark.parametrize(
+    "name,required",
+    [
+        ("specify.briefing.md", ("ownership", "bookkeeping", "proof dependency")),
+        ("scaffold.briefing.md", ("ownership", "bookkeeping", "proof dependency")),
+        (
+            "implement.briefing.md",
+            (
+                "review reaffirm",
+                "review round open",
+                "input json",
+                "coverage",
+                "advisory",
+            ),
+        ),
+        (
+            "peer-review.briefing.md",
+            (
+                "review reaffirm",
+                "review round open",
+                "input json",
+                "coverage",
+                "advisory",
+            ),
+        ),
+        ("complete.briefing.md", ("owns append", "coverage", "close suite")),
+    ],
+)
+def test_proof_continuity_briefings_explain_the_selected_mechanisms(name, required):
+    """AC-10: short concept anchors, not snapshots of implementation prose."""
+    text = _normalized(name)
+    for phrase in required:
+        assert phrase in text, f"{name} must explain {phrase!r}"
+
+
+def test_proof_continuity_help_exposes_reaffirmation_and_append(run_cli):
+    import json
+
+    code, output, error = run_cli(["help", "--json"])
+    assert code == 0, error
+    manifest = json.loads(output)["data"]
+    commands = {row["name"]: row for row in manifest["commands"]}
+    assert "review reaffirm" in commands
+    operation = commands["review reaffirm"]
+    assert operation["mutating"] and operation["dry_run"]
+    assert {"--feature", "--role", "--scope", "--expect-revision", "--dry-run"} <= {
+        flag["name"] for flag in operation["flags"]
+    }
+    fields = commands["milestone edit"]["input_schema"]["fields"]
+    assert "owns" in fields and "owns_append" in fields
+
+
+@pytest.mark.parametrize(
+    "path", ["docs/design/workflow-model.md", "docs/workflow/document-structure.md"]
+)
+def test_proof_continuity_maintained_docs_do_not_depend_on_ignored_history(path):
+    text = " ".join((REPO_ROOT / path).read_text().lower().split())
+    assert "review reaffirm" in text and "owns_append" in text
+    assert "coverage" in text and "bookkeeping" in text
+
+
 class TestAC6BriefingsCanonical:
     """AC-6: the briefings are canonical and carry the REQ-8 fold."""
 

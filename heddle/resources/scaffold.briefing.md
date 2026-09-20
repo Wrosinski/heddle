@@ -177,6 +177,14 @@ heddle commands set lint_command --command "<exact lint command>"
 Omit only a genuinely inapplicable command and explain the omission in the
 plan. Update milestone verification through `heddle milestone edit`.
 
+Audit ownership using the dependency rules in `specify.briefing.md`. Each
+selected source or test is a proof dependency. Keep bookkeeping out of `owns`
+when coverage already accounts for it and its bytes are irrelevant to the test.
+Intentionally declared contract files must remain strict; document edits do not
+become harmless because they live under a workflow directory. Preserve explicit
+citation checks and route material requirement changes through Impact Assessment
+and Re-Plan. Test both irrelevant record edits and relevant dependency changes.
+
 Keep the command roles distinct:
 
 - `smoke_test` is an always-green, fast check of pre-existing repository

@@ -76,6 +76,36 @@ For source-bound evidence, finish edits, sync, format, inspect, then record
 dispositions. Formatting is an authored byte change when an explicit raw-file
 reference observes it; future formatting is never invisible to evidence.
 
+## Follow-up review and evidence reuse
+
+For further inspection after lead closure, request boundary-owned
+`review round-open --input-json <file>` with schema
+`heddle.review-round-input/v1`, the selected whole-feature role, scope `feature`,
+purpose `verification` and a concrete reason. The complete JSON example is in
+`implement.briefing.md`; use `behavior-review` or the actual confirmed role here.
+Then execute the selected gate. The unsealed assignment must have remaining
+allowance, all prior slots filled and no unresolved stop; off roles and sealed
+acceptances require their own remedies. Targets cover mandatory concerns from
+all preceding slots plus open originals. Reviewer accounting for every target
+never substitutes for the lead's acceptance of the new `@coverage` obligation.
+
+The launch advisory identifies changed selected source paths. Consider formatter
+and commit hooks before spending a review call. Staged, unstaged and untracked
+inputs remain reviewable without acknowledgement; an unavailable Git observation
+is disclosed. Ignored records are still strict inputs when selected, and later
+formatting can invalidate reviewed bytes. Early coverage advice helps resolve
+ownership or evidenced outside-feature attribution; final coverage is compulsory.
+
+Invoke `heddle review reaffirm --role <role> --scope feature --feature <slug>`
+only after judging that the original resolutions apply to the current source.
+Preview with `--dry-run`, or bind the transaction with `--expect-revision`.
+The operation selects effective addressed/settled rows, preserves evidence hashes
+and inspection/decision bindings, and qualifies the whole batch before copying
+changed basis/time values. It checks current rows before returning a no-op.
+Superseded and unresolved rows remain untouched. Stale proof, edited citations
+or a missing required originating review need new qualifying evidence; no test,
+provider call, decision resolution or missing coverage acceptance is implicit.
+
 ## Verification evidence
 
 Keep five claims separate: **content identity** (the declared bytes match the

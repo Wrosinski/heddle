@@ -124,6 +124,33 @@ Keep `### Milestone <id>:` joined to native milestone IDs and preserve the
 content points to native commands and records proof coverage/prerequisites,
 not duplicate AC definitions. A prerequisite is not execution approval.
 
+Treat milestone ownership as a proof dependency declaration. Product source and
+tests belong in `owns`; coverage-accounted bookkeeping records need not be owned
+merely to silence coverage. Intentional material contract inputs remain strict
+byte dependencies, and material requirements changes use Impact Assessment and
+Re-Plan. Explicit citations retain their own hash checks even for unowned records.
+`milestone edit` supports `owns_append` to extend normalized ownership without
+replacing it, including done milestones; growth requires refreshed proof.
+
+Early coverage advice on validate/status/transitions helps correct omissions
+before completion, where coverage remains mandatory. Attribute only exact,
+evidenced outside-feature work. Before a paid review, act on selected dirty-input
+advice by formatting and running applicable commit hooks when appropriate;
+ignored selected records still bind review identity.
+
+Use `review round-open --input-json` with the versioned role/scope/purpose/reason
+payload for an eligible verification follow-up, then run the confirmed gate and
+disposition its new coverage. Lead closure does not seal a boundary or waive caps,
+stops, missing slots or originating inspection. The reviewer must account for
+all frozen targets. `review reaffirm --role <role> --scope <feature|mN>` records
+explicit lead applicability judgment for latest addressed/settled rows while
+preserving citations and rechecking current evidence atomically; it does not
+rerun proof, recapture edited citations or create missing resolutions.
+
+Completion preview shows the configured close suite; accepted write/retry/read
+results preserve the recorded close-suite fact and command when configuration
+later changes. Keep prospective obligations separate from executed evidence.
+
 Verification follows the [testing strategy](testing-strategy.md): record exact
 contract and direct-consumer selections, expected cost including nested launches,
 and required pending proof separately from optional regression. Broad suites and

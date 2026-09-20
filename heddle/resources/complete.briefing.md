@@ -30,6 +30,20 @@ their chosen budgets. Any required over-budget or flaky witness must remain
 explicit with measured cost, reason, owner, review point and substitute evidence;
 do not reclassify required proof as optional to close the feature.
 
+Completion coverage is stricter than the early advisory from validate, status
+and transitions. Assign unresolved feature product changes to their actual
+milestone; use source attribution only for evidenced outside-feature work.
+`heddle milestone edit <mN> --from-file <file>` accepts `owns_append` as a
+normalized union on todo, current and done milestones. Do not combine it with
+replacement `owns`. Repeating an append is a no-op; genuine growth invalidates
+affected proof and requires current verification before retrying completion.
+Bookkeeping exemptions never remove intentional owned inputs or citation checks.
+
+Before acceptance, `close_suite_command` and `close_obligation` describe current
+configuration and `close_suite` is null. After acceptance, completion, retry,
+status, kickoff and portfolio reporting use the recorded close-suite fact and
+command, even if configuration changes. Reads and retries do not rerun that suite.
+
 Orient before changing anything. The permanent record is the Feature Spec
 (Decision Log, Surprises & Discoveries, Design Commitments, Outcomes; historical
 specs may call their commitments Architecture). The

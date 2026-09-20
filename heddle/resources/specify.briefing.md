@@ -158,6 +158,14 @@ implementation; review those declarations for typos. They must exist or be
 corrected before milestone completion or final review. Do not create empty
 production files or grant broader parent directories just to satisfy validation.
 
+Choose ownership as a proof dependency declaration. Product source and tests
+belong in `owns`; bookkeeping records already accounted for by coverage need
+not be added merely to satisfy coverage. An intentionally owned material
+contract input remains byte-strict: changing it makes proof stale. Material
+requirement changes still follow Impact Assessment and Re-Plan. Explicit
+citations have separate evidence identity even when their files are unowned;
+coverage exemptions and ignore rules never filter those checks.
+
 ## Validate and hand off
 
 Run `heddle validate`. Resolve document/schema failures before reporting readiness:

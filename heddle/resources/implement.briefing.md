@@ -208,6 +208,52 @@ quality separately.
 facts. While an implement milestone is open, they accumulate in the
 `pending-decisions` batch surfaced at the implement boundary.
 
+## Follow-up review and evidence reuse
+
+Finish formatting and applicable commit hooks before a paid review when
+appropriate. Launch emits an advisory for exact selected nonignored inputs with
+staged, unstaged or untracked changes; Git observation failure is unknown, not
+clean. Advice adds no acknowledgement flag or execution authority. Ignored
+records still participate whenever the review or citation contract selects them.
+
+When another inspection is warranted, the boundary owner can use
+the Heddle `review round-open --input-json <file> --feature <slug>` operation
+with this payload. Round opening remains boundary-owned:
+
+```json
+{
+  "schema": "heddle.review-round-input/v1",
+  "role": "milestone-review",
+  "scope": "m1",
+  "purpose": "verification",
+  "reason": "Verify the original required concerns against current inputs."
+}
+```
+
+Use the actual role and scope, then launch that confirmed `heddle run-gate`.
+Verification can follow lead closure while the assignment remains unsealed
+and allowance is available. Required targets include the preceding completed
+round's concerns across slots and still-open originals, including `@coverage`.
+Every target needs explicit reviewer accounting. A clean result creates its own
+coverage duty: inspect and disposition it normally. Sealed acceptance, off roles,
+missing slots, pending stop decisions and caps still constrain the sequence;
+follow their native remedies and preserve originating inspection duties.
+
+After personally inspecting applicability, use `heddle review reaffirm --role
+<role> --scope <feature|mN> --feature <slug>` to reaffirm the assignment's latest
+addressed/settled dispositions. `--dry-run` previews and `--expect-revision <n>`
+binds the write. Reaffirmation preserves captured citations and all evidence
+bindings, checks every selected row before appending any, and changes only basis
+and recording time. Even a current no-op rechecks its evidence. Changed citations,
+stale proof or missing originating inspection require repair; this operation runs
+no tests or provider, resolves no decision and closes no missing obligation.
+
+Validate, status, milestone advance and phase-exit give early source-coverage
+advice. Declare actual feature product paths, or attribute exact genuinely
+outside-feature changes with evidence. Missing early ownership and unavailable
+baselines are advisory; integrity errors remain failures and final completion
+requires complete coverage.
+
 ## Smoke ownership policy
 
 Use three classes: feature-caused, unattributed, and outside-owned. Red in either
@@ -241,7 +287,7 @@ given path at a time. The lead tracks package owners, dependencies, and source
 identities, pauses affected work when an overlap or contract change appears,
 and integrates in dependency order. Concurrent test execution is allowed only
 when the selected tests and mutable resources are proven isolated under
-`docs/workflow/testing-strategy.md`.
+the host repository's current testing strategy.
 
 Build writable assignments with
 `heddle/resources/work-package-brief.scaffold.md`; the lead retains Heddle state

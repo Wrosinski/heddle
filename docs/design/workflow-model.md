@@ -155,6 +155,23 @@ Observations include applicable file bytes, kinds, executable modes, symlinks
 and missing paths. They are point samples, not an atomic filesystem snapshot or
 protection against changes restored between observations.
 
+Ownership is an explicit proof dependency, separate from source coverage.
+Unowned bookkeeping edits do not invalidate verification. Intentionally owned
+material contract documents remain byte-strict, and explicit citations retain
+separate evidence identity. Material requirement changes still follow the
+Impact Assessment and Re-Plan protocols. The exact coverage controls include
+feature records, generated evidence roots, configured shared logs/spec indexes,
+the feature brief and available admission-bound research; whole plans/specs
+roots and neighboring product documents are not exempt.
+
+Validate, status, milestone advance and phase-exit share early coverage advice,
+including unavailable baselines and empty early ownership. Observation does not
+write or block ordinary transitions; integrity errors remain failures. Completion
+requires full ownership/control/qualified-attribution reconciliation. Repair
+ownership through `milestone edit` with replacement `owns` or `owns_append`, never
+both. Append normalizes and unions on todo/current/done milestones; replay is a
+no-op and growth requires refreshed affected proof.
+
 Keep five evidence questions separate:
 
 - **Content identity:** do the declared inputs still match the stable run?
@@ -188,6 +205,30 @@ stopped review requires its explicit decision; a reached upper limit additionall
 requires an approved policy amendment. `heddle review allowance` raises a role's
 absolute quality-round limit without calling a provider or resolving its stop.
 No amendment resets spent calls or erases earlier obligations.
+
+An unsealed lead-closed assignment can open a `verification` round within its
+confirmed allowance using `heddle review round-open --input-json <file>`. The
+`heddle.review-round-input/v1` payload names role, scope, purpose and reason.
+Targets derive from required concerns across the preceding round's accepted
+slots plus still-open originals; the open-concern progress record is unchanged.
+Direct and retained-result validation require every frozen target explicitly,
+including synthetic `@coverage`. Old captures without that operand retain their
+original validation meaning. Recording a clean follow-up still creates its own
+coverage duty, requiring ordinary lead disposition.
+
+Launch advice names selected nonignored staged, unstaged and untracked inputs
+for formatting/commit hooks before paid review, without a new flag or refusal
+solely for dirtiness. Failed Git observation is unknown. Actual review inputs
+remain hash-bound, including ignored records selected by the review contract.
+
+`heddle review reaffirm --role <role> --scope <feature|mN>` expresses the lead's
+current applicability judgment for latest affirmative dispositions. It preserves
+captured references, reasons and evidence/inspection bindings and qualifies the
+whole selection before appending basis/time changes. Current rows are checked
+before no-op; superseded or unresolved rows are not resurrected. Changed citations,
+stale supporting proof and sealed assignments refuse. Dry-run is read-only and
+expected-revision enforces CAS. No missing duty, test, review or decision is
+completed implicitly.
 
 Exact replay is distinct from closure. The reuse owner validates original
 identity and artifact integrity before returning retained output without a new
@@ -245,6 +286,11 @@ accepted policy fact to have a matching complete journal entry.
 the configured close suite, before stamping, archival or cleanup. The additional
 close command runs in the existing checkout and retains its separate execution
 authority; it does not replace native feature proof or create a clean environment.
+
+Completion preview reports the prospective `close_obligation` and
+`close_suite_command` with no `close_suite` execution fact. Accepted completion,
+retry and terminal read projections report the recorded fact and command,
+without substituting later configuration or running the suite again.
 
 Acceptance is immutable. The spec lifecycle stamp checks the recorded preimage
 or exact postimage. Create-only `completion.tar.gz` provides local retention of

@@ -86,6 +86,15 @@ report = {
         if PACKAGED_STANDARDS_DOC.is_file()
         else None
     ),
+    "briefings": {
+        name: hashlib.sha256(
+            (package_root / "resources" / name).read_bytes()
+        ).hexdigest()
+        for name in (
+            "specify.briefing.md", "scaffold.briefing.md", "implement.briefing.md",
+            "peer-review.briefing.md", "complete.briefing.md",
+        )
+    },
     "rendered": {},
     "missing": [],
     "outside_package": [],
@@ -348,6 +357,19 @@ def test_built_wheel_renders_every_gate_prompt_outside_the_checkout(
         "the installed registry and corpus disagree with the checkout: "
         f"{sorted(set(GATES) ^ set(report['rendered']))}"
     )
+    assert report["briefings"] == {
+        name: hashlib.sha256(
+            (REPO_ROOT / "heddle/resources" / name).read_bytes()
+        ).hexdigest()
+        for name in (
+            "specify.briefing.md",
+            "scaffold.briefing.md",
+            "implement.briefing.md",
+            "peer-review.briefing.md",
+            "complete.briefing.md",
+        )
+    }, "Installed proof-continuity briefings must match the candidate source."
+
     assert all(size > 0 for size in report["rendered"].values())
 
     host = _prepare_show_prompt_host(tmp_path)
