@@ -534,6 +534,7 @@ class TestAC2PerCommandPayloadLock:
             "review interpret": "heddle.review-interpretation-input/v1",
             "feature prepare": "heddle.intake-input/v1",
             "feature policy": "heddle.feature-policy/v1",
+            "milestone edit": "heddle.milestone-patch/v1",
             "decisions add": "heddle.decision-batch/v1",
             "decisions record-policy": "heddle.policy-batch/v1",
         }.get(name)

@@ -191,9 +191,9 @@ def complete_feature(operation: ops.FeatureComplete) -> HeddleResult:
                     "revision": state.revision,
                     "wrote": False,
                     "dry_run": True,
-                    "close_suite_command": context.config.autopilot.test_command
-                    or None,
-                    "close_obligation": close_obligation(context.config),
+                    **completion_close_projection(
+                        context.config, context.snapshot.state
+                    ),
                     "effects": {
                         name: {"status": "pending", "paths": paths}
                         for name, paths in {
@@ -1092,6 +1092,29 @@ def _cleanup(
     return effect
 
 
+def completion_close_projection(
+    config: ProjectConfig, state: StateFile
+) -> dict[str, Any]:
+    """Report prospective configuration or the immutable accepted execution."""
+    completion = state.completion
+    fact = completion.close_suite if completion is not None else None
+    command = (
+        (fact.command if fact is not None else None)
+        if completion is not None
+        else config.autopilot.test_command or None
+    )
+    obligation = {
+        **close_obligation(config),
+        "command": command,
+        "configured": command is not None,
+    }
+    return {
+        "close_suite_command": command,
+        "close_suite": ops.decoded_payload(fact) if fact is not None else None,
+        "close_obligation": obligation,
+    }
+
+
 def completion_result(
     context: ResolvedSnapshotContext, *, dry_run: bool = False, wrote: bool = False
 ) -> HeddleResult:
@@ -1107,6 +1130,7 @@ def completion_result(
                 "revision": state.revision,
                 "wrote": False,
                 "dry_run": True,
+                **completion_close_projection(context.config, context.snapshot.state),
                 "effects": {
                     "historical": {
                         "status": "read-only",
@@ -1259,6 +1283,7 @@ def completion_result(
             "revision": state.revision,
             "wrote": wrote,
             "dry_run": dry_run,
+            **completion_close_projection(context.config, context.snapshot.state),
             "effects": effects,
             "retained_evidence": retained_evidence,
             "trajectory": trajectory,

@@ -69,7 +69,6 @@ def kickoff(operation: ops.Kickoff) -> HeddleResult:
                     "Acceptance is immutable. Follow the reported actions to repair "
                     "pending stamp, archive or cleanup effects.\n"
                 ),
-                "close_obligation": close_obligation(config),
             },
             diagnostics=observed.diagnostics,
             next_actions=observed.next_actions,

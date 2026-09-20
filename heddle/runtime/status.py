@@ -122,7 +122,15 @@ def _portfolio_payload(
         try:
             snapshot = resolve_snapshot(config, slug)
             payload = _status_payload(snapshot)
-            payload["close_obligation"] = close_obligation(config)
+            if is_terminal(snapshot.state):
+                from heddle.runtime.completion import completion_close_projection
+
+                payload.update(completion_close_projection(config, snapshot.state))
+            else:
+                from heddle.runtime.verification import coverage_diagnostics
+
+                payload["close_obligation"] = close_obligation(config)
+                diagnostics.extend(coverage_diagnostics(config, snapshot.state))
             audit = surfaced_decision_journal_audit(config, slug, snapshot.state)
             if audit is not None:
                 payload["decision_journal_audit"] = audit.status
@@ -280,7 +288,6 @@ def _read_surface(
 
         observed = completion_result(resolved, dry_run=True)
         payload = build_payload(snapshot)
-        payload["close_obligation"] = close_obligation(resolved.config)
         assert observed.data is not None
         payload.update(
             {
@@ -291,6 +298,9 @@ def _read_surface(
                     "revision",
                     "effects",
                     "retained_evidence",
+                    "close_obligation",
+                    "close_suite_command",
+                    "close_suite",
                 )
                 if key in observed.data
             }
@@ -303,6 +313,9 @@ def _read_surface(
             next_actions=observed.next_actions,
         )
     try:
+        from heddle.runtime.verification import coverage_diagnostics
+
+        coverage = coverage_diagnostics(resolved.config, snapshot.state)
         captures: dict[str, ObservedPath] = {}
         assignment_projection = None
         if snapshot.state.feature_policy is not None:
@@ -350,6 +363,7 @@ def _read_surface(
     return HeddleResult.success(
         payload,
         diagnostics=resolved.diagnostics
+        + coverage
         + _unbacked_journal_diagnostics(snapshot.feature, audit),
         next_actions=assessment.next_actions,
     )

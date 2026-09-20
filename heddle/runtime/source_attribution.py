@@ -37,8 +37,11 @@ def observe_attribution(root: Path, paths: tuple[str, ...]) -> SourceEvidence:
     return observe_source(root, SourceDefinition("outside-feature", paths, paths))
 
 
-def qualified_attribution_paths(root: Path, state: StateFile) -> tuple[str, ...]:
-    owned = resolve_source_declaration(state, "acceptance").paths
+def qualified_attribution_paths(
+    root: Path, state: StateFile, *, owned: tuple[str, ...] | None = None
+) -> tuple[str, ...]:
+    if owned is None:
+        owned = resolve_source_declaration(state, "acceptance").paths
     latest = {
         path: index
         for index, row in enumerate(state.source_attributions)

@@ -29,6 +29,7 @@ from heddle.kernel.project_config import (
     KernelError,
     ProjectConfig,
     feature_state_path,
+    load_project_config,
     load_project_config_from_cwd,
 )
 from heddle.runtime.cli_args import parse_feature_flag
@@ -439,7 +440,41 @@ def _check_plan_sections(context: ValidationContext) -> list[Diagnostic]:
     return diagnostics
 
 
+def _check_source_coverage(context: ValidationContext) -> list[Diagnostic]:
+    from heddle.runtime.verification import coverage_diagnostics, workflow_control_paths
+
+    try:
+        config = load_project_config(context.root)
+        state = context.snapshot.state
+        diagnostics = list(coverage_diagnostics(config, state))
+        controls = workflow_control_paths(config, state)
+        dependencies = sorted(
+            {
+                path
+                for milestone in state.milestones
+                for path in milestone.owns
+                if path in controls.exact
+            }
+        )
+        if dependencies:
+            diagnostics.append(
+                Diagnostic(
+                    Severity.INFO,
+                    "explicit-record-dependency",
+                    "Explicitly owned workflow records remain strict "
+                    "proof dependencies: "
+                    + ", ".join(dependencies)
+                    + ". Coverage already accounts for them; keep owns only when "
+                    "intentionally verifying these bytes.",
+                )
+            )
+        return diagnostics
+    except KernelError as error:
+        return [Diagnostic(Severity.FATAL, WORKSPACE_INVALID, error.message)]
+
+
 _CHECKS: tuple[Check, ...] = (
+    _check_source_coverage,
     _check_verification_evidence,
     _check_spec_ac_references,
     _check_owned_paths,

@@ -206,6 +206,7 @@ class MilestonePatch:
     satisfies: tuple[str, ...] | None = None
     depends_on: tuple[str, ...] | None = None
     owns: tuple[str, ...] | None = None
+    owns_append: tuple[str, ...] | None = None
 
 
 @dataclass(frozen=True)

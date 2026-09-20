@@ -227,13 +227,13 @@ def milestone_advance(operation: ops.MilestoneAdvance) -> HeddleResult:
         )
         return next_document
 
-    context_result = resolve_write_context(parsed.feature, parsed.expect_revision)
+    context_result = _transition_context(parsed.feature, parsed.expect_revision)
     if isinstance(context_result, HeddleResult):
         return context_result
     context = context_result
     block = _not_authorized_block(context.snapshot)
     if block is not None:
-        return block
+        return replace(block, diagnostics=(*context.diagnostics, *block.diagnostics))
     precheck = _advance_readiness_precheck(context)
     if precheck is not None:
         return precheck
@@ -873,7 +873,7 @@ def phase_exit(operation: ops.PhaseExit) -> HeddleResult:
             f"unknown phase-exit target {through!r}",
             f"--through must be one of {', '.join(STAGES)}",
         )
-    context_result = resolve_write_context(parsed.feature, parsed.expect_revision)
+    context_result = _transition_context(parsed.feature, parsed.expect_revision)
     if isinstance(context_result, HeddleResult):
         return context_result
     context = context_result
@@ -889,7 +889,7 @@ def phase_exit(operation: ops.PhaseExit) -> HeddleResult:
     )
     block = _not_authorized_block(context.snapshot)
     if block is not None and not is_current_stage_regrant:
-        return block
+        return replace(block, diagnostics=(*context.diagnostics, *block.diagnostics))
 
     extra: dict[str, Any] = {}
     # Derive the grant source and the blocking set this exit is judged
@@ -990,10 +990,16 @@ def phase_exit(operation: ops.PhaseExit) -> HeddleResult:
     if not is_current_stage_regrant and not authorization_only:
         if transition.would_write:
             if grant_blockers:
-                return blocking_failure(context.snapshot, code=grant_blockers[0])
+                result = blocking_failure(context.snapshot, code=grant_blockers[0])
+                return replace(
+                    result, diagnostics=(*context.diagnostics, *result.diagnostics)
+                )
             implement_block = _implement_exit_block(context, transition.before_stage)
             if implement_block is not None:
-                return implement_block
+                return replace(
+                    implement_block,
+                    diagnostics=(*context.diagnostics, *implement_block.diagnostics),
+                )
         evidence_block = _readiness_boundary_block(context)
         if evidence_block is not None:
             return evidence_block
@@ -1035,6 +1041,22 @@ def phase_exit(operation: ops.PhaseExit) -> HeddleResult:
         factual_projection=True,
         projected_fact_keys=("stage", "authorized_through"),
     )
+
+
+def _transition_context(
+    feature: str | None,
+    expect_revision: int | None,
+) -> ResolvedSnapshotContext | HeddleResult:
+    context = resolve_write_context(feature, expect_revision)
+    if isinstance(context, HeddleResult) or is_terminal(context.snapshot.state):
+        return context
+    from heddle.runtime.verification import coverage_diagnostics
+
+    try:
+        advice = coverage_diagnostics(context.config, context.snapshot.state)
+    except KernelError as error:
+        return write_failure(error, context.diagnostics)
+    return replace(context, diagnostics=(*context.diagnostics, *advice))
 
 
 def preview_state_write(
@@ -1693,7 +1715,7 @@ def run_milestone_edit(args: list[str], json_mode: bool) -> int:
     if failure is not None:
         return _emit(failure, json_mode)
     values = dict(payload)
-    for key in ("satisfies", "depends_on", "owns", "estimated_hours"):
+    for key in ("satisfies", "depends_on", "owns", "owns_append", "estimated_hours"):
         if key in values:
             values[key] = tuple(values[key])
     if "verification" in values:

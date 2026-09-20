@@ -22,6 +22,7 @@ from heddle.contracts.schemas import (
 )
 from heddle.kernel.project_config import KernelError
 from heddle.kernel.source_manifest import (
+    byte_sort_key,
     normalize_milestone_source_paths,
     normalize_source_paths,
 )
@@ -210,16 +211,47 @@ def edit_milestone(
             message=f"unknown milestone ref {ref!r}",
             hint=f"existing milestone ids: {ids or '(none)'}",
         )
+    if "owns" in payload and "owns_append" in payload:
+        raise KernelError(
+            code="usage",
+            message=(
+                "milestone edit payload must not carry both 'owns' and 'owns_append'"
+            ),
+            hint=(
+                "use owns to replace ownership or owns_append to preserve and extend it"
+            ),
+        )
     if target.get("status") == "done":
         return _repair_done_milestone(new, target, ref, payload)
     if "owns" in payload:
         normalize_milestone_source_paths(
             payload["owns"], feature=str(document.get("feature", ""))
         )
+    appended_owns = _append_milestone_owns(new, target, payload)
     for field, value in payload.items():
+        if field == "owns_append":
+            continue
         target[field] = deepcopy(value)
+    if appended_owns is not None:
+        target["owns"] = list(appended_owns)
     _require_known_dependencies(target, milestones)
     return new
+
+
+def _append_milestone_owns(
+    document: Mapping[str, Any],
+    target: Mapping[str, Any],
+    payload: Mapping[str, Any],
+) -> tuple[str, ...] | None:
+    if "owns_append" not in payload:
+        return None
+    feature = str(document.get("feature", ""))
+    stored = target.get("owns", [])
+    current = normalize_milestone_source_paths(stored, feature=feature)
+    appended = normalize_milestone_source_paths(payload["owns_append"], feature=feature)
+    if set(appended) <= set(current):
+        return tuple(stored)
+    return tuple(sorted(set(current) | set(appended), key=byte_sort_key))
 
 
 def _repair_done_milestone(
@@ -234,7 +266,7 @@ def _repair_done_milestone(
     expansion. This supports later source consolidation without allowing a
     command-only rewrite of completed history. The expected result stays fixed.
     """
-    allowed = {"owns", "verification"}
+    allowed = {"owns", "owns_append", "verification"}
     if not payload or not (set(payload) <= allowed):
         raise _done_repair_error(ref)
 
@@ -248,6 +280,9 @@ def _repair_done_milestone(
         if not set(current) < set(supplied):
             raise _done_repair_error(ref)
         repaired["owns"] = list(supplied)
+    elif (appended_owns := _append_milestone_owns(new, target, payload)) is not None:
+        if tuple(target.get("owns", [])) != appended_owns:
+            repaired["owns"] = list(appended_owns)
 
     if "verification" in payload:
         current_verification = target.get("verification")
@@ -295,12 +330,14 @@ def _done_repair_error(ref: str) -> KernelError:
     return KernelError(
         code="milestone-out-of-sequence",
         message=(
-            f"milestone {ref} is done; only append-only repair of owns "
+            f"milestone {ref} is done; only append-only repair of owns or "
+            "owns_append "
             "and/or constrained repair of its verification command is allowed"
         ),
         hint=(
-            f"use `heddle milestone edit {ref} --from-file -` with an owns list "
-            "that strictly contains the stored paths and verification: "
+            f"use `heddle milestone edit {ref} --from-file -` with owns_append "
+            "or an owns list that strictly contains the stored paths and "
+            "verification: "
             "{command: <cmd>, expected: <unchanged text>}; a blank command may "
             "still be filled without expanding owns"
         ),

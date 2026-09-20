@@ -140,3 +140,77 @@ def test_ac12_survivor_completion_dry_run_reports_but_does_not_execute_suite(
     if result.ok:
         assert result.data["dry_run"] is True
         assert result.data["close_suite_command"] == command
+
+
+@pytest.mark.parametrize("configured", [False, True])
+@pytest.mark.parametrize(
+    "surface", ["preview", "write", "retry", "status", "kickoff", "portfolio"]
+)
+def test_proof_continuity_close_suite_projection_uses_execution_authority(
+    tmp_path, monkeypatch, configured, surface
+):
+    """AC-9: prospective null vs recorded fact; no rerun on retry/read/config drift."""
+    from tests.operational_model_helpers import read, write
+    from tests.readiness_helpers import verify
+    from tests.tiering_completion_helpers import final_host
+
+    host = final_host(tmp_path, monkeypatch, verify_now=False)
+    command = (
+        'python3 -c "from pathlib import Path; '
+        f"p=Path('{host.calls.relative_to(host.root).as_posix()}'); "
+        "p.write_text((p.read_text() if p.exists() else '') + 'close\\n')\""
+        if configured
+        else None
+    )
+    _configure_close_suite(host.root, command)
+    state = read(host.state)
+    state["milestones"][0]["owns"].append(".heddle.yaml")
+    write(host.state, state)
+    verify(host.state, "m1", "m2", "acceptance", "smoke")
+    if surface == "preview":
+        before = snapshot(host.root)
+        result = host.complete(dry_run=True)
+        assert result.ok, result.to_envelope()
+        expected_fact = None
+        assert snapshot(host.root) == before
+        assert host.suite_calls() == []
+    else:
+        accepted = host.complete()
+        assert accepted.ok and accepted.data["accepted"], accepted.to_envelope()
+        expected_fact = read(host.state)["completion"]["close_suite"]
+        if surface == "write":
+            result = accepted
+        else:
+            # A changed current configuration must not replace accepted execution.
+            _configure_close_suite(host.root, "python3 -c 'raise SystemExit(99)'")
+            before = snapshot(host.root)
+            if surface == "retry":
+                result = host.complete()
+            elif surface == "portfolio":
+                from dataclasses import replace
+
+                result = application.execute(ops.Status(all_features=True))
+                assert snapshot(host.root) == before
+                assert result.ok, result.to_envelope()
+                result = replace(
+                    result,
+                    data=next(
+                        row
+                        for row in result.data["features"]
+                        if row["feature"] == V7_FEATURE
+                    ),
+                )
+            else:
+                operation = ops.Status if surface == "status" else ops.Kickoff
+                result = application.execute(operation(feature=V7_FEATURE))
+                assert snapshot(host.root) == before
+            assert result.ok, result.to_envelope()
+        assert host.suite_calls() == (["close"] if configured else [])
+    assert result.data["close_suite_command"] == command
+    assert result.data["close_suite"] == expected_fact
+    assert result.data["close_obligation"] == {
+        "configured": configured,
+        "command": command,
+        "source": ".heddle.yaml:autopilot.test_command",
+        "runs_at": "feature complete",
+    }

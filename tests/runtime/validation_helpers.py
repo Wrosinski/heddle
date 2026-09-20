@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import shutil
+import subprocess
 from pathlib import Path
 from typing import Any
 
@@ -55,6 +56,26 @@ def clean_current_host(tmp_path: Path, src: Path, name: str = "host") -> Path:
         host,
         [owned for milestone in state["milestones"] for owned in milestone["owns"]],
     )
+    # Clean validation now includes source coverage. Give this synthetic host
+    # real baseline history and explicit ownership for its documentation probes.
+    for directory in (
+        "docs/patterns",
+        "docs/design",
+        "docs/workflow",
+        "docs/features/example",
+        "tests/verified",
+    ):
+        (host / directory).mkdir(parents=True, exist_ok=True)
+        state["milestones"][0]["owns"].append(directory)
+    write_yaml(state_path(host), state)
+    for args in (
+        ("init",),
+        ("config", "user.name", "Synthetic validation"),
+        ("config", "user.email", "validation@example.invalid"),
+        ("add", "."),
+        ("commit", "-qm", "synthetic validation baseline"),
+    ):
+        subprocess.run(["git", *args], cwd=host, check=True, capture_output=True)
     return host
 
 

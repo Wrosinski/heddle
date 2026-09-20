@@ -47,6 +47,7 @@ _MILESTONE_OPTIONAL_FIELDS = ("satisfies", "depends_on", "owns")
 _MILESTONE_KNOWN_FIELDS = frozenset(
     (*_MILESTONE_REQUIRED_FIELDS, *_MILESTONE_OPTIONAL_FIELDS)
 )
+_MILESTONE_EDIT_FIELDS = _MILESTONE_KNOWN_FIELDS | {"owns_append"}
 _MILESTONE_FORBIDDEN_FIELDS = {
     "id": "milestone ids are assigned m<max+1> and immutable",
     "status": "`heddle milestone advance` owns milestone status",
@@ -424,11 +425,12 @@ def validate_milestone_payload(
                 f"milestone payload must not carry {field!r}",
                 owner_hint,
             )
-    unknown = sorted(set(payload) - _MILESTONE_KNOWN_FIELDS)
+    known_fields = _MILESTONE_KNOWN_FIELDS if require_all else _MILESTONE_EDIT_FIELDS
+    unknown = sorted(set(payload) - known_fields)
     if unknown:
         return usage_failure(
             f"unknown milestone payload field(s): {', '.join(unknown)}",
-            f"known skeleton fields: {', '.join(sorted(_MILESTONE_KNOWN_FIELDS))}",
+            f"known milestone payload fields: {', '.join(sorted(known_fields))}",
         )
     if require_all:
         missing = [
@@ -446,6 +448,11 @@ def validate_milestone_payload(
         return usage_failure(
             "milestone edit payload names no fields",
             "name at least one skeleton field to edit",
+        )
+    if "owns" in payload and "owns_append" in payload:
+        return usage_failure(
+            "milestone edit payload must not carry both 'owns' and 'owns_append'",
+            "use owns to replace ownership or owns_append to preserve and extend it",
         )
     return _milestone_field_type_failure(payload)
 
@@ -499,7 +506,7 @@ def _milestone_field_type_failure(
                 "string mapping — exactly those two keys",
                 "provide verification: {command: <cmd>, expected: <text>}",
             )
-    for field in _MILESTONE_OPTIONAL_FIELDS:
+    for field in (*_MILESTONE_OPTIONAL_FIELDS, "owns_append"):
         if field in payload:
             value = payload[field]
             if not (

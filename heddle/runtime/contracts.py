@@ -124,6 +124,73 @@ _EXIT_CAS = (0, 1, 2, 3, 5)
 _EXIT_TRANSITION = (0, 1, 2, 3, 4, 5)
 _EXIT_DRIVE = (0, 1, 2, 3, 4, 5)
 
+MILESTONE_PATCH_INPUT_SCHEMA: dict[str, Any] = {
+    "id": "heddle.milestone-patch/v1",
+    "media_type": "application/yaml",
+    "delivered_by": "--from-file <path|->",
+    "summary": "a partial milestone edit with replace or append ownership semantics",
+    "fields": {
+        "title": {
+            "type": "string",
+            "required": False,
+            "non_empty": True,
+            "summary": "replacement milestone title",
+        },
+        "complexity": {
+            "type": "string",
+            "required": False,
+            "one_of": [
+                {"value": value, "summary": value}
+                for value in ("low", "medium", "high")
+            ],
+            "summary": "replacement milestone complexity",
+        },
+        "estimated_hours": {
+            "type": "list",
+            "required": False,
+            "summary": "replacement two-integer [low, high] estimate",
+            "items": {"type": "integer"},
+        },
+        "verification": {
+            "type": "object",
+            "required": False,
+            "summary": "replacement verification declaration",
+            "fields": {
+                "command": {
+                    "type": "string",
+                    "required": True,
+                    "summary": "verification shell command",
+                },
+                "expected": {
+                    "type": "string",
+                    "required": True,
+                    "summary": "expected verification outcome",
+                },
+            },
+        },
+        **{
+            name: {
+                "type": "list",
+                "required": False,
+                "summary": summary,
+                "items": {"type": "string"},
+            }
+            for name, summary in {
+                "satisfies": "replacement acceptance-criterion references",
+                "depends_on": "replacement milestone dependency references",
+                "owns": "replacement normalized source ownership",
+                "owns_append": "normalized source ownership to preserve and add",
+            }.items()
+        },
+    },
+    "constraints": [
+        "at least one field is required",
+        "owns and owns_append are mutually exclusive",
+        "owns replaces ownership; owns_append unions unique normalized paths",
+        "done milestones retain append-only ownership and verification repair rules",
+    ],
+}
+
 # the first pinned input-schema body: a locked transcription of the
 # ratified `heddle.decision-batch/v1` block, with enums derived from the
 # schemas.py taxonomy so the
@@ -1224,6 +1291,7 @@ COMMAND_SURFACE: tuple[CommandContract, ...] = (
         ),
         exit_codes=_EXIT_CAS,
         output_schema="heddle.milestone-edit/v0",
+        input_schema=MILESTONE_PATCH_INPUT_SCHEMA,
     ),
     CommandContract(
         name=ops.operation_type_name(ops.MilestoneAdvance),

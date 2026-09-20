@@ -20,6 +20,7 @@ from heddle.contracts.operations import (
     Verify,
     action_command,
 )
+from heddle.contracts.result import Diagnostic, Severity
 from heddle.io import git
 from heddle.io.source import observe_source, resolve_source_definition
 from heddle.kernel.project_config import KernelError, ProjectConfig, load_project_config
@@ -38,6 +39,7 @@ from heddle.kernel.source_manifest import (
     decode_source_evidence,
     encode_source_evidence,
     evidence_reference,
+    normalize_milestone_source_paths,
     normalize_paths,
     normalize_source_paths,
     safe_relative_parts,
@@ -361,20 +363,13 @@ def reconcile_current_source(
 ) -> CoverageReconciliation:
     """Fail closed unless the final declaration covers feature-baseline changes."""
     declaration = resolve_source_declaration(state, scope)
-    inventory = inventory_source_paths(
+    reconciliation = _observe_source_coverage(
         root,
+        state,
         declaration,
-        baseline_probe,
-        source_baseline=state.source_baseline,
-    )
-    from heddle.runtime.source_attribution import qualified_attribution_paths
-
-    attributed = qualified_attribution_paths(root, state)
-    reconciliation = reconcile_source_coverage(
-        declaration,
-        inventory,
-        runtime_owned_roots,
-        excluded_paths=(*excluded_paths, *attributed),
+        baseline_probe=baseline_probe,
+        runtime_owned_roots=runtime_owned_roots,
+        excluded_paths=excluded_paths,
     )
     if reconciliation.status != "complete":
         action = reconciliation.action or "correct verification ownership and retry"
@@ -402,6 +397,73 @@ def reconcile_current_source(
             hint=action,
         )
     return reconciliation
+
+
+def _observe_source_coverage(
+    root: Path,
+    state: StateFile,
+    declaration: SourceDeclaration,
+    *,
+    baseline_probe: str,
+    runtime_owned_roots: tuple[str, ...],
+    excluded_paths: tuple[str, ...],
+) -> CoverageReconciliation:
+    inventory = inventory_source_paths(
+        root,
+        declaration,
+        baseline_probe,
+        source_baseline=state.source_baseline,
+    )
+    from heddle.runtime.source_attribution import qualified_attribution_paths
+
+    attributed = qualified_attribution_paths(root, state, owned=declaration.paths)
+    return reconcile_source_coverage(
+        declaration,
+        inventory,
+        runtime_owned_roots,
+        excluded_paths=(*excluded_paths, *attributed),
+    )
+
+
+def coverage_diagnostics(
+    config: ProjectConfig, state: StateFile
+) -> tuple[Diagnostic, ...]:
+    """Observe early coverage without granting proof or requiring ownership yet."""
+    paths = tuple(
+        sorted(
+            {
+                path
+                for milestone in state.milestones
+                for path in normalize_milestone_source_paths(
+                    milestone.owns, feature=state.feature
+                )
+            },
+            key=byte_sort_key,
+        )
+    )
+    controls = workflow_control_paths(config, state)
+    observation = _observe_source_coverage(
+        config.root,
+        state,
+        SourceDeclaration("feature-owned-union", paths),
+        baseline_probe=f"{config.layout.plans}/{state.feature}/state.yaml",
+        runtime_owned_roots=controls.roots,
+        excluded_paths=controls.exact,
+    )
+    if observation.status == "complete":
+        return ()
+    return (
+        Diagnostic(
+            Severity.ADVISORY,
+            f"source-coverage-{observation.status}",
+            (
+                f"Source coverage is {observation.status}: {observation.action}. "
+                "Declare product paths in milestone owns or attribute genuinely "
+                "outside-feature work; "
+                "coverage remains mandatory at completion."
+            ),
+        ),
+    )
 
 
 def verification_statuses(
@@ -728,6 +790,21 @@ def workflow_control_paths(
 ) -> WorkflowControlPaths:
     """Return this feature's exact control files and generated control roots."""
     workspace = f"{config.layout.plans}/{state.feature}"
+    from heddle.runtime import intake
+
+    research: tuple[str, ...] = ()
+    intake_file = intake.intake_path(config, state.feature)
+    if intake_file.exists():
+        document = intake.read_intake(config, state.feature)
+        binding = {
+            "path": intake_file.relative_to(config.root).as_posix(),
+            "sha256": intake.intake_digest(document),
+        }
+        if state.intake != binding:
+            raise intake.invalid(
+                "available intake does not match the state's admission binding"
+            )
+        research = (document["research"]["reference"],)
     exact = normalize_paths(
         (
             f".heddle/intake/{state.feature}.yaml",
@@ -738,6 +815,11 @@ def workflow_control_paths(
             f"{config.layout.plans}/{state.feature}.decision-journal.md",
             f"{config.layout.plans}/{state.feature}.friction-retrospective.md",
             f"{config.layout.plans}/gate-effectiveness.md",
+            f"{config.layout.plans}/friction-log.md",
+            f"{config.layout.plans}/.briefs/{state.feature}.md",
+            f"{config.layout.specs}/_index.md",
+            f"{config.layout.specs}/_descriptions.yaml",
+            *research,
         )
     )
     roots = normalize_paths(
