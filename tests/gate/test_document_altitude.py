@@ -114,7 +114,7 @@ def test_ac12_scaffold_review_reads_plan_test_boundary_and_binds_fresh_changes(
         "## Acceptance Criteria\n\n### AC-1: Declared value\n\n"
         "Priority: MUST\nAction: Read VALUE.\nExpected: The value is 7.\n"
         "Failure behavior follows Design Commitments.\n"
-        "Verified-by: tests/check.py\n\n## Decision Log\n\n"
+        "Verified-by: tests/check.py::test_declared_value\n\n## Decision Log\n\n"
         "SPEC_DECISION_NOT_SCAFFOLD_INPUT\n"
     )
     spec_path.write_text(spec_text)

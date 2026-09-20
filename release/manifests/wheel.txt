@@ -75,6 +75,7 @@ heddle/kernel/source_attribution.py
 heddle/kernel/source_manifest.py
 heddle/kernel/spec_lifecycle.py
 heddle/kernel/state.py
+heddle/kernel/test_bindings.py
 heddle/kernel/verification.py
 heddle/kernel/write_path.py
 heddle/resources/autonomy-addendum.md

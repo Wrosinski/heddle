@@ -17,7 +17,6 @@ Bypass: ALLOW_MISSING_AC_TEST_COVERAGE=1
 
 from __future__ import annotations
 
-import ast
 import os
 import re
 import shlex
@@ -26,6 +25,14 @@ import sys
 from pathlib import Path
 
 import yaml
+
+from heddle.kernel.test_bindings import (
+    PythonSymbolInspection,
+    inspect_python_test_source,
+    parse_primary_test_bindings,
+    parse_primary_test_target,
+    resolve_primary_test_binding,
+)
 
 
 class CoverageMatch:
@@ -88,10 +95,8 @@ def _extract_ac_ids(spec_path: str) -> list[str]:
 
 
 def _extract_verified_by(ac_body: str) -> list[str]:
-    match = re.search(r"^Verified-by:\s*(.+)$", ac_body, re.MULTILINE)
-    if match is None:
-        return []
-    return [part.strip() for part in match.group(1).split(",") if part.strip()]
+    parsed = parse_primary_test_bindings("", ac_body)
+    return [binding.target for binding in parsed.bindings]
 
 
 def _find_test_files(test_dir: str) -> list[str]:
@@ -130,47 +135,38 @@ def _search_tests_for_ac(test_files: list[str], ac_id: str) -> list[str]:
     return matches
 
 
-def _discover_test_functions(path: Path) -> set[str]:
-    module = ast.parse(path.read_text(encoding="utf-8"))
-    functions: set[str] = set()
-    for node in module.body:
-        if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
-            functions.add(node.name)
-        elif isinstance(node, ast.ClassDef) and node.name.startswith("Test"):
-            functions.add(node.name)
-            for inner in node.body:
-                if isinstance(inner, ast.FunctionDef | ast.AsyncFunctionDef):
-                    functions.add(inner.name)
-                    functions.add(f"{node.name}::{inner.name}")
-    return functions
-
-
 def _resolve_verified_by_targets(
     targets: list[str],
 ) -> tuple[list[str], list[str], list[str]]:
     valid_targets: list[str] = []
     broken_targets: list[str] = []
     referenced_files: list[str] = []
-    function_cache: dict[Path, set[str]] = {}
+    symbol_cache: dict[Path, PythonSymbolInspection] = {}
 
     for target in targets:
-        file_part, separator, function_name = target.partition("::")
-        target_path = Path(file_part)
+        binding = parse_primary_test_target("", target)
+        target_path = Path(binding.path)
         referenced_files.append(str(target_path))
-        if not separator or not function_name.strip():
+        if not binding.path or not target_path.is_file():
             broken_targets.append(target)
             continue
-        if not target_path.is_file():
-            broken_targets.append(target)
-            continue
-        if target_path not in function_cache:
+        if target_path not in symbol_cache:
             try:
-                function_cache[target_path] = _discover_test_functions(target_path)
-            except (OSError, SyntaxError, ValueError):
+                symbol_cache[target_path] = inspect_python_test_source(
+                    target_path.read_bytes()
+                )
+            except OSError:
                 broken_targets.append(target)
-                function_cache[target_path] = set()
+                symbol_cache[target_path] = PythonSymbolInspection(
+                    None, "source could not be read"
+                )
                 continue
-        if function_name not in function_cache[target_path]:
+        resolved = resolve_primary_test_binding(
+            binding,
+            symbol_cache[target_path],
+            policy="repository",
+        )
+        if resolved.issue is not None:
             broken_targets.append(target)
             continue
         valid_targets.append(target)

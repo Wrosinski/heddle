@@ -136,6 +136,7 @@ heddle/kernel/source_attribution.py
 heddle/kernel/source_manifest.py
 heddle/kernel/spec_lifecycle.py
 heddle/kernel/state.py
+heddle/kernel/test_bindings.py
 heddle/kernel/verification.py
 heddle/kernel/write_path.py
 heddle/resources/autonomy-addendum.md
@@ -451,7 +452,9 @@ tests/gate/test_prompt_remedies.py
 tests/gate/test_resource_resolution.py
 tests/gate/test_retired_vocabulary.py
 tests/gate/test_review_recommendations.py
+tests/gate/test_review_source_advisory.py
 tests/gate/test_robustness_hardening.py
+tests/gate/test_scaffold_primary_bindings.py
 tests/gate/test_scope_discipline_rules.py
 tests/gate/test_stale_preflight_removed.py
 tests/gate/test_tiering_roles.py
@@ -480,6 +483,7 @@ tests/kernel/test_content_identity.py
 tests/kernel/test_decision_guidance.py
 tests/kernel/test_findings_taxonomy.py
 tests/kernel/test_knowledge_search.py
+tests/kernel/test_primary_test_bindings.py
 tests/kernel/test_project_config.py
 tests/kernel/test_review_closure.py
 tests/kernel/test_sealed_review_boundaries.py
@@ -493,6 +497,7 @@ tests/live/test_validation_e2e.py
 tests/live/test_verification_evidence_provenance_e2e.py
 tests/live/test_write_path_e2e.py
 tests/operational_model_helpers.py
+tests/proof_continuity_helpers.py
 tests/proof_runner.py
 tests/pytest_policy.py
 tests/readiness_helpers.py
@@ -522,11 +527,13 @@ tests/runtime/test_completion_repairs.py
 tests/runtime/test_completion_repairs_installed.py
 tests/runtime/test_content_identity.py
 tests/runtime/test_contracts.py
+tests/runtime/test_coverage_observation.py
 tests/runtime/test_current_contract_boundary.py
 tests/runtime/test_decision_recording.py
 tests/runtime/test_decision_routing.py
 tests/runtime/test_deletion_milestone_rails.py
 tests/runtime/test_dispatch.py
+tests/runtime/test_disposition_reaffirm.py
 tests/runtime/test_distinct_gate_concurrency.py
 tests/runtime/test_document_altitude.py
 tests/runtime/test_evidence_explanations.py
@@ -552,6 +559,7 @@ tests/runtime/test_kickoff.py
 tests/runtime/test_milestone_authoring.py
 tests/runtime/test_native_routing.py
 tests/runtime/test_operational_core_acceptance.py
+tests/runtime/test_owns_append.py
 tests/runtime/test_packaged_prompt_floor.py
 tests/runtime/test_performance.py
 tests/runtime/test_phase_exit.py
@@ -560,6 +568,8 @@ tests/runtime/test_pointer.py
 tests/runtime/test_policy_locks.py
 tests/runtime/test_portability_lane.py
 tests/runtime/test_portfolio_status.py
+tests/runtime/test_proof_continuity_installed.py
+tests/runtime/test_proof_declarations.py
 tests/runtime/test_read_model_acceptance.py
 tests/runtime/test_result.py
 tests/runtime/test_review_allowance_core.py
@@ -571,8 +581,10 @@ tests/runtime/test_review_recommendations.py
 tests/runtime/test_review_retention.py
 tests/runtime/test_revision_guards.py
 tests/runtime/test_run_gate_envelope.py
+tests/runtime/test_scaffold_binding_admission.py
 tests/runtime/test_scaffold_declarations.py
 tests/runtime/test_scaffold_entry_missing_tests.py
+tests/runtime/test_scaffold_primary_bindings_installed.py
 tests/runtime/test_schemas.py
 tests/runtime/test_sealed_review_boundaries.py
 tests/runtime/test_search.py
@@ -594,6 +606,7 @@ tests/runtime/test_validation_acceptance.py
 tests/runtime/test_validation_schemas.py
 tests/runtime/test_verification_provenance.py
 tests/runtime/test_verification_provenance_acceptance.py
+tests/runtime/test_verification_rounds.py
 tests/runtime/test_verify_shell_semantics.py
 tests/runtime/test_wheel_harness.py
 tests/runtime/test_workflow_authoring.py

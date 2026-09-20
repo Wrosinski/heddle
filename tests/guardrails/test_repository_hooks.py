@@ -423,6 +423,13 @@ def test_ac_test_coverage_rejects_unbacked_ac(tmp_path: Path) -> None:
     assert result.returncode == 1
     assert "no test references" in result.stdout
 
+    (empty_tests / "test_fallback.py").write_text(
+        "# AC-1\ndef test_fallback():\n    assert True\n", encoding="utf-8"
+    )
+    fallback = _run("check-ac-test-coverage.py", str(spec), str(empty_tests))
+    assert fallback.returncode == 0, fallback.stdout + fallback.stderr
+    assert "found via regex" in fallback.stdout
+
 
 @pytest.mark.toolchain
 def test_no_src_print_rejects_non_cli_source_print(tmp_path: Path) -> None:
@@ -637,6 +644,8 @@ def test_ac_coverage_standalone_validates_verified_by_targets(
     "selector",
     [
         "test_module_behavior",
+        # Preserve repository-script compatibility for a class-only selector.
+        "TestFeature",
         "TestFeature::test_class_behavior",
         # Preserve the legacy bare-method spelling while specs migrate to the
         # pytest-compatible class-qualified form.

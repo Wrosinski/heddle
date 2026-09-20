@@ -16,6 +16,7 @@ from dataclasses import asdict, dataclass, replace
 from pathlib import Path, PurePosixPath
 
 from heddle.gate.extraction import (
+    extract_acceptance_criteria_blocks,
     extract_command_test_paths,
     extract_explicit_test_paths,
     unsupported_command_test_tokens,
@@ -64,6 +65,15 @@ from heddle.kernel.source_manifest import (
     ObservedPath,
     SourceDefinition,
     build_source_evidence,
+    safe_relative_parts,
+)
+from heddle.kernel.test_bindings import (
+    PrimaryTestBinding,
+    PythonSymbolInspection,
+    TestBindingIssue,
+    inspect_python_test_source,
+    parse_primary_test_bindings,
+    resolve_primary_test_binding,
 )
 
 _BASIS_DOMAIN = b"heddle.gate-review-basis/v4"
@@ -160,6 +170,7 @@ class _CapturedReviewInputs:
     projections: tuple[ContextProjection, ...]
     rule_context: str
     diagnostics: tuple[str, ...]
+    binding_issues: tuple[TestBindingIssue, ...]
 
 
 def _capture_review_inputs(
@@ -206,7 +217,7 @@ def _capture_review_inputs(
     )
     allow_missing = preflight_result.fatal_reason is not None
     owned, source_paths = _owned_content(context, contract, allow_empty=allow_missing)
-    projections, scaffold_paths = _context_projections(
+    projections, scaffold_paths, binding_issues = _context_projections(
         context,
         contract,
         diff,
@@ -277,6 +288,7 @@ def _capture_review_inputs(
         projections=projections,
         rule_context="",
         diagnostics=(*context.preparation_diagnostics, *source_advice),
+        binding_issues=binding_issues,
     )
 
 
@@ -306,6 +318,18 @@ def prepare_gate_run(
     captured = _capture_review_inputs(
         context, gate_type=gate_type, invocation=invocation, prompt=prompt, diff=diff
     )
+    if gate_type.name == "review-test-scaffolding" and captured.binding_issues:
+        details = "; ".join(
+            f"{issue.ac_id}: {issue.target}: {issue.reason}"
+            for issue in captured.binding_issues
+        )
+        raise _input_error(
+            f"review-test-scaffolding primary bindings are invalid: {details}",
+            (
+                "add or repair each Verified-by target using a module test function "
+                "or a Test class-qualified method"
+            ),
+        )
     current = _prepare_variant(context, captured, gate_type, invocation)
     if context.review_assignment is not None:
         return current
@@ -623,27 +647,60 @@ def _context_projections(
     exec_config: GateExecutionConfig,
     *,
     diff_text: str,
-) -> tuple[tuple[ContextProjection, ...], tuple[str, ...]]:
+) -> tuple[
+    tuple[ContextProjection, ...], tuple[str, ...], tuple[TestBindingIssue, ...]
+]:
     projections: list[ContextProjection] = []
     selected_paths: set[str] = set()
+    binding_issues: list[TestBindingIssue] = []
+    bindings: tuple[PrimaryTestBinding, ...] = ()
     for builder in contract.context_builders:
         if builder == "test-scaffolding":
             declared_paths = declared_scaffold_paths(context, prepared_diff)
-            selected_paths.update(declared_paths)
+            mandatory_paths = set(declared_paths)
+            bindings, parse_issues = _required_scaffold_bindings(context)
+            binding_issues.extend(parse_issues)
+            valid_bindings: list[PrimaryTestBinding] = []
+            binding_paths: set[str] = set()
+            for binding in bindings:
+                try:
+                    safe_relative_parts(binding.path)
+                except KernelError as error:
+                    binding_issues.append(
+                        TestBindingIssue(binding.ac_id, binding.target, error.message)
+                    )
+                    continue
+                valid_bindings.append(binding)
+                binding_paths.add(binding.path)
+            selected = tuple(
+                sorted(
+                    mandatory_paths | binding_paths,
+                    key=lambda value: value.encode("utf-8"),
+                )
+            )
+            selected_paths.update(selected)
             text = build_test_scaffolding_context(
-                context, prepared_diff, relevant_paths=declared_paths
+                context, prepared_diff, relevant_paths=selected
             )
             reviewed_inputs = []
-            for relative in declared_paths:
+            captures: dict[str, ObservedPath] = {}
+            inspections: dict[str, PythonSymbolInspection] = {}
+            for relative in selected:
                 captured = capture_source_path(
                     context.repo_root, relative, context.source_observations
                 )
                 if captured.kind != "file":
-                    raise _input_error(
-                        f"required reviewed test artifact {relative} "
-                        "is missing or nonregular",
-                        f"restore or create {relative} before running this gate",
-                    )
+                    if relative in mandatory_paths:
+                        raise _input_error(
+                            f"required reviewed test artifact {relative} "
+                            "is missing or nonregular",
+                            f"restore or create {relative} before running this gate",
+                        )
+                    captures[relative] = captured
+                    continue
+                captures[relative] = captured
+                if relative in binding_paths:
+                    inspections[relative] = inspect_python_test_source(captured.content)
                 content = captured.content
                 reviewed_inputs.append(_captured_identity(captured, "test/" + relative))
                 reviewed_inputs.append(
@@ -653,6 +710,24 @@ def _context_projections(
                         content,
                     )
                 )
+            for binding in valid_bindings:
+                captured = captures[binding.path]
+                if captured.kind != "file":
+                    binding_issues.append(
+                        TestBindingIssue(
+                            binding.ac_id,
+                            binding.target,
+                            f"referenced path is {captured.kind}",
+                        )
+                    )
+                    continue
+                resolution = resolve_primary_test_binding(
+                    binding,
+                    inspections[binding.path],
+                    policy="native",
+                )
+                if resolution.issue is not None:
+                    binding_issues.append(resolution.issue)
         elif builder == "milestone":
             text = (
                 build_codex_milestone_context(
@@ -676,8 +751,43 @@ def _context_projections(
                 reviewed_inputs=tuple(reviewed_inputs),
             )
         )
-    return tuple(projections), tuple(
-        sorted(selected_paths, key=lambda value: value.encode())
+    return (
+        tuple(projections),
+        tuple(sorted(selected_paths, key=lambda value: value.encode())),
+        _ordered_binding_issues(context, bindings, binding_issues),
+    )
+
+
+def _required_scaffold_bindings(
+    context: GateContext,
+) -> tuple[tuple[PrimaryTestBinding, ...], tuple[TestBindingIssue, ...]]:
+    bindings: list[PrimaryTestBinding] = []
+    issues: list[TestBindingIssue] = []
+    for ac_id in context.spec_ac_ids:
+        block = extract_acceptance_criteria_blocks(context.spec_content, [ac_id])
+        parsed = parse_primary_test_bindings(ac_id, block)
+        bindings.extend(parsed.bindings)
+        issues.extend(parsed.issues)
+    return tuple(bindings), tuple(issues)
+
+
+def _ordered_binding_issues(
+    context: GateContext,
+    bindings: tuple[PrimaryTestBinding, ...],
+    issues: list[TestBindingIssue],
+) -> tuple[TestBindingIssue, ...]:
+    ac_order = {ac_id: index for index, ac_id in enumerate(context.spec_ac_ids)}
+    target_order: dict[tuple[str, str], int] = {}
+    for ordinal, binding in enumerate(bindings):
+        target_order.setdefault((binding.ac_id, binding.target), ordinal)
+    return tuple(
+        sorted(
+            issues,
+            key=lambda issue: (
+                ac_order.get(issue.ac_id, len(ac_order)),
+                target_order.get((issue.ac_id, issue.target), -1),
+            ),
+        )
     )
 
 

@@ -161,6 +161,20 @@ def current_host(tmp_path, monkeypatch, *, stage="spec-review", **policy_kwargs)
         elif stage in {"peer-review", "robustness", "complete"}:
             milestone["status"] = "done"
     host, state_path = fresh_host(tmp_path, state=value)
+    if stage == "scaffold":
+        spec = host / "docs/features/runtime" / f"{V7_FEATURE}.md"
+        spec.write_text(
+            spec.read_text() + "\nVerified-by: tests/check.py::test_declared_value\n",
+            encoding="utf-8",
+        )
+        (host / "tests/check.py").write_text(
+            "from pathlib import Path\n\n"
+            "def test_declared_value():\n"
+            "    assert 'VALUE = 7' in Path('src/example.py').read_text()\n\n"
+            "if __name__ == '__main__':\n"
+            "    test_declared_value()\n",
+            encoding="utf-8",
+        )
     monkeypatch.chdir(host)
     return host, state_path
 

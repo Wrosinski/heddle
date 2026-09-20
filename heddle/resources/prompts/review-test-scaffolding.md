@@ -26,12 +26,15 @@ The scaffolding must provide a **reliable feedback loop**:
   false confidence.
 - The red-phase check is in Dimension 3 and is the single most important scaffolding signal.
 
-Each AC's primary `Verified-by:` target must exist; missing or broken linkage
-is Critical. A test for a module not yet implemented may fail at import; a test
+Native preparation checks each AC's primary `Verified-by:` targets against the
+captured test files before calling the reviewer. This proves structural linkage,
+not test adequacy: assess whether those tests contain the required cases and
+meaningful assertions. Missing or broken primary linkage remains Critical.
+A test for a module not yet implemented may fail at import; a test
 of existing code must fail on the missing or changed behavior. Passing tests
 are acceptable only as the paired, labelled survivor pins described above.
 
-Use only selector forms accepted by the repository binding checker:
+Use only the native primary-binding selector forms:
 `path/to/test_file.py::test_function` for a module function, or
 `path/to/test_file.py::TestClass::test_method` for a class method. Parameter IDs
 are not supported in `Verified-by:` bindings. Before recommending any binding
@@ -144,8 +147,8 @@ If test file discovery returns few or no results, retry with broader search patt
 
 For each AC ID:
 
-- Identify the Feature Spec's `Verified-by:` target when present, then confirm the referenced test function exists and is the primary test for that criterion
-- When `Verified-by:` is absent, identify which test function(s) reference the criterion (by AC ID in test name, docstring, comment, or marker) and note that the linkage is fallback-only
+- Follow the Feature Spec's primary `Verified-by:` targets and assess whether the referenced tests prove that criterion's behavior
+- AC IDs in names, docstrings, comments, or markers can help trace additional coverage; they do not replace a required primary binding
 - When an AC uses Gherkin `Scenario Outline:` with an `Examples:` table, confirm the scaffold includes parameterized coverage or equivalent per-row scenarios for the documented examples
 - Check that the test targets the AC's observable behavior — the preconditions, actions, and expected results the AC defines
 - Flag ACs with no test reference or with broken `Verified-by:` targets — these will never be verified during implementation

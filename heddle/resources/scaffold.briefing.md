@@ -126,6 +126,13 @@ Create and record all applicable lanes:
    milestone column must agree with the spec's `Verified-by:` routes. A blank
    cell requires a reason.
 
+Before requesting scaffold review, ensure every AC has a primary `Verified-by:`
+binding to a module function or qualified class method. Native review preparation
+resolves these references against the captured test files and refuses missing or
+broken bindings before calling the reviewer. This structural check does not prove
+that the tests contain the required cases or meaningful assertions; complete the
+coverage and red-phase checks above before requesting review.
+
 Create supporting infrastructure as the lanes need it: fixtures, mock
 services, seed data, conftest entries.
 
