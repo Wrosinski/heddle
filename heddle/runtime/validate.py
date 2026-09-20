@@ -32,6 +32,7 @@ from heddle.kernel.project_config import (
     load_project_config,
     load_project_config_from_cwd,
 )
+from heddle.kernel.source_manifest import normalize_milestone_source_paths
 from heddle.runtime.cli_args import parse_feature_flag
 from heddle.runtime.diagnostics import (
     schema_remediation_actions,
@@ -452,7 +453,9 @@ def _check_source_coverage(context: ValidationContext) -> list[Diagnostic]:
             {
                 path
                 for milestone in state.milestones
-                for path in milestone.owns
+                for path in normalize_milestone_source_paths(
+                    milestone.owns, feature=state.feature
+                )
                 if path in controls.exact
             }
         )

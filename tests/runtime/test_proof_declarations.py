@@ -38,17 +38,23 @@ def test_record_edit_freshness_follows_explicit_ownership(tmp_path, monkeypatch,
 def test_explicit_record_dependency_is_explained_without_rewriting_it(
     tmp_path, monkeypatch
 ):
-    root, _path = source_host(tmp_path, monkeypatch, owns=["src/example.py", SPEC])
-    before = snapshot(root)
-    result = execute(ops.Validate(feature=FEATURE))
-    advice = diagnostics(result)
-    assert SPEC in advice and "depend" in advice.lower(), advice
-    assert "Bookkeeping edits to unowned workflow records do not invalidate" in advice
-    assert "material contract inputs intentionally owned" in advice
-    assert "editing their bytes makes proof stale" in advice
-    assert "Explicit citations retain separate evidence identity" in advice
-    assert "even when the record is unowned" in advice
-    assert snapshot(root) == before
+    for index, spelling in enumerate((SPEC, f"{SPEC}/")):
+        case = tmp_path / str(index)
+        case.mkdir()
+        root, _path = source_host(case, monkeypatch, owns=["src/example.py", spelling])
+        before = snapshot(root)
+        result = execute(ops.Validate(feature=FEATURE))
+        assert result.ok, result.to_envelope()
+        advice = diagnostics(result)
+        assert SPEC in advice and "depend" in advice.lower(), advice
+        assert (
+            "Bookkeeping edits to unowned workflow records do not invalidate" in advice
+        )
+        assert "material contract inputs intentionally owned" in advice
+        assert "editing their bytes makes proof stale" in advice
+        assert "Explicit citations retain separate evidence identity" in advice
+        assert "even when the record is unowned" in advice
+        assert snapshot(root) == before
 
 
 @pytest.mark.parametrize(
