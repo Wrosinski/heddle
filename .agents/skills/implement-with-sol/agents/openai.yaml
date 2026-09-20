@@ -1,0 +1,7 @@
+interface:
+  display_name: "Implement with Sol"
+  short_description: "Astra-led Heddle implementation with Sol workers"
+  default_prompt: "Use $implement-with-sol to continue the current authorized Heddle milestone with Astra supervising bounded Sol implementation."
+
+policy:
+  allow_implicit_invocation: false

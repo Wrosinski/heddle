@@ -1,9 +1,14 @@
+.agents/skills/implement-with-sol/SKILL.md
+.agents/skills/implement-with-sol/agents/openai.yaml
+.claude/agents/opus-implementer.md
 .claude/settings.json
 .claude/skills/architecture-proposal-review/SKILL.md
+.claude/skills/implement-with-opus/SKILL.md
 .claude/skills/new-feature/SKILL.md
 .claude/skills/pre-implementation-analysis/SKILL.md
 .claude/skills/root-cause-analysis/SKILL.md
 .claude/skills/worktree-workflow/SKILL.md
+.codex/agents/sol-implementer.toml
 .codex/skills/architecture-proposal-review/SKILL.md
 .codex/skills/new-feature/SKILL.md
 .codex/skills/pre-implementation-analysis/SKILL.md
@@ -177,6 +182,7 @@ heddle/resources/robustness.briefing.md
 heddle/resources/scaffold.briefing.md
 heddle/resources/spec-review.briefing.md
 heddle/resources/specify.briefing.md
+heddle/resources/work-package-brief.scaffold.md
 heddle/runtime/__init__.py
 heddle/runtime/application.py
 heddle/runtime/audit.py
@@ -456,6 +462,7 @@ tests/guardrails/test_analysis_skill_contracts.py
 tests/guardrails/test_gate_prompt_integrity_scaffolding.py
 tests/guardrails/test_git_commit_retry.py
 tests/guardrails/test_host_guidance_bundle.py
+tests/guardrails/test_implementation_orchestration.py
 tests/guardrails/test_local_records.py
 tests/guardrails/test_packaged_hooks.py
 tests/guardrails/test_pinned_supervisor.py

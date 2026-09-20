@@ -78,8 +78,15 @@ Bindings, current as of 2026-09-11:
   per-spawn model take precedence over it, so escalating to Fable 5.1 is a
   per-call decision. Do not set `CLAUDE_CODE_SUBAGENT_MODEL_FORCE`, which
   removes that escape.
-- Codex: no repository-level configuration surface exists, so the lead names
-  `gpt-5.6-sol` at spawn and escalates to `gpt-6-astra` deliberately.
+- Codex: project-scoped custom agents live under `.codex/agents`; the explicit
+  implementation adapter pins Sol there. No exploration-specific custom agent
+  or repository-wide default is configured, so the lead names `gpt-5.6-sol` at
+  spawn for explorers and escalates to `gpt-6-astra` deliberately.
+
+These exploration bindings do not set implementation-worker effort. The
+explicit Fable/Opus and Astra/Sol implementation adapters pin their workers to
+`xhigh`; changing that value is a deliberate adapter change rather than an
+exploration-tier escalation.
 
 CLI gate lanes are out of scope. Gate model and effort come from the confirmed feature policy, subject to
 host constraints; the exploration lane and the gate lane differ on

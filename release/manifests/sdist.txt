@@ -119,6 +119,7 @@ heddle/resources/robustness.briefing.md
 heddle/resources/scaffold.briefing.md
 heddle/resources/spec-review.briefing.md
 heddle/resources/specify.briefing.md
+heddle/resources/work-package-brief.scaffold.md
 heddle/runtime/__init__.py
 heddle/runtime/application.py
 heddle/runtime/audit.py

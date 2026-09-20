@@ -1,4 +1,4 @@
-"""W5 AC-10 repository-only generation and unsafe-path discrimination."""
+"""Repository skill classification, generation, and unsafe-path checks."""
 
 from __future__ import annotations
 
@@ -17,11 +17,13 @@ def fixture(tmp_path):
     scripts.mkdir()
     script = scripts / "check-skill-sync.py"
     shutil.copyfile(REPO / "scripts/check-skill-sync.py", script)
-    source = tmp_path / ".claude/skills"
+    claude = tmp_path / ".claude/skills"
     mirror = tmp_path / ".codex/skills"
-    shutil.copytree(REPO / ".claude/skills", source)
-    shutil.copytree(source, mirror)
-    return script, source, mirror
+    native = tmp_path / ".agents/skills"
+    shutil.copytree(REPO / ".claude/skills", claude)
+    shutil.copytree(REPO / ".codex/skills", mirror)
+    shutil.copytree(REPO / ".agents/skills", native)
+    return script, claude, mirror, native
 
 
 def run(script, *args):
@@ -43,78 +45,118 @@ def snapshot(root):
 
 @pytest.mark.parametrize("damage", ["missing", "stale"])
 def test_ac10_generate_repairs_mirrors_then_is_exact_noop(tmp_path, damage):
-    script, source, mirror = fixture(tmp_path)
+    script, claude, mirror, native = fixture(tmp_path)
     target = mirror / "root-cause-analysis/SKILL.md"
     if damage == "missing":
         target.unlink()
     else:
         target.write_text("stale mirror\n")
-    before_check = snapshot(source), snapshot(mirror)
+    before_check = snapshot(claude), snapshot(mirror), snapshot(native)
     assert run(script).returncode != 0
-    assert (snapshot(source), snapshot(mirror)) == before_check
-    original_source = snapshot(source)
+    assert (snapshot(claude), snapshot(mirror), snapshot(native)) == before_check
+
+    original_claude = snapshot(claude)
+    original_native = snapshot(native)
     generated = run(script, "--generate")
-    assert generated.returncode == 0, (
-        f"FAIL W5 AC-10: {generated.stdout} {generated.stderr}"
-    )
-    assert {key: value[0] for key, value in snapshot(mirror).items()} == {
-        key: value[0] for key, value in original_source.items()
+    assert generated.returncode == 0, f"{generated.stdout} {generated.stderr}"
+    mirrored = snapshot(mirror)
+    assert {key: value[0] for key, value in mirrored.items()} == {
+        key: original_claude[key][0] for key in mirrored
     }
+    assert len(mirrored) == 5
+
     before = snapshot(mirror)
     assert run(script, "--generate").returncode == 0
-    assert snapshot(mirror) == before and snapshot(source) == original_source
-    assert len(before) == 5
+    assert snapshot(mirror) == before
+    assert snapshot(claude) == original_claude
+    assert snapshot(native) == original_native
     assert run(script).returncode == 0
+
+
+@pytest.mark.parametrize("inventory", ["claude", "native"])
+@pytest.mark.parametrize("mode", [(), ("--generate",)])
+def test_unclassified_provider_skill_is_preserved_and_refused(
+    tmp_path, inventory, mode
+):
+    script, claude, mirror, native = fixture(tmp_path)
+    selected = claude if inventory == "claude" else native
+    extra = selected / "operator-owned/SKILL.md"
+    extra.parent.mkdir()
+    extra.write_text("operator owned\n")
+    before = snapshot(selected), snapshot(mirror)
+    result = run(script, *mode)
+    assert result.returncode != 0
+    assert (snapshot(selected), snapshot(mirror)) == before
+    assert "unclassified" in result.stdout
+
+
+@pytest.mark.parametrize(
+    ("inventory", "relative"),
+    [
+        ("claude", Path("implement-with-opus/SKILL.md")),
+        ("native", Path("implement-with-sol/SKILL.md")),
+    ],
+)
+@pytest.mark.parametrize("mode", [(), ("--generate",)])
+def test_missing_provider_specific_skill_is_not_generated(
+    tmp_path, inventory, relative, mode
+):
+    script, claude, mirror, native = fixture(tmp_path)
+    selected = claude if inventory == "claude" else native
+    (selected / relative).unlink()
+    before = snapshot(claude), snapshot(mirror), snapshot(native)
+    result = run(script, *mode)
+    assert result.returncode != 0
+    assert (snapshot(claude), snapshot(mirror), snapshot(native)) == before
+    assert "missing" in result.stdout
 
 
 @pytest.mark.parametrize(
     "position",
     [
-        "source-file",
-        "mirror-file",
-        "source-parent",
-        "mirror-parent",
-        "source-root",
-        "mirror-root",
-        "source-container",
-        "mirror-container",
+        f"{inventory}-{location}"
+        for inventory in ("source", "mirror", "native")
+        for location in ("file", "parent", "root", "container")
     ],
 )
 @pytest.mark.parametrize("mode", [(), ("--generate",)])
 def test_ac10_generation_refuses_symlinks_without_touching_outside(
     tmp_path, position, mode
 ):
-    script, source, mirror = fixture(tmp_path)
-    relative = Path("root-cause-analysis/SKILL.md")
+    script, claude, mirror, native = fixture(tmp_path)
+    inventory, location = position.split("-")
+    selected = {"source": claude, "mirror": mirror, "native": native}[inventory]
+    relative = (
+        Path("implement-with-sol/SKILL.md")
+        if inventory == "native"
+        else Path("root-cause-analysis/SKILL.md")
+    )
     outside = tmp_path / "outside"
     outside.mkdir()
     external = outside / "SKILL.md"
-    external.write_bytes((source / relative).read_bytes())
-    if position.endswith(("root", "container")):
-        selected = source if position.startswith("source") else mirror
-        target = selected if position.endswith("root") else selected.parent
+    external.write_bytes((selected / relative).read_bytes())
+    if location in {"root", "container"}:
+        target = selected if location == "root" else selected.parent
         external_tree = outside / "tree"
         shutil.copytree(target, external_tree)
         shutil.rmtree(target)
         target.symlink_to(external_tree, target_is_directory=True)
-    elif position.endswith("parent"):
-        parent = source if position == "source-parent" else mirror
-        shutil.rmtree(parent / relative.parent)
-        (parent / relative.parent).symlink_to(outside, target_is_directory=True)
+    elif location == "parent":
+        shutil.rmtree(selected / relative.parent)
+        (selected / relative.parent).symlink_to(outside, target_is_directory=True)
     else:
-        target = (source if position == "source-file" else mirror) / relative
+        target = selected / relative
         target.unlink()
         target.symlink_to(external)
     before = snapshot(outside)
     result = run(script, *mode)
-    assert result.returncode != 0, "FAIL W5 AC-10: unsafe skill path was followed"
+    assert result.returncode != 0, "unsafe skill path was followed"
     assert snapshot(outside) == before
 
 
 @pytest.mark.parametrize("mode", [(), ("--generate",)])
 def test_ac10_survivor_unknown_mirror_is_preserved(tmp_path, mode):
-    """Survivor: an orphan is an error, never silent pruning."""
-    script, _source, mirror = fixture(tmp_path)
+    script, _claude, mirror, _native = fixture(tmp_path)
     (mirror / "root-cause-analysis/SKILL.md").write_text("stale known mirror\n")
     extra = mirror / "operator-owned/SKILL.md"
     extra.parent.mkdir()

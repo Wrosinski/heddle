@@ -49,13 +49,16 @@ commit, message and push hooks. `heddle init` does not install host Git hooks.
 | `check-skip-only-test-scaffolding` (packaged) | staged test diff | New skips need a narrow reviewed reason; strict `xfail` needs an executable non-constant assertion |
 | `check-enforcement-baseline-doc-language-aware` | this document | This baseline stays filled and names the active local hooks |
 | `check-ac-test-coverage` | staged tests and bound specs / native workspace metadata | Active scaffold and later AC bindings resolve through the AST checker; explicitly changed historical bindings also resolve |
-| `check-skill-sync` | repository skill files | `.codex/skills` matches authored `.claude/skills` bytes; missing, stale, extra or symlinked paths fail |
+| `check-skill-sync` | repository skill files | Shared `.codex/skills` mirrors match their `.claude/skills` sources, while Claude-only and native Codex skills match the classified inventory; missing, stale, extra, unclassified or symlinked paths fail |
 
-The repository authors the five skills under `.claude/skills`. Run
-`python scripts/check-skill-sync.py --generate` to create or repair their Codex
-mirrors. The default invocation checks without writing. Generation preflights
-both trees, refuses symlinks and unknown mirrors, and preserves unchanged files.
-This is repository maintenance; it does not distribute skills to host projects.
+The repository authors five shared skills under `.claude/skills` and mirrors
+them under `.codex/skills`. Provider-specific implementation skills live under
+`.claude/skills` and `.agents/skills` in explicitly classified inventories. Run
+`python scripts/check-skill-sync.py --generate` to create or repair only the
+shared Codex mirrors. The default invocation checks without writing. Generation
+preflights all three trees, refuses symlinks and unclassified files, and
+preserves unchanged files. This is repository maintenance; it does not
+distribute skills to host projects.
 
 Native verification facts supply command, source identity, outcome and log.
 The push hook checks each outgoing commit for private workflow records; CI

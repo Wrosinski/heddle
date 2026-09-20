@@ -95,7 +95,7 @@ repos:
         name: check skill sync
         entry: .venv/bin/python scripts/check-skill-sync.py
         language: system
-        files: ^\.(?:claude|codex)/skills/
+        files: ^(?:\.(?:agents|claude|codex)/skills/|scripts/check-skill-sync\.py$)
         pass_filenames: false
       - id: check-skip-only-test-scaffolding
         name: check skip-only test scaffolding

@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tomllib
@@ -785,7 +786,7 @@ def test_skip_only_guard_rejects_new_unqualified_skip(tmp_path: Path) -> None:
 def test_skill_sync_rejects_drifted_and_missing_mirrors(tmp_path: Path) -> None:
     # review rejection: the skill-sync guard resolves the repo root from its own
     # file location (not cwd), so run a copy from a temp scripts/ dir against a
-    # skills tree with one drifted mirror and one unmirrored skill.
+    # classified skills tree with one drifted mirror and one missing mirror.
     scripts_dir = tmp_path / "scripts"
     scripts_dir.mkdir()
     guard = scripts_dir / "check-skill-sync.py"
@@ -793,15 +794,12 @@ def test_skill_sync_rejects_drifted_and_missing_mirrors(tmp_path: Path) -> None:
         (SCRIPTS / "check-skill-sync.py").read_text(encoding="utf-8"),
         encoding="utf-8",
     )
-    claude_skill = tmp_path / ".claude" / "skills" / "demo" / "SKILL.md"
-    codex_skill = tmp_path / ".codex" / "skills" / "demo" / "SKILL.md"
-    claude_skill.parent.mkdir(parents=True)
-    codex_skill.parent.mkdir(parents=True)
-    claude_skill.write_text("drifted\n", encoding="utf-8")
-    codex_skill.write_text("mirror\n", encoding="utf-8")
-    orphan = tmp_path / ".claude" / "skills" / "orphan" / "SKILL.md"
-    orphan.parent.mkdir(parents=True)
-    orphan.write_text("unmirrored\n", encoding="utf-8")
+    shutil.copytree(REPO_ROOT / ".claude/skills", tmp_path / ".claude/skills")
+    shutil.copytree(REPO_ROOT / ".codex/skills", tmp_path / ".codex/skills")
+    shutil.copytree(REPO_ROOT / ".agents/skills", tmp_path / ".agents/skills")
+    mirror = tmp_path / ".codex/skills"
+    (mirror / "root-cause-analysis/SKILL.md").write_text("drifted\n", encoding="utf-8")
+    (mirror / "worktree-workflow/SKILL.md").unlink()
 
     result = subprocess.run(
         [sys.executable, str(guard)],
