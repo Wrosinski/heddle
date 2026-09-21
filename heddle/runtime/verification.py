@@ -806,7 +806,7 @@ def workflow_control_paths(
             )
         research = (document["research"]["reference"],)
     exact = normalize_paths(
-        (
+        {
             f".heddle/intake/{state.feature}.yaml",
             f"{workspace}/state.yaml",
             f"{workspace}/plan.md",
@@ -820,7 +820,7 @@ def workflow_control_paths(
             f"{config.layout.specs}/_index.md",
             f"{config.layout.specs}/_descriptions.yaml",
             *research,
-        )
+        }
     )
     roots = normalize_paths(
         (

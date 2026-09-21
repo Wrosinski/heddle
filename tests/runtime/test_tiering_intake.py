@@ -385,6 +385,41 @@ def test_ac1_admission_readback_does_not_hide_or_repair_missing_documents(host):
     assert snapshot(host) == before
 
 
+def test_admission_accepts_conventional_brief_research_reference(host):
+    reference = f"plans/.briefs/{FEATURE}.md"
+    research = host / reference
+    research.parent.mkdir(parents=True)
+    research.write_text("# Research\nOne declared behavior.\n")
+    research_bytes = research.read_bytes()
+    payload = prepare_input()
+    payload["research"]["reference"] = reference
+    prepared_result = invoke(
+        "FeaturePrepare", slug=FEATURE, area="runtime", payload=payload
+    )
+    assert prepared_result.ok, prepared_result.to_envelope()
+    policy_result = invoke(
+        "FeaturePolicy",
+        slug=FEATURE,
+        payload=wire_policy(),
+        expect_revision=prepared_result.data["revision"],
+    )
+    assert policy_result.ok, policy_result.to_envelope()
+
+    started = invoke("FeatureStart", slug=FEATURE)
+
+    assert started.ok, started.to_envelope()
+    assert started.data["validated"] is True
+    for operation in ("Validate", "Orient"):
+        result = invoke(operation, feature=FEATURE)
+        assert result.ok, result.to_envelope()
+    assert research.read_bytes() == research_bytes
+    admitted = snapshot(host)
+    replay = invoke("FeatureStart", slug=FEATURE)
+    assert replay.ok, replay.to_envelope()
+    assert replay.data["validated"] is True
+    assert snapshot(host) == admitted
+
+
 def test_ac1_empty_current_feature_reads_off_and_future_assignments_without_scope(
     host,
 ):
