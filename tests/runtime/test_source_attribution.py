@@ -141,6 +141,23 @@ def test_deletion_binding_and_later_ownership_do_not_hide_owned_changes(host):
     assert expanded.verifications == ()
 
 
+def test_cited_orchestration_evidence_remains_byte_bound(host):
+    root, state_path = host
+    reference = "plans/sample-feature/orchestration/m1-feedback.md"
+    record = root / reference
+    record.parent.mkdir()
+    record.write_text("Inspected independent ownership evidence.\n")
+    value = payload("outside.txt", "another.txt")
+    for entry in value["attributions"]:
+        entry["references"] = [reference]
+    result = execute(ops.AttributeSources(value, feature="sample-feature"))
+    assert result.ok, result.to_envelope()
+    assert coverage(root, state_path).status == "complete"
+    record.write_text("Changed evidence must require a fresh attribution.\n")
+    with pytest.raises(KernelError, match="attribution evidence changed"):
+        coverage(root, state_path)
+
+
 @pytest.mark.parametrize(
     "invalid",
     ["src.py", "unknown.txt", "../escape", ".", "outside.txt/child"],

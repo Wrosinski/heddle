@@ -4,10 +4,11 @@ from dataclasses import replace
 
 import pytest
 
-from heddle.kernel.project_config import load_project_config
+from heddle.kernel.project_config import KernelError, load_project_config
 from heddle.kernel.state import read_state_file
 from heddle.runtime.verification import (
     assess_current_verification,
+    reconcile_current_source,
     workflow_control_paths,
 )
 from tests.proof_continuity_helpers import (
@@ -75,9 +76,13 @@ def test_controls_use_exact_configured_paths_not_parent_directory_exemptions(
         f"{specs}/_descriptions.yaml",
     }
     assert expected <= set(controls.exact)
+    assert f"{plans}/{FEATURE}/orchestration" in controls.roots
     for neighbor in (
         f"{plans}/unrelated.md",
         f"{plans}/.briefs/another.md",
+        f"{plans}/another-feature/orchestration/brief.md",
+        f"{plans}/{FEATURE}/orchestration-product.py",
+        f"{plans}/{FEATURE}/product.py",
         f"{specs}/another-feature.md",
         "docs/analysis/another.md",
     ):
@@ -85,6 +90,43 @@ def test_controls_use_exact_configured_paths_not_parent_directory_exemptions(
         assert not any(
             neighbor == p or neighbor.startswith(p + "/") for p in controls.roots
         )
+
+
+def test_orchestration_records_preserve_coverage_and_product_boundaries(
+    tmp_path, monkeypatch
+):
+    root, path = source_host(tmp_path, monkeypatch)
+    brief = root / f"plans/{FEATURE}/orchestration/m1-brief.md"
+    brief.parent.mkdir()
+    brief.write_text("Bounded worker assignment.\n")
+    verify(path, "m1")
+    state = read_state_file(path)
+    controls = workflow_control_paths(load_project_config(root), state)
+
+    def coverage():
+        return reconcile_current_source(
+            root,
+            state,
+            "acceptance",
+            baseline_probe=path.relative_to(root).as_posix(),
+            runtime_owned_roots=controls.roots,
+            excluded_paths=controls.exact,
+        )
+
+    assert coverage().status == "complete"
+    brief.write_text("Assignment and inspected handoff evidence.\n")
+    assert coverage().status == "complete"
+    assert assess_current_verification(root, state, "m1").status == "fresh"
+    result = execute(ops.Status(feature=FEATURE))
+    assert result.ok, result.to_envelope()
+    assert "source-coverage-unresolved" not in diagnostics(result)
+    product = root / f"plans/{FEATURE}/orchestration-product.py"
+    product.write_text("VALUE = 2\n")
+    with pytest.raises(KernelError, match="incomplete final coverage"):
+        coverage()
+    result = execute(ops.Status(feature=FEATURE))
+    assert result.ok, result.to_envelope()
+    assert product.relative_to(root).as_posix() in diagnostics(result)
 
 
 def test_control_and_neighbor_attribution_use_the_same_exact_exemption(

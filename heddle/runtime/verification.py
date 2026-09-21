@@ -824,6 +824,7 @@ def workflow_control_paths(
     )
     roots = normalize_paths(
         (
+            f"{workspace}/orchestration",
             f"{workspace}/reviews",
             f"{workspace}/verification",
             f"docs/gate-trajectories/.raw/{state.feature}",
