@@ -37,11 +37,51 @@ def _action_type(name: str):
     return action_type
 
 
+def _assert_pending_orient_cli(
+    run_cli, envelope_tools, host, expected, *, feature=None
+):
+    before = snapshot(host)
+    arguments = ["orient"]
+    if feature is not None:
+        arguments.extend(["--feature", feature])
+    code, output, error = run_cli([*arguments, "--json"])
+    assert code == 0 and not error, (output, error)
+    envelope = envelope_tools.parse(output)
+    envelope_tools.assert_shape(envelope)
+    assert envelope["data"] == expected
+
+    code, output, error = run_cli(arguments)
+    assert code == 0 and not error, (output, error)
+    if expected["entry"] == "pending-intake":
+        assert expected["feature"] in output
+        assert "stage admission" in output
+        assert f"intake revision {expected['revision']}" in output
+    else:
+        assert "pending intakes:" in output
+        for slug in expected["pending_intakes"]:
+            assert f"  {slug}\n" in output
+    assert "authorized through" not in output
+    assert "milestone:" not in output
+    assert "blocking:" not in output
+    for action in envelope["next_actions"]:
+        assert f"next: {action['command']} — {action['reason']}" in output
+    for diagnostic in envelope["diagnostics"]:
+        assert f"note: {diagnostic['code']}: {diagnostic['message']}" in output
+    assert snapshot(host) == before
+
+
 def test_ac1_ac2_pending_intake_routes_complete_admission_actions(
-    tmp_path, monkeypatch
+    tmp_path, monkeypatch, run_cli, envelope_tools
 ):
     """B1: prepare, orient, and policy form a guarded native admission chain."""
     host = blank_host(tmp_path, monkeypatch)
+    before = snapshot(host)
+    code, output, error = run_cli(["orient"])
+    assert code == 3 and "workspace-invalid" in output, (output, error)
+    code, output, _error = run_cli(["orient", "--json"])
+    assert code == 3
+    assert envelope_tools.parse(output)["error"]["code"] == "workspace-invalid"
+    assert snapshot(host) == before
     (host / "brief.md").write_text("# Research\nOne declared behavior.\n")
     prepared = application.execute(
         ops.FeaturePrepare("pending-demo", "runtime", prepare_input())
@@ -62,6 +102,16 @@ def test_ac1_ac2_pending_intake_routes_complete_admission_actions(
     )
     assert authoring.input_schema == "heddle.feature-policy/v1"
     assert authoring.expected_revision == prepared.data["revision"]
+    expected = {
+        "feature": "pending-demo",
+        "entry": "pending-intake",
+        "stage": "admission",
+        "revision": prepared.data["revision"],
+    }
+    for feature in (None, "pending-demo"):
+        _assert_pending_orient_cli(
+            run_cli, envelope_tools, host, expected, feature=feature
+        )
 
     confirmed = application.execute(
         ops.FeaturePolicy(
@@ -80,14 +130,28 @@ def test_ac1_ac2_pending_intake_routes_complete_admission_actions(
         flow="hitl",
         expect_revision=confirmed.data["revision"],
     )
+    expected["revision"] = confirmed.data["revision"]
+    for feature in (None, "pending-demo"):
+        _assert_pending_orient_cli(
+            run_cli, envelope_tools, host, expected, feature=feature
+        )
     admitted = application.execute(start.operation)
     assert admitted.ok, admitted.to_envelope()
     assert isinstance(admitted.next_actions[0].action, ops.CommandAction)
     assert isinstance(admitted.next_actions[0].action.operation, ops.FeatureSwitch)
+    before = snapshot(host)
+    code, output, error = run_cli(["orient", "--feature", "pending-demo"])
+    assert code == 0 and not error, (output, error)
+    assert "stage specify (authorized through specify)" in output
+    code, output, error = run_cli(["orient", "--feature", "pending-demo", "--json"])
+    assert code == 0 and not error, (output, error)
+    data = envelope_tools.parse(output)["data"]
+    assert data["stage"] == data["authorized_through"] == "specify"
+    assert snapshot(host) == before
 
 
 def test_ac2_pending_intake_action_revalidates_and_orient_selects_explicitly(
-    tmp_path, monkeypatch
+    tmp_path, monkeypatch, run_cli, envelope_tools
 ):
     """B1: stale admission conflicts and multiple intakes require a real choice."""
     host = blank_host(tmp_path, monkeypatch)
@@ -106,8 +170,29 @@ def test_ac2_pending_intake_action_revalidates_and_orient_selects_explicitly(
     assert action.decision_id == "pending-intake-selection"
     assert action.choices == ("alpha-intake", "beta-intake")
     assert snapshot(host) == before
+    _assert_pending_orient_cli(
+        run_cli,
+        envelope_tools,
+        host,
+        {
+            "entry": "pending-intake-selection",
+            "pending_intakes": ["alpha-intake", "beta-intake"],
+        },
+    )
 
     selected = application.execute(ops.Orient(feature="alpha-intake"))
+    _assert_pending_orient_cli(
+        run_cli,
+        envelope_tools,
+        host,
+        {
+            "feature": "alpha-intake",
+            "entry": "pending-intake",
+            "stage": "admission",
+            "revision": 1,
+        },
+        feature="alpha-intake",
+    )
     authoring = selected.next_actions[0].action
     assert isinstance(authoring, ops.AuthoringAction)
     confirmed = application.execute(

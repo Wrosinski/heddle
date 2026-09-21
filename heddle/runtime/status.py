@@ -568,6 +568,23 @@ def _blocking_label(code: str, *, deferral_active: bool, gate_phase: str | None)
     return code
 
 
+def _render_pending_intake(result: HeddleResult) -> None:
+    data = result.data or {}
+    if data["entry"] == "pending-intake":
+        print(
+            f"{data['feature']} — stage {data['stage']} "
+            f"(intake revision {data['revision']})"
+        )
+    else:
+        print("pending intakes:")
+        for feature in data["pending_intakes"]:
+            print(f"  {feature}")
+    for action in result.next_actions:
+        print(f"  next: {action.command} — {action.reason}")
+    for diagnostic in result.diagnostics:
+        print(f"note: {diagnostic.code}: {diagnostic.message}")
+
+
 def _render_read_result(result: HeddleResult) -> None:
     if result.error is not None:
         _render_failure(result)
@@ -575,6 +592,9 @@ def _render_read_result(result: HeddleResult) -> None:
     data = result.data or {}
     if "features" in data:
         _render_portfolio(result)
+        return
+    if data.get("entry") in ("pending-intake", "pending-intake-selection"):
+        _render_pending_intake(result)
         return
     suffix = f" — {data['entry']} entry" if "entry" in data else ""
     print(
