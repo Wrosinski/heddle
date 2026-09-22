@@ -18,6 +18,11 @@ authority for the installed version.
 - Claude gate lanes, and the recommended Claude reviewer for peer and behavior
   review, default to `claude-opus-5-5` instead of `claude-opus-5`, still at
   `xhigh` effort. Confirmed feature policies keep the model they recorded.
+- Codex Sol gate lanes, the Codex provider fallback, and the recommended Codex
+  reviewer for plan, test-scaffolding, milestone, complexity and robustness
+  review default to `gpt-6-sol` instead of `gpt-5.6-sol`, at unchanged effort.
+  Spec review stays on `gpt-6-astra`. Confirmed feature policies keep the model
+  they recorded.
 
 ## [0.1.0] - 2026-09-22
 

@@ -80,7 +80,7 @@ Bindings, current as of 2026-09-22:
   removes that escape.
 - Codex: project-scoped custom agents live under `.codex/agents`; the explicit
   implementation adapter pins Sol there. No exploration-specific custom agent
-  or repository-wide default is configured, so the lead names `gpt-5.6-sol` at
+  or repository-wide default is configured, so the lead names `gpt-6-sol` at
   spawn for explorers and escalates to `gpt-6-astra` deliberately.
 
 These exploration bindings do not set implementation-worker effort. The

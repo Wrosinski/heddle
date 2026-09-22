@@ -776,7 +776,7 @@ def _resolved_record() -> dict[str, Any]:
         "execution": {
             "gate": "spec-review",
             "cli": "codex",
-            "model": "gpt-5.6-sol",
+            "model": "gpt-6-sol",
             "reasoning_effort": "xhigh",
             "sandbox": "read-only",
             "runtime_revision": "b" * 40,

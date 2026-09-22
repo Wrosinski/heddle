@@ -760,7 +760,7 @@ def test_ac7_start_replay_after_policy_amendment_is_current_owner_readback(host)
         ({"mode": "off", "limit": None, "minimum_rounds": 1}, "off policy"),
         ({"role": "review-synthesis"}, "retired gate role"),
         ({"scope": "milestone"}, "requires scope"),
-        ({"secondary": {**ASTRA, "model": "gpt-5.6-sol"}}, "independent reviewer CLI"),
+        ({"secondary": {**ASTRA, "model": "gpt-6-sol"}}, "independent reviewer CLI"),
     ],
 )
 def test_ac2_invalid_confirmation_preserves_current_owner_and_can_be_corrected(

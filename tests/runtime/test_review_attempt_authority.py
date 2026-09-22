@@ -22,7 +22,7 @@ def _invocation():
 
     return AttemptInvocation(
         cli="codex",
-        model="gpt-5.6-sol",
+        model="gpt-6-sol",
         reasoning_effort="high",
         sandbox="danger-full-access",
         input_hash="a" * 64,

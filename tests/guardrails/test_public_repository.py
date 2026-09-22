@@ -312,7 +312,7 @@ def test_cleanup_preserves_public_runtime_defaults() -> None:
         "xhigh",
     )
     assert (CLI_FALLBACKS["codex"].model, CLI_FALLBACKS["codex"].reasoning_effort) == (
-        "gpt-5.6-sol",
+        "gpt-6-sol",
         "high",
     )
     assert DEFAULT_AUTOPILOT.flow == "hitl"

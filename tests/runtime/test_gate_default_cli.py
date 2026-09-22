@@ -4,8 +4,8 @@ R4/review gate->CLI config: per-gate default lanes (owner ruling 2026-07-22).
 The implementation-stage milestone gates (code-quality, self-review) default to the
 Codex
 lane, matching the legacy harness's reviewer vendor for the adoption comparative
-runs. Their Codex lane runs gpt-5.6-sol at xhigh effort (owner ruling
-2026-09-09); every other Codex lane stays on gpt-6-astra at high (owner
+runs. Their Codex lane runs gpt-6-sol at xhigh effort (owner rulings
+2026-09-09 and 2026-09-22); every other Codex lane stays on gpt-6-astra at high (owner
 ruling 2026-09-05). Every other gate keeps the Claude default. An explicit ``--cli``
 always wins; a registry default must be a member of the gate's
 ``supported_clis`` (fail-loud membership check covers both paths).

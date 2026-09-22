@@ -53,9 +53,10 @@ def _selected_matrix() -> dict[tuple[str, str], GateExecutionConfig]:
             "codex", "gpt-6-astra", "high", "danger-full-access"
         )
     for gate in MILESTONE_GATES:
-        # Owner ruling 2026-09-09: milestone gates run Codex on gpt-5.6-sol/xhigh.
+        # Owner rulings 2026-09-09 and 2026-09-22: milestone gates run Codex on
+        # gpt-6-sol/xhigh.
         expected[(gate, "codex")] = GateExecutionConfig(
-            "codex", "gpt-5.6-sol", "xhigh", "danger-full-access"
+            "codex", "gpt-6-sol", "xhigh", "danger-full-access"
         )
     for gate in OPUS_SYNTHESIS_GATES:
         expected[(gate, "claude")] = GateExecutionConfig(
