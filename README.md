@@ -12,6 +12,130 @@ engineering. It helps agents carry a change from researched scope to verified
 implementation, with explicit decisions, accountable reviews, and a reliable
 handoff between sessions.
 
+Most spec-driven tools hand the agent a template and ask it to follow the
+process. Heddle records what actually happened and refuses to advance when the
+evidence is missing, failed, or stale. If you know Spec Kit, start with
+[how Heddle differs from it](docs/comparison.md).
+
+## Try it in two minutes
+
+You need [uv](https://docs.astral.sh/uv/); it fetches Python 3.13 on demand.
+You do not need Codex or Claude Code to look around. Those runners are called
+only when a confirmed review policy schedules a model review.
+
+Run Heddle without installing it:
+
+```bash
+uvx --from git+https://github.com/Wrosinski/heddle heddle help
+```
+
+Or put it on your `PATH`, following the default branch:
+
+```bash
+uv tool install --python 3.13 "heddle @ git+https://github.com/Wrosinski/heddle.git"
+heddle help
+```
+
+The PyPI package named `heddle` is an unrelated project; do not install it by
+bare name.
+
+Then take the [tour](docs/tour.md). It creates a throwaway repository, adopts
+it, admits one feature with every model review switched off, records real test
+evidence, and ends at the boundary Heddle refuses to cross. The transcript in
+the next section is taken from it.
+
+## What it looks like
+
+A feature moves through eight stages: specify, spec review, plan review,
+scaffold, implement, peer review, robustness, and complete. Your agent does the
+work in each stage. Heddle records the facts, tells the agent what is legal
+next, and refuses the transitions the facts do not support.
+
+Adoption writes four files and nothing else:
+
+```console
+$ heddle init
+init:
+  create: .heddle.yaml (scaffold-once)
+  create: AGENTS.md (managed-region)
+  create: docs/workflow/engineering-principles.md (scaffold-once)
+  create: .heddle.lock (runtime-owned)
+```
+
+Admission takes a researched intake and a review policy you confirm in full.
+From then on every session starts the same way:
+
+```console
+$ heddle orient
+add-rate-limit — stage specify (authorized through specify) — fresh entry
+  task: (none)
+  guidance (read-only): stage-work; briefing: heddle kickoff --feature add-rate-limit
+  blocking:  awaiting-human-authorization
+  next: heddle kickoff --feature add-rate-limit — render the specify briefing — fresh stage, no facts yet
+```
+
+Proof is recorded against the files it covered. Change one of them and the
+proof stops counting (trimmed):
+
+```console
+$ heddle verify --scope m1
+verify [add-rate-limit] revision 10
+
+$ heddle status
+  ...
+  verification m1: fresh
+
+$ printf '\n\ndef limit(client):\n    return True\n' >> src/app.py
+
+$ heddle status
+  ...
+  blocking:  verification-missing, awaiting-human-authorization
+  verification m1: content-stale; rerun: heddle verify --scope m1 --expect-revision 11 --feature add-rate-limit
+
+$ heddle phase-exit
+heddle: error[verification-missing]: verification scope 'm1' is not fresh: content-stale
+  hint: rerun every listed verification action and retry the transition
+  next: heddle verify --scope m1 --expect-revision 11 --feature add-rate-limit - refresh m1 verification (content-stale)
+```
+
+Git was not consulted. The runtime compared the owned files with the manifest
+from the recorded run and refused the boundary.
+
+### The process, distilled
+
+1. **Research and route.** The agent researches the change. You choose Direct
+   work or a Heddle feature. Prepare records the intake and recommends a
+   review policy; you confirm the whole matrix; start admits the feature.
+2. **Author.** At specify, the agent writes the feature spec and the
+   implementation plan from packaged scaffolds. `heddle kickoff` renders the
+   briefing for whichever stage is current.
+3. **Review.** Each role in the policy runs through `heddle run-gate` with
+   Codex or Claude Code as a read-only reviewer. Findings stay attached to the
+   review that raised them; the lead records an evidence-bound disposition for
+   each; closure is derived, not declared.
+4. **Build and prove.** Milestones declare owned paths and a verification
+   command. `heddle verify` runs it and records exit code, log, and content
+   identity. `heddle phase-exit` moves one stage only when the recorded
+   evidence supports it.
+5. **Close.** Completion is human-owned. Acceptance needs current proof, the
+   configured close suite, and an explicit grant. Records are retained locally.
+6. **Automate when you choose.** `heddle drive` executes the next legal
+   actions until it reaches a decision, a blocker, or the human handoff.
+
+### What to expect
+
+- Inputs are small YAML or JSON payloads; `heddle help` prints every schema
+  with an example.
+- Every mutating command returns a revision, and the next command can guard on
+  it, so two sessions cannot silently overwrite each other.
+- Records live under the plans and intake directories in your repository.
+  Whether you commit them is the host's decision.
+- Model reviews cost exactly the provider calls the confirmed policy schedules.
+  All-off is a legal policy; final proof is required regardless.
+- Expect more ceremony than a slash command. Small changes can take the Direct
+  route without a workspace.
+- This is version 0.0.1. Contracts can change between commits.
+
 ## Why Heddle?
 
 Heddle gives agent-assisted development a repeatable path from an idea to an
@@ -19,18 +143,6 @@ accepted change. Agents investigate, design, and implement; Heddle tracks the
 work, identifies what must happen next, and checks the requirements for moving
 forward.
 
-- **A connected development workflow.** Carry researched scope through
-  specification, planning, test scaffolding, implementation, review, and
-  explicit completion. Milestones connect implementation work to acceptance
-  criteria, so progress stays tied to the intended outcome.
-- **Continuity across sessions.** Resume with recorded tasks, decisions,
-  verification results, and session handoffs. `heddle orient` identifies the
-  next action, while stage briefings give agents the instructions and context
-  for the work ahead.
-- **Review effort matched to the change.** Heddle recommends a review policy
-  based on scope, complexity, and testability. You confirm the review roles,
-  models, reasoning effort, and round limits, with optional independent
-  reviewers across Codex and Claude Code.
 - **Verification tied to the code tested.** Recorded checks include the
   command, result, log, and identities of the declared source inputs.
   Heddle checks whether that evidence still applies before allowing progress,
@@ -39,6 +151,18 @@ forward.
   attached to their reviews. The lead records how each obligation is addressed,
   supported by inspection, tests, later review, or an explicit decision.
   A clean later report alone does not erase an earlier unresolved finding.
+- **Review effort matched to the change.** Heddle recommends a review policy
+  based on scope, complexity, and testability. You confirm the review roles,
+  models, reasoning effort, and round limits, with optional independent
+  reviewers across Codex and Claude Code, so one provider can check the other.
+- **A connected development workflow.** Carry researched scope through
+  specification, planning, test scaffolding, implementation, review, and
+  explicit completion. Milestones connect implementation work to acceptance
+  criteria, so progress stays tied to the intended outcome.
+- **Continuity across sessions.** Resume with recorded tasks, decisions,
+  verification results, and session handoffs. `heddle orient` identifies the
+  next action, while stage briefings give agents the instructions and context
+  for the work ahead.
 - **Your engineering principles guide the work.** Host-authored principles
   inform design choices, implementation, and review. The packaged guidance
   emphasizes repository research, justified scope, simple designs, and focused
@@ -56,10 +180,11 @@ provider.
 
 ### Install Heddle for adoption
 
+The two-minute install above follows the default branch. For a repository you
+mean to keep, choose one installation mode; see the
+[host-integration guide](docs/workflow/host-integration.md) for setup details.
 Requires **Python 3.13+**, [uv](https://docs.astral.sh/uv/), and installed,
-authenticated Codex or Claude Code runners for the selected roles. Choose one
-installation mode; see the [host-integration guide](docs/workflow/host-integration.md)
-for setup details.
+authenticated Codex or Claude Code runners for the review roles you select.
 
 #### Editable checkout — develop Heddle
 
@@ -103,7 +228,9 @@ heddle init
 Init preserves existing `AGENTS.md` content while integrating its session-entry
 instructions. The adopter must author and ratify
 `docs/workflow/engineering-principles.md`: set `status: ratified` after reviewing
-and adopting those principles, then run doctor to check the installation:
+and adopting those principles. Interactive work proceeds without it; the
+automated flow stops on a `principles-not-ratified` blocker until it is set.
+Then run doctor to check the installation:
 
 ```bash
 heddle doctor
@@ -130,8 +257,9 @@ heddle orient --feature <slug>
 ```
 
 The files contain researched intake and the complete owner-approved policy;
-`heddle help` describes their schemas. Use the current revision returned by each
-mutating command for the next command's guard, then follow `next_actions`.
+`heddle help` describes their schemas, and the [tour](docs/tour.md) shows
+worked examples of both. Use the current revision returned by each mutating
+command for the next command's guard, then follow `next_actions`.
 
 ## Daily use
 
@@ -151,6 +279,8 @@ Installation changes never silently rewrite host documents.
 
 ## Documentation and contributing
 
+- [Tour](docs/tour.md): one feature from adoption to a refused boundary, in ten minutes.
+- [How Heddle differs from Spec Kit](docs/comparison.md): enforcement, verification, review, lock-in, and cost, side by side.
 - [Workflow guide](docs/workflow/workflow.md): the development lifecycle.
 - [Workflow model](docs/design/workflow-model.md): state, review, and evidence rules.
 - [Architecture](docs/design/architecture.md): package structure and integration boundaries.

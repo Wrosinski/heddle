@@ -25,6 +25,7 @@ README.md
 SECURITY.md
 assets/brand/logos/heddle-horizontal-graphite.svg
 assets/brand/logos/heddle-horizontal-inverse.svg
+docs/comparison.md
 docs/design/architecture.md
 docs/design/briefing-prompting-principles.md
 docs/design/workflow-model.md
@@ -53,6 +54,7 @@ docs/patterns/transitive-consumer-closure.md
 docs/patterns/typed-error-channel-rail.md
 docs/patterns/verified-by-completeness-rule.md
 docs/testing/test-selection-map.md
+docs/tour.md
 docs/workflow/brainstorming-guidelines.md
 docs/workflow/document-structure.md
 docs/workflow/enforcement-baseline.md
