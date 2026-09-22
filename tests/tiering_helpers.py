@@ -42,7 +42,7 @@ ASTRA = {"cli": "codex", "model": "gpt-6-astra", "reasoning_effort": "high"}
 FABLE = {"cli": "claude", "model": "claude-fable-5-1", "reasoning_effort": "high"}
 SOL = {"cli": "codex", "model": "gpt-5.6-sol", "reasoning_effort": "high"}
 SOL_XHIGH = {**SOL, "reasoning_effort": "xhigh"}
-OPUS = {"cli": "claude", "model": "claude-opus-5", "reasoning_effort": "xhigh"}
+OPUS = {"cli": "claude", "model": "claude-opus-5-5", "reasoning_effort": "xhigh"}
 
 
 def api(name="heddle.contracts.feature_policy"):

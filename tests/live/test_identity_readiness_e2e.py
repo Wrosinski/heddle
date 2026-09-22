@@ -39,7 +39,7 @@ pytestmark = [
 ]
 ROOT = Path(__file__).resolve().parents[2]
 CONFIG = {
-    "claude": {"model": "claude-opus-5", "reasoning_effort": "xhigh"},
+    "claude": {"model": "claude-opus-5-5", "reasoning_effort": "xhigh"},
     "codex": {"model": "gpt-6-astra", "reasoning_effort": "high"},
 }
 

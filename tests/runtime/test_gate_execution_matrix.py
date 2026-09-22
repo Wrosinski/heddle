@@ -47,7 +47,7 @@ def _selected_matrix() -> dict[tuple[str, str], GateExecutionConfig]:
     expected: dict[tuple[str, str], GateExecutionConfig] = {}
     for gate in NON_SYNTHESIS_GATES:
         expected[(gate, "claude")] = GateExecutionConfig(
-            "claude", "claude-opus-5", "xhigh", "read-only-tools"
+            "claude", "claude-opus-5-5", "xhigh", "read-only-tools"
         )
         expected[(gate, "codex")] = GateExecutionConfig(
             "codex", "gpt-6-astra", "high", "danger-full-access"
@@ -59,7 +59,7 @@ def _selected_matrix() -> dict[tuple[str, str], GateExecutionConfig]:
         )
     for gate in OPUS_SYNTHESIS_GATES:
         expected[(gate, "claude")] = GateExecutionConfig(
-            "claude", "claude-opus-5", "high", "read-only-tools"
+            "claude", "claude-opus-5-5", "high", "read-only-tools"
         )
     for gate in FABLE_SYNTHESIS_GATES:
         expected[(gate, "claude")] = GateExecutionConfig(
@@ -115,7 +115,7 @@ def test_ac1_lane_policy_and_resolved_invocation_are_immutable() -> None:
 @pytest.mark.parametrize(
     ("gate", "model", "expected_effort"),
     [
-        ("plan-review", "claude-opus-5", "xhigh"),
+        ("plan-review", "claude-opus-5-5", "xhigh"),
     ],
 )
 def test_ac2_model_override_preserves_lane_effort(

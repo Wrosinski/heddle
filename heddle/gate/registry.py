@@ -19,7 +19,7 @@ READ_ONLY_WITH_BASH = (*READ_ONLY, "Bash")
 ALL_CLIS = ("claude", "codex")
 CLAUDE_STANDARD_POLICY = GateLanePolicy(
     cli="claude",
-    model="claude-opus-5",
+    model="claude-opus-5-5",
     reasoning_effort="xhigh",
     sandbox="read-only-tools",
 )

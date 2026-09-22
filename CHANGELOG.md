@@ -13,6 +13,12 @@ authority for the installed version.
 - Release process documentation covering qualification, tagging, the GitHub
   Release, and the repository metadata on GitHub.
 
+### Changed
+
+- Claude gate lanes, and the recommended Claude reviewer for peer and behavior
+  review, default to `claude-opus-5-5` instead of `claude-opus-5`, still at
+  `xhigh` effort. Confirmed feature policies keep the model they recorded.
+
 ## [0.1.0] - 2026-09-22
 
 First tagged release. The core runtime was implemented and tested before the

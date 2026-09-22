@@ -308,7 +308,7 @@ def test_cleanup_preserves_public_runtime_defaults() -> None:
         CLI_FALLBACKS["claude"].model,
         CLI_FALLBACKS["claude"].reasoning_effort,
     ) == (
-        "claude-opus-5",
+        "claude-opus-5-5",
         "xhigh",
     )
     assert (CLI_FALLBACKS["codex"].model, CLI_FALLBACKS["codex"].reasoning_effort) == (

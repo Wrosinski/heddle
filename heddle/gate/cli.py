@@ -53,7 +53,7 @@ class GateArgs:
 CLI_FALLBACKS = {
     "claude": GateExecutionConfig(
         cli="claude",
-        model="claude-opus-5",
+        model="claude-opus-5-5",
         reasoning_effort="xhigh",
         sandbox="read-only-tools",
     ),

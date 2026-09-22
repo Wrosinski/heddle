@@ -219,7 +219,7 @@ def recommend_policy(axes: FeatureAxes) -> Recommendation:
     sol = Reviewer("codex", "gpt-5.6-sol", "high")
     sol_xhigh = Reviewer("codex", "gpt-5.6-sol", "xhigh")
     fable = Reviewer("claude", "claude-fable-5-1", "high")
-    opus = Reviewer("claude", "claude-opus-5", "xhigh")
+    opus = Reviewer("claude", "claude-opus-5-5", "xhigh")
     reviewers = {
         "spec-review": astra,
         "plan-review": sol,
