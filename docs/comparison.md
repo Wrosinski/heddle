@@ -55,7 +55,7 @@ chat transcript.
 | Lock-in | None. MIT, plain Markdown, bring your own agent. | None. MIT, local YAML and Markdown, bring your own provider CLIs. |
 | Pricing | Free. You pay your agent's provider. | Free. You pay for the review calls your policy schedules. The confirmed policy reports its minimum and maximum call budget, all-off is a legal policy, and final proof is required regardless. |
 | Footprint | Python 3.11 or newer and uv. `specify init` writes `.specify/` and per-agent command files. | Python 3.13 or newer and uv. `heddle init` writes `.heddle.yaml`, a managed region in `AGENTS.md`, a principles seed and a lock. Workflow records live under `plans/` and `.heddle/`. |
-| Maturity | Maintained by GitHub, large community, extensions for bug fixing and idea assessment. | Version 0.0.1, one maintainer, used to build itself. Contracts can still change. No support commitment. |
+| Maturity | Maintained by GitHub, large community, extensions for bug fixing and idea assessment. | Version 0.1.0, one maintainer, used to build itself. Contracts can still change. No support commitment. |
 
 ## What Heddle enforces
 
@@ -108,7 +108,7 @@ from a stage transition or a populated command.
 - **Breadth.** Spec Kit ships bug-fixing and idea-assessment extensions. Heddle
   covers one feature lifecycle.
 - **Maintenance.** GitHub maintains Spec Kit with a large contributor base.
-  Heddle is one person's runtime at version 0.0.1.
+  Heddle is one person's runtime at version 0.1.0.
 - **Python floor.** Spec Kit runs on Python 3.11; Heddle requires 3.13.
 
 ## Choosing

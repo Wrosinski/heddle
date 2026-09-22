@@ -16,11 +16,11 @@ Install [uv](https://docs.astral.sh/uv/). It fetches Python 3.13 on demand.
 Put `heddle` on your `PATH` for the session in either of these ways:
 
 ```bash
-uv tool install --python 3.13 "heddle @ git+https://github.com/Wrosinski/heddle.git"
+uv tool install --python 3.13 "heddle @ git+https://github.com/Wrosinski/heddle.git@v0.1.0"
 ```
 
 ```bash
-alias heddle='uvx --from git+https://github.com/Wrosinski/heddle heddle'
+alias heddle='uvx --from git+https://github.com/Wrosinski/heddle@v0.1.0 heddle'
 ```
 
 The verification step below runs tests through `uvx pytest`, so there is

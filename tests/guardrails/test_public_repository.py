@@ -530,7 +530,7 @@ def test_public_identity_and_responsibility_are_consistent() -> None:
     normalized_readme = " ".join(readme.split()).lower()
     license_text = (REPO_ROOT / "LICENSE").read_text()
     assert metadata["name"] == "heddle"
-    assert metadata["version"] == "0.0.1"
+    assert metadata["version"] == "0.1.0"
     assert metadata["requires-python"] == ">=3.13"
     assert metadata["authors"] == [
         {"name": "Wojtek Rosinski", "email": "rosinskiws@gmail.com"}

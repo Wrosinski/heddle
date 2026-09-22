@@ -1,8 +1,8 @@
-heddle-0.0.1.dist-info/METADATA
-heddle-0.0.1.dist-info/RECORD
-heddle-0.0.1.dist-info/WHEEL
-heddle-0.0.1.dist-info/entry_points.txt
-heddle-0.0.1.dist-info/licenses/LICENSE
+heddle-0.1.0.dist-info/METADATA
+heddle-0.1.0.dist-info/RECORD
+heddle-0.1.0.dist-info/WHEEL
+heddle-0.1.0.dist-info/entry_points.txt
+heddle-0.1.0.dist-info/licenses/LICENSE
 heddle/__init__.py
 heddle/__main__.py
 heddle/cli.py
