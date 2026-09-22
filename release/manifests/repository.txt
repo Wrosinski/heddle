@@ -460,6 +460,7 @@ tests/gate/test_trajectory_report.py
 tests/gate/test_verification_hygiene_rules.py
 tests/guardrails/pytest_policy_helpers.py
 tests/guardrails/test_analysis_skill_contracts.py
+tests/guardrails/test_fixture_git_isolation.py
 tests/guardrails/test_gate_prompt_integrity_scaffolding.py
 tests/guardrails/test_git_commit_retry.py
 tests/guardrails/test_host_guidance_bundle.py
