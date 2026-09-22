@@ -2,7 +2,8 @@
 
 Canonical model-guidance reference for authors of Heddle prompts, briefings,
 skills, and agent instructions. Models covered:
-Claude Fable 5.1, Claude Fable 5, Claude Opus 5, GPT-6 Astra, and GPT-5.6.
+Claude Fable 5.1, Claude Fable 5, Claude Opus 5.5, Claude Opus 5, GPT-6 Astra,
+and GPT-5.6.
 The notes describe guidance inputs, not Heddle's configured model selection.
 
 This reference ships beside [prompt-authoring-standards.md](prompt-authoring-standards.md).
@@ -111,6 +112,18 @@ anti-formatting rules, unnecessary whole-file rewrites, scope expansion, and
 repeated requests for already-granted permission. Harness-provided reminders
 should not be copied into repository instructions.
 
+### Claude Opus 5.5
+
+The Opus 5 guidance remains the baseline and existing Opus 5 prompts carry
+over; re-test its verbosity, verification, and scope corrections rather than
+keeping them unexamined. Thinking is always on, the API default effort is
+`medium`, and `xhigh` and `max` think more per turn than on Opus 5, so compare
+effort on fixed cases and lower it before adding brevity instructions. Remove
+requests to reproduce reasoning in the response, which can be declined as
+reasoning extraction. An unattended run may end a turn with a progress report
+while work remains; treat that turn as a report rather than completion, and
+name the unwanted early stops alongside the stops that are wanted.
+
 ### Claude Fable 5, Claude Opus 5, and GPT-5.6
 
 The source guidance differs on verification and delegation: Fable describes
@@ -157,5 +170,7 @@ instructions or configuration.
 - [Anthropic: prompting Claude Fable 5.1](https://platform.claude.com/docs/en/build-with-claude/prompt-engineering/prompting-claude-fable-5-1)
 - [Anthropic: Fable 5.1 migration guide](https://platform.claude.com/docs/en/models/fable-5-1/migration-guide)
 - [Anthropic: prompting Claude Fable 5](https://platform.claude.com/docs/en/build-with-claude/prompt-engineering/prompting-claude-fable-5)
+- [Anthropic: prompting Claude Opus 5.5](https://platform.claude.com/docs/en/build-with-claude/prompt-engineering/prompting-claude-opus-5-5)
+- [Anthropic: Opus 5.5 migration guide](https://platform.claude.com/docs/en/models/opus-5-5/migration-guide)
 - [Anthropic: prompting Claude Opus 5](https://platform.claude.com/docs/en/build-with-claude/prompt-engineering/prompting-claude-opus-5)
 - [Anthropic: cross-model prompting practices](https://platform.claude.com/docs/en/build-with-claude/prompt-engineering/claude-prompting-best-practices)
