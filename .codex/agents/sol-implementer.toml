@@ -29,7 +29,7 @@ format. Distinguish observed evidence from inference. A requirement without
 sufficient evidence remains unverified; a submitted result is not native
 workflow acceptance.
 """
-model = "gpt-5.6-sol"
+model = "gpt-6-sol"
 model_reasoning_effort = "xhigh"
 name = "sol-implementer"
 

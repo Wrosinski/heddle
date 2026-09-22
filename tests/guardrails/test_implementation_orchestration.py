@@ -57,7 +57,7 @@ def test_provider_workers_pin_models_and_cannot_delegate_further():
     assert "do not\ndelegate it to another agent" in claude_body
 
     assert sol["name"] == "sol-implementer"
-    assert sol["model"] == "gpt-5.6-sol"
+    assert sol["model"] == "gpt-6-sol"
     assert sol["model_reasoning_effort"] == "xhigh"
     assert sol["agents"]["enabled"] is False
     assert "do not\ndelegate it to other agents" in sol["developer_instructions"]
