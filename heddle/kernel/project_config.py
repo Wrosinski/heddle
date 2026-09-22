@@ -28,16 +28,11 @@ from heddle.contracts.schemas import (
     GATES_KEYS,
     HOST_COMMAND_KEYS,
     LAYOUT_KEYS,
-    SYNC_KEYS,
     WORKSPACE_STATE,
 )
 
 # the host-contract filename (heddle-plan §The host contract).
 HEDDLE_CONFIG_FILENAME = ".heddle.yaml"
-# Default `sync.mirror`: every host keeps a
-# byte-identical CLAUDE.md beside AGENTS.md unless it opts out with
-# `sync: {mirror: null}`.
-DEFAULT_SYNC_MIRROR = "CLAUDE.md"
 
 # Feature Spec §Conceptual Design "Config loading" — the advisory
 # diagnostic code for unknown sections/keys.
@@ -119,11 +114,6 @@ class ProjectConfig:
     gates_enabled: tuple[str, ...] | None  # None = section absent
     autopilot: AutopilotConfig
     diagnostics: tuple[ConfigDiagnostic, ...]
-    # The single declared byte-mirror of AGENTS.md defaults to
-    # DEFAULT_SYNC_MIRROR when the key
-    # is absent; an explicit `mirror: null` opts out. None = no mirror; the
-    # sync/init writers and the validate mirror-drift guardrail are skipped.
-    sync_mirror: str | None = DEFAULT_SYNC_MIRROR
 
 
 def feature_state_path(config: ProjectConfig, slug: str) -> Path:
@@ -250,7 +240,6 @@ def load_project_config(root: Path) -> ProjectConfig:
         key: getattr(DEFAULT_AUTOPILOT, key) for key in AUTOPILOT_KEYS
     }
     autopilot_section_present = False
-    sync_mirror: str | None = DEFAULT_SYNC_MIRROR
     diagnostics: list[ConfigDiagnostic] = []
 
     # One pass in file order so diagnostics follow document order.
@@ -337,36 +326,6 @@ def load_project_config(root: Path) -> ProjectConfig:
                             hint=hint,
                         )
                 gates_enabled = tuple(value)
-        elif section == "sync":
-            for key, value in _section_items(section, raw_value, config_path):
-                if key not in SYNC_KEYS:
-                    diagnostics.append(_unknown_key_diagnostic(section, key))
-                    continue
-                if value is None or value is False:
-                    # Explicit opt-out of the default mirror.
-                    sync_mirror = None
-                    continue
-                if not isinstance(value, str):
-                    raise _wrong_type(
-                        "sync.mirror",
-                        "a project-root-relative file path string, or null "
-                        "to disable the default mirror",
-                        value,
-                        config_path,
-                    )
-                if Path(value).is_absolute() or ".." in Path(value).parts:
-                    # The same containment bar as layout.* applies: the mirror is
-                    # compared byte-for-byte against AGENTS.md and must not
-                    # escape the project root.
-                    raise KernelError(
-                        code="workspace-invalid",
-                        message=(
-                            "sync.mirror must be a project-root-relative, "
-                            f"traversal-free path, got {value!r}"
-                        ),
-                        hint=f"fix sync.mirror in {config_path}",
-                    )
-                sync_mirror = value
         elif section == "autopilot":
             autopilot_section_present = True
             for key, value in _section_items(section, raw_value, config_path):
@@ -397,7 +356,6 @@ def load_project_config(root: Path) -> ProjectConfig:
             section_present=autopilot_section_present,
         ),
         diagnostics=tuple(diagnostics),
-        sync_mirror=sync_mirror,
     )
 
 

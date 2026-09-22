@@ -362,15 +362,13 @@ WORKSPACE_BRIEF = "brief.md"
 WORKSPACE_REVIEWS_DIR = "reviews"
 WORKSPACE_VERIFICATION_DIR = "verification"
 
-# The .heddle.yaml v0 vocabulary follows the ratified example. The additive
-# `sync` section declares an optional byte-mirror of AGENTS.md.
+# The .heddle.yaml v0 vocabulary follows the ratified example.
 HEDDLE_YAML_SECTIONS = (
     "layout",
     "commands",
     "agents",
     "gates",
     "autopilot",
-    "sync",
 )
 LAYOUT_KEYS = ("specs", "plans", "prompts", "schemas", "tests", "source")
 HOST_COMMAND_KEYS = ("test", "lint", "typecheck")
@@ -384,7 +382,6 @@ AUTOPILOT_KEYS = (
     "max_budget_usd",
     "test_command",
 )
-SYNC_KEYS = ("mirror",)
 
 # workflow-model §6.1 — the gate-manifest format as contract; ordered
 # equality with heddle.gate.types.GateType field names is asserted by the

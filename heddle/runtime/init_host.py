@@ -2,8 +2,7 @@
 
 The planner runs before project configuration exists.  It discovers the
 nearest Git root without spawning Git and renders one immutable plan: the
-three lock-recorded targets, the declared AGENTS.md mirror (`sync.mirror`,
-default CLAUDE.md, never lock-recorded), and the lock.  Dry-run serializes
+three lock-recorded targets and the lock.  Dry-run serializes
 that plan without touching the host filesystem; apply installs the same
 desired bytes atomically and commits the lock last.
 """
@@ -11,8 +10,6 @@ desired bytes atomically and commits the lock last.
 from __future__ import annotations
 
 import hashlib
-import os
-import shlex
 import stat
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
@@ -34,12 +31,7 @@ from heddle.kernel.managed_regions import (
     marker_fault_kind,
     replace_managed_region,
 )
-from heddle.kernel.project_config import (
-    DEFAULT_SYNC_MIRROR,
-    HEDDLE_CONFIG_FILENAME,
-    KernelError,
-    load_project_config,
-)
+from heddle.kernel.project_config import KernelError
 from heddle.runtime.output import emit_envelope
 from heddle.runtime.sync import (
     SESSION_ENTRY_ID,
@@ -47,12 +39,11 @@ from heddle.runtime.sync import (
     render_session_entry,
 )
 
-InitClass = Literal["scaffold-once", "managed-region", "runtime-owned", "mirror"]
+InitClass = Literal["scaffold-once", "managed-region", "runtime-owned"]
 InitAction = Literal["create", "accept", "integrate", "refuse", "skip"]
 InitOutcome = Literal["done", "failed", "not-reached"]
 
 GIT_ROOT_MISSING = "missing-git-root"
-CONFIG_UNPARSABLE = "config-unparsable"
 INIT_LOCK_MISSING = "missing-init-lock"
 INIT_RESOURCE_UNREADABLE = "init-resource-unreadable"
 
@@ -150,25 +141,6 @@ def plan_init(cwd: Path, *, adopt_existing: bool = False) -> InitPlan:
 def _plan_init_root(root: Path, *, adopt_existing: bool = False) -> InitPlan:
     """Build a plan after the pre-config Git-root boundary has resolved."""
 
-    # Syntax- or structure-invalid YAML is a bootstrap failure rather than an
-    # occupied-row preview. A valid foreign document is still host-owned and
-    # is handled by the ordinary scaffold-once refusal below.
-    config_path = root / HEDDLE_CONFIG_FILENAME
-    config_mode = _target_mode(config_path)
-    mirror_rel: str | None = DEFAULT_SYNC_MIRROR
-    if config_mode is not None and stat.S_ISREG(config_mode):
-        try:
-            mirror_rel = load_project_config(root).sync_mirror
-        except KernelError as error:
-            raise KernelError(
-                code=error.code,
-                message=error.message,
-                hint=error.hint,
-                details=error.details,
-                candidates=error.candidates,
-                reason=CONFIG_UNPARSABLE,
-            ) from error
-
     resources = {
         ".heddle.yaml": _read_resource("heddle-yaml.scaffold.yaml"),
         "docs/workflow/engineering-principles.md": _read_resource(
@@ -219,20 +191,6 @@ def _plan_init_root(root: Path, *, adopt_existing: bool = False) -> InitPlan:
         # entries forward byte-for-byte, so this branch is defensive.
         lock_action = "refuse"
         lock_bytes = None
-    if mirror_rel is not None:
-        agents_index = next(
-            index
-            for index, target in enumerate(planned)
-            if target.class_ == "managed-region"
-        )
-        mirror = _plan_mirror(
-            root,
-            PurePosixPath(mirror_rel),
-            planned[agents_index],
-            adopted=lock is not None,
-        )
-        if mirror is not None:
-            planned.insert(agents_index + 1, mirror)
     planned.append(
         InitTarget(
             path=_LOCK_PATH,
@@ -257,12 +215,11 @@ def run_init(args: list[str], json_mode: bool) -> int:
 
 def initialize(operation: ops.Init) -> HeddleResult:
     dry_run = operation.dry_run
-    root: Path | None = None
     try:
         root = _find_git_root(Path.cwd())
         plan = _plan_init_root(root, adopt_existing=operation.adopt_existing)
     except KernelError as error:
-        return _init_failure(error, root)
+        return _init_failure(error)
 
     rows = tuple(
         InitResultRow(target.path, target.class_, target.action)
@@ -283,7 +240,7 @@ def initialize(operation: ops.Init) -> HeddleResult:
     try:
         applied = apply_init(plan)
     except KernelError as error:
-        return _init_failure(error, plan.root)
+        return _init_failure(error)
     result = HeddleResult.success(
         {"targets": [row.to_payload() for row in applied]},
         next_actions=(
@@ -568,45 +525,6 @@ def _plan_unrecorded_agents(
     return InitTarget(relative, "managed-region", "integrate", desired)
 
 
-def _plan_mirror(
-    root: Path,
-    relative: PurePosixPath,
-    agents: InitTarget,
-    *,
-    adopted: bool,
-) -> InitTarget | None:
-    """Plan the declared full-file mirror of the planned AGENTS.md bytes.
-
-    The mirror is never lock-recorded. Absent → create. A symlink resolving
-    to AGENTS.md, or a regular file already equal to the planned AGENTS.md
-    bytes → accept. On first adoption (no lock) any other regular file is
-    host-authored and refused; on an adopted host the mirror is
-    runtime-owned and brought back byte-identical (integrate). Any other
-    shape is refused. Returns None when AGENTS.md itself was refused, since
-    its bytes are unknown."""
-    source = agents.desired_bytes
-    if source is None:
-        return None
-    path = root / relative
-    mode = _target_mode(path)
-    if mode is None:
-        return InitTarget(relative, "mirror", "create", source)
-    if stat.S_ISLNK(mode):
-        try:
-            same = os.path.realpath(path) == os.path.realpath(root / agents.path)
-        except OSError:
-            same = False
-        return InitTarget(relative, "mirror", "accept" if same else "refuse", None)
-    if not stat.S_ISREG(mode):
-        return InitTarget(relative, "mirror", "refuse", None)
-    current = _target_bytes(path)
-    if current == source:
-        return InitTarget(relative, "mirror", "accept", source)
-    if adopted:
-        return InitTarget(relative, "mirror", "integrate", source)
-    return InitTarget(relative, "mirror", "refuse", None)
-
-
 def _has_valid_managed_pair(raw: bytes) -> bool:
     return _managed_pair_fault(raw) is None
 
@@ -700,7 +618,6 @@ def _render_lock(
     targets: list[InitTarget],
     existing: _LockState | None,
 ) -> bytes:
-    targets = [target for target in targets if target.class_ != "mirror"]
     if existing is not None and all(target.action == "skip" for target in targets):
         return existing.raw
     entries: list[dict[str, str]] = []
@@ -752,7 +669,7 @@ def _parse_args(args: list[str]) -> tuple[ops.Init | None, HeddleResult | None]:
     )
 
 
-def _init_failure(error: KernelError, root: Path | None) -> HeddleResult:
+def _init_failure(error: KernelError) -> HeddleResult:
     actions: tuple[NextAction, ...]
     diagnostics: tuple[Diagnostic, ...]
     if error.reason == GIT_ROOT_MISSING:
@@ -763,22 +680,6 @@ def _init_failure(error: KernelError, root: Path | None) -> HeddleResult:
             ),
         )
         diagnostics = ()
-    elif root is not None and error.reason == CONFIG_UNPARSABLE:
-        config_path = shlex.quote(str(root / HEDDLE_CONFIG_FILENAME))
-        actions = (
-            NextAction(
-                action=ops.ManualAction(f"${{EDITOR:-vi}} {config_path}"),
-                reason=f"fix the malformed {HEDDLE_CONFIG_FILENAME} configuration",
-            ),
-        )
-        diagnostics = (
-            Diagnostic(
-                severity=Severity.FATAL,
-                code="config-unparsable",
-                message=error.message,
-                source=HEDDLE_CONFIG_FILENAME,
-            ),
-        )
     elif error.reason == INIT_RESOURCE_UNREADABLE:
         # The install source is an explicit adopter choice (editable checkout,
         # pinned Git commit, or reviewed wheel). Do not guess one, and do not
@@ -816,14 +717,7 @@ def _refused_failure(
     for target in refused:
         code = "init-refused-target"
         message = f"{target.path.as_posix()} cannot be adopted safely"
-        if target.class_ == "mirror":
-            code = "mirror-drift"
-            message = (
-                f"{target.path.as_posix()} is not byte-identical to AGENTS.md "
-                "(declared sync.mirror): copy AGENTS.md over it, replace it "
-                "with a symlink to AGENTS.md, or set `sync: {mirror: null}`"
-            )
-        elif target.path == PurePosixPath("AGENTS.md"):
+        if target.path == PurePosixPath("AGENTS.md"):
             current = _target_bytes(plan.root / target.path)
             fault = _managed_pair_fault(current) if current is not None else None
             if fault not in {None, "invalid-utf8"}:
@@ -848,7 +742,7 @@ def _refused_failure(
                 "review every refused row before applying; to preserve existing "
                 "host-owned config and principles, preview "
                 "`heddle init --adopt-existing --dry-run`; structural faults "
-                "and mirror conflicts still require repair"
+                "still require repair"
             ),
         ),
         exit_code=ExitCode.FATAL,

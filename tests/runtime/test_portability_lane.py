@@ -67,21 +67,18 @@ pytestmark = pytest.mark.acceptance
 TARGET_SPECS = (
     (".heddle.yaml", "scaffold-once"),
     ("AGENTS.md", "managed-region"),
-    # search root-mirror increment (owner-ruled 2026-09-11): the default
-    # `sync.mirror` follows AGENTS.md and is never lock-recorded.
-    ("CLAUDE.md", "mirror"),
     ("docs/workflow/engineering-principles.md", "scaffold-once"),
     (".heddle.lock", "runtime-owned"),
 )
 FOOTPRINT = tuple(path for path, _class in TARGET_SPECS)
 LOCKED_FOOTPRINT = tuple(
-    path for path, class_ in TARGET_SPECS if class_ not in {"mirror", "runtime-owned"}
+    path for path, class_ in TARGET_SPECS if class_ != "runtime-owned"
 )
 EXPECTED_CLASS_BY_PATH = dict(TARGET_SPECS)
 SESSION_BEGIN = begin_marker(SESSION_ENTRY_ID)
 SESSION_END = end_marker(SESSION_ENTRY_ID)
 MANAGED_AGENTS = SESSION_BEGIN + "\n" + render_session_entry() + SESSION_END + "\n"
-CONVERGED_ACTIONS = ("skip", "skip", "accept", "skip", "accept")
+CONVERGED_ACTIONS = ("skip", "skip", "skip", "accept")
 
 
 @pytest.fixture(scope="module")
@@ -189,7 +186,6 @@ def _write_manual_initialized_host(host: Path) -> None:
         encoding="utf-8",
     )
     (host / "AGENTS.md").write_text(MANAGED_AGENTS, encoding="utf-8")
-    (host / "CLAUDE.md").write_text(MANAGED_AGENTS, encoding="utf-8")
     principles = host / "docs" / "workflow" / "engineering-principles.md"
     principles.parent.mkdir(parents=True, exist_ok=True)
     principles.write_text(
@@ -338,7 +334,7 @@ def test_ac02_red_apply_installs_exact_footprint_lock_and_journey(
     installed_wheel: InstalledWheel,
     tmp_path: Path,
 ) -> None:
-    """AC-2 red: apply writes five LF files, lock last, then routes the journey."""
+    """AC-2 red: apply writes four LF files, lock last, then routes the journey."""
     host, nested = make_git_host(tmp_path, "ac02")
     gitignore = host / ".gitignore"
     gitignore.write_bytes(b"host-owned\n")
@@ -350,8 +346,8 @@ def test_ac02_red_apply_installs_exact_footprint_lock_and_journey(
         f"exit={code}, envelope={envelope!r}, stderr={result.stderr!r}"
     )
     assert [row["path"] for row in envelope["data"]["targets"]] == list(FOOTPRINT)
-    assert [row["outcome"] for row in envelope["data"]["targets"]] == ["done"] * 5
-    assert [row["action"] for row in envelope["data"]["targets"]] == ["create"] * 5
+    assert [row["outcome"] for row in envelope["data"]["targets"]] == ["done"] * 4
+    assert [row["action"] for row in envelope["data"]["targets"]] == ["create"] * 4
     assert [row["command"] for row in envelope["next_actions"]] == [
         "${EDITOR:-vi} docs/workflow/engineering-principles.md",
         "heddle doctor",
@@ -361,7 +357,7 @@ def test_ac02_red_apply_installs_exact_footprint_lock_and_journey(
 
     after_files = {row[0] for row in snapshot_tree(host) if row[1] == "file"}
     assert after_files - before_files == set(FOOTPRINT), (
-        "FAIL AC-2: apply's added-file footprint is not exactly the five "
+        "FAIL AC-2: apply's added-file footprint is not exactly the four "
         f"contract paths: {sorted(after_files - before_files)}"
     )
     resource_root = installed_wheel.site_packages / "heddle" / "resources"
@@ -372,10 +368,6 @@ def test_ac02_red_apply_installs_exact_footprint_lock_and_journey(
         resource_root / "engineering-principles.seed.md"
     ).read_bytes()
     assert (host / "AGENTS.md").read_bytes() == MANAGED_AGENTS.encode("utf-8")
-    mirror = host / "CLAUDE.md"
-    assert not mirror.is_symlink() and mirror.read_bytes() == (
-        MANAGED_AGENTS.encode("utf-8")
-    ), "FAIL AC-2: the default mirror must be a regular byte-copy of AGENTS.md"
     assert all((host / relative).read_bytes().endswith(b"\n") for relative in FOOTPRINT)
     assert all(b"\r" not in (host / relative).read_bytes() for relative in FOOTPRINT)
     _assert_valid_lock(host)
@@ -400,7 +392,6 @@ def test_ac02_red_executor_uses_atomic_seams_and_writes_lock_last(
     assert calls == [
         (".heddle.yaml", True),
         ("AGENTS.md", True),
-        ("CLAUDE.md", True),
         ("docs/workflow/engineering-principles.md", True),
         (".heddle.lock", False),
     ], (
@@ -415,7 +406,7 @@ def test_ac03_red_converged_rerun_is_exact_no_write_vector(
     installed_wheel: InstalledWheel,
     tmp_path: Path,
 ) -> None:
-    """AC-3 red: rerun is exactly skip/skip/accept/skip/accept and byte-stable."""
+    """AC-3 red: rerun is exactly skip/skip/skip/accept and byte-stable."""
     host, nested = make_git_host(tmp_path, "ac03")
     _assert_success(installed_wheel, nested, "init", "--json")
     before_tree = snapshot_tree(host)
@@ -570,10 +561,7 @@ def test_ac05_red_recorded_agents_skip_preserves_current_and_lock_bytes(
     installed_wheel: InstalledWheel,
     tmp_path: Path,
 ) -> None:
-    """AC-5 red: lock membership makes managed AGENTS bytes host-owned.
-
-    The runtime-owned mirror is the one exception: on an adopted host it
-    follows the host's AGENTS.md edit (integrate) instead of refusing."""
+    """AC-5 red: lock membership makes managed AGENTS bytes host-owned."""
     host, nested = make_git_host(tmp_path, "ac05-recorded")
     _assert_success(installed_wheel, nested, "init", "--json")
     agents = host / "AGENTS.md"
@@ -583,19 +571,17 @@ def test_ac05_red_recorded_agents_skip_preserves_current_and_lock_bytes(
         ),
         encoding="utf-8",
     )
-    before = tuple(row for row in snapshot_tree(host) if row[0] != "CLAUDE.md")
+    before = snapshot_tree(host)
     lock_before = (host / ".heddle.lock").read_bytes()
     envelope = _assert_success(installed_wheel, nested, "init", "--json")
     assert tuple(row["action"] for row in envelope["data"]["targets"]) == (
         "skip",
         "skip",
-        "integrate",
         "skip",
         "accept",
     )
     assert (host / ".heddle.lock").read_bytes() == lock_before
-    assert (host / "CLAUDE.md").read_bytes() == agents.read_bytes()
-    assert tuple(row for row in snapshot_tree(host) if row[0] != "CLAUDE.md") == before
+    assert snapshot_tree(host) == before
 
 
 @pytest.mark.toolchain
@@ -665,94 +651,6 @@ def test_ac05_red_agents_marker_and_shape_faults_refuse_without_writes(
         assert refused[0].get("source") == "AGENTS.md"
         assert apply["next_actions"][0]["command"] == "heddle init --dry-run"
         assert snapshot_tree(host) == before
-
-
-@pytest.mark.toolchain
-def test_mirror_first_adoption_refuses_foreign_claude_md_without_writes(
-    installed_wheel: InstalledWheel,
-    tmp_path: Path,
-) -> None:
-    """search mirror: an unadopted host's differing CLAUDE.md is host-authored."""
-    host, nested = make_git_host(tmp_path, "mirror-foreign")
-    (host / "CLAUDE.md").write_bytes(b"hand-written Claude instructions\n")
-    before = snapshot_tree(host)
-
-    preview = _assert_success(installed_wheel, nested, "init", "--dry-run", "--json")
-    rows = {row["path"]: row for row in preview["data"]["targets"]}
-    assert rows["CLAUDE.md"] == {
-        "path": "CLAUDE.md",
-        "class": "mirror",
-        "action": "refuse",
-    }
-    assert rows["AGENTS.md"]["action"] == "create"
-
-    code, apply, _result = _run_json(installed_wheel, nested, "init", "--json")
-    assert code == 3 and apply["error"]["code"] == "workspace-invalid"
-    drift = _diagnostic(apply, "mirror-drift")
-    assert len(drift) == 1 and drift[0]["severity"] == "fatal"
-    assert drift[0].get("source") == "CLAUDE.md"
-    assert "mirror: null" in drift[0]["message"]
-    assert snapshot_tree(host) == before, (
-        "FAIL mirror: a refused mirror must block every write, AGENTS.md included"
-    )
-
-
-@pytest.mark.toolchain
-def test_mirror_symlink_and_identical_copy_are_accepted(
-    installed_wheel: InstalledWheel,
-    tmp_path: Path,
-) -> None:
-    """search mirror: a symlink to AGENTS.md or an equal copy already satisfies."""
-    for shape in ("symlink", "copy"):
-        host, nested = make_git_host(tmp_path, f"mirror-{shape}")
-        mirror = host / "CLAUDE.md"
-        if shape == "symlink":
-            mirror.symlink_to("AGENTS.md")
-        else:
-            mirror.write_text(MANAGED_AGENTS, encoding="utf-8")
-        envelope = _assert_success(installed_wheel, nested, "init", "--json")
-        rows = {row["path"]: row for row in envelope["data"]["targets"]}
-        assert rows["CLAUDE.md"]["action"] == "accept", shape
-        if shape == "symlink":
-            assert mirror.is_symlink() and os.readlink(mirror) == "AGENTS.md"
-        assert mirror.read_bytes() == (host / "AGENTS.md").read_bytes()
-        _assert_valid_lock(host)
-
-
-def test_mirror_opt_out_and_declared_path_follow_the_host_config(
-    tmp_path: Path,
-) -> None:
-    """search mirror: `sync.mirror` steers the planner; null removes the row."""
-    module = _require_init_module("mirror")
-    host, _nested = make_git_host(tmp_path, "mirror-config")
-    module.apply_init(module.plan_init(host))
-    config = host / ".heddle.yaml"
-    scaffold = config.read_text(encoding="utf-8")
-
-    config.write_text(scaffold + "\nsync:\n  mirror: null\n", encoding="utf-8")
-    paths = [target.path.as_posix() for target in module.plan_init(host).targets]
-    assert paths == [
-        ".heddle.yaml",
-        "AGENTS.md",
-        "docs/workflow/engineering-principles.md",
-        ".heddle.lock",
-    ]
-
-    config.write_text(
-        scaffold + "\nsync:\n  mirror: .claude/CLAUDE.md\n", encoding="utf-8"
-    )
-    plan = module.plan_init(host)
-    declared = next(t for t in plan.targets if t.class_ == "mirror")
-    assert declared.path.as_posix() == ".claude/CLAUDE.md"
-    assert declared.action == "create"
-    module.apply_init(plan)
-    assert (host / ".claude" / "CLAUDE.md").read_bytes() == (
-        host / "AGENTS.md"
-    ).read_bytes()
-    lock = yaml.safe_load((host / ".heddle.lock").read_text(encoding="utf-8"))
-    assert [row["path"] for row in lock["targets"]] == sorted(LOCKED_FOOTPRINT), (
-        "FAIL mirror: the mirror must never enter the adoption lock"
-    )
 
 
 @pytest.mark.toolchain
@@ -847,7 +745,7 @@ def test_ac07_red_bootstrap_failures_route_without_writes(
     installed_wheel: InstalledWheel,
     tmp_path: Path,
 ) -> None:
-    """AC-7 red: non-Git and malformed-config failures are specific and safe."""
+    """AC-7 red: non-Git failure is specific; malformed config is host-owned bytes."""
     non_git = tmp_path / "ac07-non-git"
     non_git.mkdir()
     before = snapshot_tree(non_git)
@@ -861,6 +759,9 @@ def test_ac07_red_bootstrap_failures_route_without_writes(
         assert "git" in envelope["next_actions"][0]["reason"].lower()
         assert snapshot_tree(non_git) == before
 
+    # Init never parses configuration before adoption, so a malformed
+    # .heddle.yaml is occupied host-owned bytes: the scaffold-once target
+    # refuses without writes and doctor owns config-unparsable afterwards.
     invalid_configs = {
         "syntax": b"layout: [unterminated\n",
         "top-level-sequence": b"- layout\n- agents\n",
@@ -868,32 +769,25 @@ def test_ac07_red_bootstrap_failures_route_without_writes(
     }
     for name, config_bytes in invalid_configs.items():
         malformed, nested = make_git_host(tmp_path, f"ac07-malformed-{name}")
-        config = malformed / ".heddle.yaml"
-        config.write_bytes(config_bytes)
+        (malformed / ".heddle.yaml").write_bytes(config_bytes)
         before = snapshot_tree(malformed)
-        for args in (("init", "--dry-run", "--json"), ("init", "--json")):
-            code, envelope, _result = _run_json(installed_wheel, nested, *args)
-            assert code == 3 and envelope["error"]["code"] == "workspace-invalid"
-            assert "data" not in envelope
-            assert envelope["diagnostics"] == [
-                {
-                    "severity": "fatal",
-                    "code": "config-unparsable",
-                    "message": envelope["error"]["message"],
-                    "source": ".heddle.yaml",
-                }
-            ]
-            assert envelope["next_actions"] == [
-                {
-                    "action": {
-                        "kind": "manual",
-                        "instruction": f"${{EDITOR:-vi}} {shlex.quote(str(config))}",
-                    },
-                    "command": f"${{EDITOR:-vi}} {shlex.quote(str(config))}",
-                    "reason": "fix the malformed .heddle.yaml configuration",
-                }
-            ]
-            assert snapshot_tree(malformed) == before
+        preview = _assert_success(
+            installed_wheel, nested, "init", "--dry-run", "--json"
+        )
+        rows = {row["path"]: row for row in preview["data"]["targets"]}
+        assert rows[".heddle.yaml"] == {
+            "path": ".heddle.yaml",
+            "class": "scaffold-once",
+            "action": "refuse",
+        }, name
+        assert not _diagnostic(preview, "config-unparsable")
+        code, envelope, _result = _run_json(installed_wheel, nested, "init", "--json")
+        assert code == 3 and envelope["error"]["code"] == "workspace-invalid", name
+        assert "data" not in envelope
+        refused = _diagnostic(envelope, "init-refused-target")
+        assert [row.get("source") for row in refused] == [".heddle.yaml"], name
+        assert not _diagnostic(envelope, "config-unparsable")
+        assert snapshot_tree(malformed) == before
 
 
 def test_ac07_survivor_unsupported_hard_link_is_specific_and_cleans_staging(
@@ -924,7 +818,7 @@ def test_ac07_init_preserves_unsupported_filesystem_remediation(
     run_cli,
     envelope_tools,
 ) -> None:
-    """AC-7: init keeps dependency errors out of the config-failure route."""
+    """AC-7: init reports unsupported-filesystem errors as retryable host state."""
     host, nested = make_git_host(tmp_path, "ac07-init-unsupported")
     monkeypatch.chdir(nested)
 
@@ -939,7 +833,6 @@ def test_ac07_init_preserves_unsupported_filesystem_remediation(
     assert code == 3 and envelope["error"]["code"] == "workspace-invalid"
     assert "supporting" in envelope["error"]["hint"]
     assert "heddle init" in envelope["error"]["hint"]
-    assert not _diagnostic(envelope, "config-unparsable")
     assert envelope["next_actions"][0]["command"] == "heddle init --dry-run"
     assert snapshot_tree(host) == before
 
@@ -1257,7 +1150,6 @@ def test_ac10_red_installed_ratified_journey_honors_nondefault_plans_layout(
             assert [row["block"] for row in envelope["data"]["targets"]] == [
                 "plan-status",
                 "session-entry",
-                "mirror",
             ]
             assert envelope["data"]["feature"] == "lane-probe"
         if args[0] in {"orient", "status"}:
@@ -1656,11 +1548,8 @@ def test_ac13_red_drift_is_diagnosed_without_overwriting_host_bytes(
             "begin-only",
         ),
     )
-    mirror = host / "CLAUDE.md"
     for name, text, expected_exit, expected_term in cases:
-        # Keep the default mirror in step so only the managed block drifts.
         agents.write_text(text, encoding="utf-8")
-        mirror.write_text(text, encoding="utf-8")
         before = snapshot_tree(host)
         code, envelope, _result = _run_json(
             installed_wheel, nested, "validate", "--json"
@@ -1682,7 +1571,6 @@ def test_ac13_red_drift_is_diagnosed_without_overwriting_host_bytes(
             f"FAIL AC-13 survivor: validate rewrote {name} drift"
         )
         agents.write_text(complete, encoding="utf-8")
-        mirror.write_text(complete, encoding="utf-8")
 
     (host / "docs" / "workflow" / "engineering-principles.md").unlink()
     before = snapshot_tree(host)
@@ -1912,7 +1800,6 @@ def test_ac16_red_config_scaffold_rail_matches_parser_vocabulary() -> None:
         HEDDLE_YAML_SECTIONS,
         HOST_COMMAND_KEYS,
         LAYOUT_KEYS,
-        SYNC_KEYS,
     )
 
     expected = {
@@ -1921,7 +1808,6 @@ def test_ac16_red_config_scaffold_rail_matches_parser_vocabulary() -> None:
         "agents": set(AGENTS_KEYS),
         "gates": set(GATES_KEYS),
         "autopilot": set(AUTOPILOT_KEYS),
-        "sync": set(SYNC_KEYS),
     }
     observed: dict[str, set[str]] = {}
     section_order: list[str] = []

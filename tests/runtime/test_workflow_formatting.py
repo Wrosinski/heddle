@@ -102,7 +102,7 @@ def test_ac5_sync_is_a_fixed_point_after_offline_prettier(
         encoding="utf-8",
     )
     (host / ".prettierignore").write_text("", encoding="utf-8")
-    targets = [plan, host / "AGENTS.md", host / "CLAUDE.md"]
+    targets = [plan, host / "AGENTS.md"]
     formatted = _run(
         [
             "node",

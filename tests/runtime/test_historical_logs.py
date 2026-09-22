@@ -19,7 +19,6 @@ def test_completed_host_validates_without_historical_logs_or_raw_archive(
     host = final_host(tmp_path, monkeypatch)
     accepted = host.complete()
     assert accepted.ok and accepted.data["accepted"]
-    (host.root / "CLAUDE.md").symlink_to("AGENTS.md")
     state = read(host.state)
     logs = {fact["log"] for fact in state["verifications"]}
     logs.add(state["completion"]["close_suite"]["log"])

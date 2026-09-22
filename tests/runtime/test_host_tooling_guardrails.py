@@ -1,10 +1,8 @@
 """
 adoption host-tooling increment 2: validate guardrail additions.
 
-Covers the three repo-level findings added to ``run_guardrails``
-(managed-block-integrity, mirror-drift, prompt-conventions) and the
-``sync.mirror`` config key (owner rulings 4/5, 2026-07-22; default-on
-CLAUDE.md since the owner ruling of 2026-09-11). All fixtures are throwaway
+Covers the repo-level findings added to ``run_guardrails``
+(managed-block-integrity, prompt-conventions). All fixtures are throwaway
 tmp roots — no repo fixture is touched.
 """
 
@@ -16,14 +14,9 @@ import pytest
 
 from heddle.contracts.result import Severity
 from heddle.kernel.managed_regions import begin_marker, end_marker
-from heddle.kernel.project_config import (
-    DEFAULT_SYNC_MIRROR,
-    KernelError,
-    load_project_config,
-)
+from heddle.kernel.project_config import load_project_config
 from heddle.runtime.guardrails import (
     MANAGED_BLOCK_INTEGRITY,
-    MIRROR_DRIFT,
     PROMPT_CONVENTIONS,
     run_guardrails,
 )
@@ -126,127 +119,20 @@ def test_managed_block_malformed_markers_are_fatal(
 
 
 # ---------------------------------------------------------------------------
-# mirror-drift (+ sync.mirror config key)
+# retired `sync` section
 # ---------------------------------------------------------------------------
 
 
-def test_mirror_defaults_to_claude_md(tmp_path: Path) -> None:
-    # Owner ruling 2026-09-11: the mirror is on by default, so an undeclared
-    # host with a drifted CLAUDE.md is a finding.
-    root = _host(tmp_path)
-    (root / "AGENTS.md").write_text("source\n", encoding="utf-8")
-    (root / "CLAUDE.md").write_text("totally different\n", encoding="utf-8")
-
-    findings = _findings(root, MIRROR_DRIFT)
-
-    assert len(findings) == 1
-    assert findings[0].severity is Severity.FATAL
-    assert "CLAUDE.md is not byte-identical" in findings[0].message
-
-
-def test_mirror_opt_out_skips_check_entirely(tmp_path: Path) -> None:
+def test_retired_sync_section_is_an_ignored_unknown_section(tmp_path: Path) -> None:
+    # Hosts that still declare the retired `sync.mirror` key load with one
+    # advisory unknown-section diagnostic and no mirror behavior.
     root = _host(tmp_path, "sync:\n  mirror: null\n")
-    (root / "AGENTS.md").write_text("source\n", encoding="utf-8")
-    (root / "CLAUDE.md").write_text("totally different\n", encoding="utf-8")
-
-    assert _findings(root, MIRROR_DRIFT) == []
-
-
-def test_mirror_symlink_to_agents_is_silent(tmp_path: Path) -> None:
-    root = _host(tmp_path)
-    (root / "AGENTS.md").write_text("source\n", encoding="utf-8")
-    (root / "CLAUDE.md").symlink_to("AGENTS.md")
-
-    assert _findings(root, MIRROR_DRIFT) == []
-
-
-def test_mirror_neither_file_is_silent(tmp_path: Path) -> None:
-    # A host with no AGENTS.md has not adopted sync — nothing to check.
-    root = _host(tmp_path)
-
-    assert _findings(root, MIRROR_DRIFT) == []
-
-
-def test_mirror_declared_identical_is_silent(tmp_path: Path) -> None:
-    root = _host(tmp_path, "sync:\n  mirror: CLAUDE.md\n")
-    (root / "AGENTS.md").write_text("same bytes\n", encoding="utf-8")
-    (root / "CLAUDE.md").write_text("same bytes\n", encoding="utf-8")
-
-    assert _findings(root, MIRROR_DRIFT) == []
-
-
-def test_mirror_declared_drifted_is_fatal(tmp_path: Path) -> None:
-    root = _host(tmp_path, "sync:\n  mirror: CLAUDE.md\n")
-    (root / "AGENTS.md").write_text("source\n", encoding="utf-8")
-    (root / "CLAUDE.md").write_text("drifted\n", encoding="utf-8")
-
-    findings = _findings(root, MIRROR_DRIFT)
-
-    assert len(findings) == 1
-    assert findings[0].severity is Severity.FATAL
-    assert "byte-identical" in findings[0].message
-
-
-def test_mirror_declared_missing_mirror_is_advisory(tmp_path: Path) -> None:
-    # `heddle sync` creates the mirror on demand (the OD-4 posture of the
-    # managed block), so absence is advisory rather than fatal.
-    root = _host(tmp_path, "sync:\n  mirror: CLAUDE.md\n")
-    (root / "AGENTS.md").write_text("source\n", encoding="utf-8")
-
-    findings = _findings(root, MIRROR_DRIFT)
-
-    assert len(findings) == 1
-    assert findings[0].severity is Severity.ADVISORY
-    assert "missing" in findings[0].message
-    assert "heddle sync" in findings[0].message
-
-
-def test_mirror_declared_missing_agents_is_fatal(tmp_path: Path) -> None:
-    root = _host(tmp_path, "sync:\n  mirror: CLAUDE.md\n")
-    (root / "CLAUDE.md").write_text("mirror\n", encoding="utf-8")
-
-    findings = _findings(root, MIRROR_DRIFT)
-
-    assert len(findings) == 1
-    assert "AGENTS.md is missing" in findings[0].message
-
-
-def test_sync_mirror_config_parsing(tmp_path: Path) -> None:
-    root = _host(tmp_path, "sync:\n  mirror: docs/CLAUDE.md\n")
-    assert load_project_config(root).sync_mirror == "docs/CLAUDE.md"
-
-    absent = _host(tmp_path, "")
-    assert load_project_config(absent).sync_mirror == DEFAULT_SYNC_MIRROR == "CLAUDE.md"
-
-    bare_section = _host(tmp_path, "sync:\n")
-    assert load_project_config(bare_section).sync_mirror == "CLAUDE.md"
-
-    for opt_out in ("null", "~", "false"):
-        disabled = _host(tmp_path, f"sync:\n  mirror: {opt_out}\n")
-        assert load_project_config(disabled).sync_mirror is None, opt_out
-
-
-def test_sync_unknown_key_is_advisory(tmp_path: Path) -> None:
-    root = _host(tmp_path, "sync:\n  mirrors: CLAUDE.md\n")
 
     config = load_project_config(root)
 
-    assert config.sync_mirror == DEFAULT_SYNC_MIRROR
-    assert any("mirrors" in diagnostic.message for diagnostic in config.diagnostics)
-
-
-@pytest.mark.parametrize(
-    "value",
-    ["[CLAUDE.md]", "/etc/agents.md", "../outside.md"],
-    ids=["wrong-type", "absolute", "traversal"],
-)
-def test_sync_mirror_invalid_values_are_fatal(tmp_path: Path, value: str) -> None:
-    root = _host(tmp_path, f"sync:\n  mirror: {value}\n")
-
-    with pytest.raises(KernelError) as excinfo:
-        load_project_config(root)
-
-    assert excinfo.value.code == "workspace-invalid"
+    unknown = [d for d in config.diagnostics if d.code == "config-unknown-key"]
+    assert len(unknown) == 1 and "sync" in unknown[0].message
+    assert not hasattr(config, "sync_mirror")
 
 
 # ---------------------------------------------------------------------------

@@ -322,9 +322,6 @@ class TestAC10HeddleYamlVocabulary:
             "agents",
             "gates",
             "autopilot",
-            # Additive adoption host-tooling increment 2 growth (owner-ruled
-            # 2026-07-22): optional declared AGENTS.md byte-mirror.
-            "sync",
         )
 
     def test_layout_keys(self):

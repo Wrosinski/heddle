@@ -367,10 +367,7 @@ def _public_members(
     documents = {
         path
         for path in members
-        if (
-            path.endswith(".md")
-            or path in {"README", "README.md", "AGENTS.md", "CLAUDE.md"}
-        )
+        if (path.endswith(".md") or path in {"README", "README.md", "AGENTS.md"})
         and not path.startswith("tests/")
     }
     return members, documents, public

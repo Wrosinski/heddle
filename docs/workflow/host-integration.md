@@ -93,10 +93,10 @@ heddle init --adopt-existing
 
 Review the preview before applying. This option records the existing regular
 files' bytes without replacing them or changing their ratification status.
-Configuration still must parse; symlinks, invalid managed markers, conflicting
-instruction mirrors and malformed locks still refuse. Missing targets receive
-normal scaffolds. Existing valid locks retain their original hashes. The option
-does not reset adoption history or suppress subsequent doctor diagnostics.
+Symlinks, invalid managed markers and malformed locks still refuse. Missing
+targets receive normal scaffolds. Existing valid locks retain their original
+hashes. The option does not reset adoption history or suppress subsequent
+doctor diagnostics.
 
 Resolve structural conflicts explicitly and preview again; do not remove
 host-authored content just to obtain a successful initialization.
@@ -123,8 +123,6 @@ repository unchanged.
   real verification entry points. These values describe commands; they do not
   grant permission to run broad, external, or paid scopes.
 - Enable the available runners with `agents.claude` and `agents.codex`.
-- Set `sync.mirror` to an agent-instruction mirror such as `CLAUDE.md`, or set it
-  to `null` when the host does not want a mirror.
 
 Host tooling owns `.heddle.yaml`'s `autopilot.test_command`, which configures
 the additional close suite run by `heddle feature complete`. It does not replace
@@ -242,7 +240,7 @@ heddle sync
 
 Inspect the sync preview and apply only approved managed-region changes.
 Current sync targets are the plan-status region and the root AGENTS session-entry
-region; mirror detection does not provide a mirror writer.
+region.
 
 ### No active feature
 

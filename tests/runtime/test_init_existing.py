@@ -16,9 +16,7 @@ def existing_host(tmp_path: Path) -> Path:
     root = tmp_path / "host"
     (root / ".git").mkdir(parents=True)
     (root / ".heddle.yaml").write_text(
-        "layout: {plans: custom-plans}\n"
-        "agents: {claude: false, codex: false}\n"
-        "sync: {mirror: null}\n"
+        "layout: {plans: custom-plans}\nagents: {claude: false, codex: false}\n"
     )
     principles = root / "docs/workflow/engineering-principles.md"
     principles.parent.mkdir(parents=True)
@@ -88,11 +86,9 @@ def test_adoption_does_not_ratify_or_refresh_existing_lock(
 @pytest.mark.parametrize(
     "fault",
     [
-        "invalid-config",
         "config-symlink",
         "principles-directory",
         "markers",
-        "mirror",
         "lock",
     ],
 )
@@ -101,9 +97,7 @@ def test_adoption_does_not_bypass_structural_faults(
 ) -> None:
     root = existing_host(tmp_path)
     monkeypatch.chdir(root)
-    if fault == "invalid-config":
-        (root / ".heddle.yaml").write_text("layout: [\n")
-    elif fault == "config-symlink":
+    if fault == "config-symlink":
         target = root / ".heddle.yaml"
         target.rename(root / "external-config")
         target.symlink_to(root / "external-config")
@@ -113,18 +107,36 @@ def test_adoption_does_not_bypass_structural_faults(
         target.mkdir()
     elif fault == "markers":
         (root / "AGENTS.md").write_text("<!-- heddle:begin session-entry -->\n")
-    elif fault == "mirror":
-        config = root / ".heddle.yaml"
-        config.write_text(
-            config.read_text().replace("mirror: null", "mirror: CLAUDE.md")
-        )
-        (root / "CLAUDE.md").write_text("Independent host instructions\n")
     else:
         (root / ".heddle.lock").write_text("schema: invalid\n")
     before = snapshot_tree(root)
     result = execute(ops.Init(adopt_existing=True))
     assert not result.ok
     assert snapshot_tree(root) == before
+
+
+def test_adoption_records_unparsable_config_and_leaves_diagnosis_to_doctor(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Init never parses configuration: a malformed .heddle.yaml is host-owned
+    # bytes that explicit adoption records as-is, and doctor reports it.
+    root = existing_host(tmp_path)
+    monkeypatch.chdir(root)
+    (root / ".heddle.yaml").write_text("layout: [\n")
+    before = snapshot_tree(root)
+    preview = execute(ops.Init(dry_run=True, adopt_existing=True))
+    assert preview.ok and preview.data is not None, preview.to_envelope()
+    rows = {row["path"]: row["action"] for row in preview.data["targets"]}
+    assert rows[".heddle.yaml"] == "accept"
+    assert snapshot_tree(root) == before
+    applied = execute(ops.Init(adopt_existing=True))
+    assert applied.ok, applied.to_envelope()
+    assert (root / ".heddle.yaml").read_text() == "layout: [\n"
+    doctor = execute(ops.Doctor())
+    assert not doctor.ok
+    assert [d.code for d in doctor.diagnostics if d.code == "config-unparsable"] == [
+        "config-unparsable"
+    ]
 
 
 def test_adoption_rejects_changed_accepted_file_before_writing(

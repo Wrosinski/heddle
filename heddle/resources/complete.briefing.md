@@ -260,10 +260,10 @@ their external retention location. This judgment is not a verification fact.
 
 ## 9. Repository docs
 
-Update the affected repository docs (`CLAUDE.md` / `AGENTS.md`, workflow
-references) when the feature changed conventions, commands, or structure
-other agents need to know — repository docs are permanent surfaces and must
-reflect the shipped behavior before the workspace evidence disappears.
+Update the affected repository docs (`AGENTS.md`, workflow references) when the
+feature changed conventions, commands, or structure other agents need to know —
+repository docs are permanent surfaces and must reflect the shipped behavior
+before the workspace evidence disappears.
 
 ## 10. Final checkpoint, acceptance, local retention, cleanup
 

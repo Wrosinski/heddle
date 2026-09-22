@@ -28,7 +28,6 @@ PATTERN_INTEGRITY = "pattern-integrity"
 ORIENTATION_DRIFT = "orientation-drift"
 # Managed host-integration guardrails.
 MANAGED_BLOCK_INTEGRITY = "managed-block-integrity"
-MIRROR_DRIFT = "mirror-drift"
 PROMPT_CONVENTIONS = "prompt-conventions"
 AGENTS_DOC = Path("AGENTS.md")
 FEATURES_ROOT = Path("docs") / "features"
@@ -46,7 +45,6 @@ def run_guardrails(root: Path, config: ProjectConfig) -> list[Diagnostic]:
         (PATTERN_INTEGRITY, lambda: _pattern_integrity(root)),
         (ORIENTATION_DRIFT, lambda: _orientation_drift(root)),
         (MANAGED_BLOCK_INTEGRITY, lambda: _managed_block_integrity(root)),
-        (MIRROR_DRIFT, lambda: _mirror_drift(root, config)),
         (PROMPT_CONVENTIONS, lambda: _prompt_conventions(root, config)),
     )
     for code, guardrail in guardrails:
@@ -491,55 +489,6 @@ def _managed_block_integrity(root: Path) -> list[Diagnostic]:
             "restore the exact BEGIN/END marker pair, then rerun validate.",
         )
     ]
-
-
-def _mirror_drift(root: Path, config: ProjectConfig) -> list[Diagnostic]:
-    """Byte-identity of the declared AGENTS.md mirror (`sync.mirror`).
-
-    Default-on through CLAUDE.md; a host opts
-    out with `sync: {mirror: null}`. `heddle sync` and `heddle init` write
-    the mirror, so this is the validation backstop: a missing mirror on a
-    host that has AGENTS.md is ADVISORY (sync creates it on demand, the
-    posture of the managed block); divergent bytes are FATAL. A host
-    with neither file has not adopted sync — nothing to check. A symlink
-    that resolves to AGENTS.md satisfies the check (reads follow it)."""
-    mirror_rel = config.sync_mirror
-    if not mirror_rel:
-        return []
-    mirror = repo_relative_path(root, mirror_rel)
-    if mirror is None:
-        return [_mirror_diagnostic(f"sync.mirror escapes host layout: {mirror_rel}")]
-    agents = root / AGENTS_DOC
-    if not agents.is_file():
-        if not mirror.is_file():
-            return []
-        return [
-            _mirror_diagnostic(
-                f"sync.mirror {mirror_rel} is present but AGENTS.md is missing"
-            )
-        ]
-    if not mirror.is_file():
-        return [
-            _guardrail_diagnostic(
-                Severity.ADVISORY,
-                MIRROR_DRIFT,
-                f"declared mirror {mirror_rel} is missing",
-                "run `heddle sync` to create the mirror.",
-            )
-        ]
-    if agents.read_bytes() != mirror.read_bytes():
-        return [_mirror_diagnostic(f"{mirror_rel} is not byte-identical to AGENTS.md")]
-    return []
-
-
-def _mirror_diagnostic(message: str) -> Diagnostic:
-    return _guardrail_diagnostic(
-        Severity.FATAL,
-        MIRROR_DRIFT,
-        message,
-        "run `heddle sync` to rewrite the mirror from AGENTS.md, "
-        "or set `sync: {mirror: null}` in .heddle.yaml.",
-    )
 
 
 def prompt_convention_violations(prompts_dir: Path) -> list[str]:

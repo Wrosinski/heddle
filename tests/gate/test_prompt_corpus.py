@@ -7,7 +7,7 @@ the REQ-4 corpus test, pinned home per the plan, joined to core's `owns` at
 implement time (PL-C2 owns lifecycle).
 
 preimplementation state (scaffold stage): the live corpus still carries the legacy
-mechanics — CLAUDE.md citations (REQ-3a), dead env-var fallbacks (A4),
+mechanics — legacy instruction-file citations (REQ-3a), dead env-var fallbacks (A4),
 plan-YAML-header extraction prose (REQ-1), the flat pre-E1 artifact layout in
 prompts/_index.md (REQ-5), and the stale enforcement-baseline lines (REQ-6) —
 so the AC-2..AC-5 tests fail until core lands. AC-1's render sweep is the

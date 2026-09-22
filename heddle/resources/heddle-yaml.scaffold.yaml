@@ -32,8 +32,3 @@
 #   # does not replace feature proof. Heddle does not create a clean environment;
 #   # it runs the command in the current host checkout.
 #   test_command: pytest
-#
-# The AGENTS.md mirror is on by default (CLAUDE.md is kept byte-identical by
-# sync and init); declare another path, or set it to null to opt out.
-# sync:
-#   mirror: CLAUDE.md

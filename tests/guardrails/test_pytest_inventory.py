@@ -20,7 +20,7 @@ CURRENT_INVENTORY: Path = (
     REPO_ROOT / "tests" / "fixtures" / "pytest-inventory-current.txt.gz.b64"
 )
 CURRENT_INVENTORY_SHA256 = (
-    "9f52f1a9be6716c9e6cbaee8ffc743232ed54ceaab2fe7938b9426f1e94d4ff7"
+    "965f1e55a29a70ccac0fc9f7e804256ccc205b82a23d3fb7e613ba28e8eb1b24"
 )
 
 COMPLETE_BAND_SCRIPT = REPO_ROOT / "scripts" / "run-complete-test-band.py"
@@ -247,8 +247,8 @@ def test_ac7_local_only_live_directory_case_is_e2e_not_external():
             "toolchain",
             "tests/runtime/test_portability_lane.py",
             {
-                "test_mirror_first_adoption_refuses_foreign_claude_md_without_writes",
-                "test_mirror_symlink_and_identical_copy_are_accepted",
+                "test_ac03_red_converged_rerun_is_exact_no_write_vector",
+                "test_ac05_red_recorded_agents_skip_preserves_current_and_lock_bytes",
             },
         ),
     ],
@@ -262,7 +262,7 @@ def test_ac7_installed_consumers_leave_fast_for_their_explicit_band(
     else:
         assert fast.returncode == pytest.ExitCode.OK, fast.stdout
         assert (
-            "::test_mirror_opt_out_and_declared_path_follow_the_host_config"
+            "::test_ac16_red_config_scaffold_rail_matches_parser_vocabulary"
             in fast.stdout
         ), fast.stdout
     assert all("::" + name not in fast.stdout for name in expected), fast.stdout

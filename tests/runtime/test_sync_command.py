@@ -33,7 +33,6 @@ TINY = REPO_ROOT / "tests" / "fixtures" / "workspaces" / "tiny"
 
 PLAN_ID = "plan-status"
 SESSION_ID = "session-entry"
-MIRROR_ID = "mirror"
 PLAN_BEGIN = "<!-- heddle:begin plan-status -->"
 PLAN_END = "<!-- heddle:end plan-status -->"
 SESSION_BEGIN = "<!-- heddle:begin session-entry -->"
@@ -271,23 +270,19 @@ def _path_snapshot(path: Path) -> tuple[Any, ...]:
     return ("other", info.st_mode)
 
 
-def _target_rows(*actions: str) -> list[dict[str, str]]:
-    rows = [
+def _target_rows(plan_action: str, agents_action: str) -> list[dict[str, str]]:
+    return [
         {
             "block": PLAN_ID,
             "path": "plans/demo/plan.md",
-            "action": actions[0],
+            "action": plan_action,
         },
         {
             "block": SESSION_ID,
             "path": "AGENTS.md",
-            "action": actions[1],
+            "action": agents_action,
         },
     ]
-    if len(actions) > 2:
-        # The default `sync.mirror` (CLAUDE.md) follows AGENTS.md.
-        rows.append({"block": MIRROR_ID, "path": "CLAUDE.md", "action": actions[2]})
-    return rows
 
 
 def _error_blob(envelope: dict[str, Any]) -> str:
@@ -628,7 +623,7 @@ def test_ac07_ac08_ac15_red_populate_then_zero_diff_dogfood_equivalent(
     )
     assert first["data"] == {
         "feature": "demo",
-        "targets": _target_rows("updated", "created", "created"),
+        "targets": _target_rows("updated", "created"),
     }, f"FAIL AC-7: exact ordered first-run payload required, got {first['data']!r}"
     assert state.read_bytes() == state_before, (
         "FAIL AC-7/REQ-22: sync must not record a fact or alter state.yaml"
@@ -679,18 +674,10 @@ def test_ac07_ac08_ac15_red_populate_then_zero_diff_dogfood_equivalent(
     assert agents.read_text(encoding="utf-8") == CREATED_AGENTS, (
         "FAIL AC-7/AC-9: first sync must create the exact block-only AGENTS.md"
     )
-    mirror = host / "CLAUDE.md"
-    assert mirror.is_file() and not mirror.is_symlink(), (
-        "FAIL mirror: first sync must create the default CLAUDE.md as a regular file"
-    )
-    assert mirror.read_bytes() == agents.read_bytes(), (
-        "FAIL mirror: CLAUDE.md must be byte-identical to AGENTS.md"
-    )
 
     before_second = {
         "plan": _path_snapshot(plan),
         "agents": _path_snapshot(agents),
-        "mirror": _path_snapshot(mirror),
         "state": _path_snapshot(state),
     }
     second_code, second = _json_run(
@@ -701,7 +688,6 @@ def test_ac07_ac08_ac15_red_populate_then_zero_diff_dogfood_equivalent(
     after_second = {
         "plan": _path_snapshot(plan),
         "agents": _path_snapshot(agents),
-        "mirror": _path_snapshot(mirror),
         "state": _path_snapshot(state),
     }
     assert second_code == 0, (
@@ -710,7 +696,7 @@ def test_ac07_ac08_ac15_red_populate_then_zero_diff_dogfood_equivalent(
     )
     assert second["data"] == {
         "feature": "demo",
-        "targets": _target_rows("unchanged", "unchanged", "unchanged"),
+        "targets": _target_rows("unchanged", "unchanged"),
     }, f"FAIL AC-8: exact zero-diff payload required, got {second['data']!r}"
     assert after_second == before_second, (
         "FAIL AC-5/AC-8/AC-15: second sync rewrote a current target; bytes, "
@@ -1318,170 +1304,12 @@ def test_ac12_red_dry_run_reports_would_actions_and_changes_nothing(
     )
     assert envelope["data"] == {
         "feature": "demo",
-        "targets": _target_rows("would-update", "would-create", "would-create"),
+        "targets": _target_rows("would-update", "would-create"),
         "dry_run": True,
     }, f"FAIL AC-12: exact dry-run payload required, got {envelope['data']!r}"
     assert tree_snapshot(host) == before_paths and _root_snapshot(host) == before, (
         "FAIL AC-12: dry-run changed path topology, bytes, mode, inode, or mtime"
     )
-
-
-# ---------------------------------------------------------------------------
-# search root-mirror increment (owner-ruled 2026-09-11): the default CLAUDE.md
-# mirror rides sync as a third, full-file projection.
-# ---------------------------------------------------------------------------
-
-
-def test_mirror_symlink_to_agents_is_satisfied_without_writes(
-    run_cli,
-    envelope_tools,
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    host = _marker_ready_demo_host(
-        run_cli, envelope_tools, tmp_path, monkeypatch, name="mirror-symlink"
-    )
-    mirror = host / "CLAUDE.md"
-    mirror.symlink_to("AGENTS.md")
-
-    code, envelope = _json_run(
-        run_cli, envelope_tools, ["sync", "--feature", "demo", "--json"]
-    )
-
-    assert code == 0, f"FAIL mirror: symlink mirror must sync, got {envelope!r}"
-    assert envelope["data"]["targets"] == _target_rows(
-        "updated", "created", "unchanged"
-    )
-    assert mirror.is_symlink() and os.readlink(mirror) == "AGENTS.md", (
-        "FAIL mirror: a symlink resolving to AGENTS.md must be left in place"
-    )
-    assert mirror.read_bytes() == (host / "AGENTS.md").read_bytes()
-
-
-def test_mirror_stale_regular_file_is_rewritten(
-    run_cli,
-    envelope_tools,
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    host = _marker_ready_demo_host(
-        run_cli, envelope_tools, tmp_path, monkeypatch, name="mirror-stale"
-    )
-    mirror = host / "CLAUDE.md"
-    mirror.write_bytes(b"stale manual copy\r\n")
-
-    dry_code, dry = _json_run(
-        run_cli,
-        envelope_tools,
-        ["sync", "--feature", "demo", "--dry-run", "--json"],
-    )
-    assert dry_code == 0 and dry["data"]["targets"][2] == {
-        "block": MIRROR_ID,
-        "path": "CLAUDE.md",
-        "action": "would-update",
-    }
-    assert mirror.read_bytes() == b"stale manual copy\r\n"
-
-    code, envelope = _json_run(
-        run_cli, envelope_tools, ["sync", "--feature", "demo", "--json"]
-    )
-
-    assert code == 0 and envelope["data"]["targets"][2]["action"] == "updated"
-    assert (
-        mirror.read_bytes()
-        == (host / "AGENTS.md").read_bytes()
-        == (CREATED_AGENTS.encode("utf-8"))
-    )
-
-
-@pytest.mark.parametrize("shape", ["foreign-symlink", "directory"])
-def test_mirror_foreign_shapes_refuse_with_zero_writes(
-    shape: str,
-    run_cli,
-    envelope_tools,
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    host = _marker_ready_demo_host(
-        run_cli, envelope_tools, tmp_path, monkeypatch, name=f"mirror-{shape}"
-    )
-    mirror = host / "CLAUDE.md"
-    if shape == "foreign-symlink":
-        (host / "elsewhere.md").write_text("not the source\n", encoding="utf-8")
-        mirror.symlink_to("elsewhere.md")
-    else:
-        mirror.mkdir()
-    before = _root_snapshot(host)
-
-    code, envelope = _json_run(
-        run_cli, envelope_tools, ["sync", "--feature", "demo", "--json"]
-    )
-
-    assert code == 3 and envelope["error"]["code"] == "workspace-invalid", (
-        f"FAIL mirror [{shape}]: foreign mirror shape must exit 3, got {envelope!r}"
-    )
-    blob = _error_blob(envelope)
-    assert "claude.md" in blob and _has_term(blob, "move"), (
-        f"FAIL mirror [{shape}]: refusal must name CLAUDE.md with a move-aside hint"
-    )
-    assert _root_snapshot(host) == before, (
-        f"FAIL mirror [{shape}]: a mirror refusal must write no sibling target"
-    )
-
-
-def test_mirror_opt_out_projects_only_the_two_managed_blocks(
-    run_cli,
-    envelope_tools,
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    host = _marker_ready_demo_host(
-        run_cli, envelope_tools, tmp_path, monkeypatch, name="mirror-opt-out"
-    )
-    config = host / ".heddle.yaml"
-    config.write_text(
-        config.read_text(encoding="utf-8") + "\nsync:\n  mirror: null\n",
-        encoding="utf-8",
-    )
-
-    code, envelope = _json_run(
-        run_cli, envelope_tools, ["sync", "--feature", "demo", "--json"]
-    )
-
-    assert code == 0 and envelope["data"]["targets"] == _target_rows(
-        "updated", "created"
-    )
-    assert not (host / "CLAUDE.md").exists()
-
-
-def test_mirror_declared_nested_path_is_created_with_parents(
-    run_cli,
-    envelope_tools,
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    host = _marker_ready_demo_host(
-        run_cli, envelope_tools, tmp_path, monkeypatch, name="mirror-nested"
-    )
-    config = host / ".heddle.yaml"
-    config.write_text(
-        config.read_text(encoding="utf-8") + "\nsync:\n  mirror: .claude/CLAUDE.md\n",
-        encoding="utf-8",
-    )
-    (host / ".claude").mkdir()
-
-    code, envelope = _json_run(
-        run_cli, envelope_tools, ["sync", "--feature", "demo", "--json"]
-    )
-
-    assert code == 0 and envelope["data"]["targets"][2] == {
-        "block": MIRROR_ID,
-        "path": ".claude/CLAUDE.md",
-        "action": "created",
-    }
-    assert (host / ".claude" / "CLAUDE.md").read_bytes() == (
-        host / "AGENTS.md"
-    ).read_bytes()
 
 
 def test_ac13_red_standard_envelope_and_full_active_feature_resolution_chain(
@@ -2284,9 +2112,7 @@ def test_ac18_red_positioned_install_failures_are_loud_and_retryable(
         ["sync", "--feature", "demo", "--json"],
     )
     expected_actions = (
-        ("updated", "created", "created")
-        if failed_target == "plan"
-        else ("unchanged", "created", "created")
+        ("updated", "created") if failed_target == "plan" else ("unchanged", "created")
     )
     assert retry_code == 0 and retry["data"]["targets"] == _target_rows(
         *expected_actions

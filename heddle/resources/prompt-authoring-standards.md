@@ -407,7 +407,7 @@ their number follows that need.
 
 ## Relationship to other documents
 
-- **`CLAUDE.md` / `AGENTS.md`**: repository entry and mechanical bindings.
+- **`AGENTS.md`**: repository entry and mechanical bindings.
   Read the applicable instructions for interactive work. Stage briefings own
   delivered workflow instructions; referenced host preferences are supplied by
   their resolved paths. Shared gate text must not assume checkout-only files

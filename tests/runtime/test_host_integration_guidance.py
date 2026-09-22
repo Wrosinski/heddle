@@ -153,7 +153,6 @@ def test_configuration_and_authority_boundaries_are_explicit() -> None:
             "commands.typecheck",
             "agents.claude",
             "agents.codex",
-            "sync.mirror",
         )
     )
     assert "heddle flow set" in section

@@ -197,9 +197,6 @@ class TestFeatureAcceptance:
             "agents",
             "gates",
             "autopilot",
-            # Additive adoption host-tooling increment 2 growth (owner-ruled
-            # 2026-07-22): optional declared AGENTS.md byte-mirror.
-            "sync",
         )
         corpus.assert_heddle_yaml_conforms(corpus.tiny / ".heddle.yaml")
         corpus.assert_heddle_yaml_conforms(corpus.golden / ".heddle.yaml")

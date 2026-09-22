@@ -249,9 +249,8 @@ region and root AGENTS session-entry region. Exact markers, byte preservation,
 idempotency and per-file publication are enforced by the projection runtime and
 its focused tests.
 It is not part of the driver loop. Accepted historical plans are not regenerated.
-Optional root mirror detection does not imply a shipped mirror writer. Repository
-`.claude/skills` to `.codex/skills` generation is separately scoped development
-tooling, not host skill distribution.
+Repository `.claude/skills` to `.codex/skills` generation is separately scoped
+development tooling, not host skill distribution.
 
 `heddle search` owns bounded repository knowledge search using an in-memory FTS5
 index of configured specs and an optional patterns shelf. It uses literal AND
@@ -262,8 +261,8 @@ absent optional content is distinct from unreadable present content.
 State compatibility is limited to the versions declared above; no in-place
 feature converter or backfill is provided. Finish active older features with a
 compatible pinned supervisor; preserve their evidence outside active discovery before fresh native
-work. Host mirror writing, arbitrary host-defined gates, a general workflow DSL,
-MCP integration, and document schema/fix automation are not shipped capabilities.
+work. Arbitrary host-defined gates, a general workflow DSL, MCP integration, and
+document schema/fix automation are not shipped capabilities.
 Installed tests with controlled providers establish the exercised integration
 behavior, not comparative model quality. The current command manifest and
 implementation define the available surface.

@@ -1,9 +1,7 @@
-"""Managed projections for feature status, session entry, and its mirror.
+"""Managed projections for feature status and session entry.
 
-Two managed regions (plan-status, session-entry) and one full-file
-projection: the declared `sync.mirror` of AGENTS.md (default CLAUDE.md),
-kept byte-identical so hosts that read a Claude-specific instruction file
-see exactly the AGENTS.md contract."""
+Two managed regions are projected: plan-status in the feature plan and
+session-entry in the root AGENTS.md."""
 
 from __future__ import annotations
 
@@ -41,9 +39,6 @@ from heddle.runtime.feature_context import (
 from heddle.runtime.output import emit_envelope
 
 SESSION_ENTRY_ID = "session-entry"
-# The declared full-file mirror of AGENTS.md (`sync.mirror`, default
-# CLAUDE.md). Not a managed region: the whole file is the projection.
-MIRROR_ID = "mirror"
 
 _SYNC_EXITS = {
     "feature-ambiguous": ExitCode.USAGE,
@@ -73,13 +68,6 @@ class _Projection:
     path: Path
     before: str | None
     text: str
-    # A mirror satisfied by a symlink that resolves to AGENTS.md: nothing is
-    # written, and the final check re-verifies the link instead of bytes.
-    link_target: Path | None = None
-
-    @property
-    def symlink(self) -> bool:
-        return self.link_target is not None
 
     @property
     def create(self) -> bool:
@@ -408,65 +396,6 @@ def _preflight_agents(path: Path, body: str) -> _Projection:
     )
 
 
-def _links_to(link: Path, target: Path) -> bool:
-    """True when ``link`` (a symlink) resolves to the same path as ``target``."""
-    try:
-        return os.path.realpath(link) == os.path.realpath(target)
-    except OSError:
-        return False
-
-
-def _preflight_mirror(
-    path: Path,
-    display_path: str,
-    agents: _Projection,
-) -> _Projection:
-    """Plan the full-file mirror of the projected AGENTS.md.
-
-    The mirror is runtime-owned: an absent mirror is created, a regular file
-    is brought byte-identical to the projected AGENTS.md, and a symlink that
-    resolves to AGENTS.md already satisfies the contract and is left alone.
-    Any other shape is refused with a move-aside remediation."""
-    target_stat = _target_lstat(path, display_path)
-    if target_stat is None:
-        return _Projection(
-            block=MIRROR_ID,
-            display_path=display_path,
-            path=path,
-            before=None,
-            text=agents.text,
-        )
-    if stat.S_ISLNK(target_stat.st_mode):
-        if _links_to(path, agents.path):
-            return _Projection(
-                block=MIRROR_ID,
-                display_path=display_path,
-                path=path,
-                before=agents.text,
-                text=agents.text,
-                link_target=agents.path,
-            )
-        raise KernelError(
-            code="workspace-invalid",
-            message=(
-                f"{display_path}: mirror is a symlink that does not resolve to "
-                f"{agents.display_path}"
-            ),
-            hint=(
-                f"move the symlink aside (or point it at {agents.display_path}), "
-                "then re-run heddle sync"
-            ),
-        )
-    before = _read_regular_utf8(path, display_path)
-    return _Projection(
-        block=MIRROR_ID,
-        display_path=display_path,
-        path=path,
-        before=before,
-        text=agents.text,
-    )
-
-
 def _preflight_targets(
     *,
     plan_path: Path,
@@ -474,8 +403,6 @@ def _preflight_targets(
     plan_body: str,
     agents_path: Path,
     session_body: str,
-    mirror_path: Path | None,
-    mirror_display: str | None,
 ) -> tuple[tuple[_Projection, ...], tuple[KernelError, ...]]:
     projections: list[_Projection] = []
     errors: list[KernelError] = []
@@ -490,17 +417,10 @@ def _preflight_targets(
         )
     except KernelError as error:
         errors.append(error)
-    agents: _Projection | None = None
     try:
-        agents = _preflight_agents(agents_path, session_body)
-        projections.append(agents)
+        projections.append(_preflight_agents(agents_path, session_body))
     except KernelError as error:
         errors.append(error)
-    if agents is not None and mirror_path is not None and mirror_display is not None:
-        try:
-            projections.append(_preflight_mirror(mirror_path, mirror_display, agents))
-        except KernelError as error:
-            errors.append(error)
     return tuple(projections), tuple(errors)
 
 
@@ -535,12 +455,6 @@ def _fresh_plan_body(config: ProjectConfig, feature: str) -> str:
 
 def _target_matches_preflight(projection: _Projection) -> bool:
     target_stat = _target_lstat(projection.path, projection.display_path)
-    if projection.link_target is not None:
-        return (
-            target_stat is not None
-            and stat.S_ISLNK(target_stat.st_mode)
-            and _links_to(projection.path, projection.link_target)
-        )
     if projection.before is None:
         return target_stat is None
     if target_stat is None or not stat.S_ISREG(target_stat.st_mode):
@@ -632,8 +546,6 @@ def sync(parsed: ops.Sync) -> HeddleResult:
     plan_display = (Path(config.layout.plans) / feature / "plan.md").as_posix()
     plan_path = config.root / plan_display
     agents_path = config.root / "AGENTS.md"
-    mirror_display = config.sync_mirror
-    mirror_path = config.root / mirror_display if mirror_display else None
     try:
         plan_body = render_plan_status(
             resolved.snapshot, derive_next_actions(resolved.snapshot)
@@ -650,8 +562,6 @@ def sync(parsed: ops.Sync) -> HeddleResult:
         plan_body=plan_body,
         agents_path=agents_path,
         session_body=session_body,
-        mirror_path=mirror_path,
-        mirror_display=mirror_display,
     )
     if errors:
         diagnostics = resolved.diagnostics + tuple(
