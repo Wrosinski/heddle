@@ -32,5 +32,12 @@ jobs:
         run: .venv/bin/pre-commit run --all-files
       - name: Run fast tests
         run: .venv/bin/python -m pytest --test-band=fast
+      - name: Provision toolchain prerequisites
+        # The wheel harness builds with `poetry build`, and the formatter
+        # witness installs the locked Prettier fixture offline from ~/.npm.
+        run: |
+          pipx install poetry==2.1.4
+          cp -r tests/fixtures/toolchains/prettier-3.9.6 "$RUNNER_TEMP/prettier-3.9.6"
+          cd "$RUNNER_TEMP/prettier-3.9.6" && npm ci --ignore-scripts
       - name: Run toolchain tests
         run: .venv/bin/python -m pytest --test-band=toolchain
