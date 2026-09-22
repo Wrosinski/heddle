@@ -731,11 +731,9 @@ def test_ac06_red_seed_is_template_and_ratification_is_preserved_by_rerun(
     )
     assert "principles-not-ratified" not in status["data"]["blocking_conditions"]
     envelope = _assert_success(installed_wheel, nested, "init", "--json")
-    assert [row["action"] for row in envelope["data"]["targets"]][2:] == [
-        "accept",
-        "skip",
-        "accept",
-    ]
+    assert [row["action"] for row in envelope["data"]["targets"]] == list(
+        CONVERGED_ACTIONS
+    )
     assert file_hashes(host, FOOTPRINT) == before
     assert (host / ".heddle.lock").read_bytes() == lock_before
 
@@ -1842,7 +1840,7 @@ def test_ac17_red_interrupted_apply_leaves_complete_files_without_lock_and_recov
 ) -> None:
     """AC-17 red: every non-lock cut point is complete, lockless, and recoverable."""
     module = _require_init_module("AC-17")
-    families = ("clean-1", "clean-2", "clean-3", "clean-4", "integrated")
+    families = ("clean-1", "clean-2", "clean-3", "integrated")
     for family in families:
         host, nested = make_git_host(tmp_path, f"ac17-{family}")
         host_authored: bytes | None = None
@@ -1879,7 +1877,7 @@ def test_ac17_red_interrupted_apply_leaves_complete_files_without_lock_and_recov
             module.apply_init(plan)
         assert not (host / ".heddle.lock").exists()
         assert len(successful) == cut_after
-        for target in plan.targets[:4]:
+        for target in plan.targets[:3]:
             target_path = host / target.path
             if target_path in successful:
                 assert target.desired_bytes is not None
@@ -1896,13 +1894,13 @@ def test_ac17_red_interrupted_apply_leaves_complete_files_without_lock_and_recov
             ("integrate" if target.path.as_posix() == "AGENTS.md" else "accept")
             if target.path.as_posix() in present
             else "create"
-            for target in plan.targets[:4]
+            for target in plan.targets[:3]
         ] + ["create"]
         recovered = _assert_success(installed_wheel, nested, "init", "--json")
         assert [row["action"] for row in recovered["data"]["targets"]] == (
             expected_recovery
         )
-        assert [row["outcome"] for row in recovered["data"]["targets"]] == ["done"] * 5
+        assert [row["outcome"] for row in recovered["data"]["targets"]] == ["done"] * 4
         _assert_valid_lock(host)
         assert not list(host.rglob("*.tmp"))
         if host_authored is not None:

@@ -9,7 +9,8 @@ from copy import deepcopy
 import pytest
 import yaml
 
-from tests.structured_review_helpers import finding
+from tests.structured_review_helpers import disposition as reviewer_disposition
+from tests.structured_review_helpers import finding, finding_ref
 from tests.tiering_helpers import entry, invoke, snapshot
 from tests.tiering_review_helpers import (
     V7_FEATURE,
@@ -122,7 +123,9 @@ def test_ac5_increase_preserves_usage_origins_and_closed_work(
         key: value for key, value in snapshot(host).items() if key != state_name
     } == {key: value for key, value in before_files.items() if key != state_name}
     assert len(calls) == 1
-    assert not open_round(path).ok
+    # Closed, unsealed work may still take an explicit later verification
+    # round; the allowance write itself opened none.
+    assert review_status(path)["rounds_used"] == 1
     assert runs(path) == [accepted]
 
 
@@ -241,7 +244,20 @@ def _create_stop(path, run_cli, monkeypatch, stop):
 
     def response(_cli, _prompt):
         if stop == "no-progress" and generation["number"] > 1:
-            return review_content()
+            result = review_content()
+            # A verification round accounts for every original target. Reviewer
+            # accounting neither replaces the lead's retained resolution nor
+            # counts as material progress on that still-open original.
+            result["prior_dispositions"] = [
+                reviewer_disposition(
+                    finding_ref(run_id, finding_id), action="addressed"
+                )
+                for run_id, finding_id in (
+                    (runs(path)[0]["run_id"], "SP-I1"),
+                    *((run["run_id"], "@coverage") for run in runs(path)),
+                )
+            ]
+            return result
         return review_content(
             findings=[
                 finding(f"SP-I{generation['number']}", classification="implement")

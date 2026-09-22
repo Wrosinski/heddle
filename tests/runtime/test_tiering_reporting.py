@@ -8,7 +8,8 @@ import yaml
 
 from heddle.runtime.trajectory import archive_trajectory, write_aggregate
 from tests.operational_model_helpers import FEATURE
-from tests.structured_review_helpers import finding
+from tests.structured_review_helpers import disposition as reviewer_disposition
+from tests.structured_review_helpers import finding, finding_ref
 from tests.tiering_helpers import FABLE, entry, invoke, snapshot, wire_policy
 from tests.tiering_review_helpers import (
     current_host,
@@ -67,14 +68,28 @@ def test_ac11_dual_round_exports_two_calls_one_round_and_policy_amendment(
         overrides={"spec-review": entry("spec-review", secondary=FABLE)},
     )
     round_number = {"value": 1}
-    calls = provider_transport(
-        monkeypatch,
-        lambda cli, _prompt: review_content(
-            findings=[finding("SP-I1", classification="implement")]
-            if cli == "codex" and round_number["value"] == 1
-            else []
-        ),
-    )
+
+    def response(cli, _prompt):
+        if round_number["value"] == 1:
+            return review_content(
+                findings=[finding("SP-I1", classification="implement")]
+                if cli == "codex"
+                else []
+            )
+        result = review_content()
+        # The verification round accounts for the original SP-I1 concern and
+        # both round-one coverage targets without resolving them for the lead.
+        origin = next(row["run_id"] for row in runs(state) if row["cli"] == "codex")
+        result["prior_dispositions"] = [
+            reviewer_disposition(finding_ref(run_id, finding_id), action="addressed")
+            for run_id, finding_id in (
+                (origin, "SP-I1"),
+                *((row["run_id"], "@coverage") for row in runs(state)),
+            )
+        ]
+        return result
+
+    calls = provider_transport(monkeypatch, response)
     for cli in ("codex", "claude"):
         code, result = gate_command(run_cli, "run-gate", "spec-review", "--cli", cli)
         assert code in (0, 4), result

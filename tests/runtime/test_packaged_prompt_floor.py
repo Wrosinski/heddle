@@ -115,6 +115,20 @@ print(json.dumps(report))
 """
 
 
+def _bind_every_ac(spec: str, target: str) -> str:
+    """Declare the fixture test as every acceptance criterion's primary binding.
+
+    review-test-scaffolding refuses to render without valid Verified-by
+    targets, so the installed show-prompt host must carry them."""
+    sections = re.split(r"(?m)^(?=#{2,3} )", spec)
+    bound = []
+    for section in sections:
+        if section.startswith("### AC-"):
+            section = section.rstrip("\n") + f"\nVerified-by: {target}\n\n"
+        bound.append(section)
+    return "".join(bound)
+
+
 def _prepare_show_prompt_host(tmp_path: Path) -> Path:
     host = tmp_path / "show-prompt-host"
     shutil.copytree(GOLDEN, host)
@@ -149,6 +163,14 @@ def _prepare_show_prompt_host(tmp_path: Path) -> Path:
     test.parent.mkdir(parents=True, exist_ok=True)
     source.write_text("VALUE = 'baseline'\n", encoding="utf-8")
     test.write_text("def test_fixture():\n    assert True\n", encoding="utf-8")
+    spec_path = host / "docs/features/analysis/nl-screening.md"
+    spec_path.write_text(
+        _bind_every_ac(
+            spec_path.read_text(encoding="utf-8"),
+            test.relative_to(host).as_posix() + "::test_fixture",
+        ),
+        encoding="utf-8",
+    )
 
     for argv in (
         ["git", "init", "-q"],

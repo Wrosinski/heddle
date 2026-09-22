@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import importlib.metadata
 import json
+import shutil
 from pathlib import Path
 
 import pytest
@@ -330,7 +331,15 @@ class TestAC12HumanOutput:
                 "(AC-12: every leaf command with its summary)"
             )
 
-    def test_init_refusal_text_carries_hint_and_next_actions(self, run_cli):
+    def test_init_refusal_text_carries_hint_and_next_actions(
+        self, run_cli, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        # A synthetic occupied host: the checkout's own adoption state is
+        # local and must not decide whether init refuses.
+        host = tmp_path / "host"
+        shutil.copytree(TINY, host)
+        (host / ".git").mkdir()
+        monkeypatch.chdir(host)
         code, out, _err = run_cli(["init"])
         assert code == 3
         assert_not_json(out)

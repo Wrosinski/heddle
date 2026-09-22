@@ -243,7 +243,9 @@ def test_ac13_milestone_validate_next_action_round_trips_through_cli(
 
     code, output, _error = run_cli([*shlex.split(command)[1:], "--json"])
     envelope = envelope_tools.parse(output)
-    assert code == 0, envelope
+    # The synthetic host has no Git baseline, so early source-coverage
+    # observation is an advisory; the round trip itself must succeed.
+    assert code in {0, 4} and envelope["ok"] is True, envelope
     assert [row["feature"] for row in envelope["data"]["workspaces"]] == [
         "sample-feature"
     ]

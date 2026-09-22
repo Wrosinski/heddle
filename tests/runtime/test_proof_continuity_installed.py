@@ -1,4 +1,4 @@
-"""AC-1..10 installed composition; D1 execution is deferred until after m3.
+"""AC-1..10 installed composition; execution needs its own exact grant.
 
 Synthetic native birth/tasks/proof and actual installed CLI throughout. Only the
 external reviewer executable is controlled. No provider credentials or network.
