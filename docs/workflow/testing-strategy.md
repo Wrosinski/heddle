@@ -198,6 +198,10 @@ or automatically substitute a repository-wide run.
 `tests/pytest_policy.py`, loaded through root `tests/conftest.py`, owns execution
 bands and strict-proof checks. Plain pytest selects the fast band. E2E and live
 nodes refuse before fixtures unless their exact direct permissions are present.
+The root conftest also drops inherited git location variables (`GIT_DIR` and
+its relatives) before collection, so fixture hosts never write into the
+checkout when git itself starts pytest, for example from a hook or
+`git bisect run` inside a linked worktree.
 
 For a directly relevant, inspected hermetic target, use the formal entry:
 
