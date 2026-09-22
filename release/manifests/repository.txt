@@ -63,6 +63,7 @@ docs/workflow/engineering-principles.md
 docs/workflow/host-integration.md
 docs/workflow/local-records.md
 docs/workflow/prompt-refinement.md
+docs/workflow/release-process.md
 docs/workflow/subagent-exploration-patterns.md
 docs/workflow/testing-strategy.md
 docs/workflow/workflow.md

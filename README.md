@@ -287,6 +287,7 @@ Installation changes never silently rewrite host documents.
 - [Workflow model](docs/design/workflow-model.md): state, review, and evidence rules.
 - [Architecture](docs/design/architecture.md): package structure and integration boundaries.
 - [Testing strategy](docs/workflow/testing-strategy.md): test selection and execution authority.
+- [Release process](docs/workflow/release-process.md): how a version is qualified, tagged and published.
 - [Changelog](CHANGELOG.md): what each release changed.
 - [Contributing](CONTRIBUTING.md): development setup and checks.
 - [Security](SECURITY.md): vulnerability reporting.

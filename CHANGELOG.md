@@ -6,6 +6,13 @@ All notable changes to Heddle are recorded here. The format follows
 version can change command and payload contracts; `heddle help --json` is the
 authority for the installed version.
 
+## [Unreleased]
+
+### Added
+
+- Release process documentation covering qualification, tagging, the GitHub
+  Release, and the repository metadata on GitHub.
+
 ## [0.1.0] - 2026-09-22
 
 First tagged release. The core runtime was implemented and tested before the
@@ -92,4 +99,5 @@ first commit and this tag.
 - There is no `heddle --version`. `heddle doctor` reports the install mode
   and package location.
 
+[Unreleased]: https://github.com/Wrosinski/heddle/compare/v0.1.0...HEAD
 [0.1.0]: https://github.com/Wrosinski/heddle/releases/tag/v0.1.0
