@@ -1,7 +1,7 @@
 ---
 name: opus-implementer
 description: Completes a bounded implementation assignment when the user explicitly selects Fable-led implementation with Opus.
-model: claude-opus-5
+model: claude-opus-5-5
 effort: xhigh
 tools: Read, Edit, Write, Bash, Grep, Glob, ToolSearch
 ---

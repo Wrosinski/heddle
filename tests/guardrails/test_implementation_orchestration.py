@@ -51,7 +51,7 @@ def test_provider_workers_pin_models_and_cannot_delegate_further():
     sol = tomllib.loads((REPO / ".codex/agents/sol-implementer.toml").read_text())
 
     assert claude_metadata["name"] == "opus-implementer"
-    assert claude_metadata["model"] == "claude-opus-5"
+    assert claude_metadata["model"] == "claude-opus-5-5"
     assert claude_metadata["effort"] == "xhigh"
     assert "Agent" not in {tool.strip() for tool in claude_metadata["tools"].split(",")}
     assert "do not\ndelegate it to another agent" in claude_body

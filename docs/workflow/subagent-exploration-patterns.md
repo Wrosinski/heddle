@@ -71,9 +71,9 @@ This is a default with an escape, not a prohibition. A badly targeted explorer
 that returns a thin brief costs more than it saves once the caller re-derives
 it.
 
-Bindings, current as of 2026-09-11:
+Bindings, current as of 2026-09-22:
 
-- Claude: `CLAUDE_CODE_SUBAGENT_MODEL=claude-opus-5` in `.claude/settings.json`
+- Claude: `CLAUDE_CODE_SUBAGENT_MODEL=claude-opus-5-5` in `.claude/settings.json`
   is the default for sub-agents. An agent definition's `model:` and an explicit
   per-spawn model take precedence over it, so escalating to Fable 5.1 is a
   per-call decision. Do not set `CLAUDE_CODE_SUBAGENT_MODEL_FORCE`, which
