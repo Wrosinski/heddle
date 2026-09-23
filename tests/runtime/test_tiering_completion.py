@@ -616,11 +616,11 @@ def test_first_archive_records_absent_indexed_scratch_and_retry_accepts_it(
         relative: {"sha256": hashlib.sha256(content).hexdigest(), "mode": mode}
     }
     absent = [
-        row.source
+        (row.source, relative in row.message)
         for row in first.diagnostics
         if row.code == "completion-absent-scratch"
     ]
-    assert absent == [relative]
+    assert absent == [(relative, True)]
     accepted = host.state.read_bytes()
 
     retry = host.complete()

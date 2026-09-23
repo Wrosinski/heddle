@@ -732,8 +732,8 @@ def _absent_scratch_diagnostics(paths: Iterable[str]) -> tuple[Diagnostic, ...]:
         Diagnostic(
             Severity.ADVISORY,
             "completion-absent-scratch",
-            "indexed provider scratch is absent from the workspace; the "
-            "completion archive records its identity as absent",
+            f"indexed provider scratch is absent from the workspace: {path}; "
+            "the completion archive records its identity as absent",
             path,
         )
         for path in paths
