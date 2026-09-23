@@ -32,6 +32,7 @@ from heddle.kernel.state import (
     StateFile,
     parse_state_document,
 )
+from heddle.kernel.test_bindings import selector_rebind_pairs
 from heddle.kernel.verification import latest_verification_is_bound_to_declaration
 
 _STAGES = (
@@ -187,7 +188,11 @@ def add_milestone(
 
 
 def edit_milestone(
-    document: dict[str, Any], ref: str, payload: Mapping[str, Any]
+    document: dict[str, Any],
+    ref: str,
+    payload: Mapping[str, Any],
+    *,
+    proven_rebinds: frozenset[tuple[str, str]] = frozenset(),
 ) -> dict[str, Any]:
     """Shallow per-field merge into one milestone skeleton:
     named fields replace wholly — arrays as whole arrays, never an
@@ -222,7 +227,7 @@ def edit_milestone(
             ),
         )
     if target.get("status") == "done":
-        return _repair_done_milestone(new, target, ref, payload)
+        return _repair_done_milestone(new, target, ref, payload, proven_rebinds)
     if "owns" in payload:
         normalize_milestone_source_paths(
             payload["owns"], feature=str(document.get("feature", ""))
@@ -259,12 +264,15 @@ def _repair_done_milestone(
     target: dict[str, Any],
     ref: str,
     payload: Mapping[str, Any],
+    proven_rebinds: frozenset[tuple[str, str]],
 ) -> dict[str, Any]:
     """Repair only explicitly authored missing declarations on a done milestone.
 
     A nonblank verification command may change only alongside a strict ownership
-    expansion. This supports later source consolidation without allowing a
-    command-only rewrite of completed history. The expected result stays fixed.
+    expansion, or when every change re-points a test selector that no longer
+    resolves to one that does in the same file. This supports later source
+    consolidation and upstream test renames without allowing a free command
+    rewrite of completed history. The expected result stays fixed.
     """
     allowed = {"owns", "owns_append", "verification"}
     if not payload or not (set(payload) <= allowed):
@@ -303,7 +311,15 @@ def _repair_done_milestone(
             and bool(current_command.strip())
             and "owns" in repaired
         )
-        repairable = command_missing or command_relocated
+        command_rebound = (
+            isinstance(current_command, str)
+            and bool(current_command.strip())
+            and isinstance(supplied_command, str)
+            and _selector_rebind_is_proven(
+                current_command, supplied_command, proven_rebinds
+            )
+        )
+        repairable = command_missing or command_relocated or command_rebound
         well_formed = (
             isinstance(current_expected, str)
             and isinstance(supplied_command, str)
@@ -326,6 +342,13 @@ def _repair_done_milestone(
     return new
 
 
+def _selector_rebind_is_proven(
+    current: str, supplied: str, proven_rebinds: frozenset[tuple[str, str]]
+) -> bool:
+    pairs = selector_rebind_pairs(current, supplied)
+    return pairs is not None and set(pairs) <= proven_rebinds
+
+
 def _done_repair_error(ref: str) -> KernelError:
     return KernelError(
         code="milestone-out-of-sequence",
@@ -339,7 +362,8 @@ def _done_repair_error(ref: str) -> KernelError:
             "or an owns list that strictly contains the stored paths and "
             "verification: "
             "{command: <cmd>, expected: <unchanged text>}; a blank command may "
-            "still be filled without expanding owns"
+            "still be filled without expanding owns, and a test selector that no "
+            "longer resolves may be re-pointed to one that resolves in the same file"
         ),
     )
 

@@ -98,6 +98,7 @@ from heddle.runtime.verification import (
     assess_current_verification,
     assess_recorded_verification,
     observe_current_source,
+    proven_selector_rebinds,
     publish_source_evidence,
     resolve_source_declaration,
     verification_command_for_scope,
@@ -351,7 +352,7 @@ def milestone_add(operation: ops.MilestoneAdd) -> HeddleResult:
     payload = ops.decoded_payload(operation.milestone)
     affected: dict[str, Any] = {}
 
-    def render(document: dict[str, Any]) -> dict[str, Any]:
+    def render(document: dict[str, Any], _root: Path) -> dict[str, Any]:
         new_document = add_milestone(document, payload)
         affected["milestone"] = new_document["milestones"][-1]
         return new_document
@@ -383,8 +384,13 @@ def milestone_edit(operation: ops.MilestoneEdit) -> HeddleResult:
     }
     affected: dict[str, Any] = {}
 
-    def render(document: dict[str, Any]) -> dict[str, Any]:
-        new_document = edit_milestone(document, ref, payload)
+    def render(document: dict[str, Any], root: Path) -> dict[str, Any]:
+        new_document = edit_milestone(
+            document,
+            ref,
+            payload,
+            proven_rebinds=_proven_rebinds(root, document, ref, payload),
+        )
         affected["milestone"] = next(
             milestone
             for milestone in new_document["milestones"]
@@ -395,10 +401,32 @@ def milestone_edit(operation: ops.MilestoneEdit) -> HeddleResult:
     return _emit_milestone_mutation(parsed, render=render, affected=affected)
 
 
+def _proven_rebinds(
+    root: Path, document: Mapping[str, Any], ref: str, payload: Mapping[str, Any]
+) -> frozenset[tuple[str, str]]:
+    supplied = payload.get("verification")
+    target = next(
+        (
+            milestone
+            for milestone in document.get("milestones", [])
+            if isinstance(milestone, Mapping) and milestone.get("id") == ref
+        ),
+        None,
+    )
+    if not isinstance(supplied, Mapping) or target is None:
+        return frozenset()
+    current = target.get("verification")
+    current_command = current.get("command") if isinstance(current, Mapping) else None
+    supplied_command = supplied.get("command")
+    if not isinstance(current_command, str) or not isinstance(supplied_command, str):
+        return frozenset()
+    return proven_selector_rebinds(root, current_command, supplied_command)
+
+
 def _emit_milestone_mutation(
     parsed: ops.MilestoneAdd | ops.MilestoneEdit,
     *,
-    render: Callable[[dict[str, Any]], dict[str, Any]],
+    render: Callable[[dict[str, Any], Path], dict[str, Any]],
     affected: dict[str, Any],
     next_actions_for: Callable[[dict[str, Any]], tuple[NextAction, ...]] | None = None,
 ) -> HeddleResult:
@@ -411,7 +439,7 @@ def _emit_milestone_mutation(
         commit = write(
             context.state_path,
             expect_revision=context.snapshot.state.revision,
-            transform=render,
+            transform=lambda document: render(document, context.config.root),
         )
     except Conflict as error:
         return conflict_failure(error)

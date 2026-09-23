@@ -6,6 +6,7 @@ from heddle.kernel.test_bindings import (
     inspect_python_test_source,
     parse_primary_test_bindings,
     resolve_primary_test_binding,
+    selector_rebind_pairs,
 )
 
 
@@ -153,3 +154,29 @@ def test_source_is_inspected_without_execution_and_invalid_bytes_are_reported() 
     assert invalid_utf8.issue.reason == "source is not valid UTF-8"
     assert invalid_python.issue is not None
     assert invalid_python.issue.reason == "source is not valid Python"
+
+
+def test_selector_rebind_pairs_only_same_file_selector_changes() -> None:
+    current = "runner fast tests/test_a.py tests/test_b.py::test_old 'x y'"
+
+    assert selector_rebind_pairs(
+        current, "runner fast tests/test_a.py tests/test_b.py::test_new 'x y'"
+    ) == (("tests/test_b.py::test_old", "tests/test_b.py::test_new"),)
+    assert selector_rebind_pairs(current, current) is None
+    assert (
+        selector_rebind_pairs(
+            current, "runner fast tests/test_a.py tests/test_c.py::test_old 'x y'"
+        )
+        is None
+    )
+    assert (
+        selector_rebind_pairs(
+            current, "runner slow tests/test_a.py tests/test_b.py::test_new 'x y'"
+        )
+        is None
+    )
+    assert (
+        selector_rebind_pairs(current, "runner fast tests/test_b.py::test_new 'x y'")
+        is None
+    )
+    assert selector_rebind_pairs(current, "runner 'unterminated") is None

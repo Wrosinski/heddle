@@ -22,7 +22,7 @@ from heddle.contracts.operations import (
 )
 from heddle.contracts.result import Diagnostic, Severity
 from heddle.io import git
-from heddle.io.source import observe_source, resolve_source_definition
+from heddle.io.source import capture_path, observe_source, resolve_source_definition
 from heddle.kernel.project_config import KernelError, ProjectConfig, load_project_config
 from heddle.kernel.readiness import EvidenceExplanation
 from heddle.kernel.smoke_disposition import (
@@ -45,6 +45,12 @@ from heddle.kernel.source_manifest import (
     safe_relative_parts,
 )
 from heddle.kernel.state import SourceBaseline, StateFile
+from heddle.kernel.test_bindings import (
+    inspect_python_test_source,
+    parse_primary_test_target,
+    resolve_primary_test_binding,
+    selector_rebind_pairs,
+)
 from heddle.kernel.verification import (
     SCOPE_COMMAND_KEYS,
     CoverageReconciliation,
@@ -104,6 +110,34 @@ def observe_current_source(
         raise _source_error(
             scope or declaration.kind, error.message, hint=error.hint
         ) from error
+
+
+def proven_selector_rebinds(
+    root: Path, current: str, supplied: str
+) -> frozenset[tuple[str, str]]:
+    """Prove each re-pointed test target renames a selector its file lost."""
+    proven: set[tuple[str, str]] = set()
+    for old, new in selector_rebind_pairs(current, supplied) or ():
+        old_binding = parse_primary_test_target("", old)
+        new_binding = parse_primary_test_target("", new)
+        try:
+            captured = capture_path(root, old_binding.path)
+        except KernelError:
+            continue
+        if captured.kind != "file":
+            continue
+        inspection = inspect_python_test_source(captured.content)
+        if inspection.inventory is None or "[" in old_binding.selector:
+            continue
+        old_resolution = resolve_primary_test_binding(
+            old_binding, inspection, policy="repository"
+        )
+        new_resolution = resolve_primary_test_binding(
+            new_binding, inspection, policy="repository"
+        )
+        if old_resolution.kind is None and new_resolution.kind is not None:
+            proven.add((old, new))
+    return frozenset(proven)
 
 
 def assess_current_verification(

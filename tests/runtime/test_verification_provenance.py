@@ -1237,6 +1237,115 @@ def test_ac02_ac06_done_milestone_ownership_can_only_expand(
     assert state_path.read_bytes() == expanded
 
 
+def _done_milestone_with_selector(
+    tmp_path: Path, name: str, test_source: str
+) -> tuple[Path, Path]:
+    host, state_path = _v2_host(tmp_path, name=name)
+    state = yaml.safe_load(state_path.read_text(encoding="utf-8"))
+    milestone = state["milestones"][0]
+    milestone["status"] = "done"
+    milestone["verification"] = {
+        "command": "python3 -m pytest tests/test_src.py::test_old -q",
+        "expected": "pass",
+    }
+    _write_yaml(state_path, state)
+    (host / "tests").mkdir(exist_ok=True)
+    (host / "tests/test_src.py").write_text(test_source, encoding="utf-8")
+    return host, state_path
+
+
+def _edit_done_command(run_cli, tmp_path: Path, command: str, expected: str):
+    payload = tmp_path / "rebind.yaml"
+    payload.write_text(
+        yaml.safe_dump({"verification": {"command": command, "expected": expected}}),
+        encoding="utf-8",
+    )
+    return run_cli(
+        [
+            "milestone",
+            "edit",
+            "m1",
+            "--from-file",
+            str(payload),
+            "--feature",
+            "sample-feature",
+            "--json",
+        ]
+    )
+
+
+def test_done_milestone_command_rebinds_a_renamed_test_selector(
+    run_cli,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    host, state_path = _done_milestone_with_selector(
+        tmp_path, "selector-rebind", "def test_new():\n    assert True\n"
+    )
+    monkeypatch.chdir(host)
+
+    code, out, _err = _edit_done_command(
+        run_cli,
+        tmp_path,
+        "python3 -m pytest tests/test_src.py::test_new -q",
+        "pass",
+    )
+
+    assert code == 0, f"renamed selector rebind failed: {out}"
+    milestone = yaml.safe_load(state_path.read_text(encoding="utf-8"))["milestones"][0]
+    assert milestone["verification"] == {
+        "command": "python3 -m pytest tests/test_src.py::test_new -q",
+        "expected": "pass",
+    }
+    assert milestone["owns"] == ["src.py"]
+
+
+@pytest.mark.parametrize(
+    ("test_source", "command", "expected"),
+    [
+        (
+            "def test_old():\n    pass\n\ndef test_new():\n    pass\n",
+            "python3 -m pytest tests/test_src.py::test_new -q",
+            "pass",
+        ),
+        (
+            "def test_other():\n    pass\n",
+            "python3 -m pytest tests/test_src.py::test_new -q",
+            "pass",
+        ),
+        (
+            "def test_new():\n    pass\n",
+            "python3 -m pytest tests/test_src.py::test_new -x",
+            "pass",
+        ),
+        (
+            "def test_new():\n    pass\n",
+            "python3 -m pytest tests/test_src.py::test_new -q",
+            "fail",
+        ),
+    ],
+    ids=["old-still-resolves", "new-unresolved", "other-token", "expected-changed"],
+)
+def test_done_milestone_command_refuses_an_unproven_selector_rebind(
+    test_source: str,
+    command: str,
+    expected: str,
+    run_cli,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    host, state_path = _done_milestone_with_selector(
+        tmp_path, "unproven-rebind", test_source
+    )
+    monkeypatch.chdir(host)
+    before = state_path.read_bytes()
+
+    code, out, _err = _edit_done_command(run_cli, tmp_path, command, expected)
+
+    assert code == 3 and "milestone-out-of-sequence" in out
+    assert state_path.read_bytes() == before
+
+
 @pytest.mark.parametrize("missing", ["verification", "command"])
 def test_ac02_incompatible_milestone_refuses_without_a_write(
     missing: str,

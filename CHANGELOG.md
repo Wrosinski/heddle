@@ -12,6 +12,10 @@ authority for the installed version.
 
 - Release process documentation covering qualification, tagging, the GitHub
   Release, and the repository metadata on GitHub.
+- `milestone edit` can re-point a done milestone's verification command from a
+  test selector that no longer resolves to one that resolves in the same file,
+  as after an upstream test rename. Every other command token and the expected
+  text must stay unchanged; any other rewrite still needs an ownership expansion.
 
 ### Changed
 

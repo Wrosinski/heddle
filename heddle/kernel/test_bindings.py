@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import ast
 import re
+import shlex
 from dataclasses import dataclass
 from typing import Literal
 
@@ -180,3 +181,37 @@ def _failure(binding: PrimaryTestBinding, reason: str) -> TestBindingResolution:
         None,
         TestBindingIssue(binding.ac_id, binding.target, reason),
     )
+
+
+def selector_rebind_pairs(
+    current: str, supplied: str
+) -> tuple[tuple[str, str], ...] | None:
+    """Pair the test targets a rewrite re-points within their own files.
+
+    Returns ``None`` unless the two shell lines have the same tokens except for
+    at least one ``path::selector`` target whose path is unchanged.
+    """
+    try:
+        before = shlex.split(current)
+        after = shlex.split(supplied)
+    except ValueError:
+        return None
+    if len(before) != len(after):
+        return None
+    pairs: list[tuple[str, str]] = []
+    for old, new in zip(before, after, strict=True):
+        if old == new:
+            continue
+        old_path, old_separator, old_selector = old.partition("::")
+        new_path, new_separator, new_selector = new.partition("::")
+        if not (
+            old_separator
+            and new_separator
+            and old_path
+            and old_path == new_path
+            and old_selector
+            and new_selector
+        ):
+            return None
+        pairs.append((old, new))
+    return tuple(pairs) or None
