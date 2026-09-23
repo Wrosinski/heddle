@@ -28,6 +28,18 @@ authority for the installed version.
   Spec review stays on `gpt-6-astra`. Confirmed feature policies keep the model
   they recorded.
 
+### Fixed
+
+- A feature whose reviews spanned more than 48 hours could not complete: each
+  gate run deleted provider scratch directories older than 48 hours, including
+  ones the state still indexed, and `feature complete` then refused because
+  those indexed files were missing. The stale-scratch sweep now keeps indexed
+  scratch. Completion records indexed provider scratch that is already gone as
+  absent in the archive manifest (`heddle.completion-archive/v2`) and reports
+  each path as a `completion-absent-scratch` advisory. Every other indexed input
+  must still be present, and an accepted retry still fails when a cleaned file
+  is missing from the archive. Archives written in the v1 format stay readable.
+
 ## [0.1.0] - 2026-09-22
 
 First tagged release. The core runtime was implemented and tested before the

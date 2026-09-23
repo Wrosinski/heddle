@@ -12,7 +12,7 @@ import time
 from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, replace
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Literal
 
 from heddle.gate.cli import GateArgs
@@ -258,7 +258,12 @@ def build_gate_paths(
     artifact_dir.mkdir(parents=True, exist_ok=True)
     for entry in _REVIEWS_TEMP_IGNORE_ENTRIES:
         _ensure_ignore_entry(artifact_dir / ".gitignore", entry)
-    cleanup_stale_temp_dirs(artifact_dir)
+    cleanup_stale_temp_dirs(
+        artifact_dir,
+        retained=frozenset(
+            PurePosixPath(path).parent.name for path in ctx.indexed_temporary_paths
+        ),
+    )
 
     output = artifact_dir / f"{output_name}.md"
     temp_dir = Path(
@@ -557,11 +562,12 @@ def cleanup_stale_temp_dirs(
     plans_dir: Path,
     *,
     now: float | None = None,
+    retained: frozenset[str] = frozenset(),
 ) -> int:
     cutoff = (time.time() if now is None else now) - STALE_TEMP_DIR_MAX_AGE_SECONDS
     removed = 0
     for candidate in plans_dir.glob("*.tmp.*"):
-        if not candidate.is_dir():
+        if not candidate.is_dir() or candidate.name in retained:
             continue
         try:
             if candidate.stat().st_mtime >= cutoff:

@@ -4,13 +4,15 @@ import base64
 import hashlib
 import io
 import json
+import os
 import stat
 import sys
 import tarfile
+import time
 from copy import deepcopy
 from dataclasses import replace
 from datetime import date
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from types import SimpleNamespace
 
 import pytest
@@ -195,6 +197,41 @@ def test_retained_secondary_records_after_canonical_primary_without_another_call
     assert code == 4 and replay["data"]["cached"], replay
     assert replay["data"]["run_id"] == secondary["data"]["run_id"]
     assert len(calls) == 2 and snapshot(host) == before
+
+
+def test_stale_scratch_sweep_keeps_indexed_review_scratch(
+    tmp_path, monkeypatch, run_cli
+):
+    host, path = current_host(
+        tmp_path,
+        monkeypatch,
+        overrides={"spec-review": entry("spec-review", secondary=OPUS)},
+    )
+    provider_transport(monkeypatch, review_content())
+    code, primary = gate_command(run_cli, "run-gate", "spec-review", "--cli", "codex")
+    assert code == 0 and primary["ok"], primary
+    attempts = yaml.safe_load(path.read_text())["review_assignments"]["attempts"]
+    indexed = {
+        PurePosixPath(artifact["path"]).parent.name
+        for attempt in attempts
+        for artifact in attempt["artifacts"]
+        if artifact["role"] == "temporary"
+    }
+    assert indexed
+    reviews = path.parent / "reviews"
+    abandoned = reviews / "spec-review.codex.tmp.abandoned"
+    abandoned.mkdir()
+    stale = time.time() - 3 * 24 * 60 * 60
+    for name in (*indexed, abandoned.name):
+        os.utime(reviews / name, (stale, stale))
+
+    code, secondary = gate_command(
+        run_cli, "run-gate", "spec-review", "--cli", "claude"
+    )
+
+    assert code == 0 and secondary["ok"], secondary
+    assert all((reviews / name).is_dir() for name in indexed)
+    assert not abandoned.exists()
 
 
 def test_interpretation_is_discoverable_on_the_native_manifest():

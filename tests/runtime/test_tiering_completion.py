@@ -516,6 +516,14 @@ def test_local_history_accepted_retry_reuses_verified_archive_after_partial_clea
 
 
 def _remove_archive_member(path: Path, removed: str) -> None:
+    def drop_entry(manifest: dict) -> dict:
+        manifest["entries"].pop(removed)
+        return manifest
+
+    _rewrite_archive(path, drop_entry, removed=removed)
+
+
+def _rewrite_archive(path: Path, update, *, removed: str | None = None) -> None:
     manifest_name = ".heddle-completion-archive.json"
     members = []
     with tarfile.open(path, "r:gz") as archive:
@@ -534,8 +542,7 @@ def _remove_archive_member(path: Path, removed: str) -> None:
             )
         stream = archive.extractfile(manifest_name)
         assert stream is not None
-        manifest = json.load(stream)
-    manifest["entries"].pop(removed)
+        manifest = update(json.load(stream))
     replacement = path.with_name("replacement.tar.gz")
     with tarfile.open(replacement, "w:gz", format=tarfile.PAX_FORMAT) as archive:
         for name, mode, kind, linkname, data in members:
@@ -575,6 +582,96 @@ def test_local_history_accepted_retry_requires_archived_disposable_identity(
     assert str(host.archive) in archive_effect["error"]
     assert host.state.read_bytes() == accepted
     assert tuple(host.suite_calls()) == close_calls
+
+
+def test_first_archive_records_absent_indexed_scratch_and_retry_accepts_it(
+    tmp_path, monkeypatch
+) -> None:
+    """Indexed provider scratch gone before first publication is recorded absent."""
+    host, candidate, relative, content = _local_cleanup_fixture(tmp_path, monkeypatch)
+    mode = stat.S_IMODE(candidate.stat().st_mode)
+    candidate.unlink()
+
+    preview = host.complete(dry_run=True)
+
+    assert preview.ok and preview.data["accepted"] is False, preview.to_envelope()
+    assert [
+        row.source
+        for row in preview.diagnostics
+        if row.code == "completion-absent-scratch"
+    ] == [relative]
+
+    first = host.complete()
+
+    assert first.ok, first.to_envelope()
+    assert first.data["effects"]["archive"]["status"] == "complete"
+    assert first.data["effects"]["cleanup"]["paths"] == []
+    with tarfile.open(host.archive, "r:gz") as archive:
+        assert relative not in archive.getnames()
+        stream = archive.extractfile(".heddle-completion-archive.json")
+        assert stream is not None
+        manifest = json.load(stream)
+    assert manifest["schema"] == "heddle.completion-archive/v2"
+    assert manifest["absent"] == {
+        relative: {"sha256": hashlib.sha256(content).hexdigest(), "mode": mode}
+    }
+    absent = [
+        row.source
+        for row in first.diagnostics
+        if row.code == "completion-absent-scratch"
+    ]
+    assert absent == [relative]
+    accepted = host.state.read_bytes()
+
+    retry = host.complete()
+
+    assert retry.ok, retry.to_envelope()
+    assert retry.data["effects"]["archive"]["status"] == "complete"
+    assert host.state.read_bytes() == accepted
+
+
+def test_recorded_absence_cannot_replace_an_archived_scratch_identity(
+    tmp_path, monkeypatch
+) -> None:
+    """An absence record for other bytes does not qualify cleaned scratch."""
+    host, candidate, relative, _content = _local_cleanup_fixture(tmp_path, monkeypatch)
+    mode = stat.S_IMODE(candidate.stat().st_mode)
+    first = host.complete()
+    assert first.ok and not candidate.exists()
+
+    def record_other_absence(manifest: dict) -> dict:
+        manifest["entries"].pop(relative)
+        manifest["absent"] = {relative: {"sha256": "0" * 64, "mode": mode}}
+        return manifest
+
+    _rewrite_archive(host.archive, record_other_absence, removed=relative)
+
+    retry = host.complete()
+
+    archive_effect = retry.data["effects"]["archive"]
+    assert archive_effect["status"] == "conflict"
+    assert relative in archive_effect["error"]
+
+
+def test_legacy_v1_archive_still_qualifies_an_accepted_retry(
+    tmp_path, monkeypatch
+) -> None:
+    """Archives published before recorded absences remain readable."""
+    host, _candidate, _relative, _content = _local_cleanup_fixture(
+        tmp_path, monkeypatch
+    )
+    assert host.complete().ok
+
+    def legacy(manifest: dict) -> dict:
+        assert manifest.pop("absent") == {}
+        return {**manifest, "schema": "heddle.completion-archive/v1"}
+
+    _rewrite_archive(host.archive, legacy)
+
+    retry = host.complete()
+
+    assert retry.ok, retry.to_envelope()
+    assert retry.data["effects"]["archive"]["status"] == "complete"
 
 
 @pytest.mark.parametrize("damage", ["candidate-bytes", "candidate-symlink", "archive"])

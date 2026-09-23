@@ -480,6 +480,9 @@ class GateContext:
     # artifact is genuinely workspace-relative even for gates that run before
     # plan.md exists (plan_path is None at spec-review).
     workspace_dir: Path | None = None
+    # Workspace-relative provider scratch the state indexes; the stale temp-dir
+    # sweep keeps these directories for completion to archive.
+    indexed_temporary_paths: tuple[str, ...] = ()
     # Captured same-lane completed history and the pipeline's decision context.
     # Provider errors do not become retained review inputs.
     latest_lane_run_id: str | None = None

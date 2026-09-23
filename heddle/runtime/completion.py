@@ -10,6 +10,7 @@ import os
 import stat
 import tarfile
 import zlib
+from collections.abc import Iterable
 from dataclasses import dataclass, replace
 from pathlib import Path, PurePosixPath
 from tempfile import NamedTemporaryFile
@@ -72,7 +73,9 @@ from heddle.runtime.write_args import parse_write_args, usage_failure
 from heddle.runtime.write_path import emit_result
 
 _MANIFEST = ".heddle-completion-archive.json"
-_ARCHIVE_SCHEMA = "heddle.completion-archive/v1"
+_ARCHIVE_SCHEMA = "heddle.completion-archive/v2"
+_LEGACY_ARCHIVE_SCHEMA = "heddle.completion-archive/v1"
+_ABSENT = "absent"
 _USAGE = (
     "heddle feature complete [--feature <slug>] [--expect-revision <n>] [--dry-run]"
 )
@@ -93,6 +96,7 @@ class CompletionQualification:
     assessment: BoundaryAssessment
     stamp: SpecStampIdentity
     retained: dict[str, ArchiveEntry]
+    absent_scratch: tuple[str, ...] = ()
 
 
 class CleanupArchiveConflict(ValueError):
@@ -211,6 +215,7 @@ def complete_feature(operation: ops.FeatureComplete) -> HeddleResult:
                 diagnostics=(
                     *context.diagnostics,
                     *_retained_evidence_diagnostics(retained_evidence),
+                    *_absent_scratch_diagnostics(qualification.absent_scratch),
                 ),
             )
         suite = run_close_suite(context)
@@ -339,12 +344,15 @@ def _qualify(
         excluded_paths=controls.exact,
         workspace=context.snapshot.workspace,
     )
+    absent: dict[str, ArchiveEntry] = {}
     if not archive_path(context.config, state.feature).exists():
-        _validate_archive_inputs(context.config.root, context.state_path.parent, state)
+        _authored, absent = _validate_archive_inputs(
+            context.config.root, context.state_path.parent, state
+        )
     retained = _retained_evidence_snapshot(
         context.config.root, context.state_path.parent, state
     )
-    return CompletionQualification(assessment, stamp, retained)
+    return CompletionQualification(assessment, stamp, retained, tuple(sorted(absent)))
 
 
 def archive_path(config: ProjectConfig, feature: str) -> Path:
@@ -719,6 +727,19 @@ def _retained_evidence_report(
     }
 
 
+def _absent_scratch_diagnostics(paths: Iterable[str]) -> tuple[Diagnostic, ...]:
+    return tuple(
+        Diagnostic(
+            Severity.ADVISORY,
+            "completion-absent-scratch",
+            "indexed provider scratch is absent from the workspace; the "
+            "completion archive records its identity as absent",
+            path,
+        )
+        for path in paths
+    )
+
+
 def _retained_evidence_diagnostics(
     report: dict[str, Any],
 ) -> tuple[Diagnostic, ...]:
@@ -772,15 +793,29 @@ def _required_authored_archive_inputs(
 
 def _validate_archive_inputs(
     root: Path, workspace: Path, state: StateFile
-) -> dict[str, ArchiveEntry]:
-    """Require authored and indexed inputs before first archive publication."""
+) -> tuple[dict[str, ArchiveEntry], dict[str, ArchiveEntry]]:
+    """Require authored and indexed inputs before first archive publication.
+
+    Indexed provider scratch that is already gone becomes a recorded absence;
+    every other indexed input must match its recorded identity.
+    """
     from heddle.kernel.review_assignments import attempt_artifacts
 
+    absent: dict[str, ArchiveEntry] = {}
     try:
         authored = _required_authored_archive_inputs(root, workspace)
         for reference in attempt_artifacts(state.review_assignments.attempts):
             path = workspace / reference.path
             _no_symlinks(root, path)
+            if (
+                reference.role == "temporary"
+                and reference.mode is not None
+                and not os.path.lexists(path)
+            ):
+                absent[reference.path] = ArchiveEntry(
+                    _ABSENT, reference.sha256, reference.mode
+                )
+                continue
             observed = _entry(workspace, path)
             if (
                 observed.kind != reference.kind
@@ -798,7 +833,7 @@ def _validate_archive_inputs(
             "restore every indexed review artifact before publishing the "
             "completion archive",
         ) from error
-    return authored
+    return authored, absent
 
 
 def _validate_archive_contract(
@@ -818,6 +853,12 @@ def _validate_archive_contract(
             )
     for reference in attempt_artifacts(state.review_assignments.attempts):
         observed = archived.get(reference.path)
+        if (
+            reference.role == "temporary"
+            and reference.mode is not None
+            and observed == ArchiveEntry(_ABSENT, reference.sha256, reference.mode)
+        ):
+            continue
         if (
             observed is None
             or observed.kind != reference.kind
@@ -852,14 +893,7 @@ def _read_archive(path: Path, ledger: bytes) -> dict[str, ArchiveEntry]:
         seen = set()
         for member in archive:
             name = member.name
-            parsed = PurePosixPath(name)
-            if (
-                name in seen
-                or not name
-                or parsed.is_absolute()
-                or ".." in parsed.parts
-                or parsed.as_posix() != name
-            ):
+            if name in seen or not _is_safe_member_name(name):
                 raise ValueError(f"unsafe or duplicate archive member: {name}")
             seen.add(name)
             if name == _MANIFEST:
@@ -883,10 +917,13 @@ def _read_archive(path: Path, ledger: bytes) -> dict[str, ArchiveEntry]:
             else:
                 raise ValueError(f"unsupported archive member type: {name}")
             entries[name] = ArchiveEntry(kind, digest, member.mode)
+    keys = {"schema", "accepted_state_sha256", "entries"}
+    if isinstance(manifest, dict) and manifest.get("schema") == _ARCHIVE_SCHEMA:
+        keys.add(_ABSENT)
     if (
         not isinstance(manifest, dict)
-        or set(manifest) != {"schema", "accepted_state_sha256", "entries"}
-        or manifest["schema"] != _ARCHIVE_SCHEMA
+        or set(manifest) != keys
+        or manifest["schema"] not in {_ARCHIVE_SCHEMA, _LEGACY_ARCHIVE_SCHEMA}
     ):
         raise ValueError("completion archive has no valid integrity manifest")
     expected = {
@@ -903,11 +940,50 @@ def _read_archive(path: Path, ledger: bytes) -> dict[str, ArchiveEntry]:
         raise ValueError(
             "completion archive member or accepted-ledger integrity mismatch"
         )
+    entries.update(_recorded_absences(manifest.get(_ABSENT, {}), entries))
     return entries
 
 
+def _is_safe_member_name(name: str) -> bool:
+    parsed = PurePosixPath(name)
+    return (
+        bool(name)
+        and not parsed.is_absolute()
+        and ".." not in parsed.parts
+        and parsed.as_posix() == name
+    )
+
+
+def _recorded_absences(
+    value: object, members: dict[str, ArchiveEntry]
+) -> dict[str, ArchiveEntry]:
+    """Decode indexed scratch identities the archive records as absent."""
+    if not isinstance(value, dict):
+        raise ValueError("completion archive absence record is invalid")
+    absences = {}
+    for name, record in value.items():
+        if (
+            not isinstance(name, str)
+            or not _is_safe_member_name(name)
+            or name in members
+            or name == _MANIFEST
+            or not isinstance(record, dict)
+            or set(record) != {"sha256", "mode"}
+            or not isinstance(record["sha256"], str)
+            or not isinstance(record["mode"], int)
+        ):
+            raise ValueError(f"completion archive absence record is invalid: {name}")
+        absences[name] = ArchiveEntry(_ABSENT, record["sha256"], record["mode"])
+    return absences
+
+
 def _publish_archive(
-    root: Path, workspace: Path, path: Path, ledger: bytes
+    root: Path,
+    workspace: Path,
+    path: Path,
+    ledger: bytes,
+    *,
+    absent: dict[str, ArchiveEntry] | None = None,
 ) -> dict[str, ArchiveEntry]:
     _no_symlinks(root, path)
     if path.exists():
@@ -917,12 +993,19 @@ def _publish_archive(
         raise ValueError(
             f"workspace contains reserved archive manifest name: {_MANIFEST}"
         )
+    absent = absent or {}
+    if present := sorted(set(absent) & set(entries)):
+        raise ValueError(f"recorded absence is present in the workspace: {present[0]}")
     manifest = {
         "schema": _ARCHIVE_SCHEMA,
         "accepted_state_sha256": hashlib.sha256(ledger).hexdigest(),
         "entries": {
             name: {"kind": entry.kind, "sha256": entry.sha256, "mode": entry.mode}
             for name, entry in entries.items()
+        },
+        _ABSENT: {
+            name: {"sha256": entry.sha256, "mode": entry.mode}
+            for name, entry in sorted(absent.items())
         },
     }
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -1157,6 +1240,7 @@ def completion_result(
     retained: dict[str, ArchiveEntry] = {}
     retained_attempts: tuple[ArtifactRef, ...] = ()
     archived: dict[str, ArchiveEntry] | None = None
+    absent_scratch: list[str] = []
     binding_status = "pending"
     candidate_conflict: CleanupCandidateConflict | None = None
     effects: dict[str, dict[str, Any]] = {
@@ -1192,16 +1276,22 @@ def completion_result(
                     attempt_references=retained_attempts,
                 )
                 _no_symlinks(root, archive)
-                authored = (
-                    _required_authored_archive_inputs(root, workspace)
-                    if archive.exists()
-                    else _validate_archive_inputs(root, workspace, state)
-                )
+                if archive.exists():
+                    authored = _required_authored_archive_inputs(root, workspace)
+                    absent: dict[str, ArchiveEntry] = {}
+                else:
+                    authored, absent = _validate_archive_inputs(root, workspace, state)
+                absent_scratch = sorted(absent)
                 if archive.exists() or not dry_run:
                     entries = (
                         _read_archive(archive, ledger)
                         if dry_run
-                        else _publish_archive(root, workspace, archive, ledger)
+                        else _publish_archive(
+                            root, workspace, archive, ledger, absent=absent
+                        )
+                    )
+                    absent_scratch = sorted(
+                        name for name, entry in entries.items() if entry.kind == _ABSENT
                     )
                     _validate_archive_contract(archive, state, authored, entries)
                     _validate_retained_archive(retained, entries)
@@ -1294,6 +1384,7 @@ def completion_result(
         diagnostics=(
             *context.diagnostics,
             *_retained_evidence_diagnostics(retained_evidence),
+            *_absent_scratch_diagnostics(absent_scratch),
             *(
                 Diagnostic(
                     Severity.ADVISORY,

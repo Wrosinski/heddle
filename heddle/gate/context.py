@@ -201,6 +201,16 @@ def build_context_from_snapshot(
         document_review_context=assignment_context,
         document_review_round=assignment_round.number,
         workspace_dir=workspace_dir,
+        indexed_temporary_paths=tuple(
+            sorted(
+                {
+                    artifact.path
+                    for attempt in snapshot.state.review_assignments.attempts
+                    for artifact in attempt.artifacts
+                    if artifact.role == "temporary"
+                }
+            )
+        ),
         latest_lane_run_id=prior_runs[-1].run_id if prior_runs else None,
         prior_completed_runs=len(prior_runs),
         prior_review_artifacts=(

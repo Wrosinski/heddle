@@ -194,7 +194,7 @@ def test_local_history_missing_archive_input_refuses_republication(
             ArtifactRef(
                 "reviews/missing.tmp",
                 "4" * 64,
-                "temporary",
+                "derived",
                 mode=0o640,
             ),
         ),

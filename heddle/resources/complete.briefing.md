@@ -321,7 +321,9 @@ or commits them, and completion does not move the baseline.
 4. **Local retention qualification.** Under the recording lock, the runtime
    rechecks the accepted local ledger, requires authored `plan.md` and `brief.md`,
    and validates every indexed archive member by path, bytes, type and mode.
-   It does not consult Git HEAD. Users may commit workflow records according to
+   Indexed provider scratch already gone before first publication is recorded
+   as absent in the archive manifest and reported as an advisory; every other
+   indexed input must be present. It does not consult Git HEAD. Users may commit workflow records according to
    repository policy, but record commits are optional for acceptance, archival
    and cleanup.
 5. **Bounded cleanup and recovery.** The runtime compares eligible files to

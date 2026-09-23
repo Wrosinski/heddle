@@ -1844,12 +1844,12 @@ def test_ac08_archive_path_conflict_preserves_accepted_history(
 
     original = completion._publish_archive
 
-    def collide(root, workspace, path, ledger):
+    def collide(root, workspace, path, ledger, **kwargs):
         (host / "docs/gate-trajectories").mkdir(exist_ok=True)
         (host / "docs/gate-trajectories/.raw").symlink_to(
             outside, target_is_directory=True
         )
-        return original(root, workspace, path, ledger)
+        return original(root, workspace, path, ledger, **kwargs)
 
     monkeypatch.setattr(completion, "_publish_archive", collide)
     code, output, _ = run_cli(
