@@ -25,7 +25,11 @@ MAX_EVENT_BYTES = 32 * 1024 * 1024
 MAX_STREAM_BYTES = 64 * 1024 * 1024
 REVIEW_CONTENT_VERSION = "heddle.review-content/v3"
 REVIEW_RESULT_VERSION = "heddle.review-result/v3"
+EVIDENCE_KINDS = ("trace", "speculation", "test", "execution", "absence", "unavailable")
 NON_AFFIRMATIVE_EVIDENCE_KINDS = frozenset({"absence", "unavailable", "speculation"})
+AFFIRMATIVE_EVIDENCE_KINDS = tuple(
+    kind for kind in EVIDENCE_KINDS if kind not in NON_AFFIRMATIVE_EVIDENCE_KINDS
+)
 
 
 class TruncatedReviewError(ValueError):
@@ -503,9 +507,7 @@ FAILURE_CATEGORIES = (
 def _common_definitions() -> dict[str, Any]:
     return {
         "Evidence": _object(
-            kind=_enum(
-                "trace", "speculation", "test", "execution", "absence", "unavailable"
-            ),
+            kind=_enum(*EVIDENCE_KINDS),
             references=_array(_TEXT),
             explanation=_TEXT,
         ),
