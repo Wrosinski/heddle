@@ -592,6 +592,27 @@ def build_rerun_ledger(ctx: GateContext) -> str:
             "resolved by the lead. Preserve originating run IDs and finding IDs: "
             + json.dumps(ctx.required_prior_references)
         )
+    lines.extend(
+        (
+            "",
+            "Prior-disposition encoding (validation rejects anything else):",
+            "- The original finding's classification sets the status, not the "
+            "lead's status. An IMPLEMENT finding or @coverage target is retained "
+            "or addressed; a concern the lead settled that you confirm no longer "
+            "stands is addressed. An IGNORE finding is retained or settled, "
+            "without decision fields. A REPORT finding a decision owns is "
+            "awaiting_decision while that decision is pending and settled once "
+            "it is resolved, with its decision_id and a decision_origin equal "
+            "to source.",
+            "- An addressed row and every regression cite trace, test or "
+            "execution evidence; absence, unavailable and speculation are "
+            "rejected there.",
+            "- A retained row names the output finding that carries the "
+            "concern, and that finding is not a regression. Every other finding "
+            "on a rerun is new and needs exactly one regressions entry with "
+            "before/after change evidence.",
+        )
+    )
     lines.append("")
     if ctx.prior_review_artifacts:
         lines.append("Prior review artifacts (captured before execution):")

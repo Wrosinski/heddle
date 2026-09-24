@@ -33,9 +33,19 @@ authority for the installed version.
   rounds run the primary alone. The policy contract (`feature policy --help`),
   the peer-review briefing and the workflow model state the same rule. The
   behavior is unchanged.
+- Disposition reruns state the reviewer-native prior-disposition rules in the
+  rerun ledger and in `prompt-authoring-standards.md`: the status each original
+  classification takes, whatever status the lead recorded; the evidence kinds an
+  addressed row or a regression needs; and that a retained finding is never
+  also a regression. Which review content validates is unchanged.
 
 ### Fixed
 
+- A `settled` or `awaiting_decision` prior disposition on an IMPLEMENT finding
+  or coverage target was refused with a REPORT-decision error. Prior-disposition
+  refusals now name the finding, the statuses its classification allows and the
+  status used; evidence and regression refusals name the finding and the
+  evidence kinds accepted.
 - A feature whose reviews spanned more than 48 hours could not complete: each
   gate run deleted provider scratch directories older than 48 hours, including
   ones the state still indexed, and `feature complete` then refused because

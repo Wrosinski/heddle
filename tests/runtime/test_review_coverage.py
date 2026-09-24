@@ -15,7 +15,7 @@ from heddle.gate.validation import validate_review
 from heddle.kernel.state import read_state_file
 from heddle.runtime.application import execute
 from tests.structured_review_helpers import disposition as reviewer_disposition
-from tests.structured_review_helpers import finding_ref
+from tests.structured_review_helpers import evidence, finding, finding_ref
 from tests.tiering_helpers import snapshot
 from tests.tiering_review_helpers import (
     current_host,
@@ -153,18 +153,44 @@ def test_coverage_admission_preserves_frozen_capture_and_origin_boundaries(
         historical = SimpleNamespace(**vars(capture.validation))
         historical.assignment_id = None
         validate_review(decoded, cast(PreparedGateRun, historical))
-    for fault in ("unknown-origin", "non-affirmative", "no-decision"):
+    faults = {
+        "unknown-origin": "prior finding accounting",
+        "non-affirmative": r"addressed prior finding @coverage \(run [^)]+\) needs "
+        "affirmative trace, test or execution evidence, not absence",
+        "lead-settled": r"prior coverage target @coverage \(run [^)]+\) takes "
+        "retained or addressed, not settled",
+        "retained-regression": "retained prior finding cannot also be a "
+        "regression: SP-N1 continues a retained prior target",
+        "missing-regression": "SP-N1 has no regressions entry and no retained "
+        "prior target",
+    }
+    for fault, message in faults.items():
         invalid_content = deepcopy(content)
         row = invalid_content["prior_dispositions"][0]
         if fault == "unknown-origin":
             row["source"]["run_id"] = "00000000-0000-4000-8000-ffffffffffff"
         elif fault == "non-affirmative":
             row["evidence"]["kind"] = "absence"
-        else:
+        elif fault == "lead-settled":
             row["disposition"] = "settled"
-        with pytest.raises(ValueError):
+        else:
+            invalid_content["findings"] = [finding("SP-N1", classification="implement")]
+            if fault == "retained-regression":
+                row.update(disposition="retained", output_finding_id="SP-N1")
+                invalid_content["regressions"] = [
+                    {"finding_id": "SP-N1", "evidence": evidence()}
+                ]
+        with pytest.raises(ValueError, match=message):
             validate_review(
                 decode_review_content(json.dumps(invalid_content).encode(), contract),
                 capture.validation,
             )
     assert len(calls) == 2
+    rerun_prompt = calls[1][1]
+    assert "Prior-disposition encoding" not in calls[0][1]
+    for rule in (
+        "An IMPLEMENT finding or @coverage target is retained or addressed",
+        "every regression cite trace, test or execution evidence",
+        "that finding is not a regression",
+    ):
+        assert rule in rerun_prompt

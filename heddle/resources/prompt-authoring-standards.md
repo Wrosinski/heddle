@@ -348,12 +348,19 @@ Within the supplied verification scope:
 4. **Never duplicate pending decisions.** They are already awaiting a ruling.
 
 Use the native prior_dispositions and regressions fields with exact original
-run/finding references. An addressed or settled claim needs affirmative evidence.
-Retained findings keep their origin; a new regression requires observed
-before/after change evidence, not merely a currently visible defect. Other
-current gaps remain explicit in coverage or limitations without a fabricated
-regression or a claim they are resolved. Verification scope does not suppress
-an evidenced new violation.
+run/finding references. The original finding's classification sets the status,
+not the lead's: an IMPLEMENT finding or `@coverage` target is retained or
+addressed, an IGNORE finding is retained or settled without decision fields, and
+a REPORT finding a decision owns is awaiting_decision while that decision is
+pending and settled once it is resolved, bound to that decision. An addressed or
+settled claim needs affirmative evidence; an addressed row or a regression cites
+trace, test or execution evidence, never absence, unavailable or speculation.
+Retained findings keep their origin: the output finding a retained row names is
+not a regression, and every other finding on a rerun needs one regressions entry
+with observed before/after change evidence, not merely a currently visible
+defect. Other current gaps remain explicit in coverage or limitations without a
+fabricated regression or a claim they are resolved. Verification scope does not
+suppress an evidenced new violation.
 
 The confirmed policy owns required passes, independent contexts, stop decisions
 and any maximum. No universal four/five-run limit, automatic reset, or synthesis

@@ -3,10 +3,12 @@ from __future__ import annotations
 from collections.abc import Hashable, Iterable
 
 from heddle.gate.results import (
+    AFFIRMATIVE_EVIDENCE_KINDS,
     FAILURE_CATEGORIES,
     NON_AFFIRMATIVE_EVIDENCE_KINDS,
     REVIEW_CONTENT_VERSION,
     ROLE_DIMENSIONS,
+    FindingRef,
     PeerReviewDetails,
     PlanReviewDetails,
     ReviewContent,
@@ -20,6 +22,26 @@ from heddle.gate.types import (
     ReviewBasis,
     ReviewValidationInputs,
 )
+
+# Reviewer-native prior dispositions by the original finding's classification;
+# every @coverage target counts as IMPLEMENT.
+PRIOR_DISPOSITIONS = {
+    "implement": ("retained", "addressed"),
+    "ignore": ("retained", "settled"),
+    "report": ("retained", "awaiting_decision", "settled"),
+}
+
+
+def _choices(values: Iterable[str]) -> str:
+    items = list(values)
+    return items[0] if len(items) == 1 else ", ".join(items[:-1]) + " or " + items[-1]
+
+
+_AFFIRMATIVE = _choices(AFFIRMATIVE_EVIDENCE_KINDS)
+
+
+def _prior_label(source: FindingRef) -> str:
+    return f"{source.finding_id} (run {source.run_id})"
 
 
 def _unique[HashableT: Hashable](
@@ -99,8 +121,8 @@ def _validate_prior_references(content: ReviewContent, findings: set[str]) -> No
                 or row.decision_origin is not None
             ):
                 raise ValueError(
-                    "retained prior finding must name an output finding, "
-                    "without a decision disposition"
+                    f"retained prior finding {_prior_label(row.source)} must name "
+                    "an output finding, without a decision disposition"
                 )
             retained.add(row.output_finding_id)
         else:
@@ -113,7 +135,9 @@ def _validate_prior_references(content: ReviewContent, findings: set[str]) -> No
                     raise ValueError("addressed prior finding has no decision owner")
                 if row.evidence.kind in NON_AFFIRMATIVE_EVIDENCE_KINDS:
                     raise ValueError(
-                        "addressed prior finding needs affirmative evidence"
+                        f"addressed prior finding {_prior_label(row.source)} needs "
+                        f"affirmative {_AFFIRMATIVE} evidence, "
+                        f"not {row.evidence.kind}"
                     )
             elif (
                 row.disposition == "awaiting_decision"
@@ -132,15 +156,25 @@ def _validate_prior_references(content: ReviewContent, findings: set[str]) -> No
     )
     if not regressions <= findings:
         raise ValueError("regression references an unknown finding")
-    if regressions & retained:
-        raise ValueError("retained prior finding cannot also be a regression")
-    if content.prior_dispositions and regressions != findings - retained:
+    if overlap := regressions & retained:
         raise ValueError(
-            "every new finding on a rerun needs explicit regression evidence"
+            "retained prior finding cannot also be a regression: "
+            f"{', '.join(sorted(overlap))} continues a retained prior target, "
+            "so leave it out of regressions"
+        )
+    if content.prior_dispositions and regressions != findings - retained:
+        missing = ", ".join(sorted(findings - retained - regressions))
+        raise ValueError(
+            "every new finding on a rerun needs explicit regression evidence: "
+            f"{missing} has no regressions entry and no retained prior target"
         )
     for regression in content.regressions:
         if regression.evidence.kind in NON_AFFIRMATIVE_EVIDENCE_KINDS:
-            raise ValueError("regression evidence must identify the observed change")
+            raise ValueError(
+                "regression evidence must identify the observed change: "
+                f"{regression.finding_id} needs {_AFFIRMATIVE} evidence, "
+                f"not {regression.evidence.kind}"
+            )
 
 
 def validate_review_fields(
@@ -410,6 +444,17 @@ def _validate_prior_dispositions(
     decisions = {item.id: item for item in prepared.review_decisions}
     for row in content.prior_dispositions:
         source = prior[(row.source.run_id, row.source.finding_id)]
+        allowed = PRIOR_DISPOSITIONS[source]
+        if row.disposition not in allowed:
+            target = (
+                "coverage target"
+                if row.source.finding_id == "@coverage"
+                else f"{source.upper()} finding"
+            )
+            raise ValueError(
+                f"prior {target} {_prior_label(row.source)} takes "
+                f"{_choices(allowed)}, not {row.disposition}"
+            )
         if row.disposition == "retained":
             if any(
                 (item.origin_run_id, item.origin_finding_id)
@@ -422,15 +467,10 @@ def _validate_prior_dispositions(
                 )
             retained.add(row.output_finding_id)
         else:
-            if source == "ignore" and row.disposition == "settled":
+            if source == "ignore":
                 if row.decision_id is not None or row.decision_origin is not None:
                     raise ValueError("accepted awareness has no decision owner")
-            elif row.disposition == "addressed":
-                if source != "implement":
-                    raise ValueError(
-                        "addressed applies only to prior IMPLEMENT findings"
-                    )
-            else:
+            elif source == "report":
                 decision = (
                     decisions.get(row.decision_id)
                     if row.decision_id is not None
@@ -441,8 +481,7 @@ def _validate_prior_dispositions(
                 )
                 origin = row.decision_origin
                 if (
-                    source != "report"
-                    or decision is None
+                    decision is None
                     or decision.status != expected
                     or origin is None
                     or (origin.run_id, origin.finding_id)
@@ -457,6 +496,8 @@ def _validate_prior_dispositions(
         if regressions:
             raise ValueError("first review cannot claim regression from a prior result")
     elif prepared.assignment_id is None and regressions != findings - retained:
+        missing = ", ".join(sorted(findings - retained - regressions))
         raise ValueError(
-            "every new finding on a rerun needs explicit regression evidence"
+            "every new finding on a rerun needs explicit regression evidence: "
+            f"{missing} has no regressions entry and no retained prior target"
         )
