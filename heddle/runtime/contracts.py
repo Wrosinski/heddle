@@ -698,7 +698,11 @@ FEATURE_POLICY_INPUT_SCHEMA: dict[str, Any] = {
                             "secondary": {
                                 "type": "object or null",
                                 "required": False,
-                                "summary": "optional independent reviewer selection",
+                                "summary": (
+                                    "optional independent reviewer selection; "
+                                    "joins round 1 only, later rounds run the "
+                                    "primary alone"
+                                ),
                                 "fields": _REVIEWER_FIELDS,
                             },
                             "trigger": {

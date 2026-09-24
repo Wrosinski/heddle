@@ -27,6 +27,12 @@ authority for the installed version.
   review default to `gpt-6-sol` instead of `gpt-5.6-sol`, at unchanged effort.
   Spec review stays on `gpt-6-astra`. Confirmed feature policies keep the model
   they recorded.
+- A `run-gate` refusal for a CLI outside the current round now names the role,
+  the round and its slots. When the requested CLI is the policy's secondary
+  reviewer in a later round, it says the secondary joins round 1 only and later
+  rounds run the primary alone. The policy contract (`feature policy --help`),
+  the peer-review briefing and the workflow model state the same rule. The
+  behavior is unchanged.
 
 ### Fixed
 

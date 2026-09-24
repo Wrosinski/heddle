@@ -31,6 +31,7 @@ from heddle.contracts.review_assignments import (
     AcceptanceRecord,
     AcceptedAssignment,
     AssignmentDisposition,
+    AssignmentRound,
     BoundaryAcceptance,
     CanonicalReview,
     RetainedReview,
@@ -79,6 +80,33 @@ from heddle.runtime.state_store import (
 from heddle.runtime.write_args import parse_write_args, usage_failure
 
 
+def _slot_refusal(
+    state: StateFile, role: str, row: AssignmentRound, cli: str | None
+) -> KernelError:
+    """Name the round's slots; a policy secondary joins round 1 only."""
+    secondary = core.selected_policy(state, role).secondary
+    if row.number > 1 and secondary is not None and secondary.cli == cli:
+        primary = next(s for s in row.slots if s.name == "primary")
+        message = (
+            f"{role} round {row.number} has only the primary slot "
+            f"({primary.reviewer.cli}); the secondary reviewer ({cli}) joins "
+            "round 1 only"
+        )
+        hint = "omit --cli to run the primary slot of this round"
+    else:
+        slots = ", ".join(f"{s.name} {s.reviewer.cli}" for s in row.slots)
+        message = (
+            f"requested CLI {cli} is not a confirmed slot of {role} "
+            f"round {row.number} (slots: {slots})"
+        )
+        hint = "pass --cli for a listed slot, or omit it for the primary slot"
+    return KernelError(
+        code="workspace-invalid",
+        message=f"review assignment: {message}",
+        hint=hint,
+    )
+
+
 def resolve_invocation(
     snapshot: FeatureSnapshot,
     config: ProjectConfig,
@@ -113,7 +141,7 @@ def resolve_invocation(
         None,
     )
     if slot is None:
-        raise core.invalid("requested CLI is not a confirmed round slot")
+        raise _slot_refusal(state, gate_type.name, row, overrides.cli)
     for key in ("model", "reasoning_effort"):
         explicit = getattr(overrides, key)
         if explicit is not None and explicit != getattr(slot.reviewer, key):

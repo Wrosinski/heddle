@@ -703,6 +703,60 @@ def test_ac5_dual_contexts_are_independent_and_partial_round_blocks_disposition(
     assert (host / "src/example.py").read_text() == "VALUE = 7\n"
 
 
+@pytest.mark.parametrize("case", ["later-round-secondary", "unconfirmed-cli"])
+def test_slot_refusal_names_the_round_and_its_slots(
+    case, tmp_path, monkeypatch, run_cli
+):
+    dual = case == "later-round-secondary"
+    host, path = current_host(
+        tmp_path,
+        monkeypatch,
+        overrides={
+            "spec-review": entry(
+                "spec-review", limit=4, secondary=FABLE if dual else None
+            )
+        },
+    )
+
+    def report(cli, _prompt):
+        items = [finding("SP-I1", classification="implement")] if cli == "codex" else []
+        return review_content(findings=items)
+
+    calls = provider_transport(monkeypatch, report)
+    if dual:
+        for cli in ("codex", "claude"):
+            code, result = gate_command(
+                run_cli, "run-gate", "spec-review", "--cli", cli
+            )
+            assert code in (0, 4), result
+        initial = runs(path)
+        primary = next(r for r in initial if r["reviewer_slot"] == "primary")
+        recorded = dispose(
+            path,
+            [
+                disposition(primary["run_id"], status="retained"),
+                *[
+                    disposition(row["run_id"], "@coverage", status="settled")
+                    for row in initial
+                ],
+            ],
+        )
+        assert recorded.ok, recorded.to_envelope()
+        assert open_round(path, reason="Verify the open primary concern").ok
+    before = snapshot(host)
+    code, refused = gate_command(run_cli, "run-gate", "spec-review", "--cli", "claude")
+    assert code != 0, refused
+    assert refused["error"]["message"] == (
+        "review assignment: spec-review round 2 has only the primary slot "
+        "(codex); the secondary reviewer (claude) joins round 1 only"
+        if dual
+        else "review assignment: requested CLI claude is not a confirmed slot "
+        "of spec-review round 1 (slots: primary codex)"
+    )
+    assert "omit" in refused["error"]["hint"]
+    assert len(calls) == (2 if dual else 0) and snapshot(host) == before
+
+
 def test_ac5_targeted_rounds_keep_all_origins_and_original_secondary_inspection(
     tmp_path, monkeypatch, run_cli
 ):

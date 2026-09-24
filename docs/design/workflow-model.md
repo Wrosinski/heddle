@@ -38,8 +38,9 @@ reasons. These axes inform the recommendation; the confirmed policy governs
 execution. Host exclusions constrain the selection without silently replacing
 reviewers.
 
-Each review role has a feature or milestone scope, a primary reviewer and an
-optional independent secondary reviewer, plus one of these modes:
+Each review role has a feature or milestone scope, a primary reviewer, an
+optional independent secondary reviewer that joins the first round only, and one
+of these modes:
 
 | Mode | Meaning |
 | --- | --- |

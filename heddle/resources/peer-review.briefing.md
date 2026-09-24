@@ -83,11 +83,13 @@ For further inspection after lead closure, request boundary-owned
 `heddle.review-round-input/v1`, the selected whole-feature role, scope `feature`,
 purpose `verification` and a concrete reason. The complete JSON example is in
 `implement.briefing.md`; use `behavior-review` or the actual confirmed role here.
-Then execute the selected gate. The unsealed assignment must have remaining
-allowance, all prior slots filled and no unresolved stop; off roles and sealed
-acceptances require their own remedies. Targets cover mandatory concerns from
-all preceding slots plus open originals. Reviewer accounting for every target
-never substitutes for the lead's acceptance of the new `@coverage` obligation.
+Then execute the selected gate. A later round has only the primary slot, since
+a policy secondary joins round 1 only, so run it without `--cli`. The unsealed
+assignment must have remaining allowance, all prior slots filled and no
+unresolved stop; off roles and sealed acceptances require their own remedies.
+Targets cover mandatory concerns from all preceding slots plus open originals.
+Reviewer accounting for every target never substitutes for the lead's acceptance
+of the new `@coverage` obligation.
 
 The launch advisory identifies changed selected source paths. Consider formatter
 and commit hooks before spending a review call. Staged, unstaged and untracked
