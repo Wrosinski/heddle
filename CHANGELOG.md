@@ -19,6 +19,13 @@ authority for the installed version.
 
 ### Changed
 
+- A model mistake observed in a paid or live run is treated as a runtime
+  defect with a hermetic proof. A check on model-supplied input returns a
+  recoverable rejection naming the field, the value received and the required
+  value or admissible set; each such failure gets a committed replay case at
+  the seam where the model met it. The testing strategy, robustness and
+  complete guidance state the rule, and the testing strategy lets a provider
+  schema probe run as soon as a schema changes, under paid-run authority.
 - Engineering proof and judgment-based assessment are separate. Completion
   rests on tests, verification facts, declared live runs and an alignment check
   whose criteria are observable contract conditions. A target that needs

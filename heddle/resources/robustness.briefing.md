@@ -27,6 +27,9 @@ this stage focuses on integration-level concerns (the Phase 8 contract):
 - Concurrent access and race conditions
 - Resource exhaustion (memory, disk, connections, rate limits)
 - Error messages: actionable for debugging, with diagnostic context
+- Model-supplied input at an agent's tool boundary: a recoverable rejection
+  that names the field, the value received, and the required value or
+  admissible set; integrity checks over runtime-owned state stay terminal
 - Failure recoverability — no broken intermediate states left behind
 - Security concerns (injection, authentication bypass, data exposure)
 
@@ -34,6 +37,10 @@ Rate severity and likelihood for each concern found. Harden inside the AC
 defense boundary; record out-of-scope concerns as decisions or discoveries
 (`decisions add` — a human-owned ledger write) rather than silently
 expanding scope.
+
+Each model-behavior failure observed in a paid or live run needs a committed
+hermetic replay case at the seam where the model met it, proving the
+recoverable rejection and that the corrected call is accepted.
 
 Add an adversarial case only when it protects a distinct credible risk. Inspect
 shared fixtures, first-order consumers and total setup/launch cost before growing

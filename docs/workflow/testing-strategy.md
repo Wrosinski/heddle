@@ -265,7 +265,11 @@ valid within its stated scope; do not repeatedly ask for it.
 Both local full-workflow e2e and real external tests require explicit execution
 authority and exact file/node targets. Normal scheduling is after implementation
 is complete, at final verification or post-hardening. Earlier execution is valid
-only when specifically requested, for example a bounded diagnostic. Scaffolding
+only when specifically requested, for example a bounded diagnostic. A provider
+schema probe is one such bounded check: when a change alters a schema that a
+provider must accept before any model or service call runs, the probe may run
+as soon as the schema changes, under the same paid-run authority. It proves
+that the provider accepts the schema, not that the system behaves. Scaffolding
 may design and safely collect these tests without running them. Prerequisites,
 credentials, a marker, or an environment variable are not human authorization.
 
@@ -452,6 +456,16 @@ authority or persistent result cache for this program.
 10. Separate product-performance contracts from suite-performance measurement.
     Existing contractual timing ceilings remain until their owning contract is
     changed. New fragile host-speed assertions are not a suite management tool.
+11. When a model-driven run fails because the model supplied a wrong value,
+    the runtime's answer is the testable defect. A check on model-supplied
+    input returns a recoverable rejection that names the field, the value
+    received, and the required value or admissible set; integrity checks over
+    runtime-owned state stay terminal, and a value the runtime can derive is
+    never requested from the model. Replay each such failure from a paid or
+    live run as a committed hermetic case at the seam where the model met it,
+    proving the recoverable rejection and that the corrected call is accepted.
+    Keep only identifiers and digests from restricted run evidence. Scripted
+    model doubles send only calls a strict provider could send.
 
 When moving, splitting, reducing, or renaming tests, update `Verified-by:`, exact
 plan commands, mappings, required node identities, and structural guards in the

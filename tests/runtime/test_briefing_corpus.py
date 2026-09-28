@@ -425,9 +425,13 @@ class TestAC7KickoffRendersClean:
             assert "native freshness" in folded.lower()
             assert "qualifying" in folded and "rereview" in folded
             assert "live does not replace acceptance" in folded
+            if stage == "robustness":
+                assert "committed hermetic replay case at the seam" in folded
+                assert "integrity checks over runtime-owned state" in folded
         elif stage == "complete":
             assert "final native run and relevant source identity" in folded
             assert "Execution deferral remains pending" in folded
+            assert "model-behavior failure observed in the feature's" in folded
         assert path.read_bytes() == before
 
 

@@ -130,6 +130,9 @@ Design Commitments, or the corresponding historical section) and mark it
 knowledge that was never tagged: library quirks, debugging insights,
 workarounds a future agent needs. Permanent knowledge belongs in the spec;
 operational detail (task states, timestamps, environment setup) does not.
+While mining, list every model-behavior failure observed in the feature's
+paid or live runs. Each needs its committed hermetic replay case; otherwise
+record a named deferral in the Feature Spec before the run evidence expires.
 Use independent read-only tag-scanner and knowledge-miner
 subagents when the records are broad enough that their condensed reports
 reduce the lead's work. Complete a compact propagation and knowledge sweep
