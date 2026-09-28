@@ -45,6 +45,13 @@ authority for the installed version.
   feature made the change, or record a new attribution batch naming exactly
   those paths. Changed evidence names the changed evidence files and the
   attributed paths that cite them. What refuses is unchanged.
+- A review whose only open concerns are addressed or settled dispositions with
+  changed cited evidence now routes to a fresh disposition instead of a
+  mandatory round-limit, no-progress or no-decrease stop. Editing a cited file,
+  including the status block `heddle sync` rewrites in `plan.md`, no longer
+  sends the lead to record a stop for findings that were resolved. Any
+  genuinely open concern still routes to the stop, and the recorded stop reason
+  is unchanged.
 
 ### Fixed
 

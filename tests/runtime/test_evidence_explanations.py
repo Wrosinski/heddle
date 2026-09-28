@@ -307,3 +307,50 @@ def test_ac7_public_review_explanations_keep_manual_and_command_remedies(
     remedy = row["evidence_explanations"][0]["remedy"]
     assert remedy["kind"] == "command"
     assert remedy["operation"]["name"] == "review round-open"
+
+
+@pytest.mark.parametrize("genuinely_open", [False, True])
+def test_changed_citation_at_round_limit_routes_to_resubmission_not_stop(
+    tmp_path, monkeypatch, run_cli, genuinely_open
+):
+    from tests.tiering_helpers import entry
+    from tests.tiering_review_helpers import (
+        dispose,
+        disposition,
+        review_status,
+        runs,
+    )
+
+    host, path = current_host(
+        tmp_path,
+        monkeypatch,
+        overrides={"spec-review": entry("spec-review", limit=1)},
+    )
+    findings = [finding("SP-I1", classification="implement")]
+    if genuinely_open:
+        findings.append(finding("SP-I2", classification="implement"))
+    calls = provider_transport(monkeypatch, review_content(findings=findings))
+    code, result = gate_command(run_cli, "run-gate", "spec-review")
+    assert code == 4 and result["ok"], result
+    origin = runs(path)[0]["run_id"]
+    rows = [disposition(origin), disposition(origin, "@coverage", status="settled")]
+    if genuinely_open:
+        rows.append(disposition(origin, "SP-I2", status="retained"))
+    assert dispose(path, rows).ok
+    source = host / "src/example.py"
+    source.write_text(source.read_text() + "\n# citation changed\n")
+
+    row = review_status(path)
+    assert row["stop_reason"] == "round-limit" and not row["closed"]
+    action = application.execute(ops.Status(feature=V7_FEATURE)).next_actions[0].action
+    if genuinely_open:
+        assert row["next_step"] == "decision"
+        assert isinstance(action, ops.CommandAction)
+        assert isinstance(action.operation, ops.ReviewRoundOpen)
+        return
+    assert row["next_step"] == "disposition" and row["evidence_state"] == "stale"
+    assert isinstance(action, ops.AuthoringAction)
+    assert action.work == "review-disposition"
+    assert set(action.references) == {f"{origin}#SP-I1", f"{origin}#@coverage"}
+    assert dispose(path, rows).ok
+    assert review_status(path)["closed"] and len(calls) == 1

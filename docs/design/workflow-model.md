@@ -197,9 +197,11 @@ report alone does not settle an earlier finding or coverage obligation.
 Readiness checks execution, disposition and applicability separately. Relevant
 changes to an assignment's subject or cited evidence can invalidate its current
 closure. Repairing evidence does not automatically require another provider call;
-follow the returned action. Completed imperfect responses retain their original
-captures, and a capture-bound lead interpretation can preserve independent-slot
-credit without a formatting-only retry.
+follow the returned action. When every open concern is an addressed or settled
+disposition whose cited evidence changed, that action is a fresh disposition, not
+a mandatory stop, even at the round limit. Completed imperfect responses retain
+their original captures, and a capture-bound lead interpretation can preserve
+independent-slot credit without a formatting-only retry.
 
 Round opening enforces the confirmed allowance and stop decisions. Continuing a
 stopped review requires its explicit decision; a reached upper limit additionally

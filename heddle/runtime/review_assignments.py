@@ -851,16 +851,7 @@ class _Qualification:
         remedy: ops.Action,
     ) -> tuple[EvidenceExplanation, ...]:
         """Explain reopened original work without inventing unavailable detail."""
-        source_ids = {
-            source.run_id
-            for source in core.authoritative_sources(self.snapshot.state)
-            if source.assignment_id == assignment.id
-        }
-        latest = {
-            (item.run_id, item.finding_id): item
-            for item in self.snapshot.state.review_assignments.dispositions
-            if item.run_id in source_ids
-        }
+        latest = self._latest_dispositions(assignment)
         basis = self.basis(assignment)
         return tuple(
             _evidence_explanation(self, disposition, basis, remedy)
@@ -868,6 +859,35 @@ class _Qualification:
             if (disposition := latest.get(reference)) is not None
             and not _qualify_evidence(self, disposition, basis).qualifies
         )
+
+    def only_changed_evidence(
+        self,
+        assignment: ReviewAssignment,
+        open_refs: tuple[tuple[str, str], ...],
+    ) -> bool:
+        latest = self._latest_dispositions(assignment)
+        basis = self.basis(assignment)
+        return bool(open_refs) and all(
+            (disposition := latest.get(reference)) is not None
+            and disposition.status in {"addressed", "settled"}
+            and _qualify_evidence(self, disposition, basis).predicate
+            == "reference-changed"
+            for reference in open_refs
+        )
+
+    def _latest_dispositions(
+        self, assignment: ReviewAssignment
+    ) -> dict[tuple[str, str], AssignmentDisposition]:
+        source_ids = {
+            source.run_id
+            for source in core.authoritative_sources(self.snapshot.state)
+            if source.assignment_id == assignment.id
+        }
+        return {
+            (item.run_id, item.finding_id): item
+            for item in self.snapshot.state.review_assignments.dispositions
+            if item.run_id in source_ids
+        }
 
 
 def _snapshot_with_state(
@@ -1188,6 +1208,13 @@ def projection(
                 and isinstance(stop_decision.resolution, Disposition)
                 and not closed.closed
                 and not closed.missing_slots
+            ):
+                row["next_step"] = "disposition"
+            elif (
+                closed.next_step == "decision"
+                and receipt is None
+                and basis_applies
+                and frame.only_changed_evidence(assignment, closed.open_refs)
             ):
                 row["next_step"] = "disposition"
             elif closed.stop_reason == "round-limit" and core.continuation_authorized(
