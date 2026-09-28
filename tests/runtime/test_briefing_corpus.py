@@ -600,6 +600,38 @@ class TestStageSemanticContracts:
         assert "do not persist proposed memory and pattern candidates" in text
         assert "nothing persists" not in text
 
+    def test_complete_brings_open_assessment_targets_to_the_final_checkpoint(
+        self,
+    ) -> None:
+        sections = {
+            section.split(".", 1)[0]: re.sub(r"[\s_\-]+", " ", section.casefold())
+            for section in re.split(r"^## ", _text("complete.briefing.md"), flags=re.M)
+        }
+        outcomes, close = sections["7"], sections["10"]
+        assert "open target from the spec's assessment targets in outcomes" in outcomes
+        assert "treat it like deferred scope" in outcomes
+        assert "explicit owner ruling, never a silent demotion" in outcomes
+        assert "open assessment targets and their owning follow ups" in close
+
+
+RETIRED_QUALITY_THRESHOLD_RULE = (
+    "quality thresholds still bind",
+    "quality thresholds remain binding",
+    "quality threshold binds",
+    "quality thresholds block",
+)
+
+
+def test_no_packaged_resource_keeps_the_retired_quality_threshold_rule() -> None:
+    offenders = [
+        f"{path.relative_to(RESOURCES)}: {phrase!r}"
+        for path in sorted(RESOURCES.rglob("*"))
+        if path.is_file() and path.suffix in {".md", ".yaml"}
+        for phrase in RETIRED_QUALITY_THRESHOLD_RULE
+        if phrase in re.sub(r"\s+", " ", path.read_text(encoding="utf-8").casefold())
+    ]
+    assert not offenders, offenders
+
 
 # AC-3: the ten approved functional areas of the complete briefing.
 COMPLETION_COMPLETE_TEN_AREAS: dict[str, tuple[str, ...]] = {

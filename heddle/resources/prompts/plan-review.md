@@ -94,8 +94,10 @@ Assess each of these eight native dimension IDs exactly once:
   retrospective checkpoint. Acceptance remains required alongside declared live.
   Any alignment check identifies criteria and retained output, its final-boundary
   lead owner and Assessment record. Alignment criteria are observable contract
-  conditions; a criterion that needs quality judgment belongs to the spec's
-  Assessment Targets, is a finding here, and never gates completion.
+  conditions. A criterion that needs quality judgment belongs to the spec's
+  Assessment Targets and never gates completion; it is Important: IMPLEMENT
+  when moving it there preserves recorded owner intent, REPORT when an owner
+  ruling placed it in the acceptance or alignment criteria.
 - **related-context-and-reusability:** Assess the existing owners, patterns,
   dependencies, and constraints the plan cites. Prefer extending a demonstrated
   seam to adding parallel machinery. Limit conclusions to supplied evidence;

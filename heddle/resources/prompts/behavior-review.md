@@ -19,7 +19,7 @@ paths beyond the latest diff. Do not design a second architecture review.
   `### Verification Commands`, with its native
   run/source binding and retained output. Misalignment violates the contract;
   quality observations and results against the spec's Assessment Targets never
-  block or qualify completion.
+  block completion or add a condition to it.
   The final-boundary lead owns the assessment after final execution and relevant
   fixes. If this review precedes that run, identify pending proof without
   pretending it passed or demanding an assessment before its scheduled run.

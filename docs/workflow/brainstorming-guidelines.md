@@ -93,7 +93,10 @@ do after this change that they couldn't do before? This anchors
 everything that follows and prevents solutions that are technically
 sound but don't address the actual need. Answer at two levels: the
 smallest end-to-end slice worth shipping (the MVP), and the full
-intended scope.
+intended scope. Name any judgment-based aim, such as the analytical
+quality or usefulness of an output, separately: it becomes an
+[Assessment Target](testing-strategy.md#engineering-proof-and-judgment-based-assessment),
+not a success criterion.
 
 **Decompose into an MVP and follow-ups.** Apply
 [Product scope and build order](#product-scope-and-build-order). Split the feature into the

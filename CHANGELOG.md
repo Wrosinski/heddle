@@ -35,6 +35,20 @@ authority for the installed version.
   review, test-scaffolding review, behavior review, peer review, robustness and
   complete guidance drop the rule that explicit quality thresholds bind;
   deterministically measurable thresholds remain ordinary acceptance criteria.
+- The assessment-target rule is tightened after review. Spec review and plan
+  review rate a criterion that needs judgment as Important: IMPLEMENT when
+  moving it to Assessment Targets preserves recorded owner intent, REPORT when
+  an owner ruling placed it in the contract. Complete guidance lists every open
+  assessment target in spec Outcomes and brings each to the final checkpoint
+  with a greenlight / hold / drop recommendation for its owning follow-up,
+  whether or not the feature declared an alignment check. The testing strategy
+  adds a tie-breaker (if competent inspectors could reasonably disagree on pass
+  or fail, it is an assessment target) and states that moving a judged
+  criterion out of an accepted spec needs an explicit owner ruling. The brief
+  scaffold, brainstorming guidelines and scaffold briefing name judgment-based
+  aims separately and keep alignment criteria observable. "Never blocks or
+  qualifies completion" becomes "never blocks completion or adds a condition to
+  it", so the wording no longer overloads Heddle's qualification term.
 - Claude gate lanes, and the recommended Claude reviewer for peer and behavior
   review, default to `claude-opus-5-5` instead of `claude-opus-5`, still at
   `xhigh` effort. Confirmed feature policies keep the model they recorded.

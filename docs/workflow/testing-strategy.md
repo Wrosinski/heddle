@@ -150,13 +150,20 @@ proof.
 A target that needs subjective or expert judgment to evaluate is an assessment
 target: the analytical quality, depth, soundness or usefulness of an output, a
 grade from a human or model assessor, or a judged comparison with a baseline.
-It is never an acceptance criterion, `Verified-by` route, alignment criterion or
-completion condition. The spec names it under `## Assessment Targets` with what
-it evaluates and the follow-up work that owns it. An assessment made during the
-feature is recorded as an observation with its instrument and limitations; it
-neither blocks nor qualifies completion, and a completed feature claims nothing
+If competent inspectors could reasonably disagree on whether a criterion passes
+or fails, it is an assessment target. Such a target is never an acceptance
+criterion, `Verified-by` route, alignment criterion or completion condition.
+The spec names it under `## Assessment Targets` with what it evaluates and the
+follow-up work that owns it. An assessment made during the feature is recorded
+as an observation with its instrument and limitations; it never blocks
+completion or adds a condition to it, and a completed feature claims nothing
 about the target. Judgment-based work proceeds under its own owner and
 instrument, so an unmet target never holds engineering completion open.
+
+The rule governs how a contract is written, not a way to close around one.
+Moving a judged criterion out of an already-accepted spec's acceptance criteria
+is a contract change that needs an explicit owner ruling; it is never a silent
+demotion.
 
 ### Alignment assessment and quality observation
 
@@ -169,7 +176,8 @@ every deterministically assessable AC condition. After the final applicable
 passing run and last relevant fix, the execution-owning lead at peer review
 (Overlay R Off) or robustness (R On) judges the retained output against the
 spec and plan. Misalignment is a defect and blocks finishing. Quality
-observations are recorded separately and never block or qualify finishing.
+observations are recorded separately and never block finishing or add a
+condition to it.
 
 The plan's verification note under `### Verification Commands` owns one
 Assessment entry with criteria, assessor,

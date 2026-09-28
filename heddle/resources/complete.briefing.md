@@ -223,6 +223,12 @@ what was achieved, what was harder than expected, remaining gaps, lessons
 for future features.
 Re-evaluate any deferred scope — recommend greenlight / drop / hold per
 deferred follow-up; the call is the user's at the final checkpoint.
+List each open target from the spec's Assessment Targets in Outcomes with the
+follow-up work that owns it, and treat it like deferred scope: recommend
+greenlight / hold / drop for that follow-up; the call is the user's at the
+final checkpoint. Moving a judged criterion out of the accepted ACs is a
+contract change that needs an explicit owner ruling, never a silent demotion
+at close.
 
 Write the two close artifacts the runtime audits at final acceptance:
 
@@ -270,9 +276,8 @@ acceptance. Revalidate affected native closure evidence after an Assessment edit
 it is authored plan content, not an exemption from source freshness or required
 originating inspection. Misalignment is a blocking defect. Quality observations
 and results against the spec's Assessment Targets are recorded separately and
-never block or qualify completion. Reference the Assessment in spec Outcomes and
-session summaries, and list each open assessment target there with the follow-up
-work that owns it. Preserve artifacts in
+never block completion or add a condition to it. Reference the Assessment in
+spec Outcomes and session summaries. Preserve artifacts in
 durable local evidence, preferably inside the workspace for archival, or record
 their external retention location. This judgment is not a verification fact.
 
@@ -293,8 +298,9 @@ or commits them, and completion does not move the baseline.
 
 1. **Final checkpoint (user-owned; required for every formal feature).** Present the
    complete close package: handoff results, any declared alignment assessment
-   and separate quality observations, memory and pattern candidates with
-   recommendations, and the disclosed cleanup set. Apply existing explicit
+   and separate quality observations, open assessment targets and their owning
+   follow-ups, memory and pattern candidates with recommendations, and the
+   disclosed cleanup set. Apply existing explicit
    authorization to its approved scope; ask only for an outstanding owner choice.
    Proposed candidates do not enter durable stores before their required approval.
    - **Pass 1** — cleanup authorization batch-approves the disclosed `project`

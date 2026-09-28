@@ -6,7 +6,9 @@ _(What hurts today and for whom.)_
 
 ## Desired outcome
 
-_(What exists when this feature ships and what is deliberately outside it.)_
+_(What exists when this feature ships and what is deliberately outside it.
+Name any judgment-based aim, such as the analytical quality of an output,
+separately: it becomes an Assessment Target, not a success criterion.)_
 
 ## Initial thinking
 

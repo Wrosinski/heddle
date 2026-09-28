@@ -79,4 +79,6 @@ decision or implementation record when one exists.)_
 ## Outcomes & Retrospective
 
 _(At completion, summarize delivered value, remaining gaps, and useful lessons.
-Link the retained close evidence instead of copying execution logs here.)_
+List each open assessment target with its owning follow-up and the greenlight /
+hold / drop call made for it at the final checkpoint. Link the retained close
+evidence instead of copying execution logs here.)_

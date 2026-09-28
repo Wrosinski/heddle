@@ -137,7 +137,8 @@ Create supporting infrastructure as the lanes need it: fixtures, mock
 services, seed data, conftest entries.
 
 For a declared alignment check, retain the artifacts needed to judge its stated
-criteria. Tests prove every deterministically assessable AC condition; judgment
+criteria (observable contract conditions, not quality judgments). Tests prove
+every deterministically assessable AC condition; judgment
 does not replace them. The final-boundary lead performs the check after the last
 relevant fix and applicable passing run, recording one Assessment entry in the
 plan's verification note. Scaffold designs retention, not the final assessment.

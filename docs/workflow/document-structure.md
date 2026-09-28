@@ -73,7 +73,9 @@ The authoring shape is:
 - **Decision Log:** durable choices, alternatives and rationale. Keep checkpoint
   transcripts and gate iteration bookkeeping in their existing native/journal homes.
 - **Outcomes & Retrospective:** a short account of delivered behavior, meaningful
-  limitations, durable lessons and links to retained evidence. Do not dump logs.
+  limitations, durable lessons and links to retained evidence, plus each open
+  assessment target with its owning follow-up and the final checkpoint's
+  greenlight / hold / drop call for it. Do not dump logs.
 
 Optional sections are useful when they have a distinct responsibility. Record
 an invariant once and reference it. Do not mandate a separate EARS list, a

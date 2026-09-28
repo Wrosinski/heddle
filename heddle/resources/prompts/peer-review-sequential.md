@@ -52,8 +52,8 @@ contract. Use witness and assessment evidence to evaluate proof against the spec
 it cannot redefine the spec. Acceptance remains required alongside declared live.
 An Assessment names its criteria, final native run/source reference and retained
 artifacts. Misalignment is a defect; quality observations and results against
-the spec's Assessment Targets never block or qualify completion. The
-final-boundary lead assesses output after relevant fixes and the applicable
+the spec's Assessment Targets never block completion or add a condition to it.
+The final-boundary lead assesses output after relevant fixes and the applicable
 passing run. Source review can precede that execution: identify pending evidence honestly, without requiring a premature
 assessment. No independent assessment-only review is introduced; authored plan
 edits can invalidate source-bound evidence, and existing native freshness and
