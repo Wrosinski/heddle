@@ -292,8 +292,8 @@ def _check_owned_paths(context: ValidationContext) -> list[Diagnostic]:
                             f"{owned}, which this feature's work deleted"
                         ),
                         (
-                            "expected for a deletion milestone; drop the "
-                            "path from the owns list at feature close."
+                            "expected for a deletion milestone; no action "
+                            "needed: the entry records sanctioned deletion work."
                         ),
                     )
                 )

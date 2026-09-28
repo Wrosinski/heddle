@@ -121,5 +121,6 @@ class TestOwnedPathDeletionIsAdvisory:
         )
         assert by_code["owned-path-deleted"].severity == Severity.ADVISORY
         assert "gone.py" in by_code["owned-path-deleted"].message
+        assert "no action needed" in by_code["owned-path-deleted"].message
         assert by_code["owned-path-missing"].severity == Severity.FATAL
         assert "typo.py" in by_code["owned-path-missing"].message

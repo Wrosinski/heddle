@@ -82,6 +82,10 @@ authority for the installed version.
   revision-drift refusal names the cause `state-revision-changed` in its
   details, and its hint says a rerun of the same command records the saved
   output.
+- The `owned-path-deleted` advisory told the lead to drop the deleted path from
+  the milestone's `owns` list at feature close, which a done milestone's
+  append-only ownership refuses. It now says no action is needed, because the
+  entry records sanctioned deletion work.
 
 ## [0.1.0] - 2026-09-22
 
