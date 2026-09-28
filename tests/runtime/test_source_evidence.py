@@ -263,6 +263,9 @@ def test_ac10_archive_readback_contains_every_validated_retained_path() -> None:
     _validate_retained_archive(local, dict(retained), ("verification/m1.log",))
     with pytest.raises(OSError, match="absent from this checkout"):
         _validate_retained_archive(local, dict(local), ("verification/m1.log",))
+    linked = {**local, "verification/m1.log": ArchiveEntry("symlink", "a" * 64, 0o777)}
+    with pytest.raises(OSError, match="absent from this checkout"):
+        _validate_retained_archive(local, linked, ("verification/m1.log",))
 
 
 @pytest.mark.parametrize("damage", [None, "bytes", "type", "mode"])

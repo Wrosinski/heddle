@@ -229,7 +229,7 @@ def complete_feature(operation: ops.FeatureComplete) -> HeddleResult:
             return refreshed
         context = refreshed
         if is_terminal(context.snapshot.state):
-            return completion_result(context)
+            return completion_result(context, accepting=True)
         if conflict := check_expect_revision(
             state.revision, context.snapshot.state.revision
         ):
@@ -293,14 +293,14 @@ def complete_feature(operation: ops.FeatureComplete) -> HeddleResult:
         if not isinstance(recovered, HeddleResult) and is_terminal(
             recovered.snapshot.state
         ):
-            return completion_result(recovered)
+            return completion_result(recovered, accepting=True)
         return (
             conflict_failure(error)
             if isinstance(error, Conflict)
             else readiness_failure(error, context.diagnostics)
         )
     context = replace(context, snapshot=resolve_snapshot(context.config, state.feature))
-    return completion_result(context, wrote=committed.wrote)
+    return completion_result(context, wrote=committed.wrote, accepting=True)
 
 
 def _qualify(
@@ -622,6 +622,7 @@ def _retained_evidence_snapshot(
     state: StateFile,
     *,
     attempt_references: tuple[ArtifactRef, ...] | None = None,
+    absent: frozenset[str] = frozenset(),
 ) -> dict[str, ArchiveEntry]:
     """Validate and snapshot every artifact that accepted completion must retain."""
     expected: dict[str, tuple[str, str, int | None]] = {}
@@ -636,7 +637,6 @@ def _retained_evidence_snapshot(
         expected[path] = identity
 
     observed: dict[str, ArchiveEntry] = {}
-    absent = absent_optional_evidence(root, workspace, state)
     try:
         if attempt_references is None:
             from heddle.kernel.review_assignments import attempt_artifacts
@@ -778,7 +778,7 @@ def _absent_scratch_diagnostics(paths: Iterable[str]) -> tuple[Diagnostic, ...]:
 
 
 def _retained_evidence_diagnostics(
-    report: dict[str, Any], feature: str
+    report: dict[str, Any], feature: str, disposable: int = 0
 ) -> tuple[Diagnostic, ...]:
     status = report["status"]
     diagnostics: list[Diagnostic] = []
@@ -798,10 +798,11 @@ def _retained_evidence_diagnostics(
             Diagnostic(
                 Severity.INFO,
                 "completion-evidence-not-local",
-                f"{absent} retained raw capture(s) or log(s) and the completion "
-                "archive are not in this checkout; accepted completion does not "
-                f"need them here. If this checkout accepted {feature}, restore "
-                f"them and run heddle feature complete --feature {feature}",
+                "the completion archive is not in this checkout, nor are "
+                f"{absent} retained raw capture(s) or log(s) and {disposable} "
+                "disposable review file(s) it would contain; accepted completion "
+                f"does not need them here. If this checkout accepted {feature}, "
+                f"restore them and run heddle feature complete --feature {feature}",
                 report["archive"],
             )
         )
@@ -1145,8 +1146,6 @@ def optional_retained_paths(state: StateFile) -> frozenset[str]:
         for run in gate.runs
         if run.verdict.get("status") != "error"
     )
-    if not state.review_assignments.attempts:
-        optional.update(row.artifact for row in state.review_assignments.retained)
     for fact in state.verifications:
         optional.add(fact.log)
         required.update((fact.evidence.before.artifact, fact.evidence.after.artifact))
@@ -1169,6 +1168,20 @@ def absent_optional_evidence(
             "restore the accepted ledger's review artifact inventory",
         ) from error
     return frozenset(name for name in optional if _absent(root, workspace / name))
+
+
+def _absent_disposable_inputs(
+    root: Path, workspace: Path, references: tuple[ArtifactRef, ...]
+) -> list[str]:
+    return sorted(
+        {
+            reference.path
+            for reference in references
+            if reference.role == "derived"
+            or (reference.role == "temporary" and reference.mode is None)
+            if _absent(root, workspace / reference.path)
+        }
+    )
 
 
 def _absent(root: Path, path: Path) -> bool:
@@ -1302,7 +1315,11 @@ def completion_close_projection(
 
 
 def completion_result(
-    context: ResolvedSnapshotContext, *, dry_run: bool = False, wrote: bool = False
+    context: ResolvedSnapshotContext,
+    *,
+    dry_run: bool = False,
+    wrote: bool = False,
+    accepting: bool = False,
 ) -> HeddleResult:
     """Observe or repair accepted effects without revisiting acceptance conditions."""
     state = context.snapshot.state
@@ -1344,6 +1361,7 @@ def completion_result(
     retained_attempts: tuple[ArtifactRef, ...] = ()
     archived: dict[str, ArchiveEntry] | None = None
     absent_evidence: list[str] = []
+    absent_inputs: list[str] = []
     absent_scratch: list[str] = []
     binding_status = "pending"
     candidate_conflict: CleanupCandidateConflict | None = None
@@ -1378,16 +1396,26 @@ def completion_result(
                     workspace,
                     state,
                     attempt_references=retained_attempts,
+                    absent=(
+                        frozenset()
+                        if accepting
+                        else absent_optional_evidence(root, workspace, state)
+                    ),
                 )
                 absent_evidence = sorted(_retained_paths(state) - set(retained))
                 _no_symlinks(root, archive)
+                if not accepting and not archive.exists():
+                    absent_inputs = _absent_disposable_inputs(
+                        root, workspace, retained_attempts
+                    )
                 if archive.exists():
                     authored = _required_authored_archive_inputs(root, workspace)
                     absent: dict[str, ArchiveEntry] = {}
-                elif absent_evidence:
+                elif absent_evidence or absent_inputs:
                     authored, absent = {}, {}
                     binding_status = _NOT_LOCAL
                     effect["status"] = effects["cleanup"]["status"] = _NOT_LOCAL
+                    effect["absent_disposable"] = absent_inputs
                 else:
                     authored, absent = _validate_archive_inputs(root, workspace, state)
                 absent_scratch = sorted(absent)
@@ -1493,7 +1521,9 @@ def completion_result(
         },
         diagnostics=(
             *context.diagnostics,
-            *_retained_evidence_diagnostics(retained_evidence, state.feature),
+            *_retained_evidence_diagnostics(
+                retained_evidence, state.feature, len(absent_inputs)
+            ),
             *_absent_scratch_diagnostics(absent_scratch),
             *(
                 Diagnostic(

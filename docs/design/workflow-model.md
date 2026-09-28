@@ -330,12 +330,19 @@ damage, archive damage or cleanup-time archive revalidation failure yields
 disposable candidates remain in the existing effect report. The compatible
 historical read-only branch omits the current report.
 
-After acceptance, raw captures and review, verification and close-suite logs are
-checkout-local. A verified archive accounts for those absent from the workspace.
-Without an archive, their absence makes the report and the archive and cleanup
-effects `not-local`, an informational exit-0 state that publishes nothing. A
-present file that differs, a missing ledger, canonical review or verification
-manifest, and an archive that lacks an absent file remain conflicts.
+After acceptance, raw captures, review, verification and close-suite logs and
+the completion archive are checkout-local. A verified archive accounts for such
+files absent from the workspace. Without an archive, the absence of one of them,
+or of a disposable review file that cleanup removed, makes the report and the
+archive and cleanup effects `not-local`, an informational exit-0 state that
+publishes nothing; the archive effect lists absent disposable files in
+`absent_disposable`. With every input present, a missing archive stays
+`pending`. The call that records acceptance treats any absence as a conflict. A
+present capture or review log that differs from its recorded digest, a present
+file that differs from its verified archive member, a missing ledger, canonical
+or evidence record or verification manifest, and an archive that lacks an absent
+file remain conflicts. Verification and close-suite logs carry no digest, so
+without an archive a rewritten one goes undetected.
 
 ## State publication and compatibility
 

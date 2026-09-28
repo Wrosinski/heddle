@@ -52,13 +52,20 @@ workspace holds ephemeral `plans/<slug>/plan.md` prose alongside durable
 `plans/<slug>/reviews/`. Read the records before extracting knowledge. Cleanup removes
 plan prose and attributable temporary output, while retaining the accepted
 ledger, canonical reviews and referenced logs. A verified raw archive preserves
-the entire workspace. Once accepted, raw captures, review and verification logs
-and the raw archive are optional in any checkout that did not accept the
-feature; their absence does not block new feature work. Without the archive,
-that absence reads as `not-local`: an informational exit-0 state that publishes
-nothing and needs no repair outside the accepting checkout. Keep the structured
-ledger, canonical and interpreted reviews and verification manifests; a present
-file whose bytes changed is still a conflict.
+the entire workspace. Once accepted, raw captures, review, verification and
+close-suite logs and the raw archive are optional in any checkout that did not
+accept the feature; their absence does not block new feature work. Without the
+archive, the absence of any of them, or of a disposable review file that cleanup
+removed, reads as `not-local`: an informational exit-0 state that publishes
+nothing and needs no repair outside the accepting checkout. The archive effect
+then lists absent disposable files in `absent_disposable`. When every input is
+present, a missing archive stays `pending` and a retry builds it. Keep the
+structured ledger, canonical and interpreted reviews and verification manifests.
+A present capture or review log that differs from its recorded digest, a changed
+executable bit and a present file that differs from its verified archive member
+are still conflicts. Verification and close-suite logs carry no digest, so only
+a verified archive detects a rewritten one. The `feature complete` call that
+records acceptance still requires every retained file and archive input.
 
 Completion, terminal Status, Orient and Kickoff expose one deterministic
 `retained_evidence` report from the same validated local identities. Each

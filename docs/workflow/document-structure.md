@@ -289,12 +289,14 @@ acceptance.
 Completion and accepted Status, Orient and Kickoff share a `retained_evidence`
 projection. Use it to distinguish validated local retention from verified
 archive membership: `pending` has no member claim, `archive-bound` names verified
-members, `not-local` means raw captures, logs and the archive are absent from
-this checkout, and `conflict` removes unchecked claims. Rows report exact path,
-roles and local presence, plus kind, SHA-256 and mode for present files. Cleanup
-candidates and unknown preserved files keep their separate effect
-classifications. Human diagnostics render the same facts and repair actions;
-terminal reads never run qualification, a suite or a provider.
+members, `not-local` means the archive and at least one raw capture, log or
+cleaned disposable review file it would contain are absent from this checkout
+while present files are still validated, and `conflict` removes unchecked
+claims. Rows report exact path, roles and local presence, plus kind, SHA-256 and
+mode for present files. Cleanup candidates and unknown preserved files keep
+their separate effect classifications. Human diagnostics render the same facts
+and repair actions; terminal reads never run qualification, a suite or a
+provider.
 
 ## 7. Scaling to Feature Complexity
 

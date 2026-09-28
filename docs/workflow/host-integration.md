@@ -159,6 +159,8 @@ outcome rather than an integration failure.
 Fresh checkouts do not need raw captures, historical logs or raw archives from
 accepted features. Their absence is informational in `doctor`, `validate`,
 `status`, `orient` and `kickoff`, including explicit historical feature checks.
+A checkout that has every archive input but not the archive reports the archive
+as pending, and `heddle feature complete` builds it locally.
 Retained structured ledgers, canonical reviews, and verification manifests still
 undergo integrity validation. Active work and acceptance continue to require
 their evidence.

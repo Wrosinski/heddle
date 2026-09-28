@@ -463,6 +463,17 @@ def _retained_log_fixture(tmp_path, monkeypatch):
     )
 
 
+def _derived_view_fixture(tmp_path, monkeypatch):
+    return _indexed_attempt_fixture(
+        tmp_path,
+        monkeypatch,
+        "reviews/milestone-review.md",
+        b"rendered review view\n",
+        "derived",
+        0o600,
+    )
+
+
 def _git_checkout_modes(workspace: Path, mode: int) -> None:
     for path in workspace.rglob("*"):
         if path.is_file() and not path.is_symlink():
@@ -580,6 +591,7 @@ def test_accepted_evidence_absent_from_this_checkout_is_information(
         assert {
             name: effect["status"] for name, effect in observed.data["effects"].items()
         } == {"stamp": "complete", "archive": "not-local", "cleanup": "not-local"}
+        assert observed.data["effects"]["archive"]["absent_disposable"] == []
         report = observed.data["retained_evidence"]
         assert report["status"] == "not-local"
         assert _local_rows(report)["absent"] == absent
@@ -635,6 +647,140 @@ def test_verified_archive_accounts_for_evidence_absent_from_the_workspace(
     assert _local_rows(report)["absent"] == absent
     assert all(row["archive_member"] == row["path"] for row in report["artifacts"])
     assert not retry.next_actions
+    assert "absent_disposable" not in retry.data["effects"]["archive"]
+    assert not any(
+        item.code == "completion-evidence-not-local" for item in retry.diagnostics
+    )
+
+
+def test_archive_absent_with_its_cleaned_inputs_is_information(
+    tmp_path, monkeypatch
+) -> None:
+    """A checkout with every raw log but no archive or cleaned view: nothing to do."""
+    relative = "reviews/milestone-review.md"
+    host, view = _derived_view_fixture(tmp_path, monkeypatch)
+    accepted = host.complete()
+    assert accepted.ok and accepted.data["effects"]["cleanup"]["paths"] == [relative]
+    assert not view.exists()
+    host.archive.unlink()
+    before = snapshot(host.root)
+
+    for operation in (
+        ops.Status(feature=FEATURE),
+        ops.Orient(feature=FEATURE),
+        ops.Kickoff(feature=FEATURE),
+        ops.FeatureComplete(feature=FEATURE),
+    ):
+        observed = execute(operation)
+        assert int(observed.exit_code) == 0, observed.to_envelope()
+        effects = observed.data["effects"]
+        assert {name: effect["status"] for name, effect in effects.items()} == {
+            "stamp": "complete",
+            "archive": "not-local",
+            "cleanup": "not-local",
+        }
+        assert effects["archive"]["absent_disposable"] == [relative]
+        report = observed.data["retained_evidence"]
+        assert report["status"] == "not-local"
+        assert not _local_rows(report)["absent"]
+        assert not observed.next_actions
+        (notice,) = (
+            item
+            for item in observed.diagnostics
+            if item.code == "completion-evidence-not-local"
+        )
+        assert notice.severity.value == "info"
+        assert (
+            "0 retained raw capture(s) or log(s) and 1 disposable review file(s)"
+            in notice.message
+        )
+        assert snapshot(host.root) == before
+    assert not host.archive.exists()
+
+
+def test_archive_absent_with_only_recordable_scratch_missing_is_rebuilt(
+    tmp_path, monkeypatch
+) -> None:
+    """Survivor pin: gone provider scratch is recorded, so the archive is buildable."""
+    host, candidate, relative, _content = _local_cleanup_fixture(tmp_path, monkeypatch)
+    assert host.complete().ok
+    assert not candidate.exists()
+    host.archive.unlink()
+
+    observed = execute(ops.Status(feature=FEATURE))
+    assert observed.data["effects"]["archive"]["status"] == "pending"
+    assert observed.data["retained_evidence"]["status"] == "pending"
+    retry = host.complete()
+
+    assert int(retry.exit_code) == 0, retry.to_envelope()
+    assert retry.data["effects"]["archive"]["status"] == "complete"
+    assert retry.data["retained_evidence"]["status"] == "archive-bound"
+    assert relative in {
+        item.source
+        for item in retry.diagnostics
+        if item.code == "completion-absent-scratch"
+    }
+
+
+@pytest.mark.parametrize("lost", ["close-suite-log", "cleaned-input"])
+def test_the_accepting_call_still_requires_every_file_it_retains(
+    tmp_path, monkeypatch, lost
+) -> None:
+    """Survivor pin: only a later call may read absence as another checkout's."""
+    from heddle.runtime import completion
+
+    host, view = _derived_view_fixture(tmp_path, monkeypatch)
+    original = completion.archive_trajectory_best_effort
+
+    def lose(config, feature):
+        if lost == "cleaned-input":
+            view.unlink()
+        else:
+            log = read(host.state)["completion"]["close_suite"]["log"]
+            (host.state.parent / log).unlink()
+        return original(config, feature)
+
+    monkeypatch.setattr(completion, "archive_trajectory_best_effort", lose)
+
+    accepted = host.complete()
+
+    assert accepted.data["accepted"] and accepted.data["wrote"]
+    assert accepted.data["effects"]["archive"]["status"] == "conflict"
+    assert accepted.data["retained_evidence"]["status"] == "conflict"
+    assert int(accepted.exit_code) == 4
+    assert any(
+        isinstance(action.action, ops.CommandAction)
+        and isinstance(action.action.operation, ops.FeatureComplete)
+        for action in accepted.next_actions
+    )
+    assert not host.archive.exists()
+    monkeypatch.setattr(completion, "archive_trajectory_best_effort", original)
+    retry = host.complete()
+    assert int(retry.exit_code) == 0, retry.to_envelope()
+    assert retry.data["effects"]["archive"]["status"] == "not-local"
+
+
+@pytest.mark.parametrize("role", ["canonical", "evidence"])
+def test_required_attempt_records_absent_after_acceptance_still_conflict(
+    tmp_path, monkeypatch, role
+) -> None:
+    """Survivor pin: canonical and evidence records never become checkout-local."""
+    relative = f"reviews/milestone-review.{role}.json"
+    host, record = _indexed_attempt_fixture(
+        tmp_path, monkeypatch, relative, b'{"retained": true}\n', role, 0o600
+    )
+    assert host.complete().ok
+    state = read(host.state)
+    (host.state.parent / state["verifications"][0]["log"]).unlink()
+    host.archive.unlink()
+    record.unlink()
+
+    retry = host.complete()
+
+    archive = retry.data["effects"]["archive"]
+    assert archive["status"] == "conflict" and relative in archive["error"]
+    assert retry.data["retained_evidence"]["status"] == "conflict"
+    assert int(retry.exit_code) == 4
 
 
 @pytest.mark.parametrize(

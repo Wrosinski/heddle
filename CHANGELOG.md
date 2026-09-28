@@ -73,18 +73,23 @@ authority for the installed version.
 - Once a feature is accepted, its raw captures, review, verification and
   close-suite logs, and its completion archive are local to the checkout that
   accepted it. A verified archive accounts for such files missing from the
-  workspace. Without an archive, their absence makes the `retained_evidence`
-  report and the archive and cleanup effects `not-local`: `status`, `orient`,
-  `kickoff` and `feature complete` exit 0, publish no archive, and emit the
-  informational `completion-evidence-not-local` diagnostic, whose hint applies
-  only to the checkout that accepted the feature. Report rows gain `local`
-  (`present` or `absent`), and absent rows omit kind, SHA-256 and mode.
-  `validate` and `doctor` accept an absent raw capture, and the informational
-  `historical-logs-optional` diagnostic is renamed `historical-evidence-optional`
-  and also counts raw captures and review logs. A present file whose bytes
-  changed, a missing ledger, canonical review or verification manifest, and an
-  archive that lacks an absent file are still conflicts, and acceptance still
-  requires every retained file.
+  workspace. Without an archive, their absence, or the absence of a disposable
+  review file that cleanup removed, makes the `retained_evidence` report and the
+  archive and cleanup effects `not-local`: `status`, `orient`, `kickoff` and
+  `feature complete` exit 0, publish no archive, and emit the informational
+  `completion-evidence-not-local` diagnostic, whose hint applies only to the
+  checkout that accepted the feature. The archive effect lists absent disposable
+  files in `absent_disposable`. With every input present, a missing archive
+  stays pending and a retry builds it. Report rows gain `local` (`present` or
+  `absent`), and absent rows omit kind, SHA-256 and mode. `validate` and
+  `doctor` accept an absent raw capture, doctor counts only the gate artifacts
+  it checked, and the informational `historical-logs-optional` diagnostic is
+  renamed `historical-evidence-optional` and also counts raw captures and review
+  logs. A present capture or review log that differs from its recorded digest, a
+  present file that differs from its verified archive member, a missing ledger,
+  canonical review or verification manifest, and an archive that lacks an absent
+  file are still conflicts. The `feature complete` call that records acceptance
+  still requires every retained file and archive input.
 
 ### Fixed
 
@@ -133,7 +138,8 @@ authority for the installed version.
 - In a checkout other than the one that accepted a feature, `heddle validate`
   failed with `workspace-invalid` when a raw capture was absent, and `status`,
   `orient` and `kickoff` reported an archive conflict whose repair and retry
-  could never succeed when the archive or gitignored logs existed only in the
+  could never succeed when the archive and some of its inputs, such as
+  gitignored logs or review files that cleanup removed, existed only in the
   accepting checkout. See the `not-local` entry under Changed.
 
 ## [0.1.0] - 2026-09-22

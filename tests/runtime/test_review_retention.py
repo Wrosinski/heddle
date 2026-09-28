@@ -1120,6 +1120,12 @@ def test_accepted_capture_absent_from_this_checkout_is_informational(
     for path in (capture_path, *host.state.parent.rglob("*.log")):
         path.unlink()
     host.archive.unlink()
+    state = yaml.safe_load(host.state.read_text())
+    required = sum(
+        run["verdict"].get("status") != "error"
+        for gate in state["gates"]
+        for run in gate["runs"]
+    )
     before = snapshot(host.root)
 
     code, output, _error = run_cli(["status", "--feature", V7_FEATURE, "--json"])
@@ -1166,6 +1172,11 @@ def test_accepted_capture_absent_from_this_checkout_is_informational(
         )
         message = notice["message"]
         assert f"{len(absent)} historical raw capture(s) or log(s)" in message
+        if command[0] == "doctor":
+            (checked,) = (
+                row for row in result["diagnostics"] if row["code"] == "artifact-ok"
+            )
+            assert f"all {required} required gate artifact(s)" in checked["message"]
     assert snapshot(host.root) == before
 
     capture_path.write_bytes(accepted.captured + b"\n")

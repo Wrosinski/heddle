@@ -55,6 +55,7 @@ from heddle.kernel.project_config import (
 from heddle.kernel.resources import resolve_resource
 from heddle.kernel.state import INCOMPATIBLE_STATE_SCHEMA, state_loader_capability
 from heddle.runtime.cli_args import parse_feature_flag
+from heddle.runtime.completion import absent_optional_evidence
 from heddle.runtime.diagnostics import (
     kernel_error_result,
     missing_project_root_next_actions,
@@ -393,16 +394,20 @@ def _artifact_diagnostic(root: Path, snapshot: FeatureSnapshot) -> Diagnostic:
         )
     try:
         validate_retained_reviews(root, snapshot)
+        absent = absent_optional_evidence(
+            root, root / snapshot.workspace, snapshot.state
+        )
     except KernelError as error:
         return Diagnostic(
             Severity.ADVISORY,
             "artifact-required-invalid",
             f"required gate evidence is unavailable or changed: {error.message}",
         )
+    checked = len(artifacts) + sum(row.artifact not in absent for row in retained)
     return Diagnostic(
         Severity.INFO,
         "artifact-ok",
-        f"all {len(artifacts) + len(retained)} required gate artifact(s) are valid",
+        f"all {checked} required gate artifact(s) in this checkout are valid",
     )
 
 
