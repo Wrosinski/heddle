@@ -59,9 +59,12 @@ authority for the installed version.
   other cited file, and a plan whose markers are malformed, is still hashed as
   it stands. This reverses the earlier rule that an explicit plan reference
   stays raw, and it is a clean break with no compatibility path: in a feature
-  in flight, such a reference recorded before the upgrade reads as changed
-  once; re-dispose or re-attribute it. Accepted reviews keep their recorded
-  identity.
+  in flight, a disposition or attribution that cited the plan before the
+  upgrade reads as changed once. Re-dispose those rows before reaffirming the
+  rest of their round, because reaffirm refuses a batch with a changed
+  citation, and re-attribute stale attributions. Scope-change references are
+  only compared when a scope change repeats. Accepted reviews keep their
+  recorded identity.
 - Milestone review's correctness dimension now asks, for a milestone that
   introduces or changes a durable attempt, lease or correction lifecycle, for
   the states an interruption can leave and the requests that touch several
@@ -103,7 +106,7 @@ authority for the installed version.
   excludes the same well-formed region; an authored plan change, or a change
   to a plan with malformed markers, still reopens the round. In a feature in
   flight, a basis recorded before the upgrade reads as changed once; reaffirm
-  it.
+  the round.
 
 ## [0.1.0] - 2026-09-22
 

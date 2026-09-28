@@ -176,11 +176,17 @@ def test_cited_orchestration_evidence_remains_byte_bound(host):
         coverage(root, state_path)
 
 
-@pytest.mark.parametrize("edit", ["rendered", "authored"])
-def test_cited_plan_evidence_excludes_only_its_rendered_status(host, edit):
+@pytest.mark.parametrize(
+    ("cited", "edit"),
+    [("plan", "rendered"), ("plan", "authored"), ("notes", "rendered")],
+)
+def test_cited_plan_evidence_excludes_only_its_rendered_status(host, cited, edit):
     root, state_path = host
-    plan = state_path.with_name("plan.md")
-    plan.write_text(
+    target = state_path.parent / (
+        "plan.md" if cited == "plan" else "orchestration/notes.md"
+    )
+    target.parent.mkdir(exist_ok=True)
+    target.write_text(
         "# Plan\n\n"
         + begin_marker(PLAN_STATUS_ID)
         + "\nStatus before attribution.\n"
@@ -189,19 +195,21 @@ def test_cited_plan_evidence_excludes_only_its_rendered_status(host, edit):
     )
     value = payload("outside.txt", "another.txt")
     for entry in value["attributions"]:
-        entry["references"] = [plan.relative_to(root).as_posix()]
+        entry["references"] = [target.relative_to(root).as_posix()]
     result = execute(ops.AttributeSources(value, feature="sample-feature"))
     assert result.ok, result.to_envelope()
     assert coverage(root, state_path).status == "complete"
     if edit == "rendered":
-        plan.write_text(
+        target.write_text(
             replace_managed_region(
-                plan.read_text(), PLAN_STATUS_ID, "Status after attribution.\n"
+                target.read_text(), PLAN_STATUS_ID, "Status after attribution.\n"
             )
         )
+    else:
+        target.write_text(target.read_text() + "Authored change.\n")
+    if cited == "plan" and edit == "rendered":
         assert coverage(root, state_path).status == "complete"
     else:
-        plan.write_text(plan.read_text() + "Authored change.\n")
         with pytest.raises(KernelError, match="attribution evidence changed"):
             coverage(root, state_path)
 

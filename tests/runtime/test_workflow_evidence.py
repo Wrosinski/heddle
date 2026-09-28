@@ -14,8 +14,9 @@ from heddle.kernel.managed_regions import (
 )
 from heddle.kernel.source_manifest import ObservedPath
 from tests.structured_review_helpers import finding
-from tests.tiering_helpers import snapshot
+from tests.tiering_helpers import entry, invoke, snapshot
 from tests.tiering_review_helpers import (
+    V7_FEATURE,
     current_host,
     dispose,
     disposition,
@@ -226,6 +227,56 @@ def test_ac6_survivor_explicit_reference_excludes_only_feature_plan_status(
     assert status["closed"] is not reopens, status
     if reopens:
         assert _explained(status, f"{run_id}#SP-I1") == {"referenced evidence changed"}
+
+
+@pytest.mark.parametrize(("edit", "repeats"), [("rendered", True), ("authored", False)])
+def test_scope_change_plan_reference_excludes_rendered_status(
+    tmp_path, monkeypatch, run_cli, edit, repeats
+) -> None:
+    host, state_path = current_host(
+        tmp_path,
+        monkeypatch,
+        overrides={"spec-review": entry("spec-review", limit=9)},
+    )
+    plan = state_path.with_name("plan.md")
+    plan.write_text(plan.read_text() + _STATUS_REGION)
+    provider_transport(
+        monkeypatch,
+        review_content(findings=[finding("SP-I1", classification="implement")]),
+    )
+    code, result = gate_command(run_cli, "run-gate", "spec-review")
+    assert code in {0, 4} and result["ok"], result
+    payload = {
+        "schema": "heddle.review-round-input/v1",
+        "role": "spec-review",
+        "scope": "feature",
+        "purpose": "discovery",
+        "reason": "Review the explicitly changed plan contract",
+        "scope_change": {
+            "reason": "The plan's delivery contract changed",
+            "references": [plan.relative_to(host).as_posix()],
+        },
+    }
+
+    def open_round():
+        return invoke(
+            "ReviewRoundOpen",
+            feature=V7_FEATURE,
+            payload=payload,
+            expect_revision=yaml.safe_load(state_path.read_text())["revision"],
+        )
+
+    opened = open_round()
+    assert opened.ok, opened.to_envelope()
+    code, result = gate_command(run_cli, "run-gate", "spec-review")
+    assert code in {0, 4} and result["ok"], result
+
+    _edit_status_target(plan, edit)
+    repeated = open_round()
+    if repeats:
+        assert not repeated.ok and "already captured" in repeated.error.message
+    else:
+        assert repeated.ok, repeated.to_envelope()
 
 
 def test_authored_plan_observation_excludes_only_a_valid_utf8_status_region() -> None:

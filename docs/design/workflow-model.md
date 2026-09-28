@@ -19,8 +19,8 @@ rendered plan-status block or passing reviewer statement is not a substitute
 for the underlying recorded evidence. Evidence identity for the feature plan
 therefore excludes a well-formed plan-status region: gate inputs, review
 assignment bases, cited references and attribution references hash the plan's
-authored bytes, so `heddle sync` never makes evidence stale. Every other cited
-file, and a plan with malformed markers, is hashed as it stands.
+authored bytes, so `heddle sync` never makes feature-plan evidence stale. Every
+other cited file, and a plan with malformed markers, is hashed as it stands.
 
 The [document structure](../workflow/document-structure.md) separates the spec's
 product contract and Design Commitments from the plan's approach and Technical
