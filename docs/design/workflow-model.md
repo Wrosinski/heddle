@@ -310,6 +310,9 @@ Only after local ledger validation and verified archival may cleanup remove
 eligible generated views and known scratch files. `plan.md`, `brief.md`, native
 state, canonical reviews and referenced logs remain. Unknown or changed files
 are preserved and reported; the entire workspace is never recursively removed.
+Retained evidence and authored records match their recorded and archived
+identity on bytes, kind and the executable bit, the only mode bit Git keeps; a
+cleanup candidate must also keep its exact recorded mode.
 
 Acceptance and its remaining file effects are separate facts. Interrupted
 stamp, archive or cleanup effects return accepted data and recovery actions;

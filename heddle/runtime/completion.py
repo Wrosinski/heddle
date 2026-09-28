@@ -76,6 +76,7 @@ _MANIFEST = ".heddle-completion-archive.json"
 _ARCHIVE_SCHEMA = "heddle.completion-archive/v2"
 _LEGACY_ARCHIVE_SCHEMA = "heddle.completion-archive/v1"
 _ABSENT = "absent"
+_RETAINED_ROLES = frozenset({"canonical", "capture", "evidence", "log"})
 _USAGE = (
     "heddle feature complete [--feature <slug>] [--expect-revision <n>] [--dry-run]"
 )
@@ -495,6 +496,28 @@ class ArchiveEntry:
     mode: int
 
 
+def _executable(mode: int) -> bool:
+    return bool(mode & 0o111)
+
+
+def _same_record(observed: ArchiveEntry, expected: ArchiveEntry) -> bool:
+    return (observed.kind, observed.sha256, _executable(observed.mode)) == (
+        expected.kind,
+        expected.sha256,
+        _executable(expected.mode),
+    )
+
+
+def _matches_reference(reference: ArtifactRef, observed: ArchiveEntry) -> bool:
+    if (observed.kind, observed.sha256) != (reference.kind, reference.sha256):
+        return False
+    if reference.mode is None:
+        return True
+    if reference.role in _RETAINED_ROLES:
+        return _executable(observed.mode) == _executable(reference.mode)
+    return observed.mode == reference.mode
+
+
 @dataclass(frozen=True)
 class CleanupReport:
     removed: tuple[str, ...]
@@ -617,7 +640,7 @@ def _retained_evidence_snapshot(
 
             attempt_references = attempt_artifacts(state.review_assignments.attempts)
         for reference in attempt_references:
-            if reference.role in {"canonical", "capture", "evidence", "log"}:
+            if reference.role in _RETAINED_ROLES:
                 register(
                     reference.path,
                     reference.sha256,
@@ -648,8 +671,8 @@ def _retained_evidence_snapshot(
                 sha256, kind, mode = identity
                 if entry.sha256 != sha256 or entry.kind != kind:
                     raise OSError(f"retained evidence identity differs: {path}")
-                if mode is not None and entry.mode != mode:
-                    raise OSError(f"retained evidence mode differs: {path}")
+                if mode is not None and _executable(entry.mode) != _executable(mode):
+                    raise OSError(f"retained evidence executable bit differs: {path}")
             observed[name] = entry
     except (OSError, ValueError) as error:
         raise KernelError(
@@ -689,7 +712,7 @@ def _retained_evidence_report(
 
         attempt_references = attempt_artifacts(state.review_assignments.attempts)
     for reference in attempt_references:
-        if reference.role in {"canonical", "capture", "evidence", "log"}:
+        if reference.role in _RETAINED_ROLES:
             add(reference.path, reference.role)
     for gate in state.gates:
         for run in gate.runs:
@@ -716,7 +739,8 @@ def _retained_evidence_report(
         }
         if status == "archive-bound":
             assert archived is not None
-            if archived.get(path) != entry:
+            member = archived.get(path)
+            if member is None or not _same_record(member, entry):
                 raise ValueError(f"validated archive member differs: {path}")
             row["archive_member"] = path
         artifacts.append(row)
@@ -817,12 +841,7 @@ def _validate_archive_inputs(
                     _ABSENT, reference.sha256, reference.mode
                 )
                 continue
-            observed = _entry(workspace, path)
-            if (
-                observed.kind != reference.kind
-                or observed.sha256 != reference.sha256
-                or (reference.mode is not None and observed.mode != reference.mode)
-            ):
+            if not _matches_reference(reference, _entry(workspace, path)):
                 raise OSError(
                     "indexed archive input differs from its recorded "
                     f"bytes/type/mode: {path}"
@@ -847,7 +866,8 @@ def _validate_archive_contract(
     from heddle.kernel.review_assignments import attempt_artifacts
 
     for name, expected in authored.items():
-        if archived.get(name) != expected:
+        member = archived.get(name)
+        if member is None or not _same_record(member, expected):
             raise OSError(
                 f"completion archive {path} does not retain required authored "
                 f"input {name}"
@@ -860,12 +880,7 @@ def _validate_archive_contract(
             and observed == ArchiveEntry(_ABSENT, reference.sha256, reference.mode)
         ):
             continue
-        if (
-            observed is None
-            or observed.kind != reference.kind
-            or observed.sha256 != reference.sha256
-            or (reference.mode is not None and observed.mode != reference.mode)
-        ):
+        if observed is None or not _matches_reference(reference, observed):
             raise OSError(
                 f"completion archive {path} does not retain indexed artifact "
                 f"{reference.path} with its recorded bytes/type/mode"
@@ -876,7 +891,8 @@ def _validate_retained_archive(
     retained: dict[str, ArchiveEntry], archived: dict[str, ArchiveEntry]
 ) -> None:
     for name, expected in retained.items():
-        if archived.get(name) != expected:
+        member = archived.get(name)
+        if member is None or not _same_record(member, expected):
             raise OSError(
                 f"completion archive does not retain the validated artifact: {name}"
             )
@@ -1073,7 +1089,7 @@ def retained_attempt_artifact_paths(
     return tuple(
         reference.path
         for reference in attempt_artifacts(attempts)
-        if reference.role in {"canonical", "capture", "evidence", "log"}
+        if reference.role in _RETAINED_ROLES
     )
 
 

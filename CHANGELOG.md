@@ -107,6 +107,14 @@ authority for the installed version.
   to a plan with malformed markers, still reopens the round. In a feature in
   flight, a basis recorded before the upgrade reads as changed once; reaffirm
   the round.
+- An accepted feature whose workspace records Git had checked out reported a
+  completion archive conflict (`retained evidence mode differs`) in `status`,
+  `orient`, `kickoff` and `feature complete`, and the reported repair and retry
+  could not clear it: Heddle writes records at mode 0600 and Git restores only
+  the executable bit. Retained evidence, the authored workspace records and
+  their archive members now match on bytes, kind and the executable bit, both
+  at acceptance and afterwards. A changed executable bit is still a conflict,
+  and a cleanup candidate still needs its exact recorded mode before deletion.
 
 ## [0.1.0] - 2026-09-22
 

@@ -389,7 +389,7 @@ def test_completion_retention_report_is_stable_across_retries(
     assert retry.data["retained_evidence"] == first.data["retained_evidence"]
 
 
-def _temporary_attempt(relative: str, data: bytes, mode: int):
+def _temporary_attempt(relative: str, data: bytes, mode: int, role="temporary"):
     from heddle.contracts.review_assignments import (
         ArtifactRef,
         AttemptInvocation,
@@ -418,31 +418,127 @@ def _temporary_attempt(relative: str, data: bytes, mode: int):
             ArtifactRef(
                 relative,
                 hashlib.sha256(data).hexdigest(),
-                "temporary",
+                role,
                 mode=mode,
             ),
         ),
     )
 
 
-def _local_cleanup_fixture(tmp_path, monkeypatch):
+def _indexed_attempt_fixture(tmp_path, monkeypatch, relative, content, role, mode):
     from heddle.contracts.review_assignments import review_attempt_document
 
     host = final_host(tmp_path, monkeypatch, verify_now=False)
-    relative = "reviews/disposable.tmp"
-    content = b"indexed disposable output\n"
-    candidate = host.state.parent / relative
-    candidate.parent.mkdir(exist_ok=True)
-    candidate.write_bytes(content)
-    candidate.chmod(0o640)
+    indexed = host.state.parent / relative
+    indexed.parent.mkdir(exist_ok=True)
+    indexed.write_bytes(content)
+    indexed.chmod(mode)
     attempt = _temporary_attempt(
-        relative, content, stat.S_IMODE(candidate.stat().st_mode)
+        relative, content, stat.S_IMODE(indexed.stat().st_mode), role
     )
     value = read(host.state)
     value["review_assignments"]["attempts"] = [review_attempt_document(attempt)]
     write(host.state, value)
     verify(host.state, "m1", "m2", "acceptance", "smoke")
+    return host, indexed
+
+
+def _local_cleanup_fixture(tmp_path, monkeypatch):
+    relative = "reviews/disposable.tmp"
+    content = b"indexed disposable output\n"
+    host, candidate = _indexed_attempt_fixture(
+        tmp_path, monkeypatch, relative, content, "temporary", 0o640
+    )
     return host, candidate, relative, content
+
+
+def _retained_log_fixture(tmp_path, monkeypatch):
+    return _indexed_attempt_fixture(
+        tmp_path,
+        monkeypatch,
+        "reviews/milestone-review.log",
+        b"retained provider log\n",
+        "log",
+        0o600,
+    )
+
+
+def _git_checkout_modes(workspace: Path, mode: int) -> None:
+    for path in workspace.rglob("*"):
+        if path.is_file() and not path.is_symlink():
+            path.chmod(mode)
+
+
+def test_accepted_records_keep_identity_across_a_git_checkout_mode_rewrite(
+    tmp_path, monkeypatch
+) -> None:
+    """Git keeps only the executable bit, so retained records compare only that."""
+    host, log = _retained_log_fixture(tmp_path, monkeypatch)
+    first = host.complete()
+    assert first.ok and int(first.exit_code) == 0, first.to_envelope()
+    with tarfile.open(host.archive, "r:gz") as archive:
+        assert archive.getmember("reviews/milestone-review.log").mode == 0o600
+    _git_checkout_modes(host.state.parent, 0o664)
+    before = snapshot(host.root)
+
+    for operation in (
+        ops.Status(feature=FEATURE),
+        ops.Orient(feature=FEATURE),
+        ops.Kickoff(feature=FEATURE),
+    ):
+        observed = execute(operation)
+        assert int(observed.exit_code) == 0, observed.to_envelope()
+        assert {
+            name: effect["status"] for name, effect in observed.data["effects"].items()
+        } == {"stamp": "complete", "archive": "complete", "cleanup": "complete"}
+        report = observed.data["retained_evidence"]
+        assert report["status"] == "archive-bound"
+        row = next(
+            row
+            for row in report["artifacts"]
+            if row["path"] == "reviews/milestone-review.log"
+        )
+        assert row["roles"] == ["log"] and row["mode"] == 0o664
+        assert row["archive_member"] == row["path"]
+        assert not observed.next_actions
+    retry = host.complete()
+    assert int(retry.exit_code) == 0, retry.to_envelope()
+    assert retry.data["retained_evidence"]["status"] == "archive-bound"
+    assert snapshot(host.root) == before
+    assert log.is_file()
+
+
+def test_accepted_record_executable_bit_change_remains_a_conflict(
+    tmp_path, monkeypatch
+) -> None:
+    """Survivor pin: the one mode bit Git preserves stays part of record identity."""
+    host, log = _retained_log_fixture(tmp_path, monkeypatch)
+    assert host.complete().ok
+    log.chmod(0o700)
+
+    retry = host.complete()
+
+    assert retry.data["effects"]["archive"]["status"] == "conflict"
+    assert "executable bit differs" in retry.data["effects"]["archive"]["error"]
+    assert retry.data["retained_evidence"]["status"] == "conflict"
+    _assert_terminal_effect_repair_reads_are_invariant(host, "archive")
+
+
+def test_first_archive_accepts_retained_records_with_a_rewritten_mode(
+    tmp_path, monkeypatch
+) -> None:
+    """A mode-only rewrite before acceptance neither blocks nor forges the archive."""
+    host, log = _retained_log_fixture(tmp_path, monkeypatch)
+    log.chmod(0o664)
+
+    accepted = host.complete()
+
+    assert accepted.ok and int(accepted.exit_code) == 0, accepted.to_envelope()
+    assert accepted.data["retained_evidence"]["status"] == "archive-bound"
+    with tarfile.open(host.archive, "r:gz") as archive:
+        member = archive.getmember("reviews/milestone-review.log")
+        assert member.mode == 0o664
+        assert archive.extractfile(member).read() == log.read_bytes()
 
 
 def test_local_history_completion_cleans_indexed_disposable_without_record_commit(
@@ -469,6 +565,24 @@ def test_local_history_completion_cleans_indexed_disposable_without_record_commi
         path = host.state.parent / name
         assert path.read_bytes() == data
         assert stat.S_IMODE(path.stat().st_mode) == mode
+
+
+def test_first_archive_keeps_full_mode_identity_for_disposable_inputs(
+    tmp_path, monkeypatch
+) -> None:
+    """Survivor pin: only retained records drop the non-executable mode bits."""
+    host, candidate, relative, _content = _local_cleanup_fixture(tmp_path, monkeypatch)
+    candidate.chmod(0o600)
+    before = snapshot(host.root)
+
+    refused = host.complete()
+
+    assert not refused.ok and refused.error.code == "workspace-invalid"
+    assert relative in refused.error.message
+    assert "bytes/type/mode" in refused.error.message
+    assert read(host.state)["completion"] is None
+    assert snapshot(host.root) == before
+    assert not host.archive.exists()
 
 
 @pytest.mark.parametrize("authored_name", ["plan.md", "brief.md"])
@@ -724,7 +838,11 @@ def test_local_history_public_completion_preserves_damaged_cleanup_inputs(
 
 @pytest.mark.parametrize(
     ("damage", "reason"),
-    [("candidate-bytes", "drift"), ("candidate-symlink", "symlink")],
+    [
+        ("candidate-bytes", "drift"),
+        ("candidate-mode", "drift"),
+        ("candidate-symlink", "symlink"),
+    ],
 )
 def test_local_history_cleanup_candidate_conflicts_are_typed_by_reason(
     tmp_path, monkeypatch, damage, reason
@@ -743,6 +861,8 @@ def test_local_history_cleanup_candidate_conflicts_are_typed_by_reason(
         entries = original_publish(*args, **kwargs)
         if damage == "candidate-bytes":
             candidate.write_bytes(b"changed after archive\n")
+        elif damage == "candidate-mode":
+            candidate.chmod(0o600)
         else:
             candidate.unlink()
             candidate.symlink_to(outside)
