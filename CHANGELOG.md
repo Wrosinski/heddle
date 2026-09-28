@@ -83,13 +83,14 @@ authority for the installed version.
   close-suite logs, and its completion archive are local to the checkout that
   accepted it. A verified archive accounts for such files missing from the
   workspace. Without an archive, their absence, or the absence of a disposable
-  review file that cleanup removed, makes the `retained_evidence` report and the
-  archive and cleanup effects `not-local`: `status`, `orient`, `kickoff` and
-  `feature complete` exit 0, publish no archive, and emit the informational
+  review input (a derived view, or temporary output with no recorded mode),
+  makes the `retained_evidence` report and the archive and cleanup effects
+  `not-local`: `status`, `orient`, `kickoff` and `feature complete` exit 0,
+  publish no archive, and emit the informational
   `completion-evidence-not-local` diagnostic, whose hint applies only to the
   checkout that accepted the feature. The archive effect lists absent disposable
-  files in `absent_disposable`. With every input present, a missing archive
-  stays pending and a retry builds it. Report rows gain `local` (`present` or
+  inputs in `absent_disposable`. With every input present and unchanged, a
+  missing archive stays pending and a retry builds it. Report rows gain `local` (`present` or
   `absent`), and absent rows omit kind, SHA-256 and mode. `validate` and
   `doctor` accept an absent raw capture, doctor counts only the gate artifacts
   it checked, and the informational `historical-logs-optional` diagnostic is

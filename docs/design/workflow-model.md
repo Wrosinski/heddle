@@ -334,11 +334,11 @@ historical read-only branch omits the current report.
 After acceptance, raw captures, review, verification and close-suite logs and
 the completion archive are checkout-local. A verified archive accounts for such
 files absent from the workspace. Without an archive, the absence of one of them,
-or of a disposable review file that cleanup removed, makes the report and the
-archive and cleanup effects `not-local`, an informational exit-0 state that
-publishes nothing; the archive effect lists absent disposable files in
-`absent_disposable`. With every input present, a missing archive stays
-`pending`. The call that records acceptance treats any absence as a conflict. A
+or of a disposable review input (a derived view, or temporary output with no
+recorded mode), makes the report and the archive and cleanup effects
+`not-local`, an informational exit-0 state that publishes nothing; the archive
+effect lists absent disposable inputs in `absent_disposable`. With every input
+present and unchanged, a missing archive stays `pending`. The call that records acceptance treats any absence as a conflict. A
 present capture or review log that differs from its recorded digest, a present
 file that differs from its verified archive member, a missing ledger, canonical
 or evidence record or verification manifest, and an archive that lacks an absent

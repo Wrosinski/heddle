@@ -425,7 +425,9 @@ def _temporary_attempt(relative: str, data: bytes, mode: int, role="temporary"):
     )
 
 
-def _indexed_attempt_fixture(tmp_path, monkeypatch, relative, content, role, mode):
+def _indexed_attempt_fixture(
+    tmp_path, monkeypatch, relative, content, role, mode, *, recorded=True
+):
     from heddle.contracts.review_assignments import review_attempt_document
 
     host = final_host(tmp_path, monkeypatch, verify_now=False)
@@ -434,7 +436,10 @@ def _indexed_attempt_fixture(tmp_path, monkeypatch, relative, content, role, mod
     indexed.write_bytes(content)
     indexed.chmod(mode)
     attempt = _temporary_attempt(
-        relative, content, stat.S_IMODE(indexed.stat().st_mode), role
+        relative,
+        content,
+        stat.S_IMODE(indexed.stat().st_mode) if recorded else None,
+        role,
     )
     value = read(host.state)
     value["review_assignments"]["attempts"] = [review_attempt_document(attempt)]
@@ -608,6 +613,7 @@ def test_accepted_evidence_absent_from_this_checkout_is_information(
         )
         assert notice.severity.value == "info"
         assert f"{len(absent)} retained raw capture(s) or log(s)" in notice.message
+        assert "disposable" not in notice.message
         assert f"heddle feature complete --feature {FEATURE}" in notice.message
         rows = {
             item.source: item
@@ -690,11 +696,100 @@ def test_archive_absent_with_its_cleaned_inputs_is_information(
             if item.code == "completion-evidence-not-local"
         )
         assert notice.severity.value == "info"
-        assert (
-            "0 retained raw capture(s) or log(s) and 1 disposable review file(s)"
-            in notice.message
-        )
+        assert "nor are 1 disposable review input(s) it would" in notice.message
+        assert "retained raw capture" not in notice.message
         assert snapshot(host.root) == before
+    assert not host.archive.exists()
+
+
+@pytest.mark.parametrize("role", ["derived", "temporary"])
+def test_disposable_inputs_without_a_recorded_mode_are_checkout_local(
+    tmp_path, monkeypatch, role
+) -> None:
+    """Survivor pin: a modeless input survives cleanup, then leaves this checkout."""
+    relative = f"reviews/milestone-review.{role}"
+    host, indexed = _indexed_attempt_fixture(
+        tmp_path,
+        monkeypatch,
+        relative,
+        b"no recorded mode\n",
+        role,
+        0o600,
+        recorded=False,
+    )
+    assert host.complete().ok and indexed.is_file()
+    indexed.unlink()
+    host.archive.unlink()
+
+    observed = execute(ops.Status(feature=FEATURE))
+
+    assert int(observed.exit_code) == 0, observed.to_envelope()
+    archive = observed.data["effects"]["archive"]
+    assert archive["status"] == "not-local"
+    assert archive["absent_disposable"] == [relative]
+    assert not observed.next_actions
+
+
+def test_disposable_input_behind_a_symlinked_parent_is_not_absence(
+    tmp_path, monkeypatch
+) -> None:
+    """Survivor pin: a symlinked parent never turns a disposable input into absence."""
+    host, view = _derived_view_fixture(tmp_path, monkeypatch)
+    assert host.complete().ok and not view.exists()
+    host.archive.unlink()
+    moved = host.root / "moved-reviews"
+    if view.parent.exists():
+        view.parent.rename(moved)
+    else:
+        moved.mkdir()
+    view.parent.symlink_to(moved)
+
+    observed = execute(ops.Status(feature=FEATURE))
+
+    archive = observed.data["effects"]["archive"]
+    assert archive["status"] == "conflict", observed.to_envelope()
+    assert "completion refuses symlink" in archive["error"]
+    assert "absent_disposable" not in archive
+    assert observed.data["retained_evidence"]["status"] == "conflict"
+
+
+@pytest.mark.parametrize("seam", ["run_close_suite", "commit_state"])
+def test_a_concurrent_winner_in_this_checkout_is_read_strictly(
+    tmp_path, monkeypatch, seam
+) -> None:
+    """Survivor pin: losing the acceptance race within this checkout stays strict."""
+    from heddle.runtime import completion
+
+    host, _log = _retained_log_fixture(tmp_path, monkeypatch)
+    original = getattr(completion, seam)
+    raced: list[bool] = []
+
+    def race() -> None:
+        raced.append(True)
+        winner = host.complete()
+        assert winner.ok and winner.data["wrote"], winner.to_envelope()
+        log = read(host.state)["completion"]["close_suite"]["log"]
+        (host.state.parent / log).unlink()
+        host.archive.unlink()
+
+    def racing(*args, **kwargs):
+        if raced:
+            return original(*args, **kwargs)
+        if seam == "commit_state":
+            race()
+            return original(*args, **kwargs)
+        result = original(*args, **kwargs)
+        race()
+        return result
+
+    monkeypatch.setattr(completion, seam, racing)
+
+    observed = host.complete()
+
+    assert raced and observed.data["accepted"] and not observed.data["wrote"]
+    assert observed.data["effects"]["archive"]["status"] == "conflict"
+    assert observed.data["retained_evidence"]["status"] == "conflict"
+    assert int(observed.exit_code) == 4
     assert not host.archive.exists()
 
 

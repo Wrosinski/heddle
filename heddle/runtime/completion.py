@@ -794,15 +794,22 @@ def _retained_evidence_diagnostics(
         )
     elif status == _NOT_LOCAL:
         absent = sum(row["local"] == "absent" for row in report["artifacts"])
+        missing = " and ".join(
+            part
+            for count, part in (
+                (absent, f"{absent} retained raw capture(s) or log(s)"),
+                (disposable, f"{disposable} disposable review input(s)"),
+            )
+            if count
+        )
         diagnostics.append(
             Diagnostic(
                 Severity.INFO,
                 "completion-evidence-not-local",
                 "the completion archive is not in this checkout, nor are "
-                f"{absent} retained raw capture(s) or log(s) and {disposable} "
-                "disposable review file(s) it would contain; accepted completion "
-                f"does not need them here. If this checkout accepted {feature}, "
-                f"restore them and run heddle feature complete --feature {feature}",
+                f"{missing} it would contain; accepted completion does not need "
+                f"them here. If this checkout accepted {feature}, restore them "
+                f"and run heddle feature complete --feature {feature}",
                 report["archive"],
             )
         )

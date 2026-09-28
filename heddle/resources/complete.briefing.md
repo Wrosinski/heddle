@@ -55,11 +55,12 @@ ledger, canonical reviews and referenced logs. A verified raw archive preserves
 the entire workspace. Once accepted, raw captures, review, verification and
 close-suite logs and the raw archive are optional in any checkout that did not
 accept the feature; their absence does not block new feature work. Without the
-archive, the absence of any of them, or of a disposable review file that cleanup
-removed, reads as `not-local`: an informational exit-0 state that publishes
-nothing and needs no repair outside the accepting checkout. The archive effect
-then lists absent disposable files in `absent_disposable`. When every input is
-present, a missing archive stays `pending` and a retry builds it. Keep the
+archive, the absence of any of them, or of a disposable review input (a derived
+view, or temporary output with no recorded mode), reads as `not-local`: an
+informational exit-0 state that publishes nothing and needs no repair outside
+the accepting checkout. The archive effect then lists absent disposable inputs
+in `absent_disposable`. When every input is present and unchanged, a missing
+archive stays `pending` and a retry builds it. Keep the
 structured ledger, canonical and interpreted reviews and verification manifests.
 A present capture or review log that differs from its recorded digest, a changed
 executable bit and a present file that differs from its verified archive member
@@ -334,7 +335,8 @@ or commits them, and completion does not move the baseline.
    archive. Regenerate a repository aggregate if the repository maintains one.
 4. **Local retention qualification.** Under the recording lock, the runtime
    rechecks the accepted local ledger, requires authored `plan.md` and `brief.md`,
-   and validates every indexed archive member by path, bytes, type and mode.
+   and validates every indexed archive member by path, bytes and type, plus the
+   executable bit for retained records and the exact mode for disposable inputs.
    Indexed provider scratch already gone before first publication is recorded
    as absent in the archive manifest and reported as an advisory; every other
    indexed input must be present. It does not consult Git HEAD. Users may commit workflow records according to
