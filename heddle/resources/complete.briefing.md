@@ -302,6 +302,8 @@ or commits them, and completion does not move the baseline.
    follow-ups, memory and pattern candidates with recommendations, and the
    disclosed cleanup set. Apply existing explicit
    authorization to its approved scope; ask only for an outstanding owner choice.
+   Record the user's call on each deferred follow-up and each open assessment
+   target in the spec's Outcomes before accepting completion.
    Proposed candidates do not enter durable stores before their required approval.
    - **Pass 1** — cleanup authorization batch-approves the disclosed `project`
      and `reference` memory candidates, where the host's memory rules permit it.

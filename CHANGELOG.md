@@ -43,8 +43,11 @@ authority for the installed version.
   with a greenlight / hold / drop recommendation for its owning follow-up,
   whether or not the feature declared an alignment check. The testing strategy
   adds a tie-breaker (if competent inspectors could reasonably disagree on pass
-  or fail, it is an assessment target) and states that moving a judged
-  criterion out of an accepted spec needs an explicit owner ruling. The brief
+  or fail, it is an assessment target, after first restating the criterion in
+  observable terms where its intent allows) and states that moving a judged
+  criterion out of an accepted spec needs an explicit owner ruling. The final
+  checkpoint records the user's call on each deferred follow-up and open
+  assessment target in spec Outcomes before acceptance. The brief
   scaffold, brainstorming guidelines and scaffold briefing name judgment-based
   aims separately and keep alignment criteria observable. "Never blocks or
   qualifies completion" becomes "never blocks completion or adds a condition to

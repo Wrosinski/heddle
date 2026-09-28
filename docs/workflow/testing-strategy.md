@@ -151,7 +151,10 @@ A target that needs subjective or expert judgment to evaluate is an assessment
 target: the analytical quality, depth, soundness or usefulness of an output, a
 grade from a human or model assessor, or a judged comparison with a baseline.
 If competent inspectors could reasonably disagree on whether a criterion passes
-or fails, it is an assessment target. Such a target is never an acceptance
+or fails, it is an assessment target. First restate a criterion in observable
+terms where its intent allows; only what still needs judgment after that is an
+assessment target, so a vague criterion is sharpened rather than moved. Such a
+target is never an acceptance
 criterion, `Verified-by` route, alignment criterion or completion condition.
 The spec names it under `## Assessment Targets` with what it evaluates and the
 follow-up work that owns it. An assessment made during the feature is recorded
