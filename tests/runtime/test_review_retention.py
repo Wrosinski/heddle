@@ -949,9 +949,7 @@ def test_capture_codec_rejects_tampered_shape_and_byte_identity(
         decode_capture(json.dumps(capture).encode())
 
 
-def test_final_boundary_requires_interpretation_and_archives_original_capture(
-    tmp_path, monkeypatch, run_cli
-):
+def _accepted_with_retained_capture(tmp_path, monkeypatch, run_cli):
     from tests.tiering_completion_helpers import final_host
 
     host = final_host(
@@ -1026,6 +1024,21 @@ def test_final_boundary_requires_interpretation_and_archives_original_capture(
     verify(host.state, "m1", "m2", "acceptance", "smoke")
     completed = host.complete()
     assert completed.ok and completed.data["accepted"], completed.to_envelope()
+    return SimpleNamespace(
+        host=host,
+        capture_path=capture_path,
+        captured=captured,
+        calls=calls,
+        completed=completed,
+    )
+
+
+def test_final_boundary_requires_interpretation_and_archives_original_capture(
+    tmp_path, monkeypatch, run_cli
+):
+    accepted = _accepted_with_retained_capture(tmp_path, monkeypatch, run_cli)
+    host, capture_path = accepted.host, accepted.capture_path
+    captured, calls, completed = accepted.captured, accepted.calls, accepted.completed
     report = completed.data["retained_evidence"]
     supported_roles = {role for row in report["artifacts"] for role in row["roles"]}
     assert {
@@ -1098,6 +1111,73 @@ def test_final_boundary_requires_interpretation_and_archives_original_capture(
     assert len(calls) == 1
 
 
+def test_accepted_capture_absent_from_this_checkout_is_informational(
+    tmp_path, monkeypatch, run_cli
+):
+    """A checkout without raw captures, logs or the archive validates and reads."""
+    accepted = _accepted_with_retained_capture(tmp_path, monkeypatch, run_cli)
+    host, capture_path = accepted.host, accepted.capture_path
+    for path in (capture_path, *host.state.parent.rglob("*.log")):
+        path.unlink()
+    host.archive.unlink()
+    before = snapshot(host.root)
+
+    code, output, _error = run_cli(["status", "--feature", V7_FEATURE, "--json"])
+    assert code == 0, output
+    report = json.loads(output)["data"]["retained_evidence"]
+    assert report["status"] == "not-local"
+    absent = [row for row in report["artifacts"] if row["local"] == "absent"]
+    assert {role for row in absent for role in row["roles"]} == {
+        "capture",
+        "log",
+        "verification-log",
+        "close-suite-log",
+    }
+    authority = {
+        "accepted-ledger",
+        "canonical",
+        "evidence",
+        "review-record",
+        "verification-evidence",
+    }
+    assert all(
+        row["local"] == "present"
+        for row in report["artifacts"]
+        if authority & set(row["roles"])
+    )
+    for command in ("orient", "kickoff"):
+        code, output, _error = run_cli([command, "--feature", V7_FEATURE, "--json"])
+        assert code == 0 and json.loads(output)["data"]["retained_evidence"] == report
+    for command in (
+        ["validate"],
+        ["validate", "--feature", V7_FEATURE],
+        ["doctor", "--feature", V7_FEATURE],
+    ):
+        code, output, _error = run_cli([*command, "--json"])
+        result = json.loads(output)
+        assert code == 0 and result["ok"], result
+        assert "artifact-required-invalid" not in {
+            row["code"] for row in result["diagnostics"]
+        }
+        (notice,) = (
+            row
+            for row in result["diagnostics"]
+            if row["code"] == "historical-evidence-optional"
+        )
+        message = notice["message"]
+        assert f"{len(absent)} historical raw capture(s) or log(s)" in message
+    assert snapshot(host.root) == before
+
+    capture_path.write_bytes(accepted.captured + b"\n")
+    code, output, _error = run_cli(["validate", "--json"])
+    result = json.loads(output)
+    assert code == 3 and not result["ok"]
+    assert any(
+        row["severity"] == "fatal" and "retained response" in row["message"]
+        for row in result["diagnostics"]
+    )
+
+
 def test_completion_preview_reports_no_attempt_gate_record_once(
     tmp_path, monkeypatch, run_cli
 ) -> None:
@@ -1155,7 +1235,48 @@ def test_completion_preview_reports_no_attempt_gate_record_once(
     assert row == {
         "path": artifact,
         "roles": ["review-record"],
+        "local": "present",
         "kind": "file",
         "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
         "mode": stat.S_IMODE(path.stat().st_mode),
     }
+
+
+@pytest.mark.parametrize(("status", "optional"), [("pass", False), ("error", True)])
+def test_a_log_recorded_as_a_review_record_stays_required(
+    tmp_path, monkeypatch, status, optional
+) -> None:
+    """Only raw evidence is optional; a completed gate run's record never is."""
+    from heddle.kernel.state import GateFact, GateRun, read_state_file
+    from heddle.runtime.completion import optional_retained_paths
+    from tests.tiering_completion_helpers import final_host
+
+    host = final_host(tmp_path, monkeypatch)
+    assert host.complete().ok
+    state = read_state_file(host.state)
+    log = state.verifications[0].log
+    assert log in optional_retained_paths(state)
+    run = GateRun(
+        run_id="00000000-0000-4000-8000-000000000921",
+        report_findings=(),
+        at="2026-09-18T00:00Z",
+        cli="codex",
+        artifact=log,
+        input_hash="1" * 64,
+        verdict={"status": status, "rerun_recommended": False},
+        findings={
+            "by_severity": {"critical": 0, "important": 0, "minor": 0},
+            "by_classification": {
+                "implement": 0,
+                "report": 0,
+                "ignore": 0,
+                "unknown": 0,
+            },
+            "total": 0,
+            "contradictions": 0,
+        },
+        artifact_sha256="0" * 64,
+    )
+    cited = replace(state, gates=(GateFact("behavior-review", "feature", (run,)),))
+
+    assert (log in optional_retained_paths(cited)) is optional

@@ -541,6 +541,144 @@ def test_first_archive_accepts_retained_records_with_a_rewritten_mode(
         assert archive.extractfile(member).read() == log.read_bytes()
 
 
+def _remove_checkout_local_logs(host) -> list[str]:
+    state = read(host.state)
+    logs = {fact["log"] for fact in state["verifications"]}
+    logs.update(
+        {state["completion"]["close_suite"]["log"], "reviews/milestone-review.log"}
+    )
+    for log in logs:
+        (host.state.parent / log).unlink()
+    return sorted(logs)
+
+
+def _local_rows(report: dict) -> dict[str, list[str]]:
+    rows: dict[str, list[str]] = {"present": [], "absent": []}
+    for row in report["artifacts"]:
+        rows[row["local"]].append(row["path"])
+    return rows
+
+
+def test_accepted_evidence_absent_from_this_checkout_is_information(
+    tmp_path, monkeypatch
+) -> None:
+    """A checkout without the raw logs or archive reports them, with nothing to do."""
+    host, _log = _retained_log_fixture(tmp_path, monkeypatch)
+    assert host.complete().ok
+    absent = _remove_checkout_local_logs(host)
+    host.archive.unlink()
+    before = snapshot(host.root)
+
+    for operation in (
+        ops.Status(feature=FEATURE),
+        ops.Orient(feature=FEATURE),
+        ops.Kickoff(feature=FEATURE),
+        ops.FeatureComplete(feature=FEATURE),
+    ):
+        observed = execute(operation)
+        assert int(observed.exit_code) == 0, observed.to_envelope()
+        assert {
+            name: effect["status"] for name, effect in observed.data["effects"].items()
+        } == {"stamp": "complete", "archive": "not-local", "cleanup": "not-local"}
+        report = observed.data["retained_evidence"]
+        assert report["status"] == "not-local"
+        assert _local_rows(report)["absent"] == absent
+        assert all(
+            set(row) == {"path", "roles", "local"}
+            for row in report["artifacts"]
+            if row["local"] == "absent"
+        )
+        assert not observed.next_actions
+        (notice,) = (
+            item
+            for item in observed.diagnostics
+            if item.code == "completion-evidence-not-local"
+        )
+        assert notice.severity.value == "info"
+        assert f"{len(absent)} retained raw capture(s) or log(s)" in notice.message
+        assert f"heddle feature complete --feature {FEATURE}" in notice.message
+        rows = {
+            item.source: item
+            for item in observed.diagnostics
+            if item.code == "completion-retained-evidence"
+        }
+        for path in absent:
+            assert rows[path].severity.value == "info"
+            assert rows[path].message.startswith(
+                f"retained evidence not in this checkout: {path}"
+            )
+        assert rows["state.yaml"].message.startswith("retained local evidence")
+        assert not any(
+            item.code.startswith(("completion-archive", "completion-cleanup"))
+            for item in observed.diagnostics
+        )
+        assert snapshot(host.root) == before
+    assert not host.archive.exists()
+
+
+def test_verified_archive_accounts_for_evidence_absent_from_the_workspace(
+    tmp_path, monkeypatch
+) -> None:
+    """Locally absent raw logs stay bound to their verified archive members."""
+    host, _log = _retained_log_fixture(tmp_path, monkeypatch)
+    assert host.complete().ok
+    absent = _remove_checkout_local_logs(host)
+
+    retry = host.complete()
+
+    assert int(retry.exit_code) == 0, retry.to_envelope()
+    assert {
+        name: effect["status"] for name, effect in retry.data["effects"].items()
+    } == {"stamp": "complete", "archive": "complete", "cleanup": "complete"}
+    report = retry.data["retained_evidence"]
+    assert report["status"] == "archive-bound"
+    assert _local_rows(report)["absent"] == absent
+    assert all(row["archive_member"] == row["path"] for row in report["artifacts"])
+    assert not retry.next_actions
+
+
+@pytest.mark.parametrize(
+    "damage",
+    ["present-log-bytes", "required-manifest", "archive-member", "symlinked-parent"],
+)
+def test_evidence_that_is_present_or_required_still_conflicts_after_acceptance(
+    tmp_path, monkeypatch, damage
+) -> None:
+    """Survivor pin: only absence of raw logs is local; damage is still a conflict."""
+    host, log = _retained_log_fixture(tmp_path, monkeypatch)
+    assert host.complete().ok
+    state = read(host.state)
+    verification_log = state["verifications"][0]["log"]
+    (host.state.parent / verification_log).unlink()
+    if damage == "present-log-bytes":
+        host.archive.unlink()
+        log.write_bytes(log.read_bytes() + b"changed\n")
+        expected = "retained evidence identity differs"
+    elif damage == "required-manifest":
+        host.archive.unlink()
+        manifest = state["verifications"][0]["evidence"]["after"]["artifact"]
+        (host.state.parent / manifest).unlink()
+        expected = manifest
+    elif damage == "archive-member":
+        _remove_archive_member(host.archive, verification_log)
+        expected = f"evidence absent from this checkout: {verification_log}"
+    else:
+        host.archive.unlink()
+        moved = host.root / "moved-reviews"
+        log.parent.rename(moved)
+        log.parent.symlink_to(moved)
+        (moved / log.name).unlink()
+        expected = "completion refuses symlink"
+
+    retry = host.complete()
+
+    archive = retry.data["effects"]["archive"]
+    assert archive["status"] == "conflict" and expected in archive["error"]
+    assert retry.data["retained_evidence"]["status"] == "conflict"
+    assert int(retry.exit_code) == 4
+    _assert_terminal_effect_repair_reads_are_invariant(host, "archive")
+
+
 def test_local_history_completion_cleans_indexed_disposable_without_record_commit(
     tmp_path, monkeypatch
 ) -> None:

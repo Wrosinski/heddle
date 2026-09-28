@@ -39,11 +39,12 @@ def test_completed_host_validates_without_historical_logs_or_raw_archive(
         missing = [
             row
             for row in result["diagnostics"]
-            if row["code"] == "historical-logs-optional"
+            if row["code"] == "historical-evidence-optional"
         ]
         assert len(missing) == 1
         assert missing[0]["severity"] == "info"
-        assert f"{len(logs)} historical verification log(s)" in missing[0]["message"]
+        message = missing[0]["message"]
+        assert f"{len(logs)} historical raw capture(s) or log(s)" in message
     assert host.state.read_bytes() == before
 
     code, output, _error = run_cli(["orient", "--json"])

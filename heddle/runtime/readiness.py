@@ -439,6 +439,7 @@ def validate_retained_reviews(
     root: Path, snapshot: FeatureSnapshot
 ) -> dict[str, entry.ReviewResult]:
     """Return validated original results without recomputing today's freshness."""
+    from heddle.runtime.completion import absent_optional_evidence
     from heddle.runtime.review_assignments import (
         ReviewEvidenceAccess,
         validate_sources,
@@ -450,6 +451,7 @@ def validate_retained_reviews(
             snapshot.workspace,
             snapshot.feature,
             snapshot.state,
+            absent_optional_evidence(root, root / snapshot.workspace, snapshot.state),
         )
     )
 

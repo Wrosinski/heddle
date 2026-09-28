@@ -250,11 +250,19 @@ def test_ac10_archive_readback_contains_every_validated_retained_path() -> None:
         "verification/m1.log": ArchiveEntry("file", "a" * 64, 0o644),
         "verification/source-evidence.yaml": ArchiveEntry("file", "b" * 64, 0o600),
     }
-    _validate_retained_archive(retained, dict(retained))
+    _validate_retained_archive(retained, dict(retained), ())
     with pytest.raises(OSError, match="does not retain"):
         _validate_retained_archive(
-            retained, {"verification/m1.log": retained["verification/m1.log"]}
+            retained, {"verification/m1.log": retained["verification/m1.log"]}, ()
         )
+    local = {
+        "verification/source-evidence.yaml": retained[
+            "verification/source-evidence.yaml"
+        ]
+    }
+    _validate_retained_archive(local, dict(retained), ("verification/m1.log",))
+    with pytest.raises(OSError, match="absent from this checkout"):
+        _validate_retained_archive(local, dict(local), ("verification/m1.log",))
 
 
 @pytest.mark.parametrize("damage", [None, "bytes", "type", "mode"])

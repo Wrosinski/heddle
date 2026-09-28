@@ -322,12 +322,20 @@ or provider. Historical acceptance does not claim current source is fresh.
 
 Completion and terminal Status, Orient and Kickoff project one deterministic
 retained-evidence report from validated local identities. Rows are path-sorted
-and carry exact unique roles, kind, digest and mode. Verified member names appear
-only while archive readback matches. A cleanup-candidate conflict can preserve
-an `archive-bound` report; retained-file damage, archive damage or cleanup-time
-archive revalidation failure yields `conflict` without unchecked member claims.
-Unknown preserved files and disposable candidates remain in the existing effect
-report. The compatible historical read-only branch omits the current report.
+and carry exact unique roles and local presence; present rows add kind, digest
+and mode. Verified member names appear only while archive readback matches. A
+cleanup-candidate conflict can preserve an `archive-bound` report; retained-file
+damage, archive damage or cleanup-time archive revalidation failure yields
+`conflict` without unchecked member claims. Unknown preserved files and
+disposable candidates remain in the existing effect report. The compatible
+historical read-only branch omits the current report.
+
+After acceptance, raw captures and review, verification and close-suite logs are
+checkout-local. A verified archive accounts for those absent from the workspace.
+Without an archive, their absence makes the report and the archive and cleanup
+effects `not-local`, an informational exit-0 state that publishes nothing. A
+present file that differs, a missing ledger, canonical review or verification
+manifest, and an archive that lacks an absent file remain conflicts.
 
 ## State publication and compatibility
 

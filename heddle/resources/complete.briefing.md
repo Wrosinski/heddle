@@ -52,15 +52,20 @@ workspace holds ephemeral `plans/<slug>/plan.md` prose alongside durable
 `plans/<slug>/reviews/`. Read the records before extracting knowledge. Cleanup removes
 plan prose and attributable temporary output, while retaining the accepted
 ledger, canonical reviews and referenced logs. A verified raw archive preserves
-the entire workspace. Once accepted, historical verification logs and raw archives
-are optional on subsequent hosts; their absence does not block new feature work.
-Keep the structured ledger, canonical reviews and verification manifests.
+the entire workspace. Once accepted, raw captures, review and verification logs
+and the raw archive are optional in any checkout that did not accept the
+feature; their absence does not block new feature work. Without the archive,
+that absence reads as `not-local`: an informational exit-0 state that publishes
+nothing and needs no repair outside the accepting checkout. Keep the structured
+ledger, canonical and interpreted reviews and verification manifests; a present
+file whose bytes changed is still a conflict.
 
 Completion, terminal Status, Orient and Kickoff expose one deterministic
 `retained_evidence` report from the same validated local identities. Each
-path-sorted row carries its exact supported roles, kind, SHA-256 and mode.
-`archive_member` appears only after verified archive readback. Treat `pending`,
-`archive-bound` and `conflict` as binding states, not lifecycle verdicts. Human
+path-sorted row carries its exact supported roles and whether it is `present` or
+`absent` locally; present rows add kind, SHA-256 and mode. `archive_member`
+appears only after verified archive readback. Treat `pending`, `archive-bound`,
+`not-local` and `conflict` as binding states, not lifecycle verdicts. Human
 diagnostics render the same paths, roles and verified archive locations. Unknown
 preserved files and disposable cleanup candidates remain in their existing
 effect classes rather than entering this retained-artifact report.

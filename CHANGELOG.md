@@ -70,6 +70,21 @@ authority for the installed version.
   the states an interruption can leave and the requests that touch several
   owners, with the settlement or refusal path for each. Only milestone review's
   `prompt_version` changes.
+- Once a feature is accepted, its raw captures, review, verification and
+  close-suite logs, and its completion archive are local to the checkout that
+  accepted it. A verified archive accounts for such files missing from the
+  workspace. Without an archive, their absence makes the `retained_evidence`
+  report and the archive and cleanup effects `not-local`: `status`, `orient`,
+  `kickoff` and `feature complete` exit 0, publish no archive, and emit the
+  informational `completion-evidence-not-local` diagnostic, whose hint applies
+  only to the checkout that accepted the feature. Report rows gain `local`
+  (`present` or `absent`), and absent rows omit kind, SHA-256 and mode.
+  `validate` and `doctor` accept an absent raw capture, and the informational
+  `historical-logs-optional` diagnostic is renamed `historical-evidence-optional`
+  and also counts raw captures and review logs. A present file whose bytes
+  changed, a missing ledger, canonical review or verification manifest, and an
+  archive that lacks an absent file are still conflicts, and acceptance still
+  requires every retained file.
 
 ### Fixed
 
@@ -115,6 +130,11 @@ authority for the installed version.
   their archive members now match on bytes, kind and the executable bit, both
   at acceptance and afterwards. A changed executable bit is still a conflict,
   and a cleanup candidate still needs its exact recorded mode before deletion.
+- In a checkout other than the one that accepted a feature, `heddle validate`
+  failed with `workspace-invalid` when a raw capture was absent, and `status`,
+  `orient` and `kickoff` reported an archive conflict whose repair and retry
+  could never succeed when the archive or gitignored logs existed only in the
+  accepting checkout. See the `not-local` entry under Changed.
 
 ## [0.1.0] - 2026-09-22
 

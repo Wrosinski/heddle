@@ -34,6 +34,7 @@ from heddle.kernel.project_config import (
 )
 from heddle.kernel.source_manifest import normalize_milestone_source_paths
 from heddle.runtime.cli_args import parse_feature_flag
+from heddle.runtime.completion import absent_optional_evidence
 from heddle.runtime.diagnostics import (
     schema_remediation_actions,
 )
@@ -172,27 +173,23 @@ def _check_verification_evidence(context: ValidationContext) -> list[Diagnostic]
 
 
 def _check_retained_evidence(context: ValidationContext) -> list[Diagnostic]:
-    diagnostics = []
     state = context.snapshot.state
     try:
         validate_retained_reviews(context.root, context.snapshot)
+        absent = absent_optional_evidence(context.root, context.workspace_root, state)
     except KernelError as error:
-        diagnostics.append(Diagnostic(Severity.FATAL, WORKSPACE_INVALID, error.message))
-    logs = {fact.log for fact in state.verifications}
-    assert state.completion is not None
-    if state.completion.close_suite is not None:
-        logs.add(state.completion.close_suite.log)
-    missing = sum(not _artifact_exists(context.workspace_root, log) for log in logs)
-    if missing:
-        diagnostics.append(
-            Diagnostic(
-                Severity.INFO,
-                "historical-logs-optional",
-                f"{state.feature}: {missing} historical verification log(s) "
-                "not retained; logs are optional after accepted completion",
-            )
+        return [Diagnostic(Severity.FATAL, WORKSPACE_INVALID, error.message)]
+    if not absent:
+        return []
+    return [
+        Diagnostic(
+            Severity.INFO,
+            "historical-evidence-optional",
+            f"{state.feature}: {len(absent)} historical raw capture(s) or log(s) "
+            "not retained in this checkout; they are optional after accepted "
+            "completion",
         )
-    return diagnostics
+    ]
 
 
 def _state_location(context: ValidationContext) -> str:

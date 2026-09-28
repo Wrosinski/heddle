@@ -426,6 +426,7 @@ def test_ac10_review_evidence_access_names_only_required_inputs():
         "workspace",
         "feature",
         "state",
+        "absent_evidence",
     }
     assert tuple(inspect.signature(review_assignments.validate_sources).parameters) == (
         "access",

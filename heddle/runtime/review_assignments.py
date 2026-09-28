@@ -217,6 +217,7 @@ class ReviewEvidenceAccess:
     workspace: str
     feature: str
     state: StateFile
+    absent_evidence: frozenset[str] = frozenset()
 
 
 def validate_sources(access: ReviewEvidenceAccess) -> dict[str, entry.ReviewResult]:
@@ -288,7 +289,14 @@ def validate_sources(access: ReviewEvidenceAccess) -> dict[str, entry.ReviewResu
         results[source.run_id] = result
     if set(source_ids) != set(sources_by_id):
         raise core.invalid("derived source views differ from authoritative attempts")
+    absent_runs = {
+        row.run_id
+        for row in _retained_rows(state)
+        if row.artifact in access.absent_evidence
+    }
     for interpretation in state.review_assignments.interpretations:
+        if interpretation.run_id in absent_runs:
+            continue
         if (
             results[interpretation.run_id].invocation
             != captures[interpretation.run_id].invocation
@@ -317,31 +325,9 @@ def validate_retained_access(
 ) -> dict[str, entry.CapturedReview]:
     captures: dict[str, entry.CapturedReview] = {}
     state = access.state
-    rows = state.review_assignments.retained
-    if state.review_assignments.attempts:
-        rows = tuple(
-            RetainedReview(
-                attempt.attempt_id,
-                attempt.assignment_id,
-                attempt.round_number,
-                attempt.reviewer_slot,
-                attempt.outcome.capture.path,
-                attempt.outcome.capture.sha256,
-                attempt.invocation.input_hash,
-                attempt.invocation.review_basis_hash,
-                attempt.created_at,
-                attempt.outcome.warnings,
-            )
-            for attempt in state.review_assignments.attempts
-            if isinstance(attempt.outcome, UsableReviewCapture)
-        )
-        if tuple(ops.decoded_payload(row) for row in rows) != tuple(
-            ops.decoded_payload(row) for row in state.review_assignments.retained
-        ):
-            raise core.invalid(
-                "retained response views differ from authoritative attempts"
-            )
-    for row in rows:
+    for row in _retained_rows(state):
+        if row.artifact in access.absent_evidence:
+            continue
         try:
             capture = entry.read_retained_capture(access.root / access.workspace, row)
             assignment = next(
@@ -369,6 +355,32 @@ def validate_retained_access(
                 f"retained response cannot be validated: {error}"
             ) from error
     return captures
+
+
+def _retained_rows(state: StateFile) -> tuple[RetainedReview, ...]:
+    if not state.review_assignments.attempts:
+        return state.review_assignments.retained
+    rows = tuple(
+        RetainedReview(
+            attempt.attempt_id,
+            attempt.assignment_id,
+            attempt.round_number,
+            attempt.reviewer_slot,
+            attempt.outcome.capture.path,
+            attempt.outcome.capture.sha256,
+            attempt.invocation.input_hash,
+            attempt.invocation.review_basis_hash,
+            attempt.created_at,
+            attempt.outcome.warnings,
+        )
+        for attempt in state.review_assignments.attempts
+        if isinstance(attempt.outcome, UsableReviewCapture)
+    )
+    if tuple(ops.decoded_payload(row) for row in rows) != tuple(
+        ops.decoded_payload(row) for row in state.review_assignments.retained
+    ):
+        raise core.invalid("retained response views differ from authoritative attempts")
+    return rows
 
 
 def retained_response_result(

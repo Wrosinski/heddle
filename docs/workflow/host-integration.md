@@ -156,11 +156,12 @@ On a healthy repository with no active feature, `heddle orient` may return exit
 3 and route to `heddle feature prepare`. That is a legal and expected fresh-host
 outcome rather than an integration failure.
 
-Fresh checkouts do not need historical verification logs or raw archives from
-accepted features. Missing logs are informational in `doctor` and `validate` by
-default, including explicit historical feature checks. Retained structured
-ledgers, canonical reviews, and verification manifests still undergo integrity
-validation. Active work and acceptance continue to require their evidence.
+Fresh checkouts do not need raw captures, historical logs or raw archives from
+accepted features. Their absence is informational in `doctor`, `validate`,
+`status`, `orient` and `kickoff`, including explicit historical feature checks.
+Retained structured ledgers, canonical reviews, and verification manifests still
+undergo integrity validation. Active work and acceptance continue to require
+their evidence.
 
 Treat a fatal diagnostic as a real blocker. Resolve or repair its stated cause
 before feature work, then rerun the affected checks. Informational runner and

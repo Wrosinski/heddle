@@ -77,6 +77,8 @@ _ARCHIVE_SCHEMA = "heddle.completion-archive/v2"
 _LEGACY_ARCHIVE_SCHEMA = "heddle.completion-archive/v1"
 _ABSENT = "absent"
 _RETAINED_ROLES = frozenset({"canonical", "capture", "evidence", "log"})
+_OPTIONAL_ROLES = frozenset({"capture", "log"})
+_NOT_LOCAL = "not-local"
 _USAGE = (
     "heddle feature complete [--feature <slug>] [--expect-revision <n>] [--dry-run]"
 )
@@ -215,7 +217,7 @@ def complete_feature(operation: ops.FeatureComplete) -> HeddleResult:
                 },
                 diagnostics=(
                     *context.diagnostics,
-                    *_retained_evidence_diagnostics(retained_evidence),
+                    *_retained_evidence_diagnostics(retained_evidence, state.feature),
                     *_absent_scratch_diagnostics(qualification.absent_scratch),
                 ),
             )
@@ -634,6 +636,7 @@ def _retained_evidence_snapshot(
         expected[path] = identity
 
     observed: dict[str, ArchiveEntry] = {}
+    absent = absent_optional_evidence(root, workspace, state)
     try:
         if attempt_references is None:
             from heddle.kernel.review_assignments import attempt_artifacts
@@ -661,6 +664,8 @@ def _retained_evidence_snapshot(
                 or parsed.as_posix() != name
             ):
                 raise OSError(f"unsafe retained evidence path: {name}")
+            if name in absent:
+                continue
             path = workspace / name
             _no_symlinks(root, path)
             entry = _entry(workspace, path)
@@ -693,9 +698,10 @@ def _retained_evidence_report(
     status: str,
     archived: dict[str, ArchiveEntry] | None = None,
     attempt_references: tuple[ArtifactRef, ...] | None = None,
+    absent: Iterable[str] = (),
 ) -> dict[str, Any]:
     """Project validated retained identities and their direct state relationships."""
-    if status not in {"pending", "archive-bound", "conflict"}:
+    if status not in {"pending", "archive-bound", "conflict", _NOT_LOCAL}:
         raise ValueError(f"unsupported retained-evidence status: {status}")
     if status == "archive-bound" and archived is None:
         raise ValueError("archive-bound retained evidence needs validated members")
@@ -725,22 +731,28 @@ def _retained_evidence_report(
     if state.completion is not None and state.completion.close_suite is not None:
         add(state.completion.close_suite.log, "close-suite-log")
 
+    local: dict[str, ArchiveEntry | None] = {path: None for path in absent}
+    local.update(observed)
     artifacts: list[dict[str, Any]] = []
-    for path, entry in sorted(observed.items()):
+    for path, entry in sorted(local.items()):
         artifact_roles = roles.get(path)
         if not artifact_roles:
             raise ValueError(f"retained artifact has no report role: {path}")
         row: dict[str, Any] = {
             "path": path,
             "roles": sorted(artifact_roles),
-            "kind": entry.kind,
-            "sha256": entry.sha256,
-            "mode": entry.mode,
+            "local": "absent" if entry is None else "present",
         }
+        if entry is not None:
+            row.update(kind=entry.kind, sha256=entry.sha256, mode=entry.mode)
         if status == "archive-bound":
             assert archived is not None
             member = archived.get(path)
-            if member is None or not _same_record(member, entry):
+            if member is None or (
+                member.kind != "file"
+                if entry is None
+                else not _same_record(member, entry)
+            ):
                 raise ValueError(f"validated archive member differs: {path}")
             row["archive_member"] = path
         artifacts.append(row)
@@ -766,7 +778,7 @@ def _absent_scratch_diagnostics(paths: Iterable[str]) -> tuple[Diagnostic, ...]:
 
 
 def _retained_evidence_diagnostics(
-    report: dict[str, Any],
+    report: dict[str, Any], feature: str
 ) -> tuple[Diagnostic, ...]:
     status = report["status"]
     diagnostics: list[Diagnostic] = []
@@ -780,11 +792,27 @@ def _retained_evidence_diagnostics(
                 report["archive"],
             )
         )
-    for artifact in report["artifacts"]:
-        message = (
-            f"retained local evidence: {artifact['path']}; roles: "
-            f"{', '.join(artifact['roles'])}"
+    elif status == _NOT_LOCAL:
+        absent = sum(row["local"] == "absent" for row in report["artifacts"])
+        diagnostics.append(
+            Diagnostic(
+                Severity.INFO,
+                "completion-evidence-not-local",
+                f"{absent} retained raw capture(s) or log(s) and the completion "
+                "archive are not in this checkout; accepted completion does not "
+                f"need them here. If this checkout accepted {feature}, restore "
+                f"them and run heddle feature complete --feature {feature}",
+                report["archive"],
+            )
         )
+    for artifact in report["artifacts"]:
+        present = artifact["local"] == "present"
+        label = (
+            "retained local evidence"
+            if present
+            else "retained evidence not in this checkout"
+        )
+        message = f"{label}: {artifact['path']}; roles: {', '.join(artifact['roles'])}"
         member = artifact.get("archive_member")
         if member is not None:
             message += f"; verified archive member: {report['archive']}::{member}"
@@ -792,7 +820,7 @@ def _retained_evidence_diagnostics(
             message += f"; archive binding: {status}"
         diagnostics.append(
             Diagnostic(
-                Severity.ADVISORY,
+                Severity.ADVISORY if present else Severity.INFO,
                 "completion-retained-evidence",
                 message,
                 artifact["path"],
@@ -888,13 +916,22 @@ def _validate_archive_contract(
 
 
 def _validate_retained_archive(
-    retained: dict[str, ArchiveEntry], archived: dict[str, ArchiveEntry]
+    retained: dict[str, ArchiveEntry],
+    archived: dict[str, ArchiveEntry],
+    absent: Iterable[str],
 ) -> None:
     for name, expected in retained.items():
         member = archived.get(name)
         if member is None or not _same_record(member, expected):
             raise OSError(
                 f"completion archive does not retain the validated artifact: {name}"
+            )
+    for name in absent:
+        member = archived.get(name)
+        if member is None or member.kind != "file":
+            raise OSError(
+                "completion archive does not retain evidence absent from this "
+                f"checkout: {name}"
             )
 
 
@@ -1093,6 +1130,55 @@ def retained_attempt_artifact_paths(
     )
 
 
+def optional_retained_paths(state: StateFile) -> frozenset[str]:
+    from heddle.kernel.review_assignments import attempt_artifacts
+
+    references = attempt_artifacts(state.review_assignments.attempts)
+    optional = {ref.path for ref in references if ref.role in _OPTIONAL_ROLES}
+    required = {"state.yaml"}
+    required.update(
+        ref.path for ref in references if ref.role in _RETAINED_ROLES - _OPTIONAL_ROLES
+    )
+    required.update(
+        run.artifact
+        for gate in state.gates
+        for run in gate.runs
+        if run.verdict.get("status") != "error"
+    )
+    if not state.review_assignments.attempts:
+        optional.update(row.artifact for row in state.review_assignments.retained)
+    for fact in state.verifications:
+        optional.add(fact.log)
+        required.update((fact.evidence.before.artifact, fact.evidence.after.artifact))
+    if state.completion is not None and state.completion.close_suite is not None:
+        optional.add(state.completion.close_suite.log)
+    return frozenset(optional - required)
+
+
+def absent_optional_evidence(
+    root: Path, workspace: Path, state: StateFile
+) -> frozenset[str]:
+    if state.completion is None:
+        return frozenset()
+    try:
+        optional = optional_retained_paths(state)
+    except ValueError as error:
+        raise KernelError(
+            "workspace-invalid",
+            f"completion retained evidence is invalid: {error}",
+            "restore the accepted ledger's review artifact inventory",
+        ) from error
+    return frozenset(name for name in optional if _absent(root, workspace / name))
+
+
+def _absent(root: Path, path: Path) -> bool:
+    try:
+        _no_symlinks(root, path)
+    except (OSError, ValueError):
+        return False
+    return not os.path.lexists(path)
+
+
 def _cleanup_candidates(
     state: StateFile, entries: dict[str, ArchiveEntry]
 ) -> tuple[set[str], set[str]]:
@@ -1257,6 +1343,7 @@ def completion_result(
     retained: dict[str, ArchiveEntry] = {}
     retained_attempts: tuple[ArtifactRef, ...] = ()
     archived: dict[str, ArchiveEntry] | None = None
+    absent_evidence: list[str] = []
     absent_scratch: list[str] = []
     binding_status = "pending"
     candidate_conflict: CleanupCandidateConflict | None = None
@@ -1292,14 +1379,19 @@ def completion_result(
                     state,
                     attempt_references=retained_attempts,
                 )
+                absent_evidence = sorted(_retained_paths(state) - set(retained))
                 _no_symlinks(root, archive)
                 if archive.exists():
                     authored = _required_authored_archive_inputs(root, workspace)
                     absent: dict[str, ArchiveEntry] = {}
+                elif absent_evidence:
+                    authored, absent = {}, {}
+                    binding_status = _NOT_LOCAL
+                    effect["status"] = effects["cleanup"]["status"] = _NOT_LOCAL
                 else:
                     authored, absent = _validate_archive_inputs(root, workspace, state)
                 absent_scratch = sorted(absent)
-                if archive.exists() or not dry_run:
+                if archive.exists() or (not dry_run and binding_status == "pending"):
                     entries = (
                         _read_archive(archive, ledger)
                         if dry_run
@@ -1311,7 +1403,7 @@ def completion_result(
                         name for name, entry in entries.items() if entry.kind == _ABSENT
                     )
                     _validate_archive_contract(archive, state, authored, entries)
-                    _validate_retained_archive(retained, entries)
+                    _validate_retained_archive(retained, entries, absent_evidence)
                     archived = entries
                     binding_status = "archive-bound"
                     effect["status"] = "complete"
@@ -1343,7 +1435,7 @@ def completion_result(
     pending = [
         (name, value)
         for name, value in effects.items()
-        if value["status"] != "complete"
+        if value["status"] not in {"complete", _NOT_LOCAL}
     ]
     actions: list[NextAction] = []
     if pending:
@@ -1381,6 +1473,7 @@ def completion_result(
         status=binding_status,
         archived=archived,
         attempt_references=retained_attempts,
+        absent=absent_evidence,
     )
     return HeddleResult.success(
         {
@@ -1400,7 +1493,7 @@ def completion_result(
         },
         diagnostics=(
             *context.diagnostics,
-            *_retained_evidence_diagnostics(retained_evidence),
+            *_retained_evidence_diagnostics(retained_evidence, state.feature),
             *_absent_scratch_diagnostics(absent_scratch),
             *(
                 Diagnostic(

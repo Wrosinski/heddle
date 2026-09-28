@@ -130,9 +130,9 @@ selection and labels completion effects unassessed. Historical accepted state
 never asserts that current source is fresh. Explicit status/orient show observed
 pending repairs. Doctor and validate check retained canonical artifacts without
 requiring a removed plan or reassessing later source. After accepted completion,
-historical verification logs and raw archives are optional on a fresh host;
-missing logs are informational. Active work and acceptance retain their existing
-evidence requirements.
+raw captures, historical logs and raw archives are optional on a fresh host;
+their absence is informational in every read surface. Active work and acceptance
+retain their existing evidence requirements.
 
 ## Review, verification and completion
 
