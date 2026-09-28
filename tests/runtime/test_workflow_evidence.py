@@ -141,6 +141,7 @@ def _explained(status, subject: str) -> set[str]:
         ("spec", "rendered", False),
         ("spec", "authored", True),
         ("spec", "malformed", True),
+        ("plan", "rendered", False),
     ],
 )
 def test_ac6_rendered_plan_status_is_not_plan_review_basis(
@@ -184,6 +185,49 @@ def test_ac6_rendered_plan_status_is_not_plan_review_basis(
         }
 
 
+@pytest.mark.parametrize(
+    ("cited", "edit", "reopens"),
+    [
+        ("plan", "rendered", False),
+        ("plan", "authored", True),
+        ("plan", "malformed", True),
+        ("notes", "rendered", True),
+    ],
+)
+def test_ac6_survivor_explicit_reference_excludes_only_feature_plan_status(
+    tmp_path, monkeypatch, run_cli, cited, edit, reopens
+) -> None:
+    """AC-6 survivor: other cited bytes, the plan's included, stay evidence."""
+    host, state_path = current_host(tmp_path, monkeypatch)
+    target = state_path.with_name("plan.md") if cited == "plan" else host / "notes.md"
+    target.write_text(
+        (target.read_text() if cited == "plan" else "Notes.\n") + _STATUS_REGION
+    )
+    provider_transport(
+        monkeypatch,
+        review_content(findings=[finding("SP-I1", classification="implement")]),
+    )
+    code, result = gate_command(run_cli, "run-gate", "spec-review")
+    assert code in {0, 4} and result["ok"], result
+    run_id = runs(state_path)[0]["run_id"]
+    closed = dispose(
+        state_path,
+        [
+            disposition(
+                run_id, "SP-I1", references=[target.relative_to(host).as_posix()]
+            ),
+            disposition(run_id, "@coverage", status="settled"),
+        ],
+    )
+    assert closed.ok and closed.data["closure"]["closed"], closed.to_envelope()
+
+    _edit_status_target(target, edit)
+    status = review_status(state_path, role="spec-review")
+    assert status["closed"] is not reopens, status
+    if reopens:
+        assert _explained(status, f"{run_id}#SP-I1") == {"referenced evidence changed"}
+
+
 def test_authored_plan_observation_excludes_only_a_valid_utf8_status_region() -> None:
     region = (
         b"<!-- heddle:begin plan-status -->\r\n"
@@ -202,50 +246,6 @@ def test_authored_plan_observation_excludes_only_a_valid_utf8_status_region() ->
         replace(observed, kind="symlink"),
     ):
         assert authored_plan_observation(unchanged) == unchanged
-
-
-def test_ac6_survivor_generated_status_exclusion_preserves_explicit_raw_reference(
-    tmp_path, monkeypatch, run_cli
-) -> None:
-    """AC-6 survivor: basis projection exclusions cannot weaken explicit evidence."""
-    host, state_path = current_host(tmp_path, monkeypatch, stage="plan-review")
-    plan = state_path.with_name("plan.md")
-    plan.write_text(
-        plan.read_text()
-        + "\n<!-- heddle:begin plan-status -->\n"
-        + "Generated status before inspection.\n"
-        + "<!-- heddle:end plan-status -->\n"
-    )
-    provider_transport(
-        monkeypatch,
-        review_content(
-            "plan-review",
-            findings=[finding("PL-I1", classification="implement")],
-        ),
-    )
-    code, result = gate_command(run_cli, "run-gate", "plan-review")
-    assert code == 4 and result["ok"], result
-    run_id = runs(state_path)[0]["run_id"]
-    reference = plan.relative_to(host).as_posix()
-    closed = dispose(
-        state_path,
-        [
-            disposition(run_id, "PL-I1", references=[reference]),
-            disposition(run_id, "@coverage", status="settled"),
-        ],
-    )
-    assert closed.ok and closed.data["closure"]["closed"], closed.to_envelope()
-
-    plan.write_text(
-        replace_managed_region(
-            plan.read_text(),
-            "plan-status",
-            "Generated status changed after explicit inspection.\n",
-        )
-    )
-    reopened = review_status(state_path, role="plan-review")
-    assert not reopened["closed"]
-    assert [run_id, "PL-I1"] in reopened["open_refs"]
 
 
 def test_ac6_briefings_publish_safe_edit_sync_format_inspect_record_order() -> None:

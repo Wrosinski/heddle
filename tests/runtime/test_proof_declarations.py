@@ -110,6 +110,7 @@ def test_orchestration_records_preserve_coverage_and_product_boundaries(
             "acceptance",
             baseline_probe=path.relative_to(root).as_posix(),
             runtime_owned_roots=controls.roots,
+            plan_path=path.with_name("plan.md").relative_to(root).as_posix(),
             excluded_paths=controls.exact,
         )
 

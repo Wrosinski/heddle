@@ -35,12 +35,20 @@ from heddle.runtime.write_path import emit_result, run_state_mutation
 _USAGE = "heddle feature sources attribute --from-file <json>|- [--feature <slug>]"
 
 
-def observe_attribution(root: Path, paths: tuple[str, ...]) -> SourceEvidence:
-    return observe_source(root, SourceDefinition("outside-feature", paths, paths))
+def observe_attribution(
+    root: Path, paths: tuple[str, ...], *, plan_path: str | None
+) -> SourceEvidence:
+    return observe_source(
+        root, SourceDefinition("outside-feature", paths, paths), plan_path=plan_path
+    )
 
 
 def qualified_attribution_paths(
-    root: Path, state: StateFile, *, owned: tuple[str, ...] | None = None
+    root: Path,
+    state: StateFile,
+    *,
+    plan_path: str,
+    owned: tuple[str, ...] | None = None,
 ) -> tuple[str, ...]:
     if owned is None:
         owned = resolve_source_declaration(state, "acceptance").paths
@@ -63,14 +71,16 @@ def qualified_attribution_paths(
         if not paths:
             continue
         checked.extend(paths)
-        current = observe_attribution(root, paths)
+        current = observe_attribution(root, paths, plan_path=None)
         expected = tuple(item for item in row.source.observations if item.path in paths)
         if current.observations != expected:
             stale.update(
                 changed_observation_paths(expected, current.observations) or paths
             )
             continue
-        references = observe_attribution(root, row.references.definition.paths)
+        references = observe_attribution(
+            root, row.references.definition.paths, plan_path=plan_path
+        )
         if references != row.references:
             changed_evidence.update(
                 changed_observation_paths(
@@ -134,8 +144,10 @@ def attribute_sources(operation: ops.AttributeSources) -> HeddleResult:
                 raise attribution_error(
                     "attribution cannot cite its own mutable ledger"
                 )
-            source = observe_attribution(root, paths)
-            references = observe_attribution(root, refs)
+            source = observe_attribution(root, paths, plan_path=None)
+            references = observe_attribution(
+                root, refs, plan_path=context.snapshot.plan_path
+            )
             validate_attribution_evidence(source, references=False)
             validate_attribution_evidence(references, references=True)
             row = SourceAttribution(

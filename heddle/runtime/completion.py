@@ -341,6 +341,7 @@ def _qualify(
         scopes[0],
         baseline_probe=context.state_path.relative_to(context.config.root).as_posix(),
         runtime_owned_roots=controls.roots,
+        plan_path=context.snapshot.plan_path,
         excluded_paths=controls.exact,
         workspace=context.snapshot.workspace,
     )

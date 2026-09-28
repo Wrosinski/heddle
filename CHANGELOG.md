@@ -47,11 +47,21 @@ authority for the installed version.
   attributed paths that cite them. What refuses is unchanged.
 - A review whose only open concerns are addressed or settled dispositions with
   changed cited evidence now routes to a fresh disposition instead of a
-  mandatory round-limit, no-progress or no-decrease stop. Editing a cited file,
-  including the status block `heddle sync` rewrites in `plan.md`, no longer
-  sends the lead to record a stop for findings that were resolved. Any
-  genuinely open concern still routes to the stop, and the recorded stop reason
-  is unchanged.
+  mandatory round-limit, no-progress or no-decrease stop. Editing a cited file
+  no longer sends the lead to record a stop for findings that were resolved.
+  Any genuinely open concern still routes to the stop, and the recorded stop
+  reason is unchanged.
+- Disposition and scope-change references that cite the feature plan, and
+  source-attribution references that cite it, now hash only the plan's
+  authored bytes: its well-formed rendered plan-status region is excluded, as
+  gate inputs and review assignment bases already exclude it. `heddle sync` no
+  longer reopens those dispositions or makes those attributions stale. Any
+  other cited file, and a plan whose markers are malformed, is still hashed as
+  it stands. This reverses the earlier rule that an explicit plan reference
+  stays raw, and it is a clean break with no compatibility path: in a feature
+  in flight, such a reference recorded before the upgrade reads as changed
+  once; re-dispose or re-attribute it. Accepted reviews keep their recorded
+  identity.
 - Milestone review's correctness dimension now asks, for a milestone that
   introduces or changes a durable attempt, lease or correction lifecycle, for
   the states an interruption can leave and the requests that touch several

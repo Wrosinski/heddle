@@ -9,6 +9,12 @@ import pytest
 import yaml
 
 from heddle.contracts import operations as ops
+from heddle.kernel.managed_regions import (
+    PLAN_STATUS_ID,
+    begin_marker,
+    end_marker,
+    replace_managed_region,
+)
 from heddle.kernel.project_config import KernelError, load_project_config
 from heddle.kernel.state import read_state_file, validate_state_transition
 from heddle.runtime.application import execute
@@ -71,6 +77,7 @@ def coverage(root, state_path):
         "acceptance",
         baseline_probe=state_path.relative_to(root).as_posix(),
         runtime_owned_roots=controls.roots,
+        plan_path=state_path.with_name("plan.md").relative_to(root).as_posix(),
         excluded_paths=controls.exact,
     )
 
@@ -146,7 +153,9 @@ def test_deletion_binding_and_later_ownership_do_not_hide_owned_changes(host):
         state,
         milestones=(replace(state.milestones[0], owns=("src.py", "deleted.txt")),),
     )
-    assert qualified_attribution_paths(root, expanded) == ("another.txt", "outside.txt")
+    assert qualified_attribution_paths(
+        root, expanded, plan_path="plans/sample-feature/plan.md"
+    ) == ("another.txt", "outside.txt")
     assert expanded.verifications == ()
 
 
@@ -165,6 +174,36 @@ def test_cited_orchestration_evidence_remains_byte_bound(host):
     record.write_text("Changed evidence must require a fresh attribution.\n")
     with pytest.raises(KernelError, match="attribution evidence changed"):
         coverage(root, state_path)
+
+
+@pytest.mark.parametrize("edit", ["rendered", "authored"])
+def test_cited_plan_evidence_excludes_only_its_rendered_status(host, edit):
+    root, state_path = host
+    plan = state_path.with_name("plan.md")
+    plan.write_text(
+        "# Plan\n\n"
+        + begin_marker(PLAN_STATUS_ID)
+        + "\nStatus before attribution.\n"
+        + end_marker(PLAN_STATUS_ID)
+        + "\n\nInspected ownership evidence.\n"
+    )
+    value = payload("outside.txt", "another.txt")
+    for entry in value["attributions"]:
+        entry["references"] = [plan.relative_to(root).as_posix()]
+    result = execute(ops.AttributeSources(value, feature="sample-feature"))
+    assert result.ok, result.to_envelope()
+    assert coverage(root, state_path).status == "complete"
+    if edit == "rendered":
+        plan.write_text(
+            replace_managed_region(
+                plan.read_text(), PLAN_STATUS_ID, "Status after attribution.\n"
+            )
+        )
+        assert coverage(root, state_path).status == "complete"
+    else:
+        plan.write_text(plan.read_text() + "Authored change.\n")
+        with pytest.raises(KernelError, match="attribution evidence changed"):
+            coverage(root, state_path)
 
 
 @pytest.mark.parametrize(

@@ -392,6 +392,7 @@ def reconcile_current_source(
     *,
     baseline_probe: str,
     runtime_owned_roots: tuple[str, ...],
+    plan_path: str,
     excluded_paths: tuple[str, ...] = (),
     workspace: str | None = None,
 ) -> CoverageReconciliation:
@@ -402,6 +403,7 @@ def reconcile_current_source(
         state,
         declaration,
         baseline_probe=baseline_probe,
+        plan_path=plan_path,
         runtime_owned_roots=runtime_owned_roots,
         excluded_paths=excluded_paths,
     )
@@ -439,6 +441,7 @@ def _observe_source_coverage(
     declaration: SourceDeclaration,
     *,
     baseline_probe: str,
+    plan_path: str,
     runtime_owned_roots: tuple[str, ...],
     excluded_paths: tuple[str, ...],
 ) -> CoverageReconciliation:
@@ -450,7 +453,9 @@ def _observe_source_coverage(
     )
     from heddle.runtime.source_attribution import qualified_attribution_paths
 
-    attributed = qualified_attribution_paths(root, state, owned=declaration.paths)
+    attributed = qualified_attribution_paths(
+        root, state, plan_path=plan_path, owned=declaration.paths
+    )
     return reconcile_source_coverage(
         declaration,
         inventory,
@@ -481,6 +486,7 @@ def coverage_diagnostics(
         state,
         SourceDeclaration("feature-owned-union", paths),
         baseline_probe=f"{config.layout.plans}/{state.feature}/state.yaml",
+        plan_path=f"{config.layout.plans}/{state.feature}/plan.md",
         runtime_owned_roots=controls.roots,
         excluded_paths=controls.exact,
     )

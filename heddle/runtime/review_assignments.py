@@ -57,6 +57,7 @@ from heddle.io.source import (
 )
 from heddle.kernel import review_assignments as core
 from heddle.kernel.feature_policy import validate_host_review_selection
+from heddle.kernel.managed_regions import authored_plan_observation
 from heddle.kernel.model import FeatureSnapshot
 from heddle.kernel.project_config import KernelError, ProjectConfig, feature_state_path
 from heddle.kernel.readiness import EvidenceExplanation
@@ -439,6 +440,7 @@ def captured_reference(
     root: Path,
     path: str,
     *,
+    plan_path: str,
     source_observations: dict[str, ObservedPath] | None = None,
 ) -> tuple[str, str]:
     normalized = normalize_paths((path,))[0]
@@ -446,6 +448,8 @@ def captured_reference(
     captured = capture_source_path(root, normalized, captures)
     if captured.kind != "file":
         raise core.invalid(f"evidence is not an available regular file: {normalized}")
+    if normalized == plan_path:
+        captured = authored_plan_observation(captured)
     return normalized, hashlib.sha256(
         bytes([captured.executable]) + captured.content
     ).hexdigest()
@@ -571,7 +575,10 @@ def _qualify_evidence(
     for reference in disposition.references:
         try:
             current = captured_reference(
-                config.root, reference[0], source_observations=frame.captures
+                config.root,
+                reference[0],
+                plan_path=snapshot.plan_path,
+                source_observations=frame.captures,
             )
         except (KernelError, OSError, ValueError) as error:
             return _rejected_evidence(
@@ -1727,6 +1734,7 @@ def _dispositions(
                     captured_reference(
                         config.root,
                         normalized_reference,
+                        plan_path=snapshot.plan_path,
                         source_observations=frame.captures,
                     )
                 )
@@ -1871,7 +1879,9 @@ def _reaffirmations(
     return assignment, additions
 
 
-def _scope_change(config: ProjectConfig, value: Any) -> ReviewScopeChange | None:
+def _scope_change(
+    config: ProjectConfig, value: Any, *, plan_path: str
+) -> ReviewScopeChange | None:
     if value is None:
         return None
     raw = _shape(value, ("reason", "references"))
@@ -1879,7 +1889,12 @@ def _scope_change(config: ProjectConfig, value: Any) -> ReviewScopeChange | None
         raise core.invalid("scope change requires material contract references")
     return ReviewScopeChange(
         _nonempty(raw["reason"], "material contract change reason"),
-        tuple(sorted(captured_reference(config.root, p) for p in raw["references"])),
+        tuple(
+            sorted(
+                captured_reference(config.root, p, plan_path=plan_path)
+                for p in raw["references"]
+            )
+        ),
     )
 
 
@@ -1978,7 +1993,9 @@ def _apply_round_open(
             purpose=payload["purpose"],
             reason=_nonempty(payload["reason"], "round reason"),
             before_open=closed.open_refs,
-            scope_change=_scope_change(config, payload.get("scope_change")),
+            scope_change=_scope_change(
+                config, payload.get("scope_change"), plan_path=current.plan_path
+            ),
         )
         if closed.closed and not core.verification_targets(
             current.state, assignment, row

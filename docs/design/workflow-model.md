@@ -16,7 +16,11 @@ Agents author the spec and plan; runtime commands own operational state.
 The kernel derives readiness, unmet obligations, evidence applicability and
 legal next actions from those facts and current observations. A prose summary,
 rendered plan-status block or passing reviewer statement is not a substitute
-for the underlying recorded evidence.
+for the underlying recorded evidence. Evidence identity for the feature plan
+therefore excludes a well-formed plan-status region: gate inputs, review
+assignment bases, cited references and attribution references hash the plan's
+authored bytes, so `heddle sync` never makes evidence stale. Every other cited
+file, and a plan with malformed markers, is hashed as it stands.
 
 The [document structure](../workflow/document-structure.md) separates the spec's
 product contract and Design Commitments from the plan's approach and Technical
