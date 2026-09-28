@@ -6,6 +6,7 @@ import os
 import stat
 from pathlib import Path
 
+from heddle.kernel.managed_regions import authored_plan_observation
 from heddle.kernel.project_config import KernelError
 from heddle.kernel.source_manifest import (
     ObservedPath,
@@ -49,18 +50,23 @@ def observe_source(
     definition: SourceDefinition,
     *,
     observations: dict[str, ObservedPath] | None = None,
+    plan_path: str | None = None,
 ) -> SourceEvidence:
     """Observe declared roots and selected leaves once in canonical path order."""
     paths = sorted(
         set(definition.declaration_paths) | set(definition.paths), key=byte_sort_key
     )
+    captured = (
+        capture_path(root, path)
+        if observations is None
+        else capture_source_path(root, path, observations)
+        for path in paths
+    )
     return build_source_evidence(
         definition,
         (
-            capture_path(root, path)
-            if observations is None
-            else capture_source_path(root, path, observations)
-            for path in paths
+            authored_plan_observation(item) if item.path == plan_path else item
+            for item in captured
         ),
     )
 

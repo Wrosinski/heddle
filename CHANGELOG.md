@@ -86,6 +86,14 @@ authority for the installed version.
   the milestone's `owns` list at feature close, which a done milestone's
   append-only ownership refuses. It now says no action is needed, because the
   entry records sanctioned deletion work.
+- A `heddle sync` after dispositions were recorded reopened every row of an
+  unaccepted plan-review or test-scaffolding round, including rows that never
+  cited `plan.md`: the assignment basis hashed the plan with its rendered
+  plan-status region, which gate inputs already excluded. The basis now
+  excludes the same well-formed region; an authored plan change, or a change
+  to a plan with malformed markers, still reopens the round. In a feature in
+  flight, a basis recorded before the upgrade reads as changed once; reaffirm
+  it.
 
 ## [0.1.0] - 2026-09-22
 

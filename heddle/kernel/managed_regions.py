@@ -1,8 +1,11 @@
-"""Pure exact-line managed region parsing and replacement, shared with gate inputs."""
+"""Pure exact-line managed region parsing and replacement, shared with evidence."""
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 from heddle.kernel.project_config import KernelError
+from heddle.kernel.source_manifest import ObservedPath
 
 PLAN_STATUS_ID = "plan-status"
 
@@ -111,3 +114,17 @@ def without_managed_region(text: str, block_id: str) -> str:
     if _marker_fault_from_indexes(begins, ends) is not None:
         return text
     return "".join(lines[: begins[0]] + lines[ends[0] + 1 :])
+
+
+def authored_plan(text: str) -> str:
+    return without_managed_region(text, PLAN_STATUS_ID)
+
+
+def authored_plan_observation(observed: ObservedPath) -> ObservedPath:
+    if observed.kind != "file":
+        return observed
+    try:
+        text = observed.content.decode("utf-8")
+    except UnicodeDecodeError:
+        return observed
+    return replace(observed, content=authored_plan(text).encode("utf-8"))

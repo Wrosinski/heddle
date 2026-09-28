@@ -2,11 +2,17 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 
+import pytest
 import yaml
 
-from heddle.kernel.managed_regions import replace_managed_region
+from heddle.kernel.managed_regions import (
+    authored_plan_observation,
+    replace_managed_region,
+)
+from heddle.kernel.source_manifest import ObservedPath
 from tests.structured_review_helpers import finding
 from tests.tiering_helpers import snapshot
 from tests.tiering_review_helpers import (
@@ -99,6 +105,103 @@ def test_ac4_survivor_other_yaml_reference_remains_accepted(
     )
     assert result.ok, result.to_envelope()
     assert yaml.safe_load(state_path.read_text())["revision"] == before_revision + 1
+
+
+_STATUS_REGION = (
+    "\n<!-- heddle:begin plan-status -->\n"
+    "Generated status before inspection.\n"
+    "<!-- heddle:end plan-status -->\n"
+)
+
+
+def _edit_status_target(path: Path, edit: str) -> None:
+    text = path.read_text()
+    if edit == "rendered":
+        text = replace_managed_region(
+            text, "plan-status", "Generated status changed after inspection.\n"
+        )
+    elif edit == "authored":
+        text += "\nAuthored change after inspection.\n"
+    else:
+        text = text.replace("<!-- heddle:end plan-status -->\n", "")
+    path.write_text(text)
+
+
+def _explained(status, subject: str) -> set[str]:
+    return {
+        row["cause"]
+        for row in status["evidence_explanations"]
+        if row["subject"] == subject
+    }
+
+
+@pytest.mark.parametrize(
+    ("cited", "edit", "reopens"),
+    [
+        ("spec", "rendered", False),
+        ("spec", "authored", True),
+        ("spec", "malformed", True),
+    ],
+)
+def test_ac6_rendered_plan_status_is_not_plan_review_basis(
+    tmp_path, monkeypatch, run_cli, cited, edit, reopens
+) -> None:
+    """AC-6: the plan-review basis excludes only the valid rendered status."""
+    host, state_path = current_host(tmp_path, monkeypatch, stage="plan-review")
+    plan = state_path.with_name("plan.md")
+    plan.write_text(plan.read_text() + _STATUS_REGION)
+    provider_transport(
+        monkeypatch,
+        review_content(
+            "plan-review",
+            findings=[finding("PL-I1", classification="implement")],
+        ),
+    )
+    code, result = gate_command(run_cli, "run-gate", "plan-review")
+    assert code == 4 and result["ok"], result
+    run_id = runs(state_path)[0]["run_id"]
+    reference = (
+        plan.relative_to(host).as_posix()
+        if cited == "plan"
+        else yaml.safe_load(state_path.read_text())["spec"]
+    )
+    closed = dispose(
+        state_path,
+        [
+            disposition(run_id, "PL-I1", references=[reference]),
+            disposition(run_id, "@coverage", status="settled"),
+        ],
+    )
+    assert closed.ok and closed.data["closure"]["closed"], closed.to_envelope()
+
+    _edit_status_target(plan, edit)
+    status = review_status(state_path, role="plan-review")
+    assert status["closed"] is not reopens, status
+    if reopens:
+        assert [run_id, "PL-I1"] in status["open_refs"]
+        assert _explained(status, f"{run_id}#PL-I1") == {
+            "governing review source changed"
+        }
+
+
+def test_authored_plan_observation_excludes_only_a_valid_utf8_status_region() -> None:
+    region = (
+        b"<!-- heddle:begin plan-status -->\r\n"
+        b"status\r\n"
+        b"<!-- heddle:end plan-status -->\r\n"
+    )
+    observed = ObservedPath(
+        "plans/f/plan.md", "file", False, b"# Plan\r\n" + region + b"Body\r\n"
+    )
+    assert authored_plan_observation(observed) == replace(
+        observed, content=b"# Plan\r\nBody\r\n"
+    )
+    for unchanged in (
+        replace(observed, content=b"\xff" + region),
+        replace(observed, content=region[: region.index(b"<!-- heddle:end")]),
+        replace(observed, kind="symlink"),
+    ):
+        assert authored_plan_observation(unchanged) == unchanged
 
 
 def test_ac6_survivor_generated_status_exclusion_preserves_explicit_raw_reference(

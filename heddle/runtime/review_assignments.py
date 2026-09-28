@@ -476,7 +476,7 @@ def current_basis(
         if contract.requires_spec:
             paths.append(snapshot.spec_path)
         if contract.requires_plan:
-            paths.append(snapshot.workspace + "plan.md")
+            paths.append(snapshot.plan_path)
         if "test-scaffolding" in contract.context_builders:
             context = entry.build_gate_context(
                 snapshot,
@@ -491,7 +491,10 @@ def current_basis(
         config.root, "feature-inputs", tuple(set(paths))
     )
     return observe_source(
-        config.root, definition, observations=source_observations
+        config.root,
+        definition,
+        observations=source_observations,
+        plan_path=snapshot.plan_path,
     ).source_sha256
 
 

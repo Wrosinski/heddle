@@ -25,7 +25,13 @@ from heddle.contracts.gates import (
     VERDICT_PRODUCING_GATES as VERDICT_PRODUCING_GATES,
 )
 from heddle.contracts.result import NextAction, Severity
-from heddle.contracts.schemas import FLOW_AUTO, FLOW_HITL, STAGES, WORKSPACE_STATE
+from heddle.contracts.schemas import (
+    FLOW_AUTO,
+    FLOW_HITL,
+    STAGES,
+    WORKSPACE_PLAN,
+    WORKSPACE_STATE,
+)
 from heddle.kernel.blockers import (
     STAGE_CAP_LIMIT as STAGE_CAP_LIMIT,
 )
@@ -159,6 +165,10 @@ class FeatureSnapshot:
     entry: str  # "fresh" | "resume" (WM-10)
     next_steps: str | None  # latest session's next_steps
     state: StateFile  # full typed facts
+
+    @property
+    def plan_path(self) -> str:
+        return self.workspace + WORKSPACE_PLAN
 
 
 @dataclass(frozen=True)

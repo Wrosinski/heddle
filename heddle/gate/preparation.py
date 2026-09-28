@@ -59,7 +59,7 @@ from heddle.io.source import (
     observe_source,
     resolve_source_definition,
 )
-from heddle.kernel.managed_regions import PLAN_STATUS_ID, without_managed_region
+from heddle.kernel.managed_regions import authored_plan, authored_plan_observation
 from heddle.kernel.project_config import KernelError
 from heddle.kernel.source_manifest import (
     ObservedPath,
@@ -610,7 +610,7 @@ def _declared_reviewed_inputs(
             )
             items.append(
                 _reviewed(
-                    "reviewed/plan", "content", _authored_plan(context.plan_content)
+                    "reviewed/plan", "content", authored_plan(context.plan_content)
                 )
             )
             items.append(_document_identity(context, context.plan_path, "plan"))
@@ -905,11 +905,6 @@ def _review_source_advice(repo_root: Path, paths: tuple[str, ...]) -> tuple[str,
     )
 
 
-def _authored_plan(content: str) -> str:
-    """Exclude only the exact existing native managed status region."""
-    return without_managed_region(content, PLAN_STATUS_ID)
-
-
 def _document_identity(
     context: GateContext, path: Path | None, label: str
 ) -> ReviewedInput:
@@ -918,9 +913,7 @@ def _document_identity(
         context.repo_root, relative, context.source_observations
     )
     if label == "plan":
-        captured = replace(
-            captured, content=_authored_plan(captured.content.decode()).encode()
-        )
+        captured = authored_plan_observation(captured)
     return _captured_identity(captured, label)
 
 
