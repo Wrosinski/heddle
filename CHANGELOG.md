@@ -109,6 +109,13 @@ authority for the installed version.
   criteria do not name by its consequence, as robustness findings are rated,
   instead of anchoring it to Minor; the missing criterion bears only on the
   IMPLEMENT or REPORT classification. Every gate's `prompt_version` changes.
+- The prompt-refinement protocol has an owner-directed promotion route. The
+  owner may put a named behavior change live without a controlled comparison.
+  Its commit carries a prompt-change record with the decision, consumers and
+  affected families, the delivered difference, `Comparison: none run` and a
+  watch case for each family. The change claims no improvement; watch outcomes
+  are reviewed in the next gate-effectiveness entries, and a miss opens an
+  ordinary refinement record.
 - Once a feature is accepted, its raw captures, review, verification and
   close-suite logs, and its completion archive are local to the checkout that
   accepted it. A verified archive accounts for such files missing from the

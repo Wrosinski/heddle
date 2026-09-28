@@ -40,7 +40,9 @@ than manufacturing a mandate.
 Create the refinement record before editing a live model-facing surface. The
 record is the unit of review and attribution. Its machine-readable form must
 remain complete enough for another author to reconstruct what was compared
-without relying on chat history.
+without relying on chat history. An
+[owner-directed promotion](#owner-directed-promotion) records its evidence in
+the commit instead.
 
 The mandatory groups are:
 
@@ -183,7 +185,8 @@ tuple, rubric, grader, or semantic identities required by this record.
 Promotion requires sufficient evidence, a named authority, and a named target.
 Fail closed when any of the three is absent. Prior authorization of the program
 intent does not turn incomplete comparison evidence into permission to edit a
-live surface.
+live surface; the only other route is an
+[owner-directed promotion](#owner-directed-promotion).
 Promotion also requires complete executed arm results, `prompt` attribution,
 and equality between the frozen tuple and both resolved arm tuples. A `NOT RUN`
 result, `not-run` attribution, or synchronized drift is ineligible.
@@ -207,6 +210,35 @@ comparison. Record the reason and the evidence needed for a future pass.
 After promotion, run the target's lockstep tests, refresh any exact-byte or
 anchor pins, record the `prompt_version` boundary, and watch subsequent cases
 for regression. Promotion of one candidate does not authorize adjacent edits.
+
+### Owner-directed promotion
+
+The owner may direct a specific behavior change to go live without a
+controlled comparison, accepting that its effect is unmeasured. The decision
+must name the change and its target; authorization of a program intent does
+not qualify. The disposition is not `PROMOTE`: the change claims no
+improvement, and its attribution is `not-run`.
+
+Record the change in the commit that makes it, as a prompt-change record that
+names:
+
+- the owner decision and its date, and the accepted intent or observed failure
+  behind it;
+- the changed sections, every consumer, and each affected family;
+- the delivered instruction difference, including text removed or subsumed;
+- `Comparison: none run`, and what the accompanying tests do and do not
+  establish;
+- at least one watch case per affected family: the expected signal, the
+  unacceptable false positive, and the first review that will exercise it;
+- any risk the change knowingly leaves unmeasured.
+
+Run the target's lockstep tests and refresh pins as for any promotion. Watch
+outcomes are trajectory evidence, not causal comparison evidence. Review each
+case in the
+[gate-effectiveness entry](workflow.md#per-feature-measurement-phase-9) of the
+first feature that exercises it. A missed signal or a new false positive opens
+an ordinary refinement record for revision or removal. Each later edit needs
+its own route: a controlled comparison or a new owner direction.
 
 ## Model-generation audit
 

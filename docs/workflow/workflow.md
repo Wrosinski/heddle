@@ -541,7 +541,7 @@ Nothing in Phase 9 changes a gate, prompt, flow, or workflow document. Each prop
 
 Accepted proposals route by target class:
 
-- **Prompt** → a [prompt-refinement](prompt-refinement.md) record whose `observed_failure_ids` cites the entry; the protocol's comparison and promotion bar applies unchanged.
+- **Prompt** → a [prompt-refinement](prompt-refinement.md) record whose `observed_failure_ids` cites the entry; the protocol's comparison and promotion bar applies unchanged. When the owner directs the change without a comparison, its commit record cites the entry through the protocol's [owner-directed promotion](prompt-refinement.md#owner-directed-promotion) route.
 - **Flow** → a proposal under `docs/proposals/` or a D-numbered decision, since policy matrices and assignment topology are ratified contracts.
 - **Workflow** → an owner-approved edit to the named document.
 - **Enforcement** → the [enforcement extraction](#continuous-enforcement-extraction) disposition path.

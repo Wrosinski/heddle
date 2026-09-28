@@ -1534,3 +1534,21 @@ def test_ac7_protocol_stays_generic_and_non_authorizing() -> None:
     offenders = [term for term in forbidden if term.casefold() in text.casefold()]
     assert not offenders, f"FAIL AC-7: product-specific policy leaked in: {offenders}"
     assert "does not authorize a gate, skill, default, topology, cap, stop" in text
+
+
+def test_owner_directed_promotion_is_recorded_and_claims_no_improvement() -> None:
+    text = _required_text(PROTOCOL_PATH, ac="owner-directed promotion")
+    promotion = _required_h2(text, "Promotion decision", ac="owner-directed promotion")
+    _assert_required_terms(
+        promotion,
+        (
+            "### owner-directed promotion",
+            "must name the change and its target",
+            "the disposition is not `promote`",
+            "its attribution is `not-run`",
+            "`comparison: none run`",
+            "at least one watch case per affected family",
+            "trajectory evidence, not causal comparison evidence",
+        ),
+        failure_prefix="FAIL owner-directed promotion: route contract missing",
+    )
