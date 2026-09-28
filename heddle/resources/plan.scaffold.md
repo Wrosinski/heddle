@@ -50,7 +50,8 @@ the real application boundary. The e2e lane doubles only external systems;
 propose live too whenever real providers/services, representative input,
 obtainable credentials, bounded cost and safe effects make it feasible. Name
 ACs per lane and concrete fallback witnesses for exclusions, deterministic pass
-conditions, real/doubled systems, alignment criteria and retained artifacts.
+conditions, real/doubled systems, alignment criteria (observable contract
+conditions, not quality judgments) and retained artifacts.
 List prerequisites as auto-resolvable setup or user-required decisions, effects
 and idempotency or reversible-effect cleanup/recovery. Propose execution stages
 and bounds for both lanes; give live time/turn/retry and per-attempt/aggregate
@@ -85,7 +86,8 @@ Assessment entry: criteria, assessor, native run/source reference, exact retaine
 artifacts, conclusion, limitations and separate quality observations. The final
 peer-review/robustness lead records it after the last relevant fix and applicable
 passing run, refreshing after changed output or relevant changes. Misalignment
-blocks; quality beyond the contract does not. Session/spec summaries reference
+blocks; quality observations and results against the spec's Assessment Targets
+do not. Session/spec summaries reference
 this entry. Judgment never substitutes for a verification fact. This is authored
 plan content: record it before a required qualifying final rereview, or refresh
 affected closure evidence afterward. Native freshness and originating-inspection

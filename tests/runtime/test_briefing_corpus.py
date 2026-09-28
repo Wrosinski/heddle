@@ -417,7 +417,11 @@ class TestAC7KickoffRendersClean:
         elif stage in {"peer-review", "robustness"}:
             assert "Assessment" in briefing and "passing run" in briefing
             assert "replacement output" in briefing
-            assert "quality beyond the contract" in folded
+            assert "Misalignment blocks finishing" in folded
+            assert {
+                "peer-review": "results against the spec's Assessment Targets do not",
+                "robustness": "assessment-target results from the spec block it",
+            }[stage] in folded
             assert "native freshness" in folded.lower()
             assert "qualifying" in folded and "rereview" in folded
             assert "live does not replace acceptance" in folded

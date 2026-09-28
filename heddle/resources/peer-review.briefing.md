@@ -157,9 +157,8 @@ without fabricating a past checkpoint or restarting completed stages.
 When this is the final boundary, the lead performs any declared alignment check
 after the last relevant fix and applicable passing run. Read the exact retained
 artifacts against the declared spec/plan criteria. Misalignment blocks finishing;
-quality beyond the contract is an observation, and explicit quality thresholds
-remain binding. Under the plan's `### Verification Commands`, record one
-Assessment: criteria,
+quality observations and results against the spec's Assessment Targets do not.
+Under the plan's `### Verification Commands`, record one Assessment: criteria,
 assessor, native run reference and relevant source identity, exact artifacts,
 conclusion, limits and separate quality observations. Session and spec summaries
 reference it. Refresh after a relevant fix or replacement output; judgment is

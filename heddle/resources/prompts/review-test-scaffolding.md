@@ -247,8 +247,9 @@ Evaluate the live end-to-end test design against the acceptance test:
   recorded? A substitute alone cannot authorize declining a feasible live lane.
 - Do time, turn, retry and per-attempt/aggregate cost caps leave expected healthy
   runs headroom within the host's limits and explicit grant?
-- Does a declared alignment check retain its artifacts and specify criteria for
-  the final-boundary lead? Tests still assert all deterministically assessable
+- Does a declared alignment check retain its artifacts and specify observable
+  contract criteria, not quality judgments, for the final-boundary lead? Tests
+  still assert all deterministically assessable
   conditions; judgment never turns red proof green or replaces acceptance.
 
 Evaluate the prerequisites checklist:

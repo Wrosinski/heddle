@@ -52,7 +52,11 @@ Assess each of these seven native dimension IDs exactly once:
   classes. Preserve `Verified-by:` routes where witnesses exist; explicit
   pending verification before scaffolding is not a false execution claim.
   Gherkin is an optional representation: `Scenario Outline`, Given/When/Then,
-  and populated Examples can express the same observable contract.
+  and populated Examples can express the same observable contract. An AC whose
+  pass condition needs subjective or expert judgment (analytical quality,
+  usefulness, an assessor's grade, a judged baseline comparison) is a finding:
+  it belongs under `## Assessment Targets` with its owning follow-up and does
+  not gate completion. A deterministically measurable threshold is a valid AC.
 - **assumptions-and-failure-classes:** Consequential assumptions are labeled
   and falsifiable. Distinguish required failure behavior, intentionally
   excluded cases, and unresolved product choices. Required recovery,

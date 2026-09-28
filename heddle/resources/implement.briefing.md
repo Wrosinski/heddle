@@ -405,8 +405,9 @@ replaces the e2e lane. Finishing also requires any declared alignment assessment
 Hand the criteria and retained artifact locations to the owning final-boundary
 lead, who performs the assessment after the last relevant fix and applicable
 passing run. Tests cover every deterministically assessable AC condition;
-misalignment in remaining declared content is a defect. Quality beyond the
-contract is observational, while explicit quality thresholds remain binding.
+misalignment in remaining declared content is a defect. Quality is
+observational here: judgment-based targets live under the spec's Assessment
+Targets and never gate finishing.
 One Assessment entry under the plan's `### Verification Commands` records criteria, assessor,
 native run/source reference, exact artifacts, conclusion and limitations. Session
 and spec summaries reference it. Refresh after relevant fixes or replacement

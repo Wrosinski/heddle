@@ -103,6 +103,13 @@ Use the packaged scaffold and this document structure:
   `Priority: MUST|SHOULD|MAY`, observable precondition/action/expected clauses,
   and `Verified-by:` routes when executable witnesses exist. Mark missing
   verification pending; scaffolding owns concrete test design and route binding.
+- Assessment Targets, when a promised outcome needs subjective or expert
+  judgment to evaluate: analytical quality, depth or usefulness of an output,
+  a human or model assessor's grade, or a judged comparison with a baseline.
+  Name what each evaluates and the follow-up work that owns it. Keep them out
+  of ACs, `Verified-by` routes and alignment criteria: completion rests on
+  engineering proof alone, and a deterministically measurable threshold is an
+  ordinary AC.
 - A Decision Log for consequential alternatives, plus Surprises & Discoveries
   and short Outcomes & Retrospective sections. Reference the workflow's named
   Impact Assessment and Re-Plan protocols rather than copying them.
@@ -134,7 +141,8 @@ Populate `plans/<feature>/plan.md` with:
   boundary, an e2e lane doubling only external systems, and live whenever the
   feature calls a real provider/service and a run is feasible. Name ACs per lane
   and concrete fallback witnesses for exclusions, deterministic pass conditions,
-  real/doubled systems, alignment criteria and retained artifacts. Include
+  real/doubled systems, alignment criteria (observable contract conditions,
+  not quality judgments) and retained artifacts. Include
   live prerequisites (targets, credential references, data/freshness, network,
   quota/cost, effects and evidence destination), classified auto-resolvable or
   user-required; effects must be idempotent or reversible with cleanup/recovery.
@@ -142,8 +150,8 @@ Populate `plans/<feature>/plan.md` with:
   per-attempt/aggregate cost caps based on expected healthy cost with headroom
   within host limits. Finishing needs current milestone, acceptance and smoke
   proof under existing disposition rules, plus declared live and alignment
-  evidence. Live does not replace acceptance. Planned or unapproved execution
-  remains explicitly pending.
+  evidence. Live does not replace acceptance, and assessment targets never gate
+  finishing. Planned or unapproved execution remains explicitly pending.
 - The managed plan-status region. Native task/session commands own changing
   progress and handoffs; the plan is not a duplicate operational ledger.
 

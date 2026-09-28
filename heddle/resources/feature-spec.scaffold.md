@@ -50,10 +50,20 @@ criterion carries `Priority: MUST|SHOULD|MAY`, observable precondition/action/
 expected-result clauses, and `Verified-by:` routes once executable witnesses
 exist. Until then, label verification pending; never invent an executed pass.
 Cover consequential inputs, outputs, and failure classes without prescribing
-private implementation details or a parallel EARS list.)_
+private implementation details or a parallel EARS list. Every pass condition is
+checkable deterministically or by inspection against observable terms; a target
+that needs subjective or expert judgment belongs under Assessment Targets.)_
 
 Use the workflow's named Impact Assessment and Re-Plan protocols for changes
 to this contract; do not copy their procedures here.
+
+## Assessment Targets
+
+_(Optional. List each target whose evaluation needs subjective or expert
+judgment, such as the analytical quality or usefulness of an output or an
+assessor's grade, with what it evaluates and the follow-up work that owns it.
+These are not acceptance criteria and never gate completion; record any
+assessment made during this feature as an observation.)_
 
 ## Decision Log
 

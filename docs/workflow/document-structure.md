@@ -87,11 +87,22 @@ Sub-IDs may preserve identity when splitting a criterion. `Priority:` is MUST,
 SHOULD or MAY; `Verified-by:` links to actual test targets when scaffolding lands.
 
 A concrete AC identifies observable conditions, outcomes and consequential
-failure classes, with explicit references for shared commitments. It need not
+failure classes, each checkable deterministically or by inspection against
+observable terms, with explicit references for shared commitments. It need not
 enumerate all test cases or prescribe reversible internals. The
 [AC specificity taxonomy](../../heddle/resources/prompt-authoring-standards.md#ac-specificity-taxonomy)
 owns Concrete/Partial/Vague and their consequences. Scaffolding owns the
 discriminating examples, boundary cases and executable assertions.
+
+### Assessment Targets
+
+This optional section names each target whose evaluation needs subjective or
+expert judgment, such as the analytical quality or usefulness of an output or an
+assessor's grade, with what it evaluates and the follow-up work that owns it.
+Such a target is never an AC, `Verified-by` route or alignment criterion and
+never gates completion; the
+[testing strategy](testing-strategy.md#engineering-proof-and-judgment-based-assessment)
+owns the rule. Spec Outcomes list the targets still open at completion.
 
 ## 3. Implementation Plan
 

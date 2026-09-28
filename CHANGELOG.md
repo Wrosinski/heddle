@@ -19,6 +19,15 @@ authority for the installed version.
 
 ### Changed
 
+- Engineering proof and judgment-based assessment are separate. Completion
+  rests on tests, verification facts, declared live runs and an alignment check
+  whose criteria are observable contract conditions. A target that needs
+  subjective or expert judgment, such as analytical quality or an assessor's
+  grade, goes in a new optional `## Assessment Targets` spec section with its
+  owning follow-up and never gates completion. Specify, spec review, plan
+  review, test-scaffolding review, behavior review, peer review, robustness and
+  complete guidance drop the rule that explicit quality thresholds bind;
+  deterministically measurable thresholds remain ordinary acceptance criteria.
 - Claude gate lanes, and the recommended Claude reviewer for peer and behavior
   review, default to `claude-opus-5-5` instead of `claude-opus-5`, still at
   `xhigh` effort. Confirmed feature policies keep the model they recorded.

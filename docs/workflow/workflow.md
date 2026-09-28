@@ -430,7 +430,7 @@ the lead still owes declared live proof here although native enforcement starts
 at robustness, which is traversed even with R Off, and applies again at complete.
 After the last relevant fix and final applicable pass,
 assess retained artifacts against the declared criteria. Misalignment blocks;
-quality beyond the contract is observational, and explicit quality criteria bind.
+quality observations and results against the spec's Assessment Targets do not.
 Record one Assessment entry under the plan's `### Verification Commands` with assessor,
 native run/source reference, exact artifacts, conclusion and limitations. Session
 and spec summaries reference it. Refresh after relevant fixes or new output;

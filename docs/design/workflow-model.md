@@ -136,7 +136,8 @@ acceptance and smoke evidence remain required under existing disposition rules;
 declared live proof is additional. The owning final-boundary lead assesses final
 retained output after the last relevant fix and applicable passing run, with
 native run/source and artifact references. Misalignment blocks the finishing
-claim; quality beyond the contract is observational. Session/spec summaries
+claim; quality observations and the spec's judgment-based Assessment Targets
+never gate it. Session/spec summaries
 reference the plan's assessment instead of creating another evidence owner.
 Assessment edits are authored plan changes, so source-bound review evidence can
 become stale; existing qualification and originating-inspection duties remain.

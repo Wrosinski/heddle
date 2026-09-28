@@ -134,8 +134,8 @@ Prerequisites and review authority do not grant external execution.
 
 After the last relevant fix and final applicable passing run, the lead performs
 any declared alignment assessment against the retained artifacts and spec/plan
-criteria. Misalignment and unmet contract quality thresholds block finishing;
-observations about quality beyond the contract do not. Keep one Assessment in
+criteria. Misalignment blocks finishing. Neither quality observations nor
+assessment-target results from the spec block it. Keep one Assessment in
 the plan under `### Verification Commands`, with criteria, assessor, native run/source
 reference, exact artifacts, conclusion, limitations and separate quality
 observations. Session/spec summaries reference it. Refresh after relevant changes

@@ -264,9 +264,11 @@ exact retained artifacts, conclusion and limitations. A relevant fix or new
 output requires a refreshed assessment by the execution-owning lead before
 acceptance. Revalidate affected native closure evidence after an Assessment edit;
 it is authored plan content, not an exemption from source freshness or required
-originating inspection. Misalignment is a blocking defect; quality beyond the contract is
-observational, and explicit contract quality thresholds still bind. Reference
-the Assessment in spec Outcomes and session summaries. Preserve artifacts in
+originating inspection. Misalignment is a blocking defect. Quality observations
+and results against the spec's Assessment Targets are recorded separately and
+never block or qualify completion. Reference the Assessment in spec Outcomes and
+session summaries, and list each open assessment target there with the follow-up
+work that owns it. Preserve artifacts in
 durable local evidence, preferably inside the workspace for archival, or record
 their external retention location. This judgment is not a verification fact.
 

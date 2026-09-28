@@ -93,7 +93,9 @@ Assess each of these eight native dimension IDs exactly once:
   including for active work predating the proposal section. Do not demand a
   retrospective checkpoint. Acceptance remains required alongside declared live.
   Any alignment check identifies criteria and retained output, its final-boundary
-  lead owner and Assessment record; noncontractual quality is observational.
+  lead owner and Assessment record. Alignment criteria are observable contract
+  conditions; a criterion that needs quality judgment belongs to the spec's
+  Assessment Targets, is a finding here, and never gates completion.
 - **related-context-and-reusability:** Assess the existing owners, patterns,
   dependencies, and constraints the plan cites. Prefer extending a demonstrated
   seam to adding parallel machinery. Limit conclusions to supplied evidence;

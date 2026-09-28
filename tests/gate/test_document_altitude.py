@@ -282,6 +282,7 @@ AUTHORING_OBLIGATIONS = {
         "Conceptual Design:",
         "Design Commitments:",
         "One canonical Acceptance Criteria list:",
+        "Assessment Targets,",
         "A Decision Log",
     ),
     "Author the Implementation Plan": (

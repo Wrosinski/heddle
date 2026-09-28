@@ -139,15 +139,37 @@ timeouts and unrun required lanes remain unfinished. Execution deferral leaves
 proof pending; changing an obligation requires an explicit contract decision
 and reconciled commands, AC coverage and evidence.
 
+### Engineering proof and judgment-based assessment
+
+Completion rests on engineering proof alone: tests, native verification facts,
+declared live runs and an alignment check whose criteria are observable contract
+conditions. A threshold that a deterministic check can measure, such as a
+latency bound or an exact-match score on a fixed labeled set, is engineering
+proof.
+
+A target that needs subjective or expert judgment to evaluate is an assessment
+target: the analytical quality, depth, soundness or usefulness of an output, a
+grade from a human or model assessor, or a judged comparison with a baseline.
+It is never an acceptance criterion, `Verified-by` route, alignment criterion or
+completion condition. The spec names it under `## Assessment Targets` with what
+it evaluates and the follow-up work that owns it. An assessment made during the
+feature is recorded as an observation with its instrument and limitations; it
+neither blocks nor qualifies completion, and a completed feature claims nothing
+about the target. Judgment-based work proceeds under its own owner and
+instrument, so an unmet target never holds engineering completion open.
+
 ### Alignment assessment and quality observation
 
 Where deterministic assertions cannot judge a promised outcome, declare the
-remaining alignment criteria and artifacts in the proposal. Tests still prove
+remaining alignment criteria and artifacts in the proposal. Alignment criteria
+are observable contract conditions that inspection can confirm, such as live
+output carrying the promised fields, references and structure; judging how good
+the output is belongs to assessment targets. Tests still prove
 every deterministically assessable AC condition. After the final applicable
 passing run and last relevant fix, the execution-owning lead at peer review
 (Overlay R Off) or robustness (R On) judges the retained output against the
-spec and plan. Misalignment is a defect and blocks finishing. Quality beyond the
-contract is an observation; an explicit contract quality threshold still binds.
+spec and plan. Misalignment is a defect and blocks finishing. Quality
+observations are recorded separately and never block or qualify finishing.
 
 The plan's verification note under `### Verification Commands` owns one
 Assessment entry with criteria, assessor,

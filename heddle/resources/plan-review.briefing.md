@@ -46,9 +46,10 @@ lanes. Follow the exact native decision IDs in workspace state; a lead-authored
 checkpoint question is not automatically supplied as prior review ground.
 Unresolved user-required choices are REPORT questions, not scheduled setup or
 reviewer choices. The final proof includes acceptance even when live is declared.
-Any alignment check names criteria and retained artifacts; quality beyond the
-contract remains observational. For existing active work, reconcile existing
-design and approvals rather than requiring a retrospective checkpoint.
+Any alignment check names observable contract criteria and retained artifacts;
+quality judgments belong to the spec's Assessment Targets and stay observational.
+For existing active work, reconcile existing design and approvals rather than
+requiring a retrospective checkpoint.
 
 Read the plan and native milestone facts with the spec's commitments and ACs.
 Check approach soundness, architecture fit, AC coverage, dependency sequencing,

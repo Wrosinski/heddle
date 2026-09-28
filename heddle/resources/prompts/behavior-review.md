@@ -18,7 +18,8 @@ paths beyond the latest diff. Do not design a second architecture review.
   criteria, exact ruling references and any Assessment under the plan's
   `### Verification Commands`, with its native
   run/source binding and retained output. Misalignment violates the contract;
-  quality beyond it is observational unless an explicit quality threshold binds.
+  quality observations and results against the spec's Assessment Targets never
+  block or qualify completion.
   The final-boundary lead owns the assessment after final execution and relevant
   fixes. If this review precedes that run, identify pending proof without
   pretending it passed or demanding an assessment before its scheduled run.
