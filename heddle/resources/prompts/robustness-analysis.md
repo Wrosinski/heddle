@@ -28,6 +28,8 @@ within this analysis stays visible here with its original source and consequence
 Follow the finding emission rules in `prompt-authoring-standards.md#review-finding-emission-rules`: report every finding (coverage, not filtering) at all severities (Critical / Important / Minor), each tagged with a Confidence level, quote-don't-paraphrase, label Trace vs Speculation, ground every finding in a `file:line`; do not self-suppress low-severity or low-confidence findings.
 </role>
 
+[partial-boundary-and-proof]
+
 [partial-review-evidence-depth]
 
 [partial-test-execution-scope]

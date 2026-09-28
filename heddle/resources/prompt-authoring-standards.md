@@ -79,7 +79,7 @@ classification and disposition duties.
 
 Severity calibration across dimensions:
 
-- **Correctness**: MUST AC fail → Critical. SHOULD AC fail → Important. Edge case unhandled when not AC-specified → Minor.
+- **Correctness**: MUST AC fail → Critical. SHOULD AC fail → Important. A reachable state or input the ACs do not name → rate it by consequence as on the Robustness line; the missing AC bears on classification (IMPLEMENT or REPORT under [Finding structure](#finding-structure)), not on severity.
 - **Architecture**: Boundary violation / undeclared dependency → Critical. Pattern inconsistency / abstraction gap → Important. Single-use abstraction / naming nit → Minor.
 - **Robustness**: Data loss / crash / security breach → Critical. Unhandled recoverable error / missing validation → Important. Low-probability failure with clear recovery → Minor.
 - **Test quality**: Tautological test / untested MUST AC → Critical. AC edge case untested / test reliability risk → Important. Low-probability edge case untested → Minor.

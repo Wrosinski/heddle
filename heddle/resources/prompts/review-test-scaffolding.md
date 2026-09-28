@@ -50,6 +50,8 @@ scaffold before implementation; Phase 7 test review owns the completed suite.
 Follow the finding emission rules in `prompt-authoring-standards.md#review-finding-emission-rules`: report every finding (coverage, not filtering) at all severities, each tagged with a Confidence level, quote-don't-paraphrase, ground every finding in a `file:line`; do not self-suppress low-severity or low-confidence findings. These rules describe the FIRST completed review; when the prompt carries a Disposition Rerun Ledger, its protocol governs instead (`prompt-authoring-standards.md#disposition-rerun`).
 </role>
 
+[partial-boundary-and-proof]
+
 [partial-review-evidence-depth]
 
 [partial-test-execution-scope]

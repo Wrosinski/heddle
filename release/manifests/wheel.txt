@@ -102,6 +102,7 @@ heddle/resources/peer-review.briefing.md
 heddle/resources/plan-review.briefing.md
 heddle/resources/plan.scaffold.md
 heddle/resources/prompt-authoring-standards.md
+heddle/resources/prompts/_partials/boundary-and-proof.md
 heddle/resources/prompts/_partials/necessity-anchor.md
 heddle/resources/prompts/_partials/nothing-found-evidence.md
 heddle/resources/prompts/_partials/principles-check.md

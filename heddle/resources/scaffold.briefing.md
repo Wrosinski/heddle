@@ -58,6 +58,11 @@ nested launches before estimating lifecycle and total command cost. Required
 proof beyond budget needs a measured, scoped exception with a cause, owner and
 review point; it does not disappear.
 
+Scaffolding review applies the `boundary-and-proof.md` prompt partial. Cover the
+states that cross each boundary an AC depends on, and make every test able to
+fail for the real defect rather than pass on a value or authority it supplies
+itself.
+
 All execution below follows explicit scope authority. Broad suites and both
 local full-workflow e2e and external tests require a request covering the exact
 scope; a plan command, phase grant or confirmed prerequisite is not permission.

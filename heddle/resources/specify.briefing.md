@@ -121,6 +121,10 @@ where they settle an ownership, dependency, or extension decision.
 Add the one-line knowledge-index entry in `docs/features/_descriptions.yaml`.
 Ancillary tooling needs a named authorized consumer and need; the taxonomy is
 in the `necessity-anchor.md` prompt partial.
+Reviewers apply the two principles in the `boundary-and-proof.md` prompt
+partial, so author against them: give each state that can cross a boundary the
+contract depends on a defined outcome, and plan witnesses that can fail for the
+real defect.
 
 ## Author the Implementation Plan
 

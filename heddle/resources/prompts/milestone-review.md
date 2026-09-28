@@ -10,10 +10,6 @@ evidence.
 
 - correctness: connect the milestone's specified behavior and named failure
   cases to the implementing paths; identify missed contracts or regressions.
-  When the milestone introduces or changes a durable attempt, lease or
-  correction lifecycle, enumerate the states an interruption can leave (started
-  but not terminal, host crash, refused duplicate start) and the requests that
-  touch several owners, and name the settlement or refusal path for each.
 - code-quality: assess ownership, necessary abstractions, clarity and
   behavior-preserving simplification against repository principles.
 - material-test-changes: check that changed tests exercise the public boundary,
@@ -22,6 +18,8 @@ evidence.
 
 Use MR finding IDs. The descriptive assessment reflects the actual milestone
 evidence; it neither advances the milestone nor accepts the feature.
+
+[partial-boundary-and-proof]
 
 [partial-review-evidence-depth]
 

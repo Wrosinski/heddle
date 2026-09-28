@@ -78,6 +78,49 @@ class TestH1SettledGroundPartial:
         assert "settled ground" in partial and "re-raise" in partial
 
 
+class TestBoundaryAndProofPartial:
+    PRINCIPLE_BODIES = (
+        "identify every state that can reach the other side",
+        "a genuine defect would make it fail",
+    )
+    AUTHORING_BRIEFINGS = (
+        "specify.briefing.md",
+        "scaffold.briefing.md",
+        "implement.briefing.md",
+    )
+
+    def test_every_review_prompt_splices_boundary_and_proof(self) -> None:
+        missing = [
+            name
+            for name in REVIEW_PROMPTS
+            if "[partial-boundary-and-proof]" not in _raw(PROMPTS / name)
+        ]
+        assert not missing, f"boundary-and-proof splice missing from: {missing}"
+
+    def test_principles_live_only_in_the_partial(self) -> None:
+        carriers = [
+            str(p.relative_to(PROMPTS))
+            for p in sorted(PROMPTS.rglob("*.md"))
+            if any(body in " ".join(_raw(p).split()) for body in self.PRINCIPLE_BODIES)
+        ]
+        assert carriers == ["_partials/boundary-and-proof.md"], (
+            f"boundary-and-proof principles duplicated or lost: {carriers}"
+        )
+
+    def test_authoring_briefings_point_to_the_partial(self) -> None:
+        missing = [
+            name
+            for name in self.AUTHORING_BRIEFINGS
+            if "boundary-and-proof.md" not in _raw(RESOURCES / name)
+        ]
+        assert not missing, f"authoring briefings missing the pointer: {missing}"
+
+    def test_unnamed_reachable_states_are_rated_by_consequence(self) -> None:
+        standards = " ".join(_raw(RESOURCES / "prompt-authoring-standards.md").split())
+        assert "not AC-specified → Minor" not in standards
+        assert "the missing AC bears on classification" in standards
+
+
 class TestVerificationSweepGrafts:
     def test_implement_briefing_carries_build_time_sweeps(self) -> None:
         text = " ".join(_raw(RESOURCES / "implement.briefing.md").split())

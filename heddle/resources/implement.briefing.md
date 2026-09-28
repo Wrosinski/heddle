@@ -327,6 +327,10 @@ conventions take precedence over portable defaults.
 
 - Validate at user, external-service, and file boundaries; trust established
   internal contracts.
+- Give every boundary state the contract depends on a defined outcome: handled,
+  refused with a reason, or raised for an owner scope decision. Keep proof able
+  to fail for the real defect; milestone and final reviews apply both
+  principles from the `boundary-and-proof.md` prompt partial.
 - Let exceptions propagate; add handling only where the task or a caller
   must recover.
 - External operations need timeouts. Add retries only for idempotent work when

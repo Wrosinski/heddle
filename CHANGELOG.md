@@ -98,11 +98,17 @@ authority for the installed version.
   citation, and re-attribute stale attributions. Scope-change references are
   only compared when a scope change repeats. Accepted reviews keep their
   recorded identity.
-- Milestone review's correctness dimension now asks, for a milestone that
-  introduces or changes a durable attempt, lease or correction lifecycle, for
-  the states an interruption can leave and the requests that touch several
-  owners, with the settlement or refusal path for each. Only milestone review's
-  `prompt_version` changes.
+- Every review gate applies two general principles from a shared
+  `boundary-and-proof` partial: account for every state that crosses a
+  boundary (partial, interrupted, repeated, concurrent and late states, every
+  failure a producer emits and every input form, each with a defined outcome),
+  and proof must be able to fail for the real defect. They replace milestone
+  review's narrower interruption-state sentence for durable lifecycles. The
+  specify, scaffold and implement briefings point authors to the same
+  principles. The severity calibration rates a reachable state the acceptance
+  criteria do not name by its consequence, as robustness findings are rated,
+  instead of anchoring it to Minor; the missing criterion bears only on the
+  IMPLEMENT or REPORT classification. Every gate's `prompt_version` changes.
 - Once a feature is accepted, its raw captures, review, verification and
   close-suite logs, and its completion archive are local to the checkout that
   accepted it. A verified archive accounts for such files missing from the

@@ -26,6 +26,8 @@ Use the ratified architecture principles by name: "One owner per authority",
 resolver, not parallel paths". Trace the actual owner, dependency or extension
 consumer before applying a principle; fewer files or classes alone is not proof.
 
+[partial-boundary-and-proof]
+
 [partial-review-evidence-depth]
 
 [partial-test-execution-scope]

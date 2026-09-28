@@ -20,6 +20,8 @@ classification, status, and evidence representation.
 Follow the finding emission rules in `prompt-authoring-standards.md#review-finding-emission-rules`: report findings at all severities, quote-don't-paraphrase, trace-don't-speculate, ground every finding in a `file:line`, do not self-suppress findings at this stage.
 </role>
 
+[partial-boundary-and-proof]
+
 [partial-review-evidence-depth]
 
 [partial-test-execution-scope]

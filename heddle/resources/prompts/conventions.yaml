@@ -15,14 +15,21 @@ conventions:
     keywords:
       - must name its threat actor
       - only the routing of out-of-model gaps changes
+  BoundaryProof:
+    mode: all
+    keywords:
+      - every state that crosses a boundary
+      - able to fail for the real defect
 
 prompts:
-  spec-review.md: [RFC2119, Gherkin, DispositionLedger, ThreatActor]
-  plan-review.md: [DispositionLedger, ThreatActor]
+  spec-review.md:
+    [RFC2119, Gherkin, DispositionLedger, ThreatActor, BoundaryProof]
+  plan-review.md: [DispositionLedger, ThreatActor, BoundaryProof]
   review-test-scaffolding.md:
-    [VerifiedBy, Gherkin, DispositionLedger, ThreatActor]
-  milestone-review.md: [DispositionLedger]
-  peer-review-sequential.md: [RFC2119, DispositionLedger, ThreatActor]
-  behavior-review.md: [DispositionLedger]
-  complexity-review.md: [DispositionLedger]
-  robustness-analysis.md: [DispositionLedger, ThreatActor]
+    [VerifiedBy, Gherkin, DispositionLedger, ThreatActor, BoundaryProof]
+  milestone-review.md: [DispositionLedger, BoundaryProof]
+  peer-review-sequential.md:
+    [RFC2119, DispositionLedger, ThreatActor, BoundaryProof]
+  behavior-review.md: [DispositionLedger, BoundaryProof]
+  complexity-review.md: [DispositionLedger, BoundaryProof]
+  robustness-analysis.md: [DispositionLedger, ThreatActor, BoundaryProof]

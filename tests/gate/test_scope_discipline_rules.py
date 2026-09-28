@@ -184,7 +184,7 @@ def test_w5_ac11_domain_check_distinguishes_prose_from_unavailable_dependency(
 
 
 class TestConventionCheckerModeAll:
-    """Every native iteration clause must survive independently of headings."""
+    """Every mode-all convention marker must survive independently of headings."""
 
     CHECKER = REPO_ROOT / "scripts" / "check-prompt-conventions.py"
     NATIVE_CLAUSES = (
@@ -197,6 +197,14 @@ class TestConventionCheckerModeAll:
         (
             "_partials/severity-threat-actor-anchor.md",
             "only the routing of out-of-model gaps changes",
+        ),
+        (
+            "_partials/boundary-and-proof.md",
+            "every state that crosses a boundary",
+        ),
+        (
+            "_partials/boundary-and-proof.md",
+            "able to fail for the real defect",
         ),
     )
 

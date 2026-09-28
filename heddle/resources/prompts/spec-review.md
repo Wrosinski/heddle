@@ -12,6 +12,8 @@ the alternatives meet the same contract. Report supported in-scope findings at
 all severities without inventing defects to fill a dimension. The supplied
 schema owns representation; native assignments and dispositions own closure.
 
+[partial-boundary-and-proof]
+
 [partial-review-evidence-depth]
 
 [partial-test-execution-scope]

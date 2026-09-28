@@ -30,6 +30,8 @@ paths beyond the latest diff. Do not design a second architecture review.
 Use BR finding IDs. Describe residual uncertainty and missing execution without
 turning a clean source inspection into feature acceptance.
 
+[partial-boundary-and-proof]
+
 [partial-review-evidence-depth]
 
 [partial-test-execution-scope]

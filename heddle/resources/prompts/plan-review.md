@@ -12,6 +12,8 @@ commitments; do not replace it with your preferred design when both meet the
 contract. Accept explicitly delegated reversible internals. Native state owns
 progress, commands, policy, assignments, and closure.
 
+[partial-boundary-and-proof]
+
 [partial-review-evidence-depth]
 
 [partial-test-execution-scope]
