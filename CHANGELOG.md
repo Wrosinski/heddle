@@ -55,6 +55,14 @@ authority for the installed version.
   each path as a `completion-absent-scratch` advisory. Every other indexed input
   must still be present, and an accepted retry still fails when a cleaned file
   is missing from the archive. Archives written in the v1 format stay readable.
+- When another command wrote the workflow state while a single `run-gate`
+  review ran, recording refused with a hint that read as a paid rerun.
+  `run-gate` now records the completed output itself when its inputs are
+  unchanged, without another provider call, and adds the advisory
+  `review-recorded-after-state-change`; changed inputs still refuse. The
+  revision-drift refusal names the cause `state-revision-changed` in its
+  details, and its hint says a rerun of the same command records the saved
+  output.
 
 ## [0.1.0] - 2026-09-22
 
