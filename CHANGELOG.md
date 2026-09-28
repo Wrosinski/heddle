@@ -52,6 +52,11 @@ authority for the installed version.
   sends the lead to record a stop for findings that were resolved. Any
   genuinely open concern still routes to the stop, and the recorded stop reason
   is unchanged.
+- Milestone review's correctness dimension now asks, for a milestone that
+  introduces or changes a durable attempt, lease or correction lifecycle, for
+  the states an interruption can leave and the requests that touch several
+  owners, with the settlement or refusal path for each. Only milestone review's
+  `prompt_version` changes.
 
 ### Fixed
 
