@@ -23,10 +23,22 @@ CLAUDE_STANDARD_POLICY = GateLanePolicy(
     reasoning_effort="xhigh",
     sandbox="read-only-tools",
 )
-CODEX_SPEC_POLICY = GateLanePolicy(
+CLAUDE_MILESTONE_POLICY = GateLanePolicy(
+    cli="claude",
+    model="claude-opus-5-5",
+    reasoning_effort="high",
+    sandbox="read-only-tools",
+)
+CLAUDE_FABLE_POLICY = GateLanePolicy(
+    cli="claude",
+    model="claude-fable-5-1",
+    reasoning_effort="xhigh",
+    sandbox="read-only-tools",
+)
+CODEX_ASTRA_POLICY = GateLanePolicy(
     cli="codex",
     model="gpt-6-astra",
-    reasoning_effort="high",
+    reasoning_effort="xhigh",
     sandbox="danger-full-access",
 )
 CODEX_POLICY = GateLanePolicy(
@@ -42,7 +54,9 @@ CODEX_XHIGH_POLICY = GateLanePolicy(
     sandbox="danger-full-access",
 )
 DUAL_LANE_POLICIES = (CLAUDE_STANDARD_POLICY, CODEX_POLICY)
-SPEC_LANE_POLICIES = (CLAUDE_STANDARD_POLICY, CODEX_SPEC_POLICY)
+FABLE_ASTRA_LANE_POLICIES = (CLAUDE_FABLE_POLICY, CODEX_ASTRA_POLICY)
+BEHAVIOR_LANE_POLICIES = (CLAUDE_STANDARD_POLICY, CODEX_ASTRA_POLICY)
+MILESTONE_LANE_POLICIES = (CLAUDE_MILESTONE_POLICY, CODEX_POLICY)
 XHIGH_LANE_POLICIES = (CLAUDE_STANDARD_POLICY, CODEX_XHIGH_POLICY)
 
 GATES: dict[str, GateType] = {
@@ -53,7 +67,7 @@ GATES: dict[str, GateType] = {
         requires_milestone=False,
         requires_diff=False,
         supported_clis=ALL_CLIS,
-        lane_policies=SPEC_LANE_POLICIES,
+        lane_policies=FABLE_ASTRA_LANE_POLICIES,
         tool_permissions=READ_ONLY,
         output_contract=review_output_contract("spec-review"),
         prompt_template="prompts/spec-review.md",
@@ -66,7 +80,7 @@ GATES: dict[str, GateType] = {
         requires_milestone=False,
         requires_diff=False,
         supported_clis=ALL_CLIS,
-        lane_policies=DUAL_LANE_POLICIES,
+        lane_policies=FABLE_ASTRA_LANE_POLICIES,
         tool_permissions=READ_ONLY,
         output_contract=review_output_contract("plan-review"),
         prompt_template="prompts/plan-review.md",
@@ -84,7 +98,7 @@ GATES: dict[str, GateType] = {
         output_contract=review_output_contract("review-test-scaffolding"),
         prompt_template="prompts/review-test-scaffolding.md",
         context_builders=("test-scaffolding",),
-        default_cli="codex",
+        default_cli="claude",
     ),
     "milestone-review": GateType(
         name="milestone-review",
@@ -94,14 +108,14 @@ GATES: dict[str, GateType] = {
         requires_milestone=True,
         requires_diff=True,
         supported_clis=ALL_CLIS,
-        lane_policies=DUAL_LANE_POLICIES,
+        lane_policies=MILESTONE_LANE_POLICIES,
         tool_permissions=READ_ONLY_WITH_BASH,
         output_contract=review_output_contract("milestone-review"),
         prompt_template="prompts/milestone-review.md",
         milestone_output_naming=True,
         context_builders=("milestone",),
         preflight_applicable=True,
-        default_cli="codex",
+        default_cli="claude",
     ),
     "peer-review-sequential": GateType(
         name="peer-review-sequential",
@@ -124,7 +138,7 @@ GATES: dict[str, GateType] = {
         requires_milestone=False,
         requires_diff=False,
         supported_clis=ALL_CLIS,
-        lane_policies=XHIGH_LANE_POLICIES,
+        lane_policies=BEHAVIOR_LANE_POLICIES,
         tool_permissions=READ_ONLY,
         output_contract=review_output_contract("behavior-review"),
         prompt_template="prompts/behavior-review.md",
@@ -141,7 +155,7 @@ GATES: dict[str, GateType] = {
         tool_permissions=READ_ONLY,
         output_contract=review_output_contract("complexity-review"),
         prompt_template="prompts/complexity-review.md",
-        default_cli="codex",
+        default_cli="claude",
     ),
     "robustness-analysis": GateType(
         name="robustness-analysis",
@@ -151,7 +165,7 @@ GATES: dict[str, GateType] = {
         requires_milestone=False,
         requires_diff=False,
         supported_clis=ALL_CLIS,
-        lane_policies=XHIGH_LANE_POLICIES,
+        lane_policies=FABLE_ASTRA_LANE_POLICIES,
         tool_permissions=READ_ONLY,
         output_contract=review_output_contract("robustness-analysis"),
         prompt_template="prompts/robustness-analysis.md",

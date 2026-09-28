@@ -701,7 +701,7 @@ FEATURE_POLICY_INPUT_SCHEMA: dict[str, Any] = {
                                 "summary": (
                                     "optional independent reviewer selection; "
                                     "joins round 1 only, later rounds run the "
-                                    "primary alone"
+                                    "primary alone; retained but inactive when off"
                                 ),
                                 "fields": _REVIEWER_FIELDS,
                             },

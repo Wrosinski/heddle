@@ -112,8 +112,10 @@ heddle feature prepare add-rate-limit --area api --from-file intake.yaml
 Prepare returns a recommended review policy as JSON: eight roles, each with a
 provider CLI, model, reasoning effort, round mode and limit. For this small,
 low-complexity, fully testable change the recommendation is the `light` base:
-five roles on with a two-round upper limit, three roles off, reviewers split
-between Codex and Claude Code. Preparation is not approval.
+five roles on with a two-round upper limit, three roles off, and Codex and Claude
+Code both reviewing spec and plan in the first round. See the
+[reviewer defaults](design/workflow-model.md#admission-and-review-policy).
+Preparation is not approval.
 
 Second, the owner confirms the complete policy. For the tour every role is
 `off`, which is a legal policy. Quote the word `off` in YAML, or it parses as a
@@ -132,14 +134,14 @@ axes:
   testability_rationale: The entry point has a hermetic test.
 approval: Owner approved this complete policy with every model review off for the tour.
 entries:
-  - {role: spec-review, scope: feature, mode: "off", limit: null, minimum_rounds: 0, primary: {cli: codex, model: gpt-6-astra, reasoning_effort: high}, secondary: null, trigger: null}
-  - {role: plan-review, scope: feature, mode: "off", limit: null, minimum_rounds: 0, primary: {cli: codex, model: gpt-6-sol, reasoning_effort: high}, secondary: null, trigger: null}
-  - {role: review-test-scaffolding, scope: feature, mode: "off", limit: null, minimum_rounds: 0, primary: {cli: codex, model: gpt-6-sol, reasoning_effort: xhigh}, secondary: null, trigger: null}
-  - {role: milestone-review, scope: milestone, mode: "off", limit: null, minimum_rounds: 0, primary: {cli: codex, model: gpt-6-sol, reasoning_effort: high}, secondary: null, trigger: null}
+  - {role: spec-review, scope: feature, mode: "off", limit: null, minimum_rounds: 0, primary: {cli: codex, model: gpt-6-astra, reasoning_effort: xhigh}, secondary: null, trigger: null}
+  - {role: plan-review, scope: feature, mode: "off", limit: null, minimum_rounds: 0, primary: {cli: codex, model: gpt-6-astra, reasoning_effort: xhigh}, secondary: null, trigger: null}
+  - {role: review-test-scaffolding, scope: feature, mode: "off", limit: null, minimum_rounds: 0, primary: {cli: claude, model: claude-opus-5-5, reasoning_effort: xhigh}, secondary: null, trigger: null}
+  - {role: milestone-review, scope: milestone, mode: "off", limit: null, minimum_rounds: 0, primary: {cli: claude, model: claude-opus-5-5, reasoning_effort: high}, secondary: null, trigger: null}
   - {role: peer-review-sequential, scope: feature, mode: "off", limit: null, minimum_rounds: 0, primary: {cli: claude, model: claude-opus-5-5, reasoning_effort: xhigh}, secondary: null, trigger: null}
   - {role: behavior-review, scope: feature, mode: "off", limit: null, minimum_rounds: 0, primary: {cli: claude, model: claude-opus-5-5, reasoning_effort: xhigh}, secondary: null, trigger: null}
-  - {role: complexity-review, scope: feature, mode: "off", limit: null, minimum_rounds: 0, primary: {cli: codex, model: gpt-6-sol, reasoning_effort: high}, secondary: null, trigger: null}
-  - {role: robustness-analysis, scope: feature, mode: "off", limit: null, minimum_rounds: 0, primary: {cli: codex, model: gpt-6-sol, reasoning_effort: xhigh}, secondary: null, trigger: null}
+  - {role: complexity-review, scope: feature, mode: "off", limit: null, minimum_rounds: 0, primary: {cli: claude, model: claude-opus-5-5, reasoning_effort: xhigh}, secondary: null, trigger: null}
+  - {role: robustness-analysis, scope: feature, mode: "off", limit: null, minimum_rounds: 0, primary: {cli: codex, model: gpt-6-astra, reasoning_effort: xhigh}, secondary: null, trigger: null}
 YAML
 heddle feature policy add-rate-limit --from-file policy.yaml --expect-revision 1
 ```

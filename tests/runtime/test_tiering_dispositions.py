@@ -625,16 +625,19 @@ def test_ac5_retired_launch_refuses_before_capability_or_provider_work(
 def test_ac5_off_needs_no_capability_and_selected_provider_never_falls_back(
     tmp_path, monkeypatch, run_cli
 ):
-    off = entry("spec-review", mode="off", limit=None, minimum_rounds=0)
+    off = entry(
+        "spec-review", mode="off", limit=None, minimum_rounds=0, secondary=FABLE
+    )
     host, path = current_host(tmp_path, monkeypatch, overrides={"spec-review": off})
     calls = provider_transport(monkeypatch, review_content())
     monkeypatch.setattr("heddle.gate.runner._binary_available", lambda _name: False)
     before = snapshot(host)
     code, status = gate_command(run_cli, "status")
     assert code == 0, status
-    code, refused = gate_command(run_cli, "run-gate", "spec-review")
-    assert code != 0
-    assert "off" in (refused["error"]["message"] + refused["error"]["hint"]).lower()
+    for cli in ("codex", "claude"):
+        code, refused = gate_command(run_cli, "run-gate", "spec-review", "--cli", cli)
+        assert code != 0
+        assert "off" in (refused["error"]["message"] + refused["error"]["hint"]).lower()
     assert not calls and snapshot(host) == before
     value = yaml.safe_load(path.read_text())
     value["feature_policy"]["entries"][0].update(

@@ -58,6 +58,26 @@ Amendments retain policy history and spent work. All-Off review policy does not
 waive final verification. Robustness review requires an explicit integration gap
 and supporting references; it is not inferred from size alone.
 
+The recommended reviewer defaults are:
+
+| Review role | Primary model / effort | Secondary model / effort (first round only) |
+| --- | --- | --- |
+| `spec-review` | `gpt-6-astra` / `xhigh` | `claude-fable-5-1` / `xhigh` |
+| `plan-review` | `gpt-6-astra` / `xhigh` | `claude-fable-5-1` / `xhigh` |
+| `review-test-scaffolding` | `claude-opus-5-5` / `xhigh` | None |
+| `milestone-review` | `claude-opus-5-5` / `high` | None |
+| `peer-review-sequential` | `claude-opus-5-5` / `xhigh` | None |
+| `behavior-review` | `claude-opus-5-5` / `xhigh` | `gpt-6-astra` / `xhigh` |
+| `complexity-review` | `claude-opus-5-5` / `xhigh` | None |
+| `robustness-analysis` | `gpt-6-astra` / `xhigh` | `claude-fable-5-1` / `xhigh` |
+
+GPT models use Codex; Claude models use Claude Code. These reviewer choices
+apply across scope, complexity and testability assessments. Those axes still
+select the Light or Full role schedule and round limits. An Off role may retain
+both reviewer selections, but schedules no calls and adds nothing to the call
+budget. Robustness remains Off until explicitly selected with an integration gap.
+Existing confirmed policies retain their recorded reviewer choices.
+
 The [policy resolver](../../heddle/kernel/feature_policy.py) and
 [role catalog](../../heddle/contracts/gates.py) own these rules.
 

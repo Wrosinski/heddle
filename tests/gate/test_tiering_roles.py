@@ -4,7 +4,7 @@ import json
 
 import pytest
 
-from tests.tiering_helpers import ASTRA, RETIRED, ROLES, SOL, SOL_XHIGH
+from tests.tiering_helpers import ASTRA, FABLE, OPUS, RETIRED, ROLES, SOL, SOL_XHIGH
 from tests.tiering_review_helpers import ROLE_DIMENSIONS, review_content
 
 
@@ -16,24 +16,51 @@ def test_ac5_launch_catalog_contains_exactly_the_eight_selected_role_kinds():
     assert set(GATES) == set(ROLES)
 
 
-def test_ac5_codex_execution_matrix_keeps_astra_only_for_spec_review():
+def test_ac5_execution_matrix_resolves_recommended_primary_and_secondary_lanes():
     from heddle.gate.cli import CLI_FALLBACKS, resolve_gate_execution
     from heddle.gate.registry import GATES
     from heddle.gate.types import GateInvocationOverrides
 
-    expected = {
-        "spec-review": ASTRA,
-        "plan-review": SOL,
+    astra = {**ASTRA, "reasoning_effort": "xhigh"}
+    fable = {**FABLE, "reasoning_effort": "xhigh"}
+    codex = {
+        "spec-review": astra,
+        "plan-review": astra,
         "review-test-scaffolding": SOL_XHIGH,
         "milestone-review": SOL,
         "peer-review-sequential": SOL_XHIGH,
-        "behavior-review": SOL_XHIGH,
+        "behavior-review": astra,
         "complexity-review": SOL,
-        "robustness-analysis": SOL_XHIGH,
+        "robustness-analysis": astra,
     }
-    for role, reviewer in expected.items():
+    claude = {
+        "spec-review": fable,
+        "plan-review": fable,
+        "review-test-scaffolding": OPUS,
+        "milestone-review": {**OPUS, "reasoning_effort": "high"},
+        "peer-review-sequential": OPUS,
+        "behavior-review": OPUS,
+        "complexity-review": OPUS,
+        "robustness-analysis": fable,
+    }
+    for lane, expected in (("codex", codex), ("claude", claude)):
+        for role, reviewer in expected.items():
+            execution = resolve_gate_execution(
+                GATES[role], GateInvocationOverrides(cli=lane)
+            ).exec_config
+            assert {
+                "cli": execution.cli,
+                "model": execution.model,
+                "reasoning_effort": execution.reasoning_effort,
+            } == reviewer
+    for role in ROLES:
+        reviewer = (
+            codex[role]
+            if role in {"spec-review", "plan-review", "robustness-analysis"}
+            else claude[role]
+        )
         execution = resolve_gate_execution(
-            GATES[role], GateInvocationOverrides(cli="codex")
+            GATES[role], GateInvocationOverrides()
         ).exec_config
         assert {
             "cli": execution.cli,

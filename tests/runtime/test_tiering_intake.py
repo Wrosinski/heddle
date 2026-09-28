@@ -658,8 +658,9 @@ def test_ac7_policy_revision_is_checked_at_the_actual_owner_and_intake_freezes(
 def test_ac7_cli_and_typed_policy_preview_agree_without_writes(
     host, run_cli, monkeypatch
 ):
-    prepared(host)
+    recommendation = prepared(host).data["recommendation"]
     payload = wire_policy()
+    payload["entries"] = recommendation["entries"]
     before = snapshot(host)
     typed = invoke("FeaturePolicy", slug=FEATURE, payload=payload, dry_run=True)
     assert typed.ok, typed.to_envelope()

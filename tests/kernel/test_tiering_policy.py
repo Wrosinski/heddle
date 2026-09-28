@@ -12,13 +12,16 @@ from tests.tiering_helpers import (
     FABLE,
     OPUS,
     ROLES,
-    SOL,
     SOL_XHIGH,
     api,
     axes,
     entry,
     policy,
 )
+
+ASTRA_XHIGH = {**ASTRA, "reasoning_effort": "xhigh"}
+FABLE_XHIGH = {**FABLE, "reasoning_effort": "xhigh"}
+OPUS_HIGH = {**OPUS, "reasoning_effort": "high"}
 
 
 @pytest.mark.parametrize(
@@ -65,14 +68,20 @@ def test_ac2_all_axis_boundaries_recommend_the_declared_base(
         ),
     }
     reviewers = {
-        "spec-review": ASTRA,
-        "plan-review": SOL,
-        "review-test-scaffolding": SOL_XHIGH,
-        "milestone-review": SOL,
+        "spec-review": ASTRA_XHIGH,
+        "plan-review": ASTRA_XHIGH,
+        "review-test-scaffolding": OPUS,
+        "milestone-review": OPUS_HIGH,
         "peer-review-sequential": OPUS,
         "behavior-review": OPUS,
-        "complexity-review": SOL,
-        "robustness-analysis": SOL_XHIGH,
+        "complexity-review": OPUS,
+        "robustness-analysis": ASTRA_XHIGH,
+    }
+    secondaries = {
+        "spec-review": FABLE_XHIGH,
+        "plan-review": FABLE_XHIGH,
+        "behavior-review": ASTRA_XHIGH,
+        "robustness-analysis": FABLE_XHIGH,
     }
     for row in result.entries:
         actual = asdict(row)
@@ -80,7 +89,6 @@ def test_ac2_all_axis_boundaries_recommend_the_declared_base(
         assert trigger is None  # Axes alone cannot name an integration gap.
         active = row.role in enabled
         doc = row.role in {"spec-review", "plan-review"}
-        dual = doc and scope == "large" and complexity == "high"
         convergence = (
             row.role == "review-test-scaffolding"
             and scope == "large"
@@ -101,9 +109,17 @@ def test_ac2_all_axis_boundaries_recommend_the_declared_base(
             else 2,
             "minimum_rounds": 1 if active else 0,
             "primary": reviewers[row.role],
-            "secondary": FABLE if dual else None,
+            "secondary": secondaries.get(row.role),
         }
         assert actual == expected, row.role
+    effective = api("heddle.kernel.feature_policy").effective_policy(
+        policy(
+            assessment=axes(scope, complexity, testability),
+            overrides={row.role: row for row in result.entries},
+        )
+    )
+    assert effective.budget.feature_minimum == (6 if base == "light" else 8)
+    assert effective.budget.per_milestone_minimum == 1
 
 
 def test_ac2_large_high_default_roles_tuples_and_dual_first_schedule():
@@ -111,21 +127,23 @@ def test_ac2_large_high_default_roles_tuples_and_dual_first_schedule():
         axes("large", "high", "partial")
     )
     rows = {row.role: row for row in result.entries}
-    for role, primary in (("spec-review", ASTRA), ("plan-review", SOL)):
-        assert asdict(rows[role].primary) == primary
-        assert asdict(rows[role].secondary) == FABLE
+    for role in ("spec-review", "plan-review"):
+        assert asdict(rows[role].primary) == ASTRA_XHIGH
+        assert asdict(rows[role].secondary) == FABLE_XHIGH
         assert (rows[role].mode, rows[role].limit) == ("upper-limit", 3)
     assert rows["review-test-scaffolding"].mode == "convergence"
     assert rows["review-test-scaffolding"].limit is None
     assert rows["review-test-scaffolding"].secondary is None
-    assert asdict(rows["review-test-scaffolding"].primary) == SOL_XHIGH
-    assert asdict(rows["milestone-review"].primary) == SOL
+    assert asdict(rows["review-test-scaffolding"].primary) == OPUS
+    assert asdict(rows["milestone-review"].primary) == OPUS_HIGH
     assert asdict(rows["behavior-review"].primary) == OPUS
-    assert asdict(rows["complexity-review"].primary) == SOL
+    assert asdict(rows["behavior-review"].secondary) == ASTRA_XHIGH
+    assert asdict(rows["complexity-review"].primary) == OPUS
     assert rows["peer-review-sequential"].mode == "off"
     assert rows["robustness-analysis"].trigger is None
     assert rows["robustness-analysis"].mode == "off"
-    assert asdict(rows["robustness-analysis"].primary) == SOL_XHIGH
+    assert asdict(rows["robustness-analysis"].primary) == ASTRA_XHIGH
+    assert asdict(rows["robustness-analysis"].secondary) == FABLE_XHIGH
 
 
 def test_ac2_confirmed_overrides_not_base_recommendations_are_effective():
@@ -211,13 +229,32 @@ def test_ac2_incomplete_policy_or_execution_identity_is_rejected(mutation):
 def test_ac4_budget_counts_dual_first_calls_and_symbolic_milestones():
     kernel = api("heddle.kernel.feature_policy")
     chosen = policy(
-        overrides={"spec-review": entry("spec-review", limit=7, secondary=FABLE)}
+        overrides={
+            "spec-review": entry("spec-review", limit=7, secondary=FABLE),
+            "behavior-review": entry(
+                "behavior-review",
+                mode="off",
+                limit=None,
+                minimum_rounds=0,
+                primary=OPUS,
+                secondary=ASTRA_XHIGH,
+            ),
+            "robustness-analysis": entry(
+                "robustness-analysis",
+                mode="off",
+                limit=None,
+                minimum_rounds=0,
+                primary=ASTRA_XHIGH,
+                secondary=FABLE_XHIGH,
+            ),
+        }
     )
     budget = kernel.effective_policy(chosen).budget
     # Spec 8 + plan 2 + scaffold 2 + integrated peer 2; milestone 2 each.
     assert (budget.feature_maximum, budget.per_milestone_maximum) == (14, 2)
     assert budget.maximum_for(3) == 20
     assert budget.minimum_for(3) == 8  # Five feature slots plus three milestone slots.
+    # Disabled primary/secondary selections add no calls to either bound.
     unbounded = replace(
         chosen,
         entries=(

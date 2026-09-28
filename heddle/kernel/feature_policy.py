@@ -168,12 +168,8 @@ def validate_gate_policy(row: GatePolicy) -> None:
         raise ValueError(f"policy gate {row.role} has invalid mode {row.mode!r}")
     _integer(row.minimum_rounds, 0 if row.mode == "off" else 1, "minimum rounds")
     if row.mode == "off":
-        if (
-            row.limit is not None
-            or row.minimum_rounds != 0
-            or row.secondary is not None
-        ):
-            raise ValueError("off policy gate cannot have a limit, passes or secondary")
+        if row.limit is not None or row.minimum_rounds != 0:
+            raise ValueError("off policy gate cannot have a limit or passes")
     elif row.mode == "convergence":
         if row.limit is not None:
             raise ValueError("convergence policy has no round limit")
@@ -215,20 +211,25 @@ def _base(axes: FeatureAxes) -> str:
 def recommend_policy(axes: FeatureAxes) -> Recommendation:
     validate_axes(axes)
     base = _base(axes)
-    astra = Reviewer("codex", "gpt-6-astra", "high")
-    sol = Reviewer("codex", "gpt-6-sol", "high")
-    sol_xhigh = Reviewer("codex", "gpt-6-sol", "xhigh")
-    fable = Reviewer("claude", "claude-fable-5-1", "high")
+    astra = Reviewer("codex", "gpt-6-astra", "xhigh")
+    fable = Reviewer("claude", "claude-fable-5-1", "xhigh")
     opus = Reviewer("claude", "claude-opus-5-5", "xhigh")
+    opus_high = Reviewer("claude", "claude-opus-5-5", "high")
     reviewers = {
         "spec-review": astra,
-        "plan-review": sol,
-        "review-test-scaffolding": sol_xhigh,
-        "milestone-review": sol,
+        "plan-review": astra,
+        "review-test-scaffolding": opus,
+        "milestone-review": opus_high,
         "peer-review-sequential": opus,
         "behavior-review": opus,
-        "complexity-review": sol,
-        "robustness-analysis": sol_xhigh,
+        "complexity-review": opus,
+        "robustness-analysis": astra,
+    }
+    secondary_reviewers = {
+        "spec-review": fable,
+        "plan-review": fable,
+        "behavior-review": astra,
+        "robustness-analysis": fable,
     }
     disabled = (
         {"behavior-review", "complexity-review"}
@@ -258,7 +259,7 @@ def recommend_policy(axes: FeatureAxes) -> Recommendation:
                 else None,
                 minimum_rounds=0 if mode == "off" else 1,
                 primary=reviewers[role],
-                secondary=fable if role in DOCUMENT_ROLES and large_high else None,
+                secondary=secondary_reviewers.get(role),
             )
         )
     return Recommendation(base, tuple(entries))
