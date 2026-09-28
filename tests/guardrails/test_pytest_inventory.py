@@ -20,7 +20,7 @@ CURRENT_INVENTORY: Path = (
     REPO_ROOT / "tests" / "fixtures" / "pytest-inventory-current.txt.gz.b64"
 )
 CURRENT_INVENTORY_SHA256 = (
-    "701154e6c841986a4896f617dbc23b5caa86d10da19c657de1207f6dcb01edcc"
+    "4d51675ace7504afae3b40f5a5a006149f2857b5bc8b2d4ff6f4e6f249185fec"
 )
 
 COMPLETE_BAND_SCRIPT = REPO_ROOT / "scripts" / "run-complete-test-band.py"

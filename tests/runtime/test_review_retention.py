@@ -566,12 +566,20 @@ def test_valid_canonical_success_recovers_after_state_recording_failure(
 
     with monkeypatch.context() as injected:
         injected.setattr(target, name, replacement)
-        code, failed = gate_command(run_cli, "run-gate", "spec-review")
-    assert code == 3 and not failed["ok"], failed
-    assert not runs(path) and len(calls) == 1
+        code, first = gate_command(run_cli, "run-gate", "spec-review")
     orphan = list(path.parent.glob("reviews/*.review.json"))
     assert len(orphan) == 1
     orphan_bytes = orphan[0].read_bytes()
+    if fault == "revision-conflict":
+        assert code == 0 and first["ok"], first
+        assert first["data"]["cached"] is True
+        assert len(runs(path)) == 1 and len(calls) == 1
+        assert "review-recorded-after-state-change" in {
+            item["code"] for item in first["diagnostics"]
+        }
+        return
+    assert code == 3 and not first["ok"], first
+    assert not runs(path) and len(calls) == 1
 
     code, recovered = gate_command(run_cli, "run-gate", "spec-review")
     assert code == 0 and recovered["ok"], recovered

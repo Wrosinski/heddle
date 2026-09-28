@@ -10,7 +10,7 @@ import signal
 import sys
 from collections.abc import Callable, Mapping
 from contextlib import ExitStack
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 from typing import Any, cast
 
@@ -1234,7 +1234,9 @@ def _run_locked(
     gate_type: GateType | None = None,
     invocation: ResolvedGateInvocation | None = None,
     held_lock_path: Path | None = None,
+    recovering: HeddleError | None = None,
 ) -> HeddleResult:
+    requested_invocation = invocation
     gate_type = gate_type or GATES.get(parsed.gate)
     if gate_type is None:
         return _usage(
@@ -1309,6 +1311,12 @@ def _run_locked(
     if isinstance(prepared_member, HeddleResult):
         return prepared_member
     member = prepared_member
+    if recovering is not None and member.reuse == "none":
+        return HeddleResult.failure(
+            recovering,
+            exit_code=_RESOLUTION_EXITS.get(recovering.code, ExitCode.FATAL),
+            diagnostics=resolved.diagnostics,
+        )
 
     completion: GateOutcome | ReuseResult
     if member.reuse == "exact":
@@ -1334,6 +1342,17 @@ def _run_locked(
             outcome = cast(GateOutcome, member.completion)
             recorded = _record_batch_member(resolved, member, snapshot.state.revision)
             if isinstance(recorded, HeddleError):
+                if (
+                    recovering is None
+                    and recorded.details.get("cause") == recording.REVISION_DRIFT
+                ):
+                    return _recover_revision_drift(
+                        parsed,
+                        gate_type,
+                        requested_invocation,
+                        held_lock_path,
+                        recorded,
+                    )
                 return HeddleResult.failure(
                     recorded,
                     exit_code=_RESOLUTION_EXITS.get(recorded.code, ExitCode.FATAL),
@@ -1417,6 +1436,34 @@ def _run_locked(
         preparation_diagnostics=member.preparation_diagnostics,
         next_actions=next_actions,
     )
+
+
+def _recover_revision_drift(
+    parsed: RunGate,
+    gate_type: GateType,
+    invocation: ResolvedGateInvocation | None,
+    held_lock_path: Path | None,
+    drift: HeddleError,
+) -> HeddleResult:
+    result = _run_locked(
+        parsed,
+        gate_type=gate_type,
+        invocation=invocation,
+        held_lock_path=held_lock_path,
+        recovering=drift,
+    )
+    if not result.ok:
+        return result
+    advisory = Diagnostic(
+        severity=Severity.ADVISORY,
+        code="review-recorded-after-state-change",
+        message=(
+            f"workflow state changed while {parsed.gate} ran; its completed "
+            "output was revalidated against the current state and recorded "
+            "without another provider call"
+        ),
+    )
+    return replace(result, diagnostics=(*result.diagnostics, advisory))
 
 
 def _check_completed_source(

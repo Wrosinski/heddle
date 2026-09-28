@@ -862,3 +862,68 @@ def test_ac4_canonical_recovery_rejects_each_bound_identity_dimension(
     } == before
     refusal = repr(retry.to_envelope()).lower()
     assert any(token in refusal for token in ("binding", "changed", "identity"))
+
+
+@pytest.mark.parametrize("inputs", ("unchanged", "changed"))
+def test_single_gate_revision_drift_recovers_only_unchanged_inputs(
+    inputs: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    host, state_path = _batch_host(tmp_path, monkeypatch)
+    from heddle.contracts import operations as ops
+    from heddle.gate import entry
+    from heddle.runtime import gate_run
+    from heddle.runtime.application import execute
+    from tests.tiering_review_helpers import provider_transport, review_content
+
+    calls = provider_transport(
+        monkeypatch, lambda _cli, _prompt: review_content("behavior-review")
+    )
+    original_record = gate_run._record
+    records = 0
+
+    def concurrent_write(*args, **kwargs):
+        nonlocal records
+        records += 1
+        if records == 1:
+            unrelated = execute(
+                ops.CommandsSet(
+                    "lint_command",
+                    ".venv/bin/ruff check heddle",
+                    feature=V7_FEATURE,
+                )
+            )
+            assert unrelated.ok, unrelated.to_envelope()
+        return original_record(*args, **kwargs)
+
+    monkeypatch.setattr(gate_run, "_record", concurrent_write)
+    if inputs == "changed":
+        original_prepare = entry.prepare_gate_run
+        prepares = 0
+
+        def changed_prepare(*args, **kwargs):
+            nonlocal prepares
+            prepares += 1
+            prepared = original_prepare(*args, **kwargs)
+            if prepares == 1:
+                return prepared
+            return replace(prepared, review_basis_hash="different-source")
+
+        monkeypatch.setattr(entry, "prepare_gate_run", changed_prepare)
+
+    result = execute(ops.RunGate("behavior-review", feature=V7_FEATURE))
+
+    assert len(calls) == 1
+    runs = _gate_runs(state_path)
+    if inputs == "unchanged":
+        assert result.ok, result.to_envelope()
+        assert records == 2
+        assert [run["gate"] for run in runs] == ["behavior-review"]
+        assert "review-recorded-after-state-change" in {
+            item.code for item in result.diagnostics
+        }
+        return
+    assert not result.ok and not runs
+    assert list((host / f"plans/{V7_FEATURE}/reviews").glob("*.review.json"))
+    assert result.error.details.get("cause") != "state-revision-changed"

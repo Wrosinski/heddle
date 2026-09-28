@@ -35,6 +35,26 @@ from heddle.runtime.state_store import append_state
 if TYPE_CHECKING:
     from heddle.gate import entry
 
+REVISION_DRIFT = "state-revision-changed"
+
+
+def _revision_drift(message: str, *, expected: int, current: int) -> KernelError:
+    return KernelError(
+        code="workspace-invalid",
+        message=message,
+        hint=(
+            "rerun the same command: a completed review whose inputs are "
+            "unchanged is recorded from its saved output without another "
+            "provider call; `heddle run-gates` publishes concurrent review "
+            "roles in one process"
+        ),
+        details={
+            "cause": REVISION_DRIFT,
+            "expected_revision": expected,
+            "current_revision": current,
+        },
+    )
+
 
 @dataclass(frozen=True)
 class GateRecording:
@@ -105,13 +125,10 @@ def record_gate_run(
     def transform(document: dict[str, Any]) -> dict[str, Any]:
         nonlocal identity
         if expected_revision is not None and document["revision"] != expected_revision:
-            raise KernelError(
-                code="workspace-invalid",
-                message="workflow state changed while the review was executing",
-                hint=(
-                    "prepare the review again against the current workflow state; "
-                    "this result did not acquire authority"
-                ),
+            raise _revision_drift(
+                "workflow state changed while the review was executing",
+                expected=expected_revision,
+                current=document["revision"],
             )
         from heddle.kernel.state import parse_state_document
 
@@ -305,10 +322,10 @@ def record_retained_review(
                 identity = (str(existing["attempt_id"]), (), True)
                 return document
         if document["revision"] != expected_revision:
-            raise KernelError(
-                code="workspace-invalid",
-                message="state changed while the reviewer ran",
-                hint="preserve the unaccepted capture and inspect the changed state",
+            raise _revision_drift(
+                "state changed while the reviewer ran",
+                expected=expected_revision,
+                current=document["revision"],
             )
         captured = cast("entry.CapturedReview", outcome.retained_review)
         invocation = captured.invocation
