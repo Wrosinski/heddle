@@ -293,7 +293,9 @@ def complete_feature(operation: ops.FeatureComplete) -> HeddleResult:
         if not isinstance(recovered, HeddleResult) and is_terminal(
             recovered.snapshot.state
         ):
-            return completion_result(recovered, accepting=True)
+            return completion_result(
+                recovered, dry_run=operation.dry_run, accepting=True
+            )
         return (
             conflict_failure(error)
             if isinstance(error, Conflict)

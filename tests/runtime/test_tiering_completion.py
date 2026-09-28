@@ -793,6 +793,32 @@ def test_a_concurrent_winner_in_this_checkout_is_read_strictly(
     assert not host.archive.exists()
 
 
+def test_a_dry_run_that_loses_the_acceptance_race_writes_nothing(
+    tmp_path, monkeypatch
+) -> None:
+    """A dry run reads the concurrent winner's effects without repairing them."""
+    from heddle.kernel.project_config import KernelError
+    from heddle.runtime import completion
+
+    host = final_host(tmp_path, monkeypatch)
+    original = completion._qualify
+
+    def race(context):
+        monkeypatch.setattr(completion, "_qualify", original)
+        assert host.complete().ok
+        host.archive.unlink()
+        raise KernelError("workspace-invalid", "lost the race", "reread")
+
+    monkeypatch.setattr(completion, "_qualify", race)
+
+    observed = host.complete(dry_run=True)
+
+    assert observed.data["accepted"] and observed.data["dry_run"]
+    assert not observed.data["wrote"]
+    assert observed.data["effects"]["archive"]["status"] == "pending"
+    assert not host.archive.exists()
+
+
 def test_archive_absent_with_only_recordable_scratch_missing_is_rebuilt(
     tmp_path, monkeypatch
 ) -> None:

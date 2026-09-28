@@ -151,6 +151,9 @@ authority for the installed version.
   could never succeed when the archive and some of its inputs, such as
   gitignored logs or review files that cleanup removed, existed only in the
   accepting checkout. See the `not-local` entry under Changed.
+- `heddle feature complete --dry-run` that lost the acceptance race to another
+  process read the winner's effects as a real run and could publish the
+  completion archive and run cleanup. It now stays a dry run.
 
 ## [0.1.0] - 2026-09-22
 
