@@ -111,11 +111,20 @@ def test_changed_binding_blocks_until_fresh_explicit_attribution(host, change):
     else:
         outside.unlink()
         outside.symlink_to("another.txt")
-    with pytest.raises(KernelError, match="attribution.*(stale|changed)"):
+    with pytest.raises(KernelError, match="attribution.*(stale|changed)") as raised:
         coverage(root, state_path)
-    paths = ["outside.txt", "another.txt"]
+    error = raised.value
+    assert "sources attribute" in error.hint
     if change == "evidence":
-        paths.append("origin.md")
+        assert error.details["changed_paths"] == ["origin.md"]
+        assert error.details["attributed_paths"] == ["another.txt", "outside.txt"]
+        assert "evidence changed: origin.md" in error.message
+        paths = ["outside.txt", "another.txt", "origin.md"]
+    else:
+        assert error.details["changed_paths"] == ["outside.txt"]
+        assert error.message.endswith("1 of 2 attributed paths changed: outside.txt")
+        assert "owns_append" in error.hint
+        paths = ["outside.txt"]
     result = attribute(*paths)
     assert result.ok, result
     assert coverage(root, state_path).status == "complete"

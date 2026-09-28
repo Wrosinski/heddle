@@ -13,8 +13,10 @@ from heddle.kernel.source_attribution import (
     SourceAttribution,
     attribution_error,
     attribution_payload,
+    changed_observation_paths,
     overlaps_ownership,
     parse_attribution_input,
+    stale_attribution_error,
     validate_attribution_evidence,
 )
 from heddle.kernel.source_manifest import SourceDefinition, SourceEvidence
@@ -48,6 +50,10 @@ def qualified_attribution_paths(
         for path in row.source.definition.paths
     }
     qualified: list[str] = []
+    checked: list[str] = []
+    stale: set[str] = set()
+    changed_evidence: set[str] = set()
+    citing: list[str] = []
     for index, row in enumerate(state.source_attributions):
         paths = tuple(
             path
@@ -56,16 +62,31 @@ def qualified_attribution_paths(
         )
         if not paths:
             continue
+        checked.extend(paths)
         current = observe_attribution(root, paths)
         expected = tuple(item for item in row.source.observations if item.path in paths)
         if current.observations != expected:
-            raise attribution_error(f"outside-feature attribution is stale for {paths}")
+            stale.update(
+                changed_observation_paths(expected, current.observations) or paths
+            )
+            continue
         references = observe_attribution(root, row.references.definition.paths)
         if references != row.references:
-            raise attribution_error(
-                f"outside-feature attribution evidence changed for {paths}"
+            changed_evidence.update(
+                changed_observation_paths(
+                    row.references.observations, references.observations
+                )
+                or row.references.definition.paths
             )
+            citing.extend(paths)
+            continue
         qualified.extend(paths)
+    if stale:
+        raise stale_attribution_error(tuple(sorted(stale)), tuple(checked))
+    if changed_evidence:
+        raise stale_attribution_error(
+            tuple(sorted(changed_evidence)), tuple(sorted(citing)), evidence=True
+        )
     return tuple(sorted(qualified))
 
 

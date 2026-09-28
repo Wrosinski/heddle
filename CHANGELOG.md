@@ -38,6 +38,13 @@ authority for the installed version.
   classification takes, whatever status the lead recorded; the evidence kinds an
   addressed row or a regression needs; and that a retained finding is never
   also a regression. Which review content validates is unchanged.
+- A stale outside-feature attribution now names only the attributed paths that
+  changed, counted against every attributed path (`1 of 2 attributed paths
+  changed: outside.txt`), and lists them in the error details. Its hint gives
+  both remedies: add the paths to a milestone with `owns_append` when this
+  feature made the change, or record a new attribution batch naming exactly
+  those paths. Changed evidence names the changed evidence files and the
+  attributed paths that cite them. What refuses is unchanged.
 
 ### Fixed
 

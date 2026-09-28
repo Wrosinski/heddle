@@ -6,6 +6,7 @@ from typing import Any
 
 from heddle.kernel.project_config import KernelError
 from heddle.kernel.source_manifest import (
+    EvidenceObservation,
     SourceEvidence,
     decode_source_evidence,
     encode_source_evidence,
@@ -30,6 +31,63 @@ def attribution_error(message: str) -> KernelError:
             "heddle feature sources attribute --from-file <json>; owned or "
             "unclassified changes still require verification ownership"
         ),
+    )
+
+
+_LISTED_PATHS = 10
+
+
+def changed_observation_paths(
+    expected: tuple[EvidenceObservation, ...],
+    current: tuple[EvidenceObservation, ...],
+) -> tuple[str, ...]:
+    before = {item.path: item for item in expected}
+    after = {item.path: item for item in current}
+    return tuple(
+        sorted(
+            path
+            for path in before.keys() | after.keys()
+            if before.get(path) != after.get(path)
+        )
+    )
+
+
+def _listed(paths: tuple[str, ...]) -> str:
+    listed = ", ".join(paths[:_LISTED_PATHS])
+    if len(paths) > _LISTED_PATHS:
+        listed += f" and {len(paths) - _LISTED_PATHS} more"
+    return listed
+
+
+def stale_attribution_error(
+    changed: tuple[str, ...], attributed: tuple[str, ...], *, evidence: bool = False
+) -> KernelError:
+    attribute = "`heddle feature sources attribute --from-file <json>`"
+    if evidence:
+        message = (
+            f"outside-feature attribution evidence changed: {_listed(changed)}; "
+            f"{len(attributed)} attributed paths cite it: {_listed(attributed)}"
+        )
+        hint = (
+            f"record a new {attribute} batch for those attributed paths citing "
+            "the current evidence; the newer batch supersedes their stale entries"
+        )
+    else:
+        message = (
+            f"outside-feature attribution is stale: {len(changed)} of "
+            f"{len(attributed)} attributed paths changed: {_listed(changed)}"
+        )
+        hint = (
+            "if this feature made the change, add the paths to a milestone with "
+            "`heddle milestone edit <milestone-ref> --from-file -` and "
+            f"owns_append; otherwise record a new {attribute} batch naming "
+            "exactly these paths, which supersedes their stale entries"
+        )
+    return KernelError(
+        code="workspace-invalid",
+        message=message,
+        hint=hint,
+        details={"changed_paths": list(changed), "attributed_paths": list(attributed)},
     )
 
 
