@@ -73,14 +73,15 @@ gh release create vx.y.z --draft --verify-tag --title "Heddle vx.y.z" \
 
 Write the notes by hand. GitHub's generated notes are built from merged pull
 requests and this repository commits to `main` directly, so they would be
-empty. The shape used for 0.1.0 is the template:
+empty. The shape used for 0.2.0 is the template. It has no general
+introduction and no install section; the README carries the install commands.
 
-- One or two paragraphs saying what the release is.
-- `## Try it`: the `uvx --from git+https://github.com/Wrosinski/heddle@vx.y.z`
-  command, the `uv tool install` command for the attached wheel, and links to
-  the tour and the comparison pinned to the tag.
+- `## Summary of changes`: a few bullets, each a bold one-line theme and one or
+  two sentences, covering only the changes that matter most at a high level.
 - `## What changed`: prose grouped by what the user will notice, linking the
   changelog section for the item-by-item list.
+- `## Upgrading a feature in flight`, when a change alters how existing
+  records read: what to re-dispose, reaffirm or re-attribute after upgrading.
 - `## Known limitations`, including the versioning note above.
 - `## Checksums`: the `sha256sum -c SHA256SUMS.txt` command, the provenance
   sentence, and the hashes inside a collapsed `<details>` block.
