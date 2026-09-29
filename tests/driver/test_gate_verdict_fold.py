@@ -26,12 +26,12 @@ from heddle.contracts.operations import CommandAction, PhaseExit, RunGate, RunGa
 from heddle.contracts.result import ExitCode, HeddleError, HeddleResult
 from heddle.driver.sessions import SessionResult
 from heddle.gate import entry
-from heddle.gate.cli import resolve_gate_execution
 from heddle.gate.registry import GATES
 from heddle.gate.types import GateInvocationOverrides
 from heddle.kernel.model import resolve_snapshot
 from heddle.kernel.project_config import load_project_config
 from heddle.runtime import recording
+from heddle.runtime.review_assignments import resolve_invocation
 from tests.driver.constants import AUTO_TIER2_SLUG as SLUG
 from tests.operational_model_helpers import new_run_id, read
 
@@ -166,7 +166,9 @@ def _prepare(host: Path, gate: str, cli: str):
     return entry.prepare_gate_run(
         context,
         gate_type=gate_type,
-        invocation=resolve_gate_execution(
+        invocation=resolve_invocation(
+            snapshot,
+            config,
             gate_type,
             GateInvocationOverrides(cli=cli),
         ),
