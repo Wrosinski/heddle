@@ -54,7 +54,7 @@ CODEX_XHIGH_POLICY = GateLanePolicy(
 )
 DUAL_LANE_POLICIES = (CLAUDE_STANDARD_POLICY, CODEX_POLICY)
 FABLE_ASTRA_LANE_POLICIES = (CLAUDE_FABLE_POLICY, CODEX_ASTRA_POLICY)
-BEHAVIOR_LANE_POLICIES = (CLAUDE_STANDARD_POLICY, CODEX_ASTRA_POLICY)
+OPUS_ASTRA_LANE_POLICIES = (CLAUDE_STANDARD_POLICY, CODEX_ASTRA_POLICY)
 MILESTONE_LANE_POLICIES = (CLAUDE_MILESTONE_POLICY, CODEX_POLICY)
 XHIGH_LANE_POLICIES = (CLAUDE_STANDARD_POLICY, CODEX_XHIGH_POLICY)
 
@@ -137,7 +137,7 @@ GATES: dict[str, GateType] = {
         requires_milestone=False,
         requires_diff=False,
         supported_clis=ALL_CLIS,
-        lane_policies=BEHAVIOR_LANE_POLICIES,
+        lane_policies=OPUS_ASTRA_LANE_POLICIES,
         tool_permissions=REVIEW_TOOLS,
         output_contract=review_output_contract("behavior-review"),
         prompt_template="prompts/behavior-review.md",
