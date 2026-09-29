@@ -23,20 +23,20 @@ You need [uv](https://docs.astral.sh/uv/); it fetches Python 3.13 on demand.
 You do not need Codex or Claude Code to look around. Those runners are called
 only when a confirmed review policy schedules a model review.
 
-Run the v0.1.0 release without installing it:
+Run the v0.2.0 release without installing it:
 
 ```bash
-uvx --from git+https://github.com/Wrosinski/heddle@v0.1.0 heddle help
+uvx --from git+https://github.com/Wrosinski/heddle@v0.2.0 heddle help
 ```
 
 Or put it on your `PATH`:
 
 ```bash
-uv tool install --python 3.13 "heddle @ git+https://github.com/Wrosinski/heddle.git@v0.1.0"
+uv tool install --python 3.13 "heddle @ git+https://github.com/Wrosinski/heddle.git@v0.2.0"
 heddle help
 ```
 
-Drop `@v0.1.0` to follow the default branch instead.
+Drop `@v0.2.0` to follow the default branch instead.
 
 The PyPI package named `heddle` is an unrelated project; do not install it by
 bare name.
@@ -136,7 +136,7 @@ from the recorded run and refused the boundary.
   All-off is a legal policy; final proof is required regardless.
 - Expect more ceremony than a slash command. Small changes can take the Direct
   route without a workspace.
-- This is version 0.1.0. Contracts can change between releases.
+- This is version 0.2.0. Contracts can change between releases.
 
 ## Why Heddle?
 

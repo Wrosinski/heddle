@@ -8,6 +8,16 @@ authority for the installed version.
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-09-29
+
+Review gates gather their own evidence, apply shared boundary-and-proof
+principles and default to newer models. Completion separates engineering proof
+from judgment-based assessment. Two record rules change for features in
+flight: plan citations hash only the plan's authored bytes, and an accepted
+feature's raw evidence is local to the checkout that accepted it. The
+plan-citation entry under Changed and the plan-review basis entry under Fixed
+say what to re-dispose, reaffirm or re-attribute in a feature in flight.
+
 ### Added
 
 - Release process documentation covering qualification, tagging, the GitHub
@@ -293,5 +303,6 @@ first commit and this tag.
 - There is no `heddle --version`. `heddle doctor` reports the install mode
   and package location.
 
-[Unreleased]: https://github.com/Wrosinski/heddle/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/Wrosinski/heddle/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/Wrosinski/heddle/releases/tag/v0.2.0
 [0.1.0]: https://github.com/Wrosinski/heddle/releases/tag/v0.1.0
