@@ -341,6 +341,8 @@ def write_claude_shim(bin_dir: Path, event: str, log_path: Path) -> Path:
                 "CLAUDE_CODE_EFFORT_LEVEL": os.environ.get(
                     "CLAUDE_CODE_EFFORT_LEVEL"
                 ),
+                "BASH_DEFAULT_TIMEOUT_MS": os.environ.get("BASH_DEFAULT_TIMEOUT_MS"),
+                "BASH_MAX_TIMEOUT_MS": os.environ.get("BASH_MAX_TIMEOUT_MS"),
             }}
             with Path({str(log_path)!r}).open("a", encoding="utf-8") as stream:
                 stream.write(

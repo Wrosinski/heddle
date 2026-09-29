@@ -137,6 +137,21 @@ authority for the installed version.
   canonical review or verification manifest, and an archive that lacks an absent
   file are still conflicts. The `feature complete` call that records acceptance
   still requires every retained file and archive input.
+- Every reviewer may run commands to gather evidence and must not modify
+  files, records or repository state. Claude Code gates get Read, Grep, Glob and
+  Bash under `--permission-mode auto`, with the read tools pre-approved, and
+  inherit the operator's Claude settings. A Claude reviewer's commands time out
+  after 600 s by default and 900 s at most, and each attempt is capped at 500
+  turns and 50 USD. The recorded Claude sandbox is `auto`; historical
+  `read-only-tools` records still read, and every Claude review basis changes.
+  Gate runs of either CLI end after 1200 s without stream activity, up from
+  900 s; `verify` keeps 900 s. Driver phase sessions, which run
+  `heddle run-gate` through their own Bash tool, now give a Bash call 3000 s
+  by default and 3600 s at most, and end after 3600 s instead of 2700 s, so a
+  gate attempt that uses its whole 2700 s still completes inside them. Review
+  prompts drop their read-only statements, and the shared test-execution scope
+  states the command posture and asks reviewers to leave shared state as they
+  found it, since another reviewer may run in the same working tree.
 
 ### Fixed
 

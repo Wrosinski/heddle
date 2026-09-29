@@ -175,7 +175,7 @@ Identify tests that cannot meaningfully fail even before implementation exists:
   its patched symbol is reachable from the exercised production path. If the
   contract promises top-level routing or composed behavior, test that boundary
   rather than a helper that bypasses it. Every assertion must be able to fail
-  for the actual contract defect; this review does not authorize execution.
+  for the actual contract defect.
 
 For each tautological test, explain why it provides no feedback signal and what it should assert instead.
 
@@ -202,9 +202,10 @@ Evaluate whether the scaffolded tests will fail when run before implementation:
   the tests and their imported test helpers. Confirm the fixture can reach the
   intended assertion and the reported failure cause is the missing behavior,
   rather than an unrelated import, setup, selector, or stale-fixture failure.
-  Inspection and collection do not establish execution. When the evidence is
-  unavailable, report that bounded evidence gap; do not invent validation,
-  request an unauthorized run, or read production source to replace it.
+  Inspection and collection do not establish execution; running the scaffolded
+  tests within the test-execution scope does. When the evidence is unavailable,
+  report that bounded evidence gap; do not invent validation or read production
+  source to replace it.
 - An explicitly labelled survivor pin may pass before implementation when it
   protects named pre-existing behavior at risk and the AC also has a red
   discriminator. Confirm the scaffold evidence records red, survivor, and skip

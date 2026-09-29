@@ -1232,30 +1232,45 @@ def test_ac11_red_path_shim_gate_records_artifact_run_fact_and_status(
     assert command[:3] == ["env", "-u", "CLAUDECODE"]
     assert command[3].startswith("HEDDLE_AGENT_SESSION=")
     assert command[4].startswith("CLAUDE_CODE_EFFORT_LEVEL=")
-    assert command[5] == "claude" and "/" not in command[5]
-    assert command[6:11] == [
+    assert command[5:7] == [
+        "BASH_DEFAULT_TIMEOUT_MS=600000",
+        "BASH_MAX_TIMEOUT_MS=900000",
+    ]
+    assert command[7] == "claude" and "/" not in command[7]
+    assert command[8:13] == [
         "--print",
         "--input-format",
         "text",
         "--model",
-        command[10],
+        command[12],
     ]
-    assert command[11:14] == ["--output-format", "stream-json", "--verbose"]
-    assert command[14] == "--append-system-prompt"
-    assert command[16] == "--tools"
-    assert command[18] == "--allowedTools"
-    assert command[17] == command[19]
-    assert command[20] == "--max-turns"
-    assert command[22] == "--no-session-persistence"
-    assert command[23] == "--max-budget-usd"
-    assert command[25] == "--json-schema"
-    assert json.loads(command[26])["properties"]["role"]["enum"] == ["spec-review"]
-    assert len(command) == 27
-    assert invocation["argv"] == command[6:]
+    assert command[13:16] == ["--output-format", "stream-json", "--verbose"]
+    assert command[16] == "--append-system-prompt"
+    assert command[18:24] == [
+        "--tools",
+        "Read,Grep,Glob,Bash",
+        "--allowedTools",
+        "Read,Grep,Glob",
+        "--permission-mode",
+        "auto",
+    ]
+    assert command[24:29] == [
+        "--max-turns",
+        "500",
+        "--no-session-persistence",
+        "--max-budget-usd",
+        "50.00",
+    ]
+    assert command[29] == "--json-schema"
+    assert json.loads(command[30])["properties"]["role"]["enum"] == ["spec-review"]
+    assert len(command) == 31
+    assert invocation["argv"] == command[8:]
     assert invocation["environment"] == {
         "CLAUDECODE": None,
         "HEDDLE_AGENT_SESSION": command[3].partition("=")[2],
         "CLAUDE_CODE_EFFORT_LEVEL": command[4].partition("=")[2],
+        "BASH_DEFAULT_TIMEOUT_MS": "600000",
+        "BASH_MAX_TIMEOUT_MS": "900000",
     }
 
     status = _assert_success(

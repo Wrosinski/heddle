@@ -6,6 +6,10 @@ import shlex
 from pathlib import Path
 from typing import Any
 
+from heddle.contracts.limits import (
+    GATE_BASH_DEFAULT_TIMEOUT_S,
+    GATE_BASH_MAX_TIMEOUT_S,
+)
 from heddle.gate.cli import GateArgs
 from heddle.gate.io import GatePaths, append_log
 from heddle.gate.results import (
@@ -24,8 +28,9 @@ from heddle.gate.types import ExecutionResult, FailureReason, GateType, Prepared
 from heddle.io.claude_events import last_result_event
 from heddle.io.process import MonitorConfig, MonitorResult, Termination, run_monitored
 
-CLAUDE_MAX_TURNS = "100"
-CLAUDE_MAX_BUDGET_USD = "15.00"
+CLAUDE_MAX_TURNS = "500"
+CLAUDE_MAX_BUDGET_USD = "50.00"
+CLAUDE_PREAPPROVED_TOOLS = frozenset({"Read", "Grep", "Glob"})
 
 
 def classify_claude(
@@ -85,13 +90,18 @@ def execute_claude(
     if system_prompt is None:
         raise ValueError("prepared Claude transport requires a system prompt")
     cli_bin = args.cli_bin or "claude"
-    allowed_tools = ",".join(gate_type.tool_permissions)
+    tools = ",".join(gate_type.tool_permissions)
+    preapproved_tools = ",".join(
+        tool for tool in gate_type.tool_permissions if tool in CLAUDE_PREAPPROVED_TOOLS
+    )
     command = [
         "env",
         "-u",
         "CLAUDECODE",
         f"{HEDDLE_AGENT_SESSION_ENV}={GATE_AGENT_SESSION}",
         f"CLAUDE_CODE_EFFORT_LEVEL={execution_config.reasoning_effort}",
+        f"BASH_DEFAULT_TIMEOUT_MS={GATE_BASH_DEFAULT_TIMEOUT_S * 1000}",
+        f"BASH_MAX_TIMEOUT_MS={GATE_BASH_MAX_TIMEOUT_S * 1000}",
         cli_bin,
         "--print",
         "--input-format",
@@ -104,9 +114,11 @@ def execute_claude(
         "--append-system-prompt",
         system_prompt,
         "--tools",
-        allowed_tools,
+        tools,
         "--allowedTools",
-        allowed_tools,
+        preapproved_tools,
+        "--permission-mode",
+        execution_config.sandbox,
         "--max-turns",
         CLAUDE_MAX_TURNS,
         "--no-session-persistence",

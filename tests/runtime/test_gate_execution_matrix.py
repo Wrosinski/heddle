@@ -47,7 +47,7 @@ def _selected_matrix() -> dict[tuple[str, str], GateExecutionConfig]:
     expected: dict[tuple[str, str], GateExecutionConfig] = {}
     for gate in NON_SYNTHESIS_GATES:
         expected[(gate, "claude")] = GateExecutionConfig(
-            "claude", "claude-opus-5-5", "xhigh", "read-only-tools"
+            "claude", "claude-opus-5-5", "xhigh", "auto"
         )
         expected[(gate, "codex")] = GateExecutionConfig(
             "codex", "gpt-6-astra", "high", "danger-full-access"
@@ -60,11 +60,11 @@ def _selected_matrix() -> dict[tuple[str, str], GateExecutionConfig]:
         )
     for gate in OPUS_SYNTHESIS_GATES:
         expected[(gate, "claude")] = GateExecutionConfig(
-            "claude", "claude-opus-5-5", "high", "read-only-tools"
+            "claude", "claude-opus-5-5", "high", "auto"
         )
     for gate in FABLE_SYNTHESIS_GATES:
         expected[(gate, "claude")] = GateExecutionConfig(
-            "claude", "claude-fable-5-1", "xhigh", "read-only-tools"
+            "claude", "claude-fable-5-1", "xhigh", "auto"
         )
     return expected
 
@@ -104,7 +104,7 @@ def test_ac1_lane_policy_and_resolved_invocation_are_immutable() -> None:
         cli="claude",
         model="fixture-model",
         reasoning_effort="high",
-        sandbox="read-only-tools",
+        sandbox="auto",
     )
     with pytest.raises(FrozenInstanceError):
         policy.model = "changed"  # type: ignore[misc]
@@ -124,7 +124,7 @@ def test_ac2_model_override_preserves_lane_effort(
 ) -> None:
     invocation = _resolve(gate, cli="claude", model=model)
     assert invocation.exec_config == GateExecutionConfig(
-        "claude", model, expected_effort, "read-only-tools"
+        "claude", model, expected_effort, "auto"
     )
     assert invocation.explicit_axes == frozenset({"cli", "model"})
 
@@ -148,7 +148,7 @@ def test_ac2_explicit_empty_override_never_falls_back(
 def test_ac2_missing_lane_axes_use_cli_fallback_independently(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    fallback = GateExecutionConfig("claude", "fallback-model", "low", "read-only-tools")
+    fallback = GateExecutionConfig("claude", "fallback-model", "low", "auto")
     monkeypatch.setattr(gate_cli, "CLI_FALLBACKS", {"claude": fallback})
     gate = replace(
         GATES["spec-review"],
@@ -192,7 +192,7 @@ def test_ac2_invalid_sandbox_fails_before_execution(
 
     assert caught.value.code == "workspace-invalid"
     assert caught.value.message == (
-        "gate sandbox must be one of read-only-tools, danger-full-access"
+        "gate sandbox must be auto for claude or danger-full-access for codex"
     )
     assert caught.value.hint == (
         "fix the registered lane or provider fallback before running the gate"
@@ -208,7 +208,7 @@ def test_ac2_invalid_sandbox_fails_before_execution(
                 cli="claude",
                 model=" malformed-model",
                 reasoning_effort="high",
-                sandbox="read-only-tools",
+                sandbox="auto",
             ),
         ),
         (
@@ -217,7 +217,7 @@ def test_ac2_invalid_sandbox_fails_before_execution(
                 cli="claude",
                 model="fixture-model",
                 reasoning_effort="maximum",
-                sandbox="read-only-tools",
+                sandbox="auto",
             ),
         ),
     ),
@@ -238,6 +238,44 @@ def test_ac2_invalid_registry_axes_are_workspace_defects(
     assert caught.value.code == "workspace-invalid", axis
     assert "registered gate spec-review/claude" in caught.value.message
     assert "registered lane or provider fallback" in caught.value.hint
+
+
+@pytest.mark.parametrize(
+    ("cli", "sandbox"),
+    (
+        ("claude", "danger-full-access"),
+        ("codex", "auto"),
+        ("claude", "read-only-tools"),
+    ),
+)
+def test_sandbox_domain_is_per_cli(cli: str, sandbox: str) -> None:
+    gate = replace(
+        GATES["spec-review"],
+        supported_clis=(cli,),
+        default_cli=cli,
+        lane_policies=(
+            GateLanePolicy(
+                cli=cli,
+                model="fixture-model",
+                reasoning_effort="high",
+                sandbox=sandbox,
+            ),
+        ),
+    )
+
+    with pytest.raises(KernelError) as caught:
+        gate_cli.resolve_gate_execution(gate, GateInvocationOverrides())
+
+    assert caught.value.code == "workspace-invalid"
+
+
+def test_every_registered_lane_runs_commands() -> None:
+    for name, gate in GATES.items():
+        assert "Bash" in gate.tool_permissions, name
+        for cli in gate.supported_clis:
+            sandbox = _resolve(name, cli=cli).exec_config.sandbox
+            expected = "auto" if cli == "claude" else "danger-full-access"
+            assert sandbox == expected, (name, cli)
 
 
 def test_ac2_invalid_registered_default_cli_is_a_workspace_defect() -> None:

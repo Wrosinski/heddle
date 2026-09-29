@@ -51,7 +51,7 @@ scoped budget exception instead of dropping proof.
 
 Apply accepted hardening in code and tests, run the affected verification after
 each change batch, and commit the final robustness fixes. The gate is a
-read-only evaluator; this phase session owns remediation.
+non-modifying evaluator; this phase session owns remediation.
 
 Use the same reconciliation routes as peer review. Pure implementation defects
 change code/tests. Documentary drift under an unchanged approved contract may

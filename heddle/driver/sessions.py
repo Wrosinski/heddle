@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from heddle.contracts.limits import DEFAULT_SESSION_HARD_TIMEOUT_S
 from heddle.driver.tempfiles import empty_temp_path
 from heddle.io.claude_events import last_result_event_from_path
 from heddle.io.process import MonitorConfig, run_monitored
@@ -41,17 +42,28 @@ _BOUNDARY_DENIALS = (
     "Bash(heddle decisions resolve*)",
     "Bash(heddle flow set*)",
 )
-PHASE_SESSION_HARD_TIMEOUT_S = 2700
+# A session may run `heddle run-gate` itself, and gate reviewers run commands,
+# so one gate attempt may use the whole gate hard timeout. The session's Bash
+# default covers that attempt plus run-gate's own preparation and recording,
+# and the session's hard timeout adds room for its work around the call.
+PHASE_SESSION_GATE_OVERHEAD_S = 300
+PHASE_SESSION_HANDLING_S = 600
+PHASE_SESSION_HARD_TIMEOUT_S = (
+    DEFAULT_SESSION_HARD_TIMEOUT_S
+    + PHASE_SESSION_GATE_OVERHEAD_S
+    + PHASE_SESSION_HANDLING_S
+)
 PHASE_SESSION_INACTIVITY_TIMEOUT_S = 900
 PHASE_SESSION_POLL_S = 0.1
 # Session-side Bash tool timeout envelope: the CLI's 120s Bash default
-# kills any `heddle run-gate` a session runs itself — gate runs take 5-15
-# minutes, and the review/implement allowlists carry `Bash(heddle
-# run-gate:*)` for exactly those calls — wasting the paid attempt with no
-# fact recorded. Default = the 15-minute "normal gate timing" ceiling; max =
-# the gate runner's own hard timeout so a session can extend explicitly.
-PHASE_SESSION_BASH_DEFAULT_TIMEOUT_MS = 900_000
-PHASE_SESSION_BASH_MAX_TIMEOUT_MS = 2_700_000
+# kills any `heddle run-gate` a session runs itself — the review/implement
+# allowlists carry `Bash(heddle run-gate:*)` for exactly those calls — wasting
+# the paid attempt with no fact recorded. The max lets a session extend one
+# call explicitly up to its own hard timeout.
+PHASE_SESSION_BASH_DEFAULT_TIMEOUT_MS = (
+    DEFAULT_SESSION_HARD_TIMEOUT_S + PHASE_SESSION_GATE_OVERHEAD_S
+) * 1000
+PHASE_SESSION_BASH_MAX_TIMEOUT_MS = PHASE_SESSION_HARD_TIMEOUT_S * 1000
 CLAUDE_PRINT = "--print"
 CLAUDE_OUTPUT_FORMAT = "--output-format"
 CLAUDE_STREAM_JSON = "stream-json"

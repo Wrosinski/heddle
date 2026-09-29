@@ -26,6 +26,7 @@ from heddle.contracts.operations import CommandAction, PhaseExit, RunGate, RunGa
 from heddle.contracts.result import ExitCode, HeddleError, HeddleResult
 from heddle.driver.sessions import SessionResult
 from heddle.gate import entry
+from heddle.gate.cli import GateArgs
 from heddle.gate.registry import GATES
 from heddle.gate.types import GateInvocationOverrides
 from heddle.kernel.model import resolve_snapshot
@@ -484,11 +485,15 @@ def test_phase_session_command_carries_bash_timeout_envelope():
     assert (
         f"BASH_MAX_TIMEOUT_MS={sessions.PHASE_SESSION_BASH_MAX_TIMEOUT_MS}" in envelope
     )
-    # The max must cover the gate runner's own hard timeout so an explicit
-    # per-call timeout can ride out any completable gate run.
+    # A session-run gate attempt may use the whole gate hard timeout: the Bash
+    # default must outlast it, and the session deadline must outlast that call.
+    gate_hard_timeout_ms = GateArgs(gate_name="spec-review").timeout_seconds * 1000
+    session_hard_timeout_ms = sessions.PHASE_SESSION_HARD_TIMEOUT_S * 1000
     assert (
-        sessions.PHASE_SESSION_BASH_MAX_TIMEOUT_MS
-        >= sessions.PHASE_SESSION_HARD_TIMEOUT_S * 1000
+        gate_hard_timeout_ms
+        < sessions.PHASE_SESSION_BASH_DEFAULT_TIMEOUT_MS
+        < session_hard_timeout_ms
+        <= sessions.PHASE_SESSION_BASH_MAX_TIMEOUT_MS
     )
 
 

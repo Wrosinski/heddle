@@ -10,11 +10,11 @@ from heddle.contracts.gate_execution import (
     VALID_GATE_CLIS,
     VALID_OVERRIDE_AXES,
     VALID_REASONING_EFFORTS,
-    VALID_SANDBOXES,
+    VALID_SANDBOXES_BY_CLI,
 )
 from heddle.contracts.limits import (
+    DEFAULT_GATE_INACTIVITY_TIMEOUT_S,
     DEFAULT_SESSION_HARD_TIMEOUT_S,
-    DEFAULT_SESSION_INACTIVITY_TIMEOUT_S,
 )
 from heddle.gate.types import (
     GateExecutionConfig,
@@ -26,7 +26,7 @@ from heddle.kernel.project_config import KernelError
 
 _DEFAULT_MAX_ITERATIONS = 5
 _DEFAULT_TIMEOUT_SECONDS = DEFAULT_SESSION_HARD_TIMEOUT_S
-_DEFAULT_INACTIVITY_TIMEOUT_SECONDS = DEFAULT_SESSION_INACTIVITY_TIMEOUT_S
+_DEFAULT_INACTIVITY_TIMEOUT_SECONDS = DEFAULT_GATE_INACTIVITY_TIMEOUT_S
 _DEFAULT_POLL_SECONDS = 5.0
 
 
@@ -55,7 +55,7 @@ CLI_FALLBACKS = {
         cli="claude",
         model="claude-opus-5-5",
         reasoning_effort="xhigh",
-        sandbox="read-only-tools",
+        sandbox="auto",
     ),
     "codex": GateExecutionConfig(
         cli="codex",
@@ -155,7 +155,7 @@ def resolve_gate_execution(
             ),
             hint="fix the registered lane or provider fallback before running the gate",
         )
-    if sandbox not in VALID_SANDBOXES:
+    if sandbox not in VALID_SANDBOXES_BY_CLI.get(cli, frozenset()):
         raise KernelError(
             code="workspace-invalid",
             message=SANDBOX_DOMAIN_ERROR,

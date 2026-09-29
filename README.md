@@ -112,9 +112,9 @@ from the recorded run and refused the boundary.
    implementation plan from packaged scaffolds. `heddle kickoff` renders the
    briefing for whichever stage is current.
 3. **Review.** Each role in the policy runs through `heddle run-gate` with
-   Codex or Claude Code as a read-only reviewer. Findings stay attached to the
-   review that raised them; the lead records an evidence-bound disposition for
-   each; closure is derived, not declared.
+   Codex or Claude Code as a non-modifying reviewer that may run commands.
+   Findings stay attached to the review that raised them; the lead records an
+   evidence-bound disposition for each; closure is derived, not declared.
 4. **Build and prove.** Milestones declare owned paths and a verification
    command. `heddle verify` runs it and records exit code, log, and content
    identity. `heddle phase-exit` moves one stage only when the recorded

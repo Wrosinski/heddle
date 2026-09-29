@@ -105,7 +105,7 @@ def _prepare_identity(gate: GateType, context: GateContext, cli: str = "claude")
         cli=cli,
         model="fixture-model",
         reasoning_effort="xhigh",
-        sandbox="read-only-tools" if cli == "claude" else "danger-full-access",
+        sandbox="auto" if cli == "claude" else "danger-full-access",
     )
     return prepare_gate_run(
         context,

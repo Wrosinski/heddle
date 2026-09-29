@@ -78,6 +78,15 @@ both reviewer selections, but schedules no calls and adds nothing to the call
 budget. Robustness remains Off until explicitly selected with an integration gap.
 Existing confirmed policies retain their recorded reviewer choices.
 
+Every reviewer may run commands to gather evidence and must not modify files,
+records or repository state. Codex reviewers run with `danger-full-access`.
+Claude Code reviewers get Read, Grep, Glob and Bash under
+`--permission-mode auto`: the read tools are pre-approved and Bash commands pass
+the auto-mode classifier. They inherit the operator's Claude settings. A Claude
+reviewer's commands time out after 600 s by default and 900 s at most; each
+attempt is capped at 500 turns and 50 USD. Gate runs of either CLI end after
+1200 s without stream activity and 2700 s overall.
+
 The [policy resolver](../../heddle/kernel/feature_policy.py) and
 [role catalog](../../heddle/contracts/gates.py) own these rules.
 

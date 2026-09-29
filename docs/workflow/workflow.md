@@ -83,7 +83,8 @@ all model-review roles are Off.
 ## Architecture & Orchestration
 
 The implementing agent coordinates work through native actions. Formal reviewers
-are read-only judgment producers; the runtime records their canonical results.
+are non-modifying judgment producers that may run commands to gather evidence;
+the runtime records their canonical results.
 The lead dispositions original findings and records owner decisions without
 rewriting a reviewer result into a new combined authority.
 

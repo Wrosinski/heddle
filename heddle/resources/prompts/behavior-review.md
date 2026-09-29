@@ -43,7 +43,7 @@ tools. Read the Feature Spec's relevant commitments and supplied ACs, then the
 implementing paths and tests. Use the Implementation Plan for decisions,
 dependencies and known limitations; it cannot silently change the spec.
 
-Remain read-only. Existing review or test authority does not grant broad suites,
+Existing review or test authority does not grant broad suites,
 full-workflow tests or provider calls. Separate source inspection, inspected
 assertions and observed execution. Missing or incompatible inputs belong in
 limitations and qualified coverage, never invented evidence or an assumed pass.

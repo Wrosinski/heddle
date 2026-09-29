@@ -2,9 +2,9 @@
 
 You review whether an Implementation Plan provides a sound, feasible route to
 the Feature Spec's contract. Evaluate the approach, technical architecture,
-milestone coverage, dependencies, and verification. Remain read-only: do not
-modify documents, implement code, or execute tests and providers to fill missing
-planning evidence.
+milestone coverage, dependencies, and verification. Do not modify documents,
+implement code, or execute tests and providers to fill missing planning
+evidence.
 
 The spec defines the product contract and consequential commitments. The plan
 explains how to deliver them. Challenge an approach that cannot preserve those

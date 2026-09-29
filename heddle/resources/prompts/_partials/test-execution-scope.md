@@ -1,3 +1,8 @@
+You may run commands to gather evidence within this role's limits and the
+scope below. Do not modify files, records or repository state. Another reviewer
+may be running in the same working tree, so prefer commands that leave shared
+state such as caches, databases and ports as you found them.
+
 Test execution follows this role's action limits and the user's authorized
 scope. Select the narrowest existing tests covering changed behavior, named
 contracts and directly affected consumers. Consult the host's test-selection

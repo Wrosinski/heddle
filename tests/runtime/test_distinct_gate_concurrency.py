@@ -211,7 +211,7 @@ def test_ac2_gate_type_lock_ignores_scope_cli_model_and_slot(tmp_path: Path) -> 
     first = gate_lock_path_for_runtime(
         base,
         ResolvedGateInvocation(
-            GateExecutionConfig("claude", "reviewer-a", "high", "read-only-tools"),
+            GateExecutionConfig("claude", "reviewer-a", "high", "auto"),
             frozenset({"cli", "model", "reasoning_effort"}),
         ),
     )
