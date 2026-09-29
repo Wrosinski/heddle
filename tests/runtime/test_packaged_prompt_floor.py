@@ -396,14 +396,12 @@ def test_built_wheel_renders_every_gate_prompt_outside_the_checkout(
 
     host = _prepare_show_prompt_host(tmp_path)
     public_rendered: set[str] = set()
-    for gate_name, gate in sorted(GATES.items()):
+    for gate_name in sorted(GATES):
         result = installed.run(
             "show-prompt",
             gate_name,
             "--feature",
             "nl-screening",
-            "--cli",
-            gate.default_cli,
             "--json",
             cwd=host,
         )
