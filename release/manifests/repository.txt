@@ -433,6 +433,7 @@ tests/gate/conftest.py
 tests/gate/test_archive_trajectory.py
 tests/gate/test_auto_resolution_prompt_policy.py
 tests/gate/test_claude_classification.py
+tests/gate/test_claude_runner.py
 tests/gate/test_codex_classification.py
 tests/gate/test_codex_diagnostics.py
 tests/gate/test_codex_runner.py
