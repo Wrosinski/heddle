@@ -42,13 +42,13 @@ CODEX_ASTRA_POLICY = GateLanePolicy(
 )
 CODEX_POLICY = GateLanePolicy(
     cli="codex",
-    model="gpt-6-sol",
+    model="gpt-6.1-sol",
     reasoning_effort="high",
     sandbox="danger-full-access",
 )
 CODEX_XHIGH_POLICY = GateLanePolicy(
     cli="codex",
-    model="gpt-6-sol",
+    model="gpt-6.1-sol",
     reasoning_effort="xhigh",
     sandbox="danger-full-access",
 )

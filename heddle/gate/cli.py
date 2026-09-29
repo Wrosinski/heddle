@@ -59,7 +59,7 @@ CLI_FALLBACKS = {
     ),
     "codex": GateExecutionConfig(
         cli="codex",
-        model="gpt-6-sol",
+        model="gpt-6.1-sol",
         reasoning_effort="high",
         sandbox="danger-full-access",
     ),

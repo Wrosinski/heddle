@@ -4,7 +4,7 @@ import json
 
 import pytest
 
-from tests.tiering_helpers import ASTRA, FABLE, OPUS, RETIRED, ROLES, SOL, SOL_XHIGH
+from tests.tiering_helpers import ASTRA, FABLE, OPUS, RETIRED, ROLES
 from tests.tiering_review_helpers import ROLE_DIMENSIONS, review_content
 
 
@@ -23,14 +23,16 @@ def test_ac5_execution_matrix_resolves_recommended_primary_and_secondary_lanes()
 
     astra = {**ASTRA, "reasoning_effort": "xhigh"}
     fable = {**FABLE, "reasoning_effort": "xhigh"}
+    sol = {"cli": "codex", "model": "gpt-6.1-sol", "reasoning_effort": "high"}
+    sol_xhigh = {**sol, "reasoning_effort": "xhigh"}
     codex = {
         "spec-review": astra,
         "plan-review": astra,
-        "review-test-scaffolding": SOL_XHIGH,
-        "milestone-review": SOL,
-        "peer-review-sequential": SOL_XHIGH,
+        "review-test-scaffolding": sol_xhigh,
+        "milestone-review": sol,
+        "peer-review-sequential": sol_xhigh,
         "behavior-review": astra,
-        "complexity-review": SOL,
+        "complexity-review": sol,
         "robustness-analysis": astra,
     }
     claude = {
@@ -67,8 +69,8 @@ def test_ac5_execution_matrix_resolves_recommended_primary_and_secondary_lanes()
             "model": execution.model,
             "reasoning_effort": execution.reasoning_effort,
         } == reviewer
-    assert CLI_FALLBACKS["codex"].model == SOL["model"]
-    assert CLI_FALLBACKS["codex"].reasoning_effort == SOL["reasoning_effort"]
+    assert CLI_FALLBACKS["codex"].model == sol["model"]
+    assert CLI_FALLBACKS["codex"].reasoning_effort == sol["reasoning_effort"]
 
 
 @pytest.mark.parametrize("role", RETIRED)

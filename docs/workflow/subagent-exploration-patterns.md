@@ -71,7 +71,7 @@ This is a default with an escape, not a prohibition. A badly targeted explorer
 that returns a thin brief costs more than it saves once the caller re-derives
 it.
 
-Bindings, current as of 2026-09-22:
+Bindings, current as of 2026-09-29:
 
 - Claude: `CLAUDE_CODE_SUBAGENT_MODEL=claude-opus-5-5` in `.claude/settings.json`
   is the default for sub-agents. An agent definition's `model:` and an explicit
@@ -80,7 +80,7 @@ Bindings, current as of 2026-09-22:
   removes that escape.
 - Codex: project-scoped custom agents live under `.codex/agents`; the explicit
   implementation adapter pins Sol there. No exploration-specific custom agent
-  or repository-wide default is configured, so the lead names `gpt-6-sol` at
+  or repository-wide default is configured, so the lead names `gpt-6.1-sol` at
   spawn for explorers and escalates to `gpt-6-astra` deliberately.
 
 These exploration bindings do not set implementation-worker effort. The
