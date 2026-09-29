@@ -28,11 +28,11 @@ def test_ac5_execution_matrix_resolves_recommended_primary_and_secondary_lanes()
     codex = {
         "spec-review": astra,
         "plan-review": astra,
-        "review-test-scaffolding": sol_xhigh,
+        "review-test-scaffolding": astra,
         "milestone-review": sol,
         "peer-review-sequential": sol_xhigh,
         "behavior-review": astra,
-        "complexity-review": sol,
+        "complexity-review": astra,
         "robustness-analysis": astra,
     }
     claude = {
