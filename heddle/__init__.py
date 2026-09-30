@@ -1,3 +1,3 @@
-"""Heddle — a local protocol runtime for agent-driven development workflows."""
+"""Heddle — a harness for LLM coding workflows."""
 
 __version__ = "0.2.0"

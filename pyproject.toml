@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "heddle"
 version = "0.2.0"
-description = "Heddle — a local protocol runtime for agent-driven development workflows."
+description = "Heddle — a harness for LLM coding workflows."
 readme = "README.md"
 requires-python = ">=3.13"
 authors = [{ name = "Wojtek Rosinski", email = "rosinskiws@gmail.com" }]

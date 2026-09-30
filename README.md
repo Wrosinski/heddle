@@ -7,15 +7,56 @@
        width="360">
 </picture>
 
-Heddle is an open-source local workflow runtime for LLM-assisted software
-engineering. It helps agents carry a change from researched scope to verified
-implementation, with explicit decisions, accountable reviews, and a reliable
-handoff between sessions.
+Heddle is a harness for LLM coding workflows: you define what a feature must do
+and how it will be proven, and the agent builds it through a formalized,
+verifiable process.
 
-Most spec-driven tools hand the agent a template and ask it to follow the
-process. Heddle records what actually happened and refuses to advance when the
-evidence is missing, failed, or stale. If you know Spec Kit, start with
+Most LLM coding workflows put the process in a prompt and hope the model
+follows it. Heddle formalizes the process and checks it: it records what
+actually happened and refuses to advance when the evidence is missing, failed,
+or stale. If you know Spec Kit, start with
 [how Heddle differs from it](docs/comparison.md).
+
+## Why Heddle?
+
+- **Intent** — You own the conceptual work: the goal, the functional
+  requirements, the acceptance criteria and, where it matters, the architecture
+  and interfaces.
+- **Process** — The agent implements through a formal process it can't quietly
+  skip: a spec for the product, a plan for the architecture, tests designed from
+  the acceptance criteria before any code (end-to-end included), and review
+  rounds sized to the change.
+- **Enforcement** — Each step is checked against recorded evidence before the
+  next one opens. Test results are bound to the content of the files they
+  covered, and review findings stay open until each one is resolved with
+  evidence.
+- **Accountability** — The agent is held to the standard we set for human
+  teams, who rely on reviews and CI rather than a developer's word that the
+  work is done.
+- **Proof** — You know exactly what you'll get, the agent knows exactly what
+  finished means, and completion rests on evidence.
+
+### In practice
+
+- **Review** — Heddle recommends a review policy based on scope, complexity,
+  and testability. You confirm the review roles, models, reasoning effort, and
+  round limits, with optional independent reviewers across Codex and Claude
+  Code, so one provider can check the other.
+- **Continuity** — Resume with recorded tasks, decisions, verification results,
+  and session handoffs. `heddle orient` identifies the next action, while stage
+  briefings give agents the instructions and context for the work ahead.
+- **Principles** — Host-authored engineering principles inform design choices,
+  implementation, and review. The packaged guidance emphasizes repository
+  research, justified scope, simple designs, and focused testing, giving agents
+  a consistent basis for everyday trade-offs.
+- **Autonomy** — Work interactively or use supervised automation for authorized
+  stages. The driver pauses for unresolved decisions, blocked progress, and the
+  human completion handoff. Review limits and non-progress checks help keep
+  repeated attempts under control.
+
+Heddle runs locally and keeps workflow records in your workspace. It integrates
+with installed Codex and Claude Code runners; model execution uses the selected
+provider.
 
 ## Try it in two minutes
 
@@ -108,20 +149,27 @@ from the recorded run and refused the boundary.
 1. **Research and route.** The agent researches the change. You choose Direct
    work or a Heddle feature. Prepare records the intake and recommends a
    review policy; you confirm the whole matrix; start admits the feature.
-2. **Author.** At specify, the agent writes the feature spec and the
-   implementation plan from packaged scaffolds. `heddle kickoff` renders the
+2. **Define.** At specify, the agent drafts the feature spec (goal, scope,
+   acceptance criteria) and the implementation plan (architecture, approach)
+   from your intent, using packaged scaffolds. You confirm the scope and the
+   end-to-end test shape before anything is built. `heddle kickoff` renders the
    briefing for whichever stage is current.
 3. **Review.** Each role in the policy runs through `heddle run-gate` with
    Codex or Claude Code as a non-modifying reviewer that may run commands.
    Findings stay attached to the review that raised them; the lead records an
    evidence-bound disposition for each; closure is derived, not declared.
-4. **Build and prove.** Milestones declare owned paths and a verification
+4. **Design the proof.** At scaffold, the agent turns the acceptance criteria
+   into executable tests at the real application boundary, end-to-end
+   included, and binds the commands that will prove them. When the policy
+   includes test-scaffolding review, its findings close before implementation
+   starts.
+5. **Build and prove.** Milestones declare owned paths and a verification
    command. `heddle verify` runs it and records exit code, log, and content
    identity. `heddle phase-exit` moves one stage only when the recorded
    evidence supports it.
-5. **Close.** Completion is human-owned. Acceptance needs current proof, the
+6. **Close.** Completion is human-owned. Acceptance needs current proof, the
    configured close suite, and an explicit grant. Records are retained locally.
-6. **Automate when you choose.** `heddle drive` executes the next legal
+7. **Automate when you choose.** `heddle drive` executes the next legal
    actions until it reaches a decision, a blocker, or the human handoff.
 
 ### What to expect
@@ -137,46 +185,6 @@ from the recorded run and refused the boundary.
 - Expect more ceremony than a slash command. Small changes can take the Direct
   route without a workspace.
 - This is version 0.2.0. Contracts can change between releases.
-
-## Why Heddle?
-
-Heddle gives agent-assisted development a repeatable path from an idea to an
-accepted change. Agents investigate, design, and implement; Heddle tracks the
-work, identifies what must happen next, and checks the requirements for moving
-forward.
-
-- **Verification tied to the code tested.** Recorded checks include the
-  command, result, log, and identities of the declared source inputs.
-  Heddle checks whether that evidence still applies before allowing progress,
-  making missing, failed, or stale verification visible.
-- **Review findings followed through to resolution.** Original findings remain
-  attached to their reviews. The lead records how each obligation is addressed,
-  supported by inspection, tests, later review, or an explicit decision.
-  A clean later report alone does not erase an earlier unresolved finding.
-- **Review effort matched to the change.** Heddle recommends a review policy
-  based on scope, complexity, and testability. You confirm the review roles,
-  models, reasoning effort, and round limits, with optional independent
-  reviewers across Codex and Claude Code, so one provider can check the other.
-- **A connected development workflow.** Carry researched scope through
-  specification, planning, test scaffolding, implementation, review, and
-  explicit completion. Milestones connect implementation work to acceptance
-  criteria, so progress stays tied to the intended outcome.
-- **Continuity across sessions.** Resume with recorded tasks, decisions,
-  verification results, and session handoffs. `heddle orient` identifies the
-  next action, while stage briefings give agents the instructions and context
-  for the work ahead.
-- **Your engineering principles guide the work.** Host-authored principles
-  inform design choices, implementation, and review. The packaged guidance
-  emphasizes repository research, justified scope, simple designs, and focused
-  testing, giving agents a consistent basis for everyday trade-offs.
-- **Autonomy with explicit boundaries.** Work interactively or use supervised
-  automation for authorized stages. The driver pauses for unresolved decisions,
-  blocked progress, and the human completion handoff. Review limits and
-  non-progress checks help keep repeated attempts under control.
-
-Heddle runs locally and keeps workflow records in your workspace. It integrates
-with installed Codex and Claude Code runners; model execution uses the selected
-provider.
 
 ## Quick start
 

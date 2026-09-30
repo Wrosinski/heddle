@@ -1,8 +1,8 @@
 # Heddle architecture
 
-Heddle is a local protocol runtime for agent-driven feature work. The runtime
-answers what is true and which action is legal next; agents and users supply
-engineering judgment. This document owns the current component, interface and
+Heddle is a local harness for LLM coding workflows. Its runtime answers what
+is true and which action is legal next; agents and users supply engineering
+judgment. This document owns the current component, interface and
 integration boundaries. [Workflow model](workflow-model.md) owns phase policy
 and operational facts; [engineering principles](../workflow/engineering-principles.md)
 owns engineering preferences. Maintained source, schemas, and tests named below

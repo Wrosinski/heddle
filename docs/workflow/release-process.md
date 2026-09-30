@@ -126,7 +126,7 @@ derived from any file in the package.
 About description:
 
 ```text
-A local workflow runtime for Claude Code and Codex CLI that records what an agent did and refuses to advance a stage on missing, failed, or stale evidence.
+A harness for LLM coding workflows with Claude Code and Codex CLI: you define what a feature must do and how it's proven, and the agent builds it to that proof.
 ```
 
 ```bash
@@ -138,7 +138,7 @@ truth (at most 20, lowercase letters, digits and hyphens):
 
 ```bash
 gh api -X PUT repos/Wrosinski/heddle/topics --input - <<'JSON'
-{"names":["agentic-coding","spec-driven-development","claude-code","codex-cli","coding-agent","ai-coding-agent","workflow-engine","state-machine","agents-md","code-review","human-in-the-loop","agentic-ai","developer-tools","software-engineering","cli","python"]}
+{"names":["agentic-coding","spec-driven-development","llm-workflow","harness-engineering","claude-code","codex-cli","coding-agent","ai-coding-agent","workflow-engine","agents-md","code-review","human-in-the-loop","agentic-ai","developer-tools","software-engineering","cli","python"]}
 JSON
 ```
 

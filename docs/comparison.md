@@ -8,8 +8,9 @@ tools, then says where each is the better choice.
 
 Claims about Spec Kit come from its public documentation as of September 2026:
 the [README](https://github.com/github/spec-kit), the
-[quickstart](https://github.github.io/spec-kit/quickstart.html) and the
-[methodology](https://github.com/github/spec-kit/blob/main/spec-driven.md).
+[quickstart](https://github.github.io/spec-kit/quickstart.html), the
+[methodology](https://github.com/github/spec-kit/blob/main/spec-driven.md) and
+the [tasks template](https://github.com/github/spec-kit/blob/main/templates/tasks-template.md).
 Claims about Heddle come from its command contracts and the [tour](tour.md),
 which you can rerun in ten minutes. Corrections are welcome as issues.
 
@@ -24,7 +25,7 @@ is told it "cannot proceed without either passing the gates or documenting
 justified exceptions". Whether that happens depends on the agent reading the
 template and doing what it says.
 
-Heddle is a runtime. The stage order, the confirmed review policy, the
+Heddle is a harness: the process lives outside the prompt. The stage order, the confirmed review policy, the
 milestones, every verification result and every review finding are recorded
 facts, and each transition is derived from those facts. When the evidence is
 missing, failed or stale, the transition is refused with an error code, a hint
@@ -46,8 +47,9 @@ chat transcript.
 
 | Axis | Spec Kit | Heddle |
 | --- | --- | --- |
-| Enforcement | Templates and prompts. Helper scripts check that the previous artifact exists; content and order are the agent's responsibility. | State machine. `heddle phase-exit` advances exactly one legal stage and refuses on missing tasks, missing or stale proof, unresolved decisions or open review obligations. |
+| Enforcement | Templates and prompts. Helper scripts check that the previous artifact exists; content and order are the agent's responsibility. | Enforced stages. `heddle phase-exit` advances exactly one legal stage and refuses on missing tasks, missing or stale proof, unresolved decisions or open review obligations. |
 | Verification | `/speckit-converge` asks the agent to report convergence. The bug-fixing extension asks for a `verified`, `partial` or `failed` verdict. Nothing records that a test actually ran. | `heddle verify` runs the stored command and records the exit code, the log and a content manifest of the owned sources. Status reports missing, failed, command-stale, source-set-stale or content-stale evidence, and stale evidence blocks the boundary. |
+| Test design | The spec template requires acceptance scenarios, and the methodology calls test-first "NON-NEGOTIABLE". The tasks template makes test tasks optional, generated only when the spec or the user asks for them; when present, the agent is told to write them first and see them fail. | A scaffold stage between plan review and implementation turns the acceptance criteria into executable tests at the real application boundary, end-to-end included, and binds the exact acceptance commands. When the policy includes test-scaffolding review, its findings must close before implementation opens. |
 | Review | `/speckit-clarify`, `/speckit-checklist` and `/speckit-analyze` are self-review steps run by the same agent. They are advisory. | Eight review roles, each with a confirmed provider CLI, model, reasoning effort, round mode, round limit and optional independent second reviewer. Findings stay attached to the review that raised them; the lead records an evidence-bound disposition for each one. A clean later report does not close an earlier finding. |
 | Cross-provider review | The agent that wrote the code reviews it. | Codex can review Claude Code's work and the reverse, under one policy, with retained captures per reviewer slot. |
 | Session continuity | Artifacts on disk. The next session re-reads them and decides what to do. | `heddle orient` derives the next legal action from recorded state; `heddle kickoff` renders the briefing for that stage; tasks, decisions and session notes are recorded natively. |
@@ -116,10 +118,11 @@ from a stage transition or a populated command.
 Pick Spec Kit when you want a lighter process, your agent is not Codex or Claude
 Code, or you trust the agent to follow a good template and mainly need one.
 
-Pick Heddle when the cost of an unverified "done" is high, when work spans
-sessions or agents and you need the handoff to survive, when you want a second
-provider to check the first, or when you want review spend to be a decision you
-made rather than something that happened.
+Pick Heddle when you want to spend your time on requirements and acceptance
+criteria rather than re-checking diffs, when the cost of an unverified "done"
+is high, when work spans sessions or agents and you need the handoff to
+survive, when you want a second provider to check the first, or when you want
+review spend to be a decision you made rather than something that happened.
 
 Heddle does not care which prompts produced the spec and the plan. A team that
 likes Spec Kit's templates can keep them for authoring and let Heddle own the
@@ -139,4 +142,5 @@ Sources: [codemyspec, "Best spec-driven development tools (2026)"](https://codem
 [Spec Kit README](https://github.com/github/spec-kit);
 [Spec Kit quickstart](https://github.github.io/spec-kit/quickstart.html);
 [Spec Kit integrations](https://github.github.io/spec-kit/reference/integrations.html);
-[Spec Kit methodology](https://github.com/github/spec-kit/blob/main/spec-driven.md).
+[Spec Kit methodology](https://github.com/github/spec-kit/blob/main/spec-driven.md);
+[Spec Kit tasks template](https://github.com/github/spec-kit/blob/main/templates/tasks-template.md).

@@ -539,8 +539,8 @@ def test_public_identity_and_responsibility_are_consistent() -> None:
     assert metadata["urls"]["Repository"] == "https://github.com/Wrosinski/heddle"
     assert metadata["urls"]["Issues"] == "https://github.com/Wrosinski/heddle/issues"
     for statement in (
-        "open-source local workflow runtime",
-        "researched scope to verified implementation",
+        "harness for LLM coding workflows",
+        "formalized, verifiable process",
         "Python 3.13",
         "Codex",
         "Claude Code",

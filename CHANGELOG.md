@@ -8,6 +8,17 @@ authority for the installed version.
 
 ## [Unreleased]
 
+### Changed
+
+- Heddle describes itself as a harness for LLM coding workflows: you define
+  what a feature must do and how it will be proven, and the agent builds it
+  through a formalized, verifiable process. The README leads with that split
+  and a "Why Heddle?" section, and its process summary adds the scaffold step
+  that turns acceptance criteria into tests before implementation. The Spec Kit
+  comparison adds a test-design row. The package description, architecture
+  overview and canonical GitHub About text and topics follow; `llm-workflow`
+  and `harness-engineering` replace the `state-machine` topic.
+
 ## [0.2.0] - 2026-09-29
 
 Review gates gather their own evidence, apply shared boundary-and-proof
