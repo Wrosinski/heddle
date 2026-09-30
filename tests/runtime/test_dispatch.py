@@ -463,7 +463,7 @@ class TestPerCommandHelp:
         for flag in ("-h", "--help"):
             code, out, _err = run_cli([flag])
             assert code == 0
-            assert "heddle — agent-workflow protocol runtime" in out
+            assert "heddle — LLM coding workflow harness" in out
 
     def test_unknown_flag_still_usage_exit_2(self, run_cli, envelope_tools):
         code, out, _err = run_cli(["phase-exit", "--nope", "--json"])

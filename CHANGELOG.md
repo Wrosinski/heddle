@@ -18,6 +18,7 @@ authority for the installed version.
   comparison adds a test-design row. The package description, architecture
   overview and canonical GitHub About text and topics follow; `llm-workflow`
   and `harness-engineering` replace the `state-machine` topic.
+- The `heddle help` banner reads "heddle — LLM coding workflow harness".
 
 ## [0.2.0] - 2026-09-29
 

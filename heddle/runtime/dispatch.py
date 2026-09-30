@@ -332,7 +332,7 @@ def _emit_usage(json_mode: bool, *, message: str, hint: str) -> int:
 def _render_help_listing() -> str:
     width = max(len(contract.name) for contract in COMMAND_SURFACE)
     lines = [
-        "heddle — agent-workflow protocol runtime",
+        "heddle — LLM coding workflow harness",
         "",
         _USAGE,
         "",
