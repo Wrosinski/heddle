@@ -66,9 +66,9 @@ itself.
 All execution below follows explicit scope authority. Broad suites and both
 local full-workflow e2e and external tests require a request covering the exact
 scope; a plan command, phase grant or confirmed prerequisite is not permission.
-Design and safely collect e2e/live tests here; normally execute them only after
-implementation or at final verification, unless earlier execution is specifically
-requested. Existing applicable grants persist. Required unrun proof stays pending.
+Design and safely collect e2e/live tests here; normally execute them once
+implementation finishes, ahead of any review, and a second time by default once
+review fixes land, unless earlier execution is specifically requested. Existing applicable grants persist. Required unrun proof stays pending.
 
 Create and record all applicable lanes:
 
@@ -144,9 +144,9 @@ services, seed data, conftest entries.
 For a declared alignment check, retain the artifacts needed to judge its stated
 criteria (observable contract conditions, not quality judgments). Tests prove
 every deterministically assessable AC condition; judgment
-does not replace them. The final-boundary lead performs the check after the last
-relevant fix and applicable passing run, recording one Assessment entry in the
-plan's verification note. Scaffold designs retention, not the final assessment.
+does not replace them. The implement lead performs the check on the passing
+pre-review witness run, recording one Assessment entry in the plan's
+verification note; the final-boundary lead refreshes it after a post-review rerun. Scaffold designs retention, not the final assessment.
 
 ## Command facts
 

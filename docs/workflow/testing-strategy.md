@@ -21,8 +21,8 @@ They classify execution responsibilities, not Python classes or new pytest bands
 | Component or boundary integration | 1 s | 10 s | Relevant edit/fix |
 | Fast feature acceptance | 1 s | 15 s | Feature behavior change; completion of the affected slice |
 | Necessary slower hermetic/toolchain proof | 10 s | 60 s | When its distinct contract changes; outside the default fast selection |
-| Local feature E2E | 60 min per journey | 60 min per selected feature lane | Completed implementation/final proof with explicit grant |
-| Live provider/service proof | 60 min per case | 60 min per selected feature lane | Completed implementation/final proof with explicit grant and prerequisites |
+| Local feature E2E | 60 min per journey | 60 min per selected feature lane | Implement exit before review, then a default post-review rerun, with explicit grant |
+| Live provider/service proof | 60 min per case | 60 min per selected feature lane | Implement exit before review, then a default post-review rerun, with explicit grant and prerequisites |
 
 The combined ordinary test loop should finish within **30 seconds**, and the
 local test/lint/hook feedback path should target **60 seconds**. Individual
@@ -113,11 +113,14 @@ Checkpoint 1, including when spec review is Off. An unresolved native question
 blocks progression, so do not create a future checkpoint question during
 specify. The scope ruling explicitly confirms the e2e shape and its execution
 stages and bounded reruns for every posture; no separate e2e decision is needed.
-Recommend e2e authority during implementation, milestone and final verification.
-A live lane or declining live has one class-5 question bundling posture,
-user-required prerequisites, allowed effects, per-attempt and aggregate cost
-caps, execution stages and bounded retries. Recommend live at the owning final
-boundary. Neither scope approval alone nor prerequisites imply execution grants.
+Recommend e2e authority during implementation and milestones. A live lane or
+declining live has one class-5 question bundling posture, user-required
+prerequisites, allowed effects, per-attempt and aggregate cost caps, execution
+stages and bounded retries. Every declared lane runs twice: at implement exit,
+before any review, and again by default after review changes. Caps cover both
+runs. The owner may opt out of a lane's post-review rerun at the checkpoint;
+the lead later applies that ruling as a standing grant through a witness waiver.
+Neither scope approval alone nor prerequisites imply execution grants.
 
 The plan references exact native decision IDs; scaffold binds exact commands
 within their approved scope. Reuse grants for those stages and bounds. Earlier
@@ -135,7 +138,18 @@ A timeout is failed/incomplete proof, and a failure grants no extra paid retries
 Finishing requires current milestone, acceptance and smoke proof under existing
 smoke-disposition rules, plus declared live proof and any declared alignment
 assessment. Live does not replace acceptance. Partial passes, skipped cases,
-timeouts and unrun required lanes remain unfinished. Execution deferral leaves
+timeouts and unrun required lanes remain unfinished.
+
+The implement-exit run is mandatory: phase exit to peer review refuses until
+every declared lane passes on current content. At the final boundary, a lane
+that review changes made stale reruns by default. The owner may waive one lane's
+rerun with a class-5 `witness-waiver` decision resolved as `accept-prior-witness`.
+It binds the latest stable passing fact and the current source, so any later
+relevant edit restores the rerun. Failed, missing, unstable and command-stale
+evidence is never waivable. The waiver satisfies the stage boundary and
+completion only; it is not verification evidence for a review disposition. The
+completion fact names it, and spec Outcomes state that the lane's evidence
+predates review changes. Execution deferral leaves
 proof pending; changing an obligation requires an explicit contract decision
 and reconciled commands, AC coverage and evidence.
 
@@ -175,10 +189,12 @@ remaining alignment criteria and artifacts in the proposal. Alignment criteria
 are observable contract conditions that inspection can confirm, such as live
 output carrying the promised fields, references and structure; judging how good
 the output is belongs to assessment targets. Tests still prove
-every deterministically assessable AC condition. After the final applicable
-passing run and last relevant fix, the execution-owning lead at peer review
-(Overlay R Off) or robustness (R On) judges the retained output against the
-spec and plan. Misalignment is a defect and blocks finishing. Quality
+every deterministically assessable AC condition. The implement lead first
+judges the retained output of the passing pre-review run against the spec and
+plan. After the final applicable passing run and last relevant fix, the
+execution-owning lead at peer review (Overlay R Off) or robustness (R On)
+refreshes that judgment; a waived rerun keeps the pre-review assessment with
+the waiver named among its limitations. Misalignment is a defect and blocks finishing. Quality
 observations are recorded separately and never block finishing or add a
 condition to it.
 
@@ -274,9 +290,10 @@ not independently supply that request. Existing explicit authorization remains
 valid within its stated scope; do not repeatedly ask for it.
 
 Both local full-workflow e2e and real external tests require explicit execution
-authority and exact file/node targets. Normal scheduling is after implementation
-is complete, at final verification or post-hardening. Earlier execution is valid
-only when specifically requested, for example a bounded diagnostic. A provider
+authority and exact file/node targets. Normal scheduling is at implement exit,
+before any review, and again by default at final verification or post-hardening
+after review changes. Earlier execution is valid only when specifically
+requested, for example a bounded diagnostic. A provider
 schema probe is one such bounded check: when a change alters a schema that a
 provider must accept before any model or service call runs, the probe may run
 as soon as the schema changes, under the same paid-run authority. It proves
@@ -301,8 +318,9 @@ execution evidence; imports and collection hooks must not launch external work.
 | Plan review and scaffolding | Review feasibility, realize the confirmed design, bind exact commands, and retain meaningful red/green expectations, costs and fixtures |
 | Task implementation | Run affected behavior and direct-consumer checks; include related slow cases for a concrete reason |
 | Milestone boundary | Execute the applicable recorded milestone proof within its authority; preserve required unrun obligations |
+| Implement exit | Run every declared e2e/live witness lane within its grant; reviews start only after each passes |
 | Review and remediation | Reuse applicable evidence; rerun affected checks after fixes; reviewers retain their role limits |
-| Final verification / robustness | Complete required acceptance and authorized e2e/live proof against current relevant content |
+| Final verification / robustness | Complete required acceptance and authorized e2e/live proof against current relevant content; rerun stale lanes by default unless the owner waived that lane |
 | Completion | Account for all required evidence and explicit dispositions; do not add an automatic broad run |
 
 If a required scope cannot yet run, keep its proof claim pending and continue

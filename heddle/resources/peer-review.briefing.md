@@ -137,7 +137,8 @@ owner-approved absolute quality round total. It changes no provider retry
 budget, invokes no provider, and leaves the stop for its own resolution before
 ordinary round opening.
 
-When Overlay R is off, this is the owning final verification boundary. After
+When Overlay R is off, this is the owning final verification boundary. The
+integrated witness already passed at implement exit, before these reviews. After
 all relevant fixes, retain current `heddle verify --scope acceptance` and
 `heddle verify --scope smoke`, plus any declared live obligation under its
 separate authority. When Overlay R is on, robustness owns final post-hardening
@@ -147,15 +148,30 @@ actually changes what is required.
 
 Read the Integrated Witness Proposal and its exact native ruling IDs. Reuse the
 confirmed grants for both lanes within their stages, effects and bounded reruns;
-live does not replace acceptance. With R Off, discharge declared live via
-`heddle verify --scope live` before handoff even though the native peer boundary
-does not require that scope. Native enforcement applies at robustness (traversed
+live does not replace acceptance. A lane made stale by review changes reruns by
+default; announce that rerun before launching it. The owner may instead waive
+one lane's rerun: a class-5 `witness_waiver` decision, resolved with
+accept-prior-witness, binds the latest passing pre-review run and the current
+source. File it with `heddle decisions add` (see `--help`). A Checkpoint 1
+opt-out is a standing grant: the lead files that decision citing the ruling and
+resolves it where the session allows; a driven session cannot resolve, so the
+pending decision halts the driver until the owner does. Any later relevant edit
+restores the rerun, and the close records each waiver. A lane whose evidence is
+still current needs neither. A disposition citing a waived lane as verification
+evidence still needs a fresh run. With R Off, discharge declared live via
+`heddle verify --scope live` or its waiver before handoff even though the native
+peer boundary does not require that scope. Native enforcement applies at robustness (traversed
 even with R Off) and complete. Resolve missing or materially changed
 choices with the original owner; older active work reuses sufficient approvals
 without fabricating a past checkpoint or restarting completed stages.
 
-When this is the final boundary, the lead performs any declared alignment check
-after the last relevant fix and applicable passing run. Read the exact retained
+If the plan declares an alignment check and no Assessment cites the
+implement-exit run, because the driver ran that witness, record it on that run
+before launching review gates.
+
+When this is the final boundary, the lead refreshes any declared alignment check
+after the last relevant fix and applicable passing run; a waived rerun leaves the
+pre-review Assessment standing with the waiver named in its limitations. Read the exact retained
 artifacts against the declared spec/plan criteria. Misalignment blocks finishing;
 quality observations and results against the spec's Assessment Targets do not.
 Under the plan's `### Verification Commands`, record one Assessment: criteria,
@@ -170,7 +186,8 @@ qualifying final rereview; otherwise validate and refresh affected dispositions
 and review evidence afterward. When R is On, hand these duties to robustness.
 
 Exit readiness requires closed applicable assignments, committed IMPLEMENT
-fixes, resolved blocking decisions, and current applicable evidence. Follow
+fixes, resolved blocking decisions, and current applicable evidence or a bound
+witness waiver. Follow
 native routing toward **robustness** or **complete** without claiming feature
 acceptance early. Phase exit remains caller- or driver-owned.
 

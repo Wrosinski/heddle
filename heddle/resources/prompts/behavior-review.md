@@ -20,9 +20,15 @@ paths beyond the latest diff. Do not design a second architecture review.
   run/source binding and retained output. Misalignment violates the contract;
   quality observations and results against the spec's Assessment Targets never
   block completion or add a condition to it.
-  The final-boundary lead owns the assessment after final execution and relevant
-  fixes. If this review precedes that run, identify pending proof without
-  pretending it passed or demanding an assessment before its scheduled run.
+  Each declared lane must pass at implement exit, before this review, with any
+  declared Assessment made on that run. Check the recorded facts and Assessment
+  rather than presuming them: work that left implement earlier may lack both,
+  so report the gap without demanding retroactive stage execution. A rerun
+  after review changes is the default unless the owner waived that lane; the
+  final-boundary lead then refreshes the assessment. If this review precedes
+  the rerun, identify it as pending without pretending it passed or demanding a
+  refreshed assessment early. A waived rerun keeps the pre-review evidence by
+  owner decision; it is not proof that later changes preserved behavior.
   Do not invent an assessment-only review obligation. An Assessment is authored
   plan content; native freshness and required originating-reviewer inspection
   still govern qualification after it changes.

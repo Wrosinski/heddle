@@ -122,8 +122,9 @@ operational frontmatter and is not another state ledger.
   `verification`, not a second copied command inventory.
 - **Integrated Witness Proposal:** complete flow, lanes, ACs per lane and
   concrete fallback witnesses, deterministic conditions, real/doubled systems,
-  alignment criteria/artifacts, prerequisites, execution stages, caps and
-  finishing criterion. Draft at specify; confirm shape and grants at Checkpoint 1;
+  alignment criteria/artifacts, prerequisites, execution stages (the required
+  implement-exit run and the default post-review rerun), caps and finishing
+  criterion. Draft at specify; confirm shape and grants at Checkpoint 1;
   realize at scaffold. Reference exact native rulings rather than copying them.
 - **Implementation Strategy:** independently verifiable milestones with scope,
   expected capability, approach, owned write surface, dependencies and acceptance
@@ -173,9 +174,11 @@ including at phase exit or pre-merge. Prerequisites do not grant execution.
 The plan's verification note under `### Verification Commands` owns a declared
 alignment Assessment: criteria,
 assessor, native run reference and relevant source identity, exact retained
-artifacts, conclusion, limitations and separate quality observations. The owning
-final-boundary lead records it after the applicable pass and last relevant fix;
-replacement output or relevant changes require refresh. Session handoffs and
+artifacts, conclusion, limitations and separate quality observations. The
+implement lead records it on the passing pre-review run; the owning
+final-boundary lead refreshes it after the applicable pass and last relevant
+fix, and a waived rerun leaves it standing with the waiver among its
+limitations. Replacement output or relevant changes require refresh. Session handoffs and
 spec Outcomes reference this entry. Judgment is not a native verification result.
 The entry is authored content: its edits remain subject to source-bound review
 freshness. Record it before any required qualifying final rereview, or refresh
@@ -259,6 +262,8 @@ user chose the option directly or a lead applied a standing user grant.
   point `routes_to` at the real repository document where the ruling applies.
   A Checkpoint 1 witness grant is one example: name the approved lane, stages,
   effects and bounds, and verify that the scaffold-bound exact command fits it.
+  A Checkpoint 1 opt-out of a lane's post-review rerun is another: the lead
+  resolves the bound `witness-waiver` decision and cites that ruling.
 - For an ordinary reversible choice derived from ratified engineering policy,
   use `heddle decisions record-policy --from-file <path>`. Its policy fact and
   matching journal entry own the attribution; do not route it through user

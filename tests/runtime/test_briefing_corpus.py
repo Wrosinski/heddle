@@ -414,6 +414,8 @@ class TestAC7KickoffRendersClean:
             assert "scope question with class 8" in folded
             assert "class-5 `question`" in folded
             assert "per-attempt/aggregate cost caps" in folded
+            assert "a required one at implement exit, before any review" in folded
+            assert "opt out of a lane's rerun" in folded
         elif stage in {"peer-review", "robustness"}:
             assert "Assessment" in briefing and "passing run" in briefing
             assert "replacement output" in briefing
@@ -425,12 +427,25 @@ class TestAC7KickoffRendersClean:
             assert "native freshness" in folded.lower()
             assert "qualifying" in folded and "rereview" in folded
             assert "live does not replace acceptance" in folded
+            assert "class-5 `witness_waiver` decision" in folded
+            assert "accept-prior-witness" in folded
+            assert "Checkpoint 1 opt-out" in folded
+            assert "`heddle decisions add" in folded
+            assert {
+                "peer-review": "pending decision halts the driver",
+                "robustness": "pending question stops the driver",
+            }[stage] in folded
+            if stage == "peer-review":
+                assert "no Assessment cites the implement-exit run" in folded
             if stage == "robustness":
                 assert "committed hermetic replay case at the seam" in folded
                 assert "integrity checks over runtime-owned state" in folded
         elif stage == "complete":
             assert "final native run and relevant source identity" in folded
             assert "Execution deferral remains pending" in folded
+            assert "evidence predates review changes" in folded
+            assert "choice: accept-prior-witness" in folded
+            assert "settle its Outcomes wording before the waiver" in folded
             assert "model-behavior failure observed in the feature's" in folded
         assert path.read_bytes() == before
 
@@ -538,7 +553,11 @@ class TestStageSemanticContracts:
             "heddle verify scope acceptance",
             "heddle verify scope smoke",
             "live e2e prerequisites",
-            "live lane readiness or explicit deferral",
+            "heddle verify scope live",
+            "phase exit to peer review refuses until every declared lane passes",
+            "the passing witness lanes",
+            "a live grant that names only the final boundary does not cover",
+            "the first peer review lead records it before any review gate",
         )
         assert not [item for item in required if item not in text]
         assert "quote the spec s contracts in your reasoning" not in text

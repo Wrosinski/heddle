@@ -76,6 +76,10 @@ def test_ac12_shipped_plan_template_owns_approach_without_duplicate_contract():
     assert "## Technical Architecture" in text
     assert "## Implementation Strategy" in text
     assert "### Integrated Witness Proposal" in text
+    # The first alignment Assessment belongs to the pre-review witness run.
+    assert "first recorded on the passing implement-exit witness run" in " ".join(
+        text.split()
+    )
     assert "Milestone <id>:" in text
     assert "heddle:begin plan-status" in text
     for retired in (

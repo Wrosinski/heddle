@@ -266,6 +266,13 @@ sufficient grants, fill missing references, and ask only about missing or
 materially changed choices. Do not invent retrospective checkpoint approval or
 restart completed stages. Accepted features keep their original contract.
 
+The implement-exit witness requirement is runtime-enforced for every feature at
+its next exit from implement, with no policy-version gate. A feature already in
+implement whose Checkpoint 1 live grant names only the final boundary reopens
+that ruling through a class-2 question before the earlier live run. Features
+already past implement keep their history and may use a witness waiver at their
+final boundary.
+
 Inspect effective stage briefings, scaffolds and gate prompts before claiming
 adoption: `.heddle/overrides/` and `.heddle/generated/` can shadow the package.
 Updating the installation does not rewrite those resources or authored plans;

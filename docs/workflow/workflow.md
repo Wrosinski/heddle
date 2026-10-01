@@ -244,8 +244,11 @@ stages and bounded reruns for every posture; no separate e2e decision is needed.
 A live lane, or declining live for a real-provider feature, needs one class-5
 question bundling posture, user-required prerequisites, effects, per-attempt and
 aggregate caps, execution stages and bounded retries, or the reason and fallback.
-Recommend e2e during implementation/milestone/final proof and live at the owning
-final boundary. Record actual grants, actor and native decision IDs; scope
+Recommend e2e iteration during implementation and milestones. Each declared lane
+runs at implement exit, before any review, and again by default after review
+changes; size caps for both runs. The owner may opt out of a lane's post-review
+rerun here, and a later lead applies that ruling as a standing grant through a
+witness waiver. Record actual grants, actor and native decision IDs; scope
 confirmation without an execution grant is not permission. Resolve user choices
 before progression; scheduled auto-resolvable setup may remain a plan task.
 Where no scope decision exists, including with review Off, the lead records
@@ -308,6 +311,12 @@ Use the milestone's selected review assignment and original-finding disposition
 flow. Final review or all-Off policy does not replace milestone proof. Advance
 only when the native boundary is satisfied. Commit scoped behavior changes
 separately from mechanical cleanup using the repository's commit procedure.
+
+After the last milestone, run every declared witness lane with `heddle verify
+--scope acceptance` and, when live is declared, `--scope live`. Phase exit to
+peer review refuses until each lane passes on current content, so reviews start
+from a feature the witness has shown to work. The lead performs any declared
+alignment assessment on this pre-review run, so reviewers can inspect it.
 
 Milestone ownership may name another feature's Heddle records when a migration
 explicitly changes or deletes those exact paths. It may not name the active
@@ -426,11 +435,18 @@ applicability and do not infer an extra broad test grant from this stage.
 
 At the owning final boundary, the lead retains current milestone, acceptance and
 smoke proof under existing smoke-disposition rules, plus declared live proof and
-any declared alignment assessment. Live never replaces acceptance. With R Off,
+any declared alignment assessment. Live never replaces acceptance. Rerunning a
+witness lane that review changes made stale is the default. The owner may waive
+one lane's rerun with a class-5 `witness-waiver` decision resolved as
+`accept-prior-witness`; it binds the latest passing pre-review fact and current
+source, so any later relevant edit restores the rerun. Failed, missing,
+unstable or command-stale evidence cannot be waived, and the implement-exit run
+never can. With R Off,
 the lead still owes declared live proof here although native enforcement starts
 at robustness, which is traversed even with R Off, and applies again at complete.
-After the last relevant fix and final applicable pass,
-assess retained artifacts against the declared criteria. Misalignment blocks;
+After the last relevant fix and final applicable pass, refresh the assessment
+of retained artifacts against the declared criteria; a waived rerun keeps the
+pre-review assessment with the waiver named among its limitations. Misalignment blocks;
 quality observations and results against the spec's Assessment Targets do not.
 Record one Assessment entry under the plan's `### Verification Commands` with assessor,
 native run/source reference, exact artifacts, conclusion and limitations. Session
@@ -458,7 +474,8 @@ recoverability; do not add speculative defenses beyond the contract by default.
 Retain limitations and route out-of-scope discoveries rather than hiding them.
 
 After the last relevant fix, complete the required current final scopes,
-including applicable separately authorized installed/e2e/live witnesses. Every
+including applicable separately authorized installed/e2e/live witnesses, or
+hold a bound owner waiver for a witness lane's rerun. Every
 formal feature owes final proof even when all review roles are Off. A required
 unrun witness remains pending and blocks the claim it proves; optional ungranted
 broad regression is a reported limitation, not an invented completion gate.
@@ -475,7 +492,8 @@ native complete briefing owns its detailed checkpoint, acceptance and recovery
 protocol. Work within the existing grant and stop for outstanding owner choices.
 
 Sweep propagation tags, mine durable lessons, disposition deferred enforcement,
-classify gate effectiveness and write concise spec outcomes. Prepare the native
+classify gate effectiveness and write concise spec outcomes. A waived witness
+rerun is disclosed there: the lane's evidence predates review changes. Prepare the native
 decision journal and friction retrospective. Audit Verified-by routes against
 the final tests and required current evidence, including the final alignment
 assessment and its retained artifacts when declared. Keep detailed logs and qualification

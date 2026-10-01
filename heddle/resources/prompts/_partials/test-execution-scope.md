@@ -24,8 +24,9 @@ Full-repository and broad cross-feature execution requires an explicit request
 covering that scope. Phase exit, review, pre-merge, final verification and stored
 plan commands do not independently grant it. Both local full-workflow e2e and
 real external tests require explicit execution authority and exact targets.
-Normally schedule them after implementation or at final verification; earlier
-execution needs a specific request. Confirmed prerequisites are not permission.
+Normally schedule them at implement exit, before any review, and again by
+default after review changes; earlier execution needs a specific request.
+Confirmed prerequisites are not permission.
 Existing applicable grants persist; do not request them again.
 
 Use the host's configured runner and native verification scopes. Preserve

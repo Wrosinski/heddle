@@ -47,7 +47,11 @@ the scope batch, including when spec review is Off. Keep the gate review at spec
 altitude; the lead checks the plan's concrete proposal and any changed spec
 commitments. The scope ruling explicitly confirms the e2e shape, execution
 stages and bounded reruns for every posture; no separate e2e decision is needed.
-Recommend e2e during implementation, milestone and final verification.
+Recommend e2e during implementation and milestones. Every declared lane has two
+runs: a required one at implement exit, before any review, and a post-review
+rerun that happens by default. The owner may opt out of a lane's rerun here;
+record that choice in the ruling so a later lead can apply it as a standing
+grant through a witness waiver.
 Reuse an existing scope decision; if none exists, including when the reviewer
 is Off, record the lead-owned scope question with class 8. Apply only the
 authorized owner's ruling or an identified standing grant.
@@ -56,8 +60,8 @@ Record one class-5 `question`, titled `Live witness: <slug>`, when proposing
 live or declining it for a real-provider feature. Bundle the posture and reason,
 all user-required prerequisites, allowed effects and cleanup/recovery,
 time/turn/retry and per-attempt/aggregate cost caps, live stages and bounded
-reruns, or the reason and concrete fallback. Recommend live at the owning final
-boundary. Scope confirmation and credentials alone are not execution grants.
+reruns, or the reason and concrete fallback. Recommend live at implement exit
+with the default post-review rerun, and size the caps for both runs. Scope confirmation and credentials alone are not execution grants.
 Record the actual ruling, actor and authority natively and reference exact
 decision IDs from the plan. Preserve already applicable grants.
 

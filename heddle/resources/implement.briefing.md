@@ -2,9 +2,9 @@
 
 You are at the **implement** stage. Complete one milestone at a time, drive its
 scaffolded contracts green, apply actionable gate findings, preserve the living
-design record, and finish with feature-level acceptance plus system health
-evidence. One verified milestone at a time keeps errors from compounding
-across unverified work.
+design record, and finish with a passing integrated witness so that review
+starts from a feature shown to work. One verified milestone at a time keeps
+errors from compounding across unverified work.
 
 Mindset: a builder exercising sustained judgment. Investigate before acting —
 read code in its current state rather than trusting a description of it.
@@ -170,14 +170,18 @@ grants for both lanes; scheduled auto-resolvable setup may still need completing
 Reopen a materially changed choice through a class-2 question naming its original
 ruling. Record a genuinely missing live choice with class 5; obtain missing e2e
 authority in the scope ruling, using class 8 for a new lead-owned scope question.
-A required lane deferred from execution stays pending. For older active work,
+A required lane deferred from execution stays pending and holds the exit to
+peer review. A live grant that names only the final boundary does not cover the
+implement-exit run: reopen it through a class-2 question before the last
+milestone advances, because the driver may launch that run right after the
+advance. For older active work,
 reconcile existing design and approvals without
 inventing a retrospective checkpoint or restarting completed stages.
 
 Use the checkpoint's explicit grant for e2e iteration at its approved
-implementation/milestone stages and for live at its approved final boundary.
-Without such earlier authority, local e2e and live workflows remain scheduled
-after implementation or at final verification. Design or
+implementation/milestone stages. Both declared lanes run under their grants once
+the last milestone is done, before any review. Without earlier authority, local
+e2e and live workflows wait for that exit run. Design or
 collection does not establish execution, and a skipped case does not prove its AC.
 
 Verification and a clean scoped commit remain required even when the confirmed
@@ -390,25 +394,35 @@ position. Authored plan corrections still change the applicable review basis.
 
 ## Final feature verification
 
-After the last milestone and its fixes, retain current milestone proof and
-identify the owning final boundary. At that boundary, after the last relevant
-review fix, the final verification commands are:
+After the last milestone and its fixes, retain current milestone proof and run
+the integrated witness before any review:
 
 ```bash
 heddle verify --scope acceptance
-heddle verify --scope smoke
+heddle verify --scope live
 ```
 
-The final proof boundary is peer review when Overlay R is off and robustness
-when it is on. Follow native applicable scopes and repair instructions. Turning
-reviews off does not waive acceptance, smoke, declared live proof, or retained
-originating obligations; an unrun required witness remains pending.
+Run the live scope only when the confirmed witness declares it. Phase exit to
+peer review refuses until every declared lane passes on current content, so no
+review spends effort on a feature the witness has not shown to work. Follow
+native applicable scopes and repair instructions.
+
+Smoke and the post-review rerun belong to the final proof boundary: peer review
+when Overlay R is off and robustness when it is on. There, after the last relevant review fix,
+`heddle verify --scope smoke` runs and `heddle verify --scope acceptance`
+reruns by default, with live when declared; the owner may waive one lane's
+rerun. Turning reviews off does not waive acceptance, smoke, declared
+live proof, or retained originating obligations; an unrun required witness
+remains pending.
 
 The confirmed witness adds declared live proof to acceptance; a live pass never
 replaces the e2e lane. Finishing also requires any declared alignment assessment.
-Hand the criteria and retained artifact locations to the owning final-boundary
-lead, who performs the assessment after the last relevant fix and applicable
-passing run. Tests cover every deterministically assessable AC condition;
+Perform it on this pre-review passing run so reviewers can inspect it. When
+the driver ran the witness after the last advance, no implement session follows,
+so the first peer-review lead records it before any review gate. The
+final-boundary lead refreshes it after a post-review rerun, and a waived rerun
+leaves it standing with the waiver named in its limitations. Tests cover every
+deterministically assessable AC condition;
 misalignment in remaining declared content is a defect. Quality is
 observational here: judgment-based targets live under the spec's Assessment
 Targets and never gate finishing.
@@ -420,16 +434,17 @@ output; judgment is never a verification fact or a way to turn red proof green.
 Required facts must match the current declared relevant content, commands and
 source inputs. A commit that leaves that content unchanged does not itself
 require another run. If proof fails, diagnose, fix, rerun affected milestone/
-consumer tests and the applicable final scopes, and commit the fix. After the
-last relevant review fix, refresh affected-consumer selection before final proof.
-Record a final session handoff naming the evidence, live-lane readiness or explicit
-deferral, remaining decisions, and readiness for peer review. Report provider
+consumer tests and the witness lanes, and commit the fix. After the
+last relevant milestone-review fix, refresh affected-consumer selection before the
+witness run. Record a final session handoff naming the evidence, the passing
+witness lanes, remaining decisions, and readiness for peer review. Report provider
 transport completion, parsed verdict, and native assignment closure separately;
 do not infer any one from either of the others. The selected final boundary owns
-post-review-fix proof and any declared live obligation. A deferral
+smoke and the default post-review rerun. A deferral
 is not a waiver of a required acceptance condition.
 
 The stage is ready for **peer-review** only when every milestone is done, all
 task and propagation records are current, required milestone assignments are
-closed, the tree is clean, and applicable verification is current and green.
+closed, the tree is clean, and applicable verification, including every declared
+witness lane, is current and green.
 Phase exit remains driver- or user-owned.

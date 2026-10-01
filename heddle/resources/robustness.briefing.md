@@ -131,17 +131,29 @@ heddle verify --scope smoke
 Read the Integrated Witness Proposal and follow its exact native ruling IDs.
 Use the confirmed grants for both lanes within their approved stages, effects
 and bounds. When live is declared, also run `heddle verify --scope live` against
-the same relevant content; live does not replace acceptance. A declined lane
-retains its owner-confirmed reason and concrete fallback. Deferring execution
+the same relevant content; live does not replace acceptance. These are reruns:
+both lanes passed at implement exit, and repeating a lane that hardening or review
+fixes made stale is the default, announced before launch. The owner may waive
+one lane's rerun through a class-5 `witness_waiver` decision resolved with
+accept-prior-witness; propose it via `heddle decisions add --help`. A
+Checkpoint 1 opt-out counts as a standing grant the lead cites when filing that
+decision. A driven session never resolves it: the pending question stops the
+driver until the owner rules, while an interactive lead may resolve it on that
+cited grant. The waiver binds the latest passing pre-review run to the current
+source; a later relevant edit restores the rerun. A waiver made at peer review
+stays valid here while that source is unchanged. Verification evidence for a
+finding disposition needs a fresh run even when the lane's rerun is waived. A
+declined lane retains its owner-confirmed reason and concrete fallback. Deferring execution
 leaves required proof pending; changing the obligation requires an explicit
 contract ruling and reconciled commands and coverage. Route missing or materially
 changed choices to the original owner. For older active work, reconcile existing
 design/grants without inventing past approval or restarting completed stages.
 Prerequisites and review authority do not grant external execution.
 
-After the last relevant fix and final applicable passing run, the lead performs
+After the last relevant fix and final applicable passing run, the lead refreshes
 any declared alignment assessment against the retained artifacts and spec/plan
-criteria. Misalignment blocks finishing. Neither quality observations nor
+criteria. A waived rerun keeps the pre-review Assessment, with the waiver named
+among its limitations. Misalignment blocks finishing. Neither quality observations nor
 assessment-target results from the spec block it. Keep one Assessment in
 the plan under `### Verification Commands`, with criteria, assessor, native run/source
 reference, exact artifacts, conclusion, limitations and separate quality
@@ -161,9 +173,10 @@ stale.
 
 Exit toward **complete** only when selected robustness assignments are closed,
 originating findings and coverage are qualified, the tree is clean, and the applicable
-post-hardening verification is green under existing smoke-disposition rules,
-declared live evidence is current and any declared alignment assessment is
-recorded. An authorized change to the obligation must already be reconciled;
+post-hardening verification is green under existing smoke-disposition rules or
+carries a bound acceptance waiver, declared live evidence is current or its rerun
+is waived, and any declared
+alignment assessment is recorded. An authorized change to the obligation must already be reconciled;
 mere execution deferral does not qualify exit (the `phase-exit` boundary is
 driver- or user-owned).
 

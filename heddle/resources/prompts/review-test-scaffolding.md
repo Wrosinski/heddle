@@ -251,7 +251,8 @@ Evaluate the live end-to-end test design against the acceptance test:
 - Do time, turn, retry and per-attempt/aggregate cost caps leave expected healthy
   runs headroom within the host's limits and explicit grant?
 - Does a declared alignment check retain its artifacts and specify observable
-  contract criteria, not quality judgments, for the final-boundary lead? Tests
+  contract criteria, not quality judgments, for the lead who assesses the
+  pre-review witness run and any post-review rerun? Tests
   still assert all deterministically assessable
   conditions; judgment never turns red proof green or replaces acceptance.
 
@@ -279,8 +280,9 @@ Evaluate the prerequisites checklist:
   with no hidden broad subprocess launch or unrelated slow selection?
 - Does every required over-budget or flaky witness have measured cost, a scoped
   reason, owner, review point and any substitute evidence without being dropped?
-- Are e2e/live runs scheduled for completed implementation or final verification,
-  with any earlier execution explicitly requested and prerequisites separate?
+- Are e2e/live runs scheduled at implement exit before review, with a default
+  post-review rerun, any earlier execution explicitly requested and prerequisites
+  separate?
 - When cancellation is affected, do controlled doubles preserve the real
   worker/monitor/provider-session and parent-publication topology rather than
   bypassing the failure boundary under test?

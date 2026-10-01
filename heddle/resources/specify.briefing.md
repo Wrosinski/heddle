@@ -150,9 +150,10 @@ Populate `plans/<feature>/plan.md` with:
   live prerequisites (targets, credential references, data/freshness, network,
   quota/cost, effects and evidence destination), classified auto-resolvable or
   user-required; effects must be idempotent or reversible with cleanup/recovery.
-  Propose stages and bounded reruns for both lanes, with live time/turn/retry and
-  per-attempt/aggregate cost caps based on expected healthy cost with headroom
-  within host limits. Finishing needs current milestone, acceptance and smoke
+  Propose stages and bounded reruns for both lanes: each declared lane runs at
+  implement exit before review and again by default after review changes. Base
+  live time/turn/retry and per-attempt/aggregate cost caps on expected healthy
+  cost for both runs, with headroom within host limits. Finishing needs current milestone, acceptance and smoke
   proof under existing disposition rules, plus declared live and alignment
   evidence. Live does not replace acceptance, and assessment targets never gate
   finishing. Planned or unapproved execution remains explicitly pending.
@@ -191,7 +192,8 @@ witness question in the plan here; do not record that future native question at
 specify, because an unresolved decision blocks progression. The checkpoint lead
 includes e2e authority in the scope ruling for every posture and records one
 class-5 question for live or declining live for a real-provider feature, bundling
-user-required prerequisites, effects, stages and caps. Recommend e2e during
-implementation/milestone/final proof and live at the owning final boundary.
+user-required prerequisites, effects, stages and caps. Recommend e2e iteration
+during implementation and milestones, both lanes at implement exit, and a
+post-review rerun the owner may decline per lane.
 Do not claim that later authorization here. Follow native next actions and the
 caller's phase-exit authority.

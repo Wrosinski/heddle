@@ -54,8 +54,10 @@ conditions, real/doubled systems, alignment criteria (observable contract
 conditions, not quality judgments) and retained artifacts.
 List prerequisites as auto-resolvable setup or user-required decisions, effects
 and idempotency or reversible-effect cleanup/recovery. Propose execution stages
-and bounds for both lanes; give live time/turn/retry and per-attempt/aggregate
-cost caps expected to accommodate healthy runs with headroom.)_
+and bounds for both lanes: each declared lane runs at implement exit, before any
+review, and again by default after review changes. Give live time/turn/retry and
+per-attempt/aggregate cost caps expected to accommodate both healthy runs with
+headroom.)_
 
 _(Draft at specify; the lead records the witness batch and obtains its ruling at
 Checkpoint 1 after spec review, including when the reviewer is Off. The scope
@@ -68,7 +70,9 @@ questions naming the original ruling. The proposal itself grants no execution.)_
 
 _(Finishing needs current milestone, acceptance and smoke proof under existing
 smoke-disposition rules, plus declared live proof and alignment assessment.
-Live does not replace acceptance; an unrun required lane stays pending.
+Live does not replace acceptance; an unrun required lane stays pending. The
+owner may waive one lane's post-review rerun with a class-5 witness waiver;
+the implement-exit run is never waivable.
 For existing active work, reconcile design and prior grants without fabricating
 a retrospective checkpoint or restarting completed stages.)_
 
@@ -83,9 +87,12 @@ current proof.)_
 
 _(When an alignment check was declared, this verification note owns one
 Assessment entry: criteria, assessor, native run/source reference, exact retained
-artifacts, conclusion, limitations and separate quality observations. The final
-peer-review/robustness lead records it after the last relevant fix and applicable
-passing run, refreshing after changed output or relevant changes. Misalignment
+artifacts, conclusion, limitations and separate quality observations. It is
+first recorded on the passing implement-exit witness run, by the implement lead
+or, when the driver ran that witness, the first peer-review lead. The final
+peer-review/robustness lead refreshes it after a post-review rerun or other
+changed output; a waived rerun leaves it standing with the waiver among its
+limitations. Misalignment
 blocks; quality observations and results against the spec's Assessment Targets
 do not. Session/spec summaries reference
 this entry. Judgment never substitutes for a verification fact. This is authored

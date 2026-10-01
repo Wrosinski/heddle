@@ -261,7 +261,16 @@ Before cleanup, audit every Feature Spec `Verified-by:` route against the final
 test names and commands. Repair references made stale by test consolidation or
 renaming, and confirm the required final verification facts still match
 current declared relevant content, commands and source inputs. Declared live
-proof is additional to acceptance and needs that same binding. Execution
+proof is additional to acceptance and needs that same binding. A witness lane
+whose post-review rerun the owner waived instead carries its resolved class-5
+waiver, bound to the latest passing pre-review run and current source; the
+completion fact names it. State in spec Outcomes and the close package that the
+lane's evidence predates review changes, and never describe it as rerun. Keep
+the waiver in the journal under `## <decision-id>` with fields `choice:
+accept-prior-witness`, `scope:` (the waived lane), and `fact_sha256:` (the bound
+fact digest from the decision); close audits these fields. When the spec sits
+inside the ownership union, settle its Outcomes wording before the waiver is
+proposed: editing it afterwards breaks the binding and restores the rerun. Execution
 deferral remains pending; only an explicit contract ruling with reconciled
 commands, coverage and evidence changes an obligation. Follow the proposal's
 native ruling IDs and existing grants. For older active work, reconcile existing

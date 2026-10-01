@@ -94,8 +94,11 @@ Assess each of these eight native dimension IDs exactly once:
   or materially changed choices are REPORT; reuse adequate existing rulings,
   including for active work predating the proposal section. Do not demand a
   retrospective checkpoint. Acceptance remains required alongside declared live.
-  Any alignment check identifies criteria and retained output, its final-boundary
-  lead owner and Assessment record. Alignment criteria are observable contract
+  Each declared lane runs at implement exit before review and reruns by default
+  after review changes; caps cover both runs.
+  Any alignment check identifies criteria and retained output, its lead owner
+  (implement exit, refreshed at the final boundary after a rerun) and
+  Assessment record. Alignment criteria are observable contract
   conditions. A criterion that needs quality judgment belongs to the spec's
   Assessment Targets and never gates completion; it is Important: IMPLEMENT
   when moving it there preserves recorded owner intent, REPORT when an owner
