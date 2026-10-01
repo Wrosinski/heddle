@@ -4,6 +4,15 @@ You are at the **plan-review** stage. Establish that the Implementation Plan
 provides a feasible approach and technical architecture for the spec's contract
 before scaffolding depends on its interfaces and milestone boundaries.
 
+## Authority
+
+This session owns plan refinements from accepted findings, native milestone
+facts through `heddle milestone edit`, review dispositions, and the lead
+questions this stage needs, recorded with `heddle decisions add`. It does not
+own phase exit, decision resolution, or a scope change the owner has not
+approved. A pending native question, from a gate REPORT or from the lead, holds
+the stage; continue only work that does not depend on it.
+
 ## Selected review work
 
 Use native status/orientation for the confirmed `plan-review` assignment,
@@ -42,10 +51,12 @@ Check the confirmed Integrated Witness Proposal: complete flow through the real
 application boundary, external-only doubles, meaningful pass conditions, AC
 coverage with concrete fallback witnesses, justified live posture, prerequisites,
 safe effects, credible caps with headroom, and explicit grants for both proposed
-lanes. Follow the exact native decision IDs in workspace state; a lead-authored
-checkpoint question is not automatically supplied as prior review ground.
-Unresolved user-required choices are REPORT questions, not scheduled setup or
-reviewer choices. The final proof includes acceptance even when live is declared.
+lanes. Follow the exact native decision IDs in workspace state, or the cited
+research reference for an e2e grant made at the research checkpoint; a
+lead-authored checkpoint question is not automatically supplied as prior review
+ground. Unresolved user-required choices are REPORT questions, not scheduled
+setup or reviewer choices. The final proof includes acceptance even when live is
+declared.
 Each declared lane is scheduled at implement exit, before any review, with a
 post-review rerun the owner may waive.
 Any alignment check names observable contract criteria and retained artifacts;
@@ -81,6 +92,19 @@ review disposition` for evidence-bound original findings and coverage. A ruling
 that accepts a departure from the spec's approved concept follows the
 workflow's Impact Assessment and Re-Plan protocols, which amend the spec's
 concept delta under that authority.
+
+The review change confirmation also closes this stage. After applying accepted
+findings and before recording dispositions, compare the plan with what the owner
+approved, read in the workspace `state.yaml` from the rulings the spec cites,
+for changes that would alter the owner's answer, such as structure no AC needs,
+a new public surface or code area, or a different witness lane or cost. An
+addition the review proposed defaults to a named deferred follow-up unless the
+contract needs it. Record the changes no gate REPORT decision already owns as
+one class-2 `question`, an approval of prepared work, and cite its ID in the
+plan, or ask nothing when nothing changed that counts. When the host
+(`checkpoints.review_changes` in `heddle orient --json`) or the spec's Approved
+MVP turns the confirmation off, it still covers a change to scope, the approved
+concept or a witness grant.
 
 For source-bound evidence, finish edits, sync, format, inspect, then record
 dispositions. Formatting is an authored byte change when an explicit raw-file

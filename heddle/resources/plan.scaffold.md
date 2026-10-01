@@ -60,7 +60,9 @@ per-attempt/aggregate cost caps expected to accommodate both healthy runs with
 headroom.)_
 
 _(Draft at specify; the lead records the witness rulings at the specification
-checkpoint before any review, including when reviewers are Off. The scope
+checkpoint before any review, including when reviewers are Off. When that
+checkpoint is off, cite the e2e grant by the research reference that records
+it, with its owner, date and bounds. The scope
 ruling includes explicit e2e execution authority for every posture; live or
 declining live for a real-provider feature has a bundled class-5 question.
 Reference exact native decision IDs and grants here. Unresolved owner choices

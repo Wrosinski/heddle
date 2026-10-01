@@ -114,27 +114,22 @@ Do not demand a parallel EARS inventory, copied technical architecture or
 enforcement rules, hours, a task-count band, or a prescribed document length.
 Their absence cannot substitute for identifying a genuine contract gap.
 
-Scope changes remain user decisions. When the Approved MVP cites a
-specification-checkpoint decision ID as the owner's approval, the owner ruled
-on scope per part, concept deltas and witness shape before this review, and the
-lead confirms that ruling's status: name that ID as the confirmation source in
-`details.scope.confirmation` without claiming the approval yourself, and raise
-a scope-confirmation REPORT only for a scope, part or concept change this
-review finds necessary. A mention of the checkpoint without a decision ID is no
-citation. Without that citation, preserve the standing Important REPORT
-scope-confirmation question at Checkpoint 1 on an initial review even when the
-proposed scope matches the approved MVP. Name the per-part confirmation and its
-source, and each labeled concept delta for confirmation item by item; do not
-claim the owner approved either through this review. On reruns, respect the
-supplied existing owner and resolution rather than reopening or duplicating the
-question. Missing Approved MVP or a core unable to satisfy the stated purpose
-retains its Critical consequence.
-
-Without a cited specification-checkpoint ruling, the checkpoint lead also
-confirms witness shape and explicit lane execution grants with scope. Note that
-duty in the scope question without inspecting the plan or designing its
-concrete witness here. The lead owns the separate bundled live/declined-live
-question; this reviewer must not create a duplicate owner.
+Scope changes remain user decisions. The owner rules on scope per part, concept
+deltas and witness shape at the specification checkpoint, before this review,
+and the Approved MVP cites that decision ID; the lead confirms its status. Name
+it as the confirmation source in `details.scope.confirmation` without claiming
+the approval yourself, and raise a scope-confirmation REPORT only for a scope,
+part or concept change this review finds necessary. When the Approved MVP
+instead records the checkpoint as off, by host configuration or the owner's
+answer, the research checkpoint's per-part authorization is the confirmation
+source for the parts it authorized. Otherwise, and for a changed or added part
+or concept delta beyond that authorization, a missing citation, including a
+mention without a decision ID, is an Important REPORT: no owner confirmation of
+scope is on record. On
+reruns, respect the supplied existing owner and resolution rather than reopening
+or duplicating the question. Missing Approved MVP or a core unable to satisfy
+the stated purpose retains its Critical consequence. The lead owns any live
+witness question; this reviewer must not create a duplicate owner.
 
 ## Findings, evidence, and history
 
@@ -177,8 +172,9 @@ input. State material limits rather than inferring success from unread inputs.
 reason. `details.scope` retains Approved MVP presence, the complete component
 delta and authorization evidence, scope sizing/challenge, integrated acceptance
 outline, conditional increment ladder and additive seams, and the confirmation
-source: the cited checkpoint ruling, the confirmation question, or the exact
-supplied disposition. Scope sizing concerns usability and
+source: the cited checkpoint ruling, the research checkpoint's authorization
+under an off record, the confirmation question, or the exact supplied
+disposition. Scope sizing concerns usability and
 authorized breadth, not lines, hours, or task counts. When Approved MVP is
 missing, keep delta empty and report the blocking omission. An empty increment
 ladder means the current approved scope stands.

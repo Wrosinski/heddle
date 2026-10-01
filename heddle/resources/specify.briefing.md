@@ -12,7 +12,9 @@ This session owns the Feature Spec, its `_descriptions.yaml` entry, the
 feature's `brief.md` and `plan.md`, and milestone authoring through
 `heddle milestone add` / `heddle milestone edit`. Use `heddle decisions add`
 for an unresolved user-owned question. Never hand-edit `state.yaml` or intake
-history. Phase exit remains caller- or driver-owned.
+history. Phase exit remains caller- or driver-owned. The stage ends at the
+specification checkpoint: unless it is off, no review starts until the owner
+rules on it.
 
 Research and review output forms a recommendation and does not grant approval.
 Mutating follow-up binds the current owner revision. Review dispositions qualify
@@ -62,9 +64,10 @@ runs in the current host checkout.
 ## Research checkpoint
 
 The Phase 1 research checkpoint precedes specification. It is distinct from
-the specification checkpoint at this stage's exit and from **Checkpoint 1**,
-which follows spec review. Preserve already-confirmed research and scope; do not
-repeat approval merely because formal documents now exist.
+the specification checkpoint at this stage's exit and from the review change
+confirmation that closes each document review. Preserve already-confirmed
+research and scope; do not repeat approval merely because formal documents now
+exist.
 
 The research package contains:
 
@@ -79,6 +82,12 @@ The research package contains:
 - Consequential constraints, labeled assumptions, and unresolved questions.
 - The concept, answering the three questions the workspace brief's
   `## Concept` poses, at the altitude of concepts and high-level contracts.
+
+The specification checkpoint and the review change confirmation are on unless
+`heddle orient --json` reports a host switch off under `checkpoints`. Here the
+owner may also skip either for this feature; record that answer with the
+research approval. When the specification checkpoint will not run, ask here for
+the e2e execution grant it would carry, since no later stop will.
 
 Present materially changed owner choices for direction. In a driven session,
 continue only from recorded resolutions and record unresolved questions with
@@ -95,9 +104,8 @@ driven session cannot pause for it: author the concept, draft both documents
 against it, and lead the specification checkpoint overview with it, so one
 ruling approves the concept and the specification together; that decision ID is
 the approval reference in the brief and in the spec's Approved concept. Work
-whose spec or
-plan was drafted before concept notes existed keeps its confirmed research and
-documents; do not demand a retroactive concept.
+whose spec or plan was drafted before concept notes existed keeps its confirmed
+research and documents; do not demand a retroactive concept.
 
 Before approval, offer a concept review. Run it only when the owner opts in; in
 a driven session, only when a recorded owner resolution asks for it. By default
@@ -235,34 +243,32 @@ uses the confirmed matrix; a disabled gate is intentionally not run, not passed.
 ## Specification checkpoint
 
 Before any review starts, the owner gets an overview of what was specified and
-gives an explicit green light. Present it once `heddle validate` passes. It is
-a short argument, not a form: lead with the exceptions, changes and risks, and
-say "as approved" for the rest; an unapproved concept from a driven session is
-the first exception. For a small feature, each answer may be a few sentences
-and each check one line. It answers three questions:
+gives an explicit green light. It is how the owner judges whether the spec and
+plan still fit what they meant, stay inside the authorized scope, and touch only
+what they should. Present it once `heddle validate` passes, as a short argument
+rather than a form: re-answer the approved concept's three questions for what
+was actually specified, say "as approved" where it held, lead with the
+differences and risks, and add what the concept could not know yet. An
+unapproved concept from a driven session is the first exception. A small
+feature needs a few sentences.
 
-1. **What are we building?** The core slice as specified, the parts that
-   changed shape or were added since the research checkpoint, the concept
-   deltas ("none" is a valid answer), and what is deferred.
-2. **How are we building it?** The components and their responsibilities, where
-   the change connects to existing code, and the alternative rejected.
-3. **How will we know it works?** The ACs in compact form; the definition of
-   done, meaning the proof that must pass; the e2e and live scenario in plain
-   words, with what runs, what is real versus doubled, and what it costs; and
-   whether anything is judged rather than checked. Assessment targets never
-   gate completion.
+1. **What are we building?** The core slice as specified, parts changed or
+   added since the research checkpoint, and what is deferred.
+2. **How are we building it?** The concept's five parts, each as approved or
+   with its delta, and where the plan connects to existing code.
+3. **How will we know it works?** What must pass for done, the e2e and live
+   scenario in plain words with its cost, and anything judged rather than
+   checked; Assessment targets never gate completion.
 
-It then makes two checks with evidence, not assertion:
+Then check, with evidence:
 
-- **Scope:** ACs and plan items measured against the parts as authorized at the
-  research checkpoint and the approved concept: anything that does not trace to
-  them, including growth inside an authorized part, with its cost. The default
-  for such an addition is deferral.
-- **Footprint and complexity:** the milestones' owned paths grouped by area
-  against the approved footprint, existing contracts changed, the new public
-  surface, and any layer, abstraction or module no AC needs. Close with your
-  judgment: is this the simplest design that meets the ACs, and where is
-  over-engineering most likely?
+- **Scope:** whatever does not trace to the authorized parts and the approved
+  concept, including growth inside a part. Such an addition defaults to
+  deferral.
+- **Footprint and complexity:** owned paths by area against the approved
+  footprint, contracts changed, new public surface, and structure no AC needs.
+  Close with your judgment of whether this is the simplest design that meets
+  the ACs.
 
 Record one class-8 `question` titled `Specification checkpoint: <slug>`, with
 the overview as its body. It carries scope per part, concept deltas, and the
@@ -280,14 +286,21 @@ back from the workspace `state.yaml` and cite both in the spec's Approved MVP
 and the plan's Integrated Witness Proposal. Scope confirmation and credentials
 alone are not execution grants.
 
-Both questions are approval only: give each a single option approving the
-documents as drafted, and end each body with: "Resolving this approves the spec
-and plan as drafted. To change anything, leave it pending and revise them in an
-interactive specify session (`heddle kickoff`)." Resolving lets the driver
-advance straight to spec review, so any change, including narrowing scope or a
-different live posture, cap or prerequisite, is made while the questions stay
-pending. Keep the same questions through a revision rather than recording new
-ones; the owner's rationale names the change. With the owner present, present
-the overview and record the actual ruling, actor and authority. A driven
-session records the questions and ends. Do not claim the approval before it is
-recorded. Follow native next actions and the caller's phase-exit authority.
+Both are approvals of prepared work under the Decision routing policy:
+resolving them lets the driver advance straight to spec review, so any change,
+including narrowing scope or a different live posture, cap or prerequisite, is
+made while they stay pending. With the owner present, present the overview and
+record the actual ruling, actor and authority. A driven session records the
+questions and ends. Do not claim the approval before it is recorded. Follow
+native next actions and the caller's phase-exit authority.
+
+When the host or the owner turned this checkpoint off, record in the spec's
+Approved MVP that it is off and who turned it off, in place of a ruling ID, and
+likewise a review change confirmation the owner skipped. Cite the research
+checkpoint's e2e grant in the plan by the research reference that records it,
+with its owner, date and bounds. An unapproved concept keeps this checkpoint on,
+since it is the owner's only chance to approve that concept. Still hold the
+drafting to the two checks: a changed or added part or a concept delta,
+including a wider footprint, goes to the owner as one class-8 approval of
+prepared work cited in the Approved MVP, and a proposed or declined live lane
+still gets its class-5 question.

@@ -197,6 +197,16 @@ internals rather than inventorying every future file or test. Follow the
 brainstorming scope-authorization contract and native intake described above.
 The research checkpoint is not the later specification checkpoint.
 
+Both later owner checkpoints, the specification checkpoint and the review
+change confirmation, are on by default. A host turns either off for every
+feature under `checkpoints` in `.heddle.yaml`; at the research checkpoint the
+owner may skip either for one feature. Turning one off removes the green light
+on conforming work, not owner ownership: scope changes, concept deltas,
+footprint widening and execution grants still go to the owner as approvals of
+prepared work.
+When the specification checkpoint will not run, the research checkpoint asks
+for the e2e grant it would have carried.
+
 Before specifying, describe the concept in the brief's `## Concept` section by
 answering three questions at the altitude of concepts and high-level contracts:
 what are we building, how are we building it (including the footprint it will
@@ -238,10 +248,11 @@ grants no execution.
 
 Before any review starts, the specify lead gives the owner a short overview of
 what was specified, and the owner gives an explicit green light. The overview
-answers the concept's three questions for the drafted spec and plan: the core
-slice, changed parts, concept deltas and deferred work; the components, where
-they connect and the alternative rejected; and the ACs, the definition of done,
-the e2e/live scenario and anything judged rather than checked. It then checks
+re-answers the approved concept's three questions for what was actually
+specified: each part that held is "as approved", each difference is described,
+and what the concept could not know is added (changed or added parts, the
+components the plan names, the ACs, the definition of done, the e2e/live
+scenario and its cost, and anything judged rather than checked). It then checks
 scope (anything, including growth inside an authorized part, that does not
 trace to the parts authorized at the research checkpoint and the approved
 concept) and footprint and complexity (owned paths against the approved
@@ -252,12 +263,16 @@ The lead records one class-8 question, `Specification checkpoint: <slug>`, with
 the overview as its body. It carries scope per part, concept deltas and the e2e
 shape, stages and grant; live, or declining live for a real-provider feature,
 adds the class-5 `Live witness: <slug>` question. Both are cited in the spec's
-Approved MVP and the plan. Both questions are approval only, with a single
-option: resolving lets the driver advance to spec review, so revisions happen
-in an interactive specify session while the questions stay open. Later,
-widening ownership outside the approved footprint (the spec's retained
-Footprint plus accepted widenings) needs one class-2 question first; tests and
-docs follow the area they serve.
+Approved MVP and the plan. Both are approvals of prepared work, a question type
+the shared decision policy defines: a single option, and revisions happen in an
+interactive specify session while the questions stay open, because resolving
+lets the driver advance to spec review. Later, widening ownership outside the
+approved footprint (the spec's retained Footprint plus accepted widenings)
+needs one class-2 question first; tests and docs follow the area they serve.
+When the checkpoint is off, the spec's Approved MVP records that and who turned
+it off in place of the ruling, the plan cites the research checkpoint's e2e
+grant by its research reference, and a live lane still gets its class-5
+question.
 
 ## Phase 3: Automated Spec Review & Refinement (CLI Gate)
 
@@ -270,38 +285,19 @@ explicit dispositions. Reruns follow the native required-pass/stop policy and
 prior-result boundary. No EARS mirror, copied-contract sweep, code-layout quota
 or separate synthesis is required for new documents.
 
-## Checkpoint 1: User Decision Batch
+## Review Change Confirmation
 
-When the spec cites a specification-checkpoint ruling, the lead first checks
-that ruling in native state, since the gate cannot see it, and reconciles the
-documents with it. Checkpoint 1 then confirms only what spec review changed:
-changed parts, new concept deltas, or a changed AC set or witness shape that no
-gate REPORT already owns, as one approval-only class-2 question naming that
-ruling, or nothing. Work specified before the specification checkpoint existed
-keeps the full batch below.
-
-Present unresolved owner questions and the scope proposal with approved core,
-proposed additions, named deferred parts and concept deltas. **Scope
-confirmation is explicit even when the review finds scope adequate.** Do not
-silently authorize a part or replace the original pending question on a rerun.
-Record the actual ruling and reconcile affected spec/plan content and review
-evidence.
-
-The spec-review lead confirms the integrated witness in this batch even when
-spec review is Off. The scope ruling explicitly includes the e2e shape, execution
-stages and bounded reruns for every posture; no separate e2e decision is needed.
-A live lane, or declining live for a real-provider feature, needs one class-5
-question bundling posture, user-required prerequisites, effects, per-attempt and
-aggregate caps, execution stages and bounded retries, or the reason and fallback.
-Recommend e2e iteration during implementation and milestones. Each declared lane
-runs at implement exit, before any review, and again by default after review
-changes; size caps for both runs. The owner may opt out of a lane's post-review
-rerun here, and a later lead applies that ruling as a standing grant through a
-witness waiver. Record actual grants, actor and native decision IDs; scope
-confirmation without an execution grant is not permission. Resolve user choices
-before progression; scheduled auto-resolvable setup may remain a plan task.
-Where no scope decision exists, including with review Off, the lead records
-that scope question as class 8 and obtains the authorized ruling.
+Reviews tend to add requirements. The review change confirmation keeps those
+additions visible to the owner without re-asking what the specification
+checkpoint settled. The spec-review lead first checks that ruling in native
+state, since the gate cannot see it, and reconciles the documents with it; a
+spec without a cited ruling gets its green light there, before the first gate
+run. At the exit of spec review, and again at the exit of plan review, the lead
+asks one approval-only class-2 question about changes that would alter the
+owner's answer, unless a gate REPORT already owns them, or asks nothing. An
+addition a review proposed defaults to a named deferred follow-up. When the
+confirmation is off, it still covers changes to scope, the approved concept or
+a witness grant, but not refinements inside the approved parts.
 
 ## Phase 4: Plan Review (CLI Gate)
 
@@ -319,7 +315,10 @@ before scaffolding when the runtime requires it.
 Check that the confirmed witness drives the approved flow through the real
 application boundary, doubles only external systems, covers required ACs across
 its routes, and has credible prerequisites, caps and explicit grants. Follow the
-referenced native rulings; plan prose alone cannot establish approval.
+referenced native rulings, or the cited research reference for an e2e grant
+made at the research checkpoint; plan prose alone cannot establish approval. Changes
+plan review makes to what the owner approved go to the review change
+confirmation at this stage's exit.
 
 ## Phase 5: Test Scaffolding
 

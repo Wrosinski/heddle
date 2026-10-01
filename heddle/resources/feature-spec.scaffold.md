@@ -16,7 +16,8 @@ _(Who this serves, what they can do afterwards, and why that outcome matters.)_
 _(Retain the Approved Scope Decomposition verbatim as provenance. Distinguish
 the authorized core, named deferred work, and any scope delta. Cite the
 specification-checkpoint decision ID as the owner's approval once it is
-recorded, with any later ruling that amends it.)_
+recorded, with any later ruling that amends it, or record that the checkpoint
+is off and whether the host or the owner turned it off.)_
 
 ### Approved concept
 

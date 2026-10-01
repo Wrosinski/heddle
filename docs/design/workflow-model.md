@@ -98,8 +98,8 @@ before admission; the workflow guide's phase numbers are explanatory labels.
 | Stage | Work and boundary |
 | --- | --- |
 | `specify` | Author the spec, plan, integrated witness proposal and milestone skeleton; at the specification checkpoint, present the overview and record the owner's scope, witness shape, prerequisite and lane-grant rulings before any review. |
-| `spec-review` | Review the product contract; at Checkpoint 1 the lead confirms only review-driven changes, or the full scope and witness batch for work specified before the specification checkpoint. |
-| `plan-review` | Review approach, architecture and delivery strategy. |
+| `spec-review` | Review the product contract; at exit the lead confirms spec-review changes to the owner's specification-checkpoint ruling. |
+| `plan-review` | Review approach, architecture and delivery strategy; at exit the lead confirms plan-review changes to the owner's specification-checkpoint ruling. |
 | `scaffold` | Realize the confirmed witness, bind acceptance criteria and exact commands within the recorded grants; route material changes to the original owner. |
 | `implement` | Complete tasks, verify and review each milestone, then advance it; exit only after every declared witness lane passes. |
 | `peer-review` | Review the integrated change; perform final proof, including the default witness rerun, when robustness is Off. |

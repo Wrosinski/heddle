@@ -138,8 +138,8 @@ both lanes passed at implement exit, and repeating a lane that hardening or revi
 fixes made stale is the default, announced before launch. The owner may waive
 one lane's rerun through a class-5 `witness_waiver` decision resolved with
 accept-prior-witness; propose it via `heddle decisions add --help`. The owner's
-opt-out ruled at the specification checkpoint (Checkpoint 1 for earlier work)
-counts as a standing grant the lead cites when filing that decision. A driven
+opt-out ruled at the specification checkpoint counts as a standing grant the
+lead cites when filing that decision. A driven
 session never resolves it: the pending question stops the driver until the
 owner rules, while an interactive lead may resolve it on that cited grant. The
 waiver binds the latest passing pre-review run to the current source; a later

@@ -62,7 +62,9 @@ an Assessment Target and never gates completion. The assumptions the concept
 rests on, how we would notice one failing, and whether a spike or prototype
 milestone should come first.)_
 
-Approved by: _(owner and date, or decision ID)_
+Approved by: _(owner and date, or decision ID; with any owner checkpoint
+skipped for this feature, and the e2e grant when the specification checkpoint
+will not run)_
 
 ## External Services (optional)
 

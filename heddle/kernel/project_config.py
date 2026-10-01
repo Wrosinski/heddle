@@ -12,7 +12,7 @@ malformed YAML or a wrongly-typed pinned value is fatal
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, cast
 
@@ -23,6 +23,7 @@ from heddle.contracts.result import ERROR_CODES, Severity
 from heddle.contracts.schemas import (
     AGENTS_KEYS,
     AUTOPILOT_KEYS,
+    CHECKPOINTS_KEYS,
     FLOW_HITL,
     FLOW_MODES,
     GATES_KEYS,
@@ -114,6 +115,10 @@ class ProjectConfig:
     gates_enabled: tuple[str, ...] | None  # None = section absent
     autopilot: AutopilotConfig
     diagnostics: tuple[ConfigDiagnostic, ...]
+    # Owner checkpoints the host keeps on; every key defaults to True.
+    checkpoints: Mapping[str, bool] = field(
+        default_factory=lambda: dict.fromkeys(CHECKPOINTS_KEYS, True)
+    )
 
 
 def feature_state_path(config: ProjectConfig, slug: str) -> Path:
@@ -240,6 +245,7 @@ def load_project_config(root: Path) -> ProjectConfig:
         key: getattr(DEFAULT_AUTOPILOT, key) for key in AUTOPILOT_KEYS
     }
     autopilot_section_present = False
+    checkpoints = dict.fromkeys(CHECKPOINTS_KEYS, True)
     diagnostics: list[ConfigDiagnostic] = []
 
     # One pass in file order so diagnostics follow document order.
@@ -333,6 +339,16 @@ def load_project_config(root: Path) -> ProjectConfig:
                     diagnostics.append(_unknown_key_diagnostic(section, key))
                     continue
                 autopilot_values[key] = _coerce_autopilot_value(key, value, config_path)
+        elif section == "checkpoints":
+            for key, value in _section_items(section, raw_value, config_path):
+                if key not in CHECKPOINTS_KEYS:
+                    diagnostics.append(_unknown_key_diagnostic(section, key))
+                    continue
+                if not isinstance(value, bool):
+                    raise _wrong_type(
+                        f"checkpoints.{key}", "a bool", value, config_path
+                    )
+                checkpoints[key] = value
         else:
             diagnostics.append(
                 ConfigDiagnostic(
@@ -356,6 +372,7 @@ def load_project_config(root: Path) -> ProjectConfig:
             section_present=autopilot_section_present,
         ),
         diagnostics=tuple(diagnostics),
+        checkpoints=checkpoints,
     )
 
 

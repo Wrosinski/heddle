@@ -4,6 +4,39 @@ You are at the **spec-review** stage. Establish that the Feature Spec has an
 adequate product contract, consequential design commitments, and observable
 acceptance criteria before downstream work relies on it.
 
+## Authority
+
+This session owns spec and plan refinements from accepted findings, review
+dispositions, and the lead questions this stage needs, recorded with
+`heddle decisions add`. It does not own phase exit, decision resolution, or a
+scope change the owner has not approved. A pending native question, from a
+gate REPORT or from the lead, holds the stage; continue only work that does not
+depend on it.
+
+## Owner rulings in force
+
+The owner gave the spec and plan a green light at the specification checkpoint,
+and the spec's Approved MVP cites that decision ID. Before the first gate run,
+read that ruling, and any live ruling beside it, in the workspace `state.yaml`;
+the gate cannot see them. Confirm that it is resolved and that the documents
+match what the owner approved, apply any change the ruling made, and run
+`heddle validate`. The ruling stands for scope per part, concept deltas,
+witness shape, stages and grants; do not re-ask it. Confirm too that the
+spec's Approved concept still matches its approved source, the bound research
+reference or the workspace brief, and restore any drift.
+
+When the Approved MVP instead records the checkpoint as off, confirm that
+against `checkpoints.specification` in `heddle orient --json` or the owner's
+recorded answer, and that the Approved concept carries an approval reference.
+The research checkpoint's authorization then stands for the parts it
+authorized, beside any ruling the Approved MVP cites for a change beyond them.
+When neither a ruling nor a confirmed off record exists and no earlier owner
+ruling covers the drafted documents, the green light is missing: before any
+gate run or stage exit, record it as one class-8 approval of prepared work that
+answers what is being built, how, and how it will be proven, with the scope and
+footprint checks and the e2e grant, plus the class-5 live question when live
+applies, and cite them once recorded.
+
 ## Selected review work
 
 Read `heddle status --json` or `heddle orient --json` for the effective policy,
@@ -38,76 +71,10 @@ Private helper names, routine algorithms, and file layouts may remain delegated.
 Missing EARS copies, implementation architecture, enforcement restatements,
 hour estimates, or a particular document length are not defects. A missing
 consequential commitment or observable acceptance clause still is a defect.
-Use the delivered Decision routing policy for ownership; this briefing retains
-the post-spec-review scope checkpoint and its native recording duties.
+Use the delivered Decision routing policy for ownership; this briefing owns
+the review change confirmation and its native recording duties.
 
-## Checkpoint 1
-
-When the spec's Approved MVP cites a specification-checkpoint decision ID, read
-that ruling, and any live ruling cited beside it, in the workspace `state.yaml`
-before the first gate run; the gate cannot see them. Confirm that the class-8
-`Specification checkpoint` question is resolved and that the spec and plan
-match what the owner approved. Apply any change a ruling made, such as a
-narrowed part or a different live posture, then run `heddle validate`. A
-citation that names no resolved checkpoint decision counts as absent. The
-confirmed rulings stand for scope per part, concept deltas, witness shape,
-stages and grants; do not re-ask what the owner already ruled.
-
-Checkpoint 1 then confirms only what spec review changed: a changed part, a new
-concept delta, or a changed AC set or witness shape that no gate REPORT decision
-already owns. Apply those changes first, then record them together as one
-class-2 `question` naming the original ruling, which lists each changed part and
-each new concept delta for confirmation item by item, not blanket. Record
-nothing when nothing material changed. It is approval only, as at specify: give
-it a single option approving the revised documents, and say in its body that any
-other outcome means leaving it pending and revising in an interactive
-spec-review session, because resolving it lets the driver advance to plan
-review. Confirm too that the spec's Approved concept still matches its approved
-source, the bound research reference or the workspace brief, and restore any
-drift.
-
-### Work specified before the specification checkpoint
-
-Without such a citation, the full Checkpoint 1 applies. Its scope batch carries
-each labeled concept delta in the spec's Approved concept, confirmed item by
-item as for changed parts; the lead reads the plan's Technical Architecture
-against the approved approach and flow and records any departure as a delta
-before the batch. Work drafted before concept notes existed needs no
-retroactive concept.
-
-The lead presents the plan's Integrated Witness Proposal with the scope batch,
-including when spec review is Off, and checks the plan's concrete proposal and
-any changed spec commitments while keeping the gate review at spec altitude. The
-scope ruling explicitly confirms the e2e shape, execution stages and bounded
-reruns for every posture; no separate e2e decision is needed. Recommend e2e
-during implementation and milestones. Every declared lane has two runs: a
-required one at implement exit, before any review, and a post-review rerun that
-happens by default. The owner may opt out of a lane's rerun here; record that
-choice in the ruling so a later lead can apply it as a standing grant through a
-witness waiver. Reuse an existing scope decision; if none exists, including when
-the reviewer is Off, record the lead-owned scope question with class 8. Apply
-only the authorized owner's ruling or an identified standing grant.
-
-For this earlier work, record one class-5 `question`, titled
-`Live witness: <slug>`, when proposing live or declining it for a real-provider
-feature. Bundle the posture and reason, all user-required prerequisites,
-allowed effects and cleanup/recovery, time/turn/retry and
-per-attempt/aggregate cost caps, live stages and bounded reruns, or the reason
-and concrete fallback. Recommend live at implement exit with the default
-post-review rerun, and size the caps for both runs. Scope confirmation and
-credentials alone are not execution grants. Record the actual ruling, actor and
-authority natively and reference exact decision IDs from the plan. Preserve
-already applicable grants.
-
-## Resolve and exit
-
-Settle user-required choices before progression; unresolved native questions
-are blockers. Scheduled auto-resolvable setup may remain a plan task after
-feasibility and authority are settled. A material change later is a class-2
-question naming the original ruling, not a silent narrowing of proof.
-For existing active work lacking this section, reconcile existing design and
-approvals; ask only about missing or materially changed choices, without
-fabricating a past checkpoint or restarting completed stages.
+## Resolve findings
 
 Apply supported IMPLEMENT refinements to the spec. `heddle run-gate` records
 eligible REPORT decisions; reuse those exact owners and resolve them only from
@@ -123,5 +90,29 @@ reference observes it; future formatting is never invisible to evidence.
 
 Use the runtime's next action for a necessary targeted round or cap/stop
 decision; a limit is not a fixed number of required passes and is not closure.
+
+## Review change confirmation and exit
+
+Reviews tend to add requirements. Each addition deserves the owner's attention;
+settled rulings do not. After applying accepted findings and before recording
+dispositions, compare the spec and plan with what the owner approved for
+changes that would alter the owner's answer, such as a part or AC added or
+removed, different observable behaviour, a new concept delta, or a different
+witness lane or cost. An addition the review proposed defaults to a named
+deferred follow-up unless the contract needs it. Record the changes no gate
+REPORT decision already owns as one class-2 `question`, an approval of prepared
+work that confirms them item by item, not blanket, and cite its ID in the
+Approved MVP. Ask nothing when nothing changed that counts.
+
+The host (`checkpoints.review_changes` in `heddle orient --json`) or the spec's
+Approved MVP may turn this confirmation off. It then still covers a change to
+scope, the approved concept or a witness grant, but not refinements inside the
+approved parts.
+
+Settle user-required choices before progression; unresolved native questions
+are blockers. Scheduled auto-resolvable setup may remain a plan task after
+feasibility and authority are settled. A material change later is a class-2
+question naming the original ruling, not a silent narrowing of proof.
+
 Run `heddle validate` after document corrections. Exit toward **plan-review**
 only when native readiness is satisfied and phase-exit authority permits it.

@@ -48,6 +48,14 @@ Choose the question type that matches the gap:
 - **Execution permission:** name the concrete action and scope, why permission
   is required and its governing instruction, and the prepared result or exact
   command the owner can assess. Do authorized preparation first.
+- **Approval of prepared work:** when the owner confirms work already prepared
+  and resolving the question lets the driver continue without another session,
+  offer one option, approving the work as it stands, and say in the body that
+  any change means leaving the question pending and revising in an interactive
+  session of the stage. Keep the same question through that revision; the
+  owner's resolution names what changed. When it amends an earlier approval,
+  name that ruling and describe only what would change the owner's earlier
+  answer.
 
 Keep questions concise and batch independent questions. Use the native question
 or review schema for complete content; retain original decision/run/finding

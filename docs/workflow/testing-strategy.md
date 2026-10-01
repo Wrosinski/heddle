@@ -314,7 +314,7 @@ execution evidence; imports and collection hooks must not launch external work.
 | Work stage | Test activity |
 | --- | --- |
 | Research and specification | Inspect contracts/tests and propose integrated witness lanes, prerequisites, caps and grants; no broad baseline by default |
-| Specification checkpoint | Confirm witness shape and explicit execution grants with scope before any review, including when reviewers are Off; settle owner-required prerequisites. Checkpoint 1 confirms only review-driven changes |
+| Specification checkpoint | Confirm witness shape and explicit execution grants with scope before any review, including when reviewers are Off; settle owner-required prerequisites. The review change confirmation asks only about review-driven changes |
 | Plan review and scaffolding | Review feasibility, realize the confirmed design, bind exact commands, and retain meaningful red/green expectations, costs and fixtures |
 | Task implementation | Run affected behavior and direct-consumer checks; include related slow cases for a concrete reason |
 | Milestone boundary | Execute the applicable recorded milestone proof within its authority; preserve required unrun obligations |

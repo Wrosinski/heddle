@@ -137,6 +137,7 @@ class TestAC10FixtureConfigs:
         assert set(config.keys()) == set(schemas.HEDDLE_YAML_SECTIONS) - {
             "autopilot",
             "sync",
+            "checkpoints",
         }
         assert set(config["layout"].keys()) == set(schemas.LAYOUT_KEYS)
         assert set(config["commands"].keys()) == set(schemas.HOST_COMMAND_KEYS)

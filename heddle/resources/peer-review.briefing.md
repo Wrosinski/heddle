@@ -157,9 +157,9 @@ default; announce that rerun before launching it. The owner may instead waive
 one lane's rerun: a class-5 `witness_waiver` decision, resolved with
 accept-prior-witness, binds the latest passing pre-review run and the current
 source. File it with `heddle decisions add` (see `--help`). An opt-out ruled at
-the specification checkpoint, or at Checkpoint 1 for earlier work, is a
-standing grant: the lead files that decision citing the ruling and
-resolves it where the session allows; a driven session cannot resolve, so the
+the specification checkpoint is a standing grant: the lead files that decision
+citing the ruling and resolves it where the session allows; a driven session
+cannot resolve, so the
 pending decision halts the driver until the owner does. Any later relevant edit
 restores the rerun, and the close records each waiver. A lane whose evidence is
 still current needs neither. A disposition citing a waived lane as verification

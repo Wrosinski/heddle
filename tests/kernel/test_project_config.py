@@ -109,6 +109,10 @@ class TestAC2DefaultsDiagnosticsDiscovery:
         assert dict(config.commands) == {}
         assert dict(config.agents) == {}
         assert config.gates_enabled is None
+        assert dict(config.checkpoints) == {
+            "specification": True,
+            "review_changes": True,
+        }
         assert config.diagnostics == ()
 
     def test_unknown_keys_are_advisory_diagnostics(self):
@@ -290,3 +294,34 @@ class TestAC3SeamRetired:
         # alone governs (Decision Log).
         assert config.gates_enabled is None
         assert config.diagnostics == ()
+
+
+class TestOwnerCheckpointSwitches:
+    """Owner checkpoints stay on unless the host turns one off (owner ruling
+    2026-10-01); a wrong type fails loud and an unknown key stays advisory."""
+
+    def _config(self, tmp_path: Path, body: str):
+        (tmp_path / ".heddle.yaml").write_text(body, encoding="utf-8")
+        return load_project_config(tmp_path)
+
+    def test_a_host_turns_one_checkpoint_off(self, tmp_path):
+        config = self._config(tmp_path, "checkpoints:\n  specification: false\n")
+        assert dict(config.checkpoints) == {
+            "specification": False,
+            "review_changes": True,
+        }
+        assert config.diagnostics == ()
+
+    def test_a_non_bool_switch_fails_naming_the_key(self, tmp_path):
+        with pytest.raises(KernelError) as excinfo:
+            self._config(tmp_path, "checkpoints:\n  review_changes: 'no'\n")
+        assert excinfo.value.code == "workspace-invalid"
+        assert "checkpoints.review_changes" in excinfo.value.message
+
+    def test_an_unknown_switch_is_advisory(self, tmp_path):
+        config = self._config(tmp_path, "checkpoints:\n  completion: false\n")
+        assert dict(config.checkpoints) == {
+            "specification": True,
+            "review_changes": True,
+        }
+        assert [d.code for d in config.diagnostics] == ["config-unknown-key"]

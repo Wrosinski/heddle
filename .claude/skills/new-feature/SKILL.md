@@ -34,11 +34,15 @@ the generated `plans/<slug>/brief.md` without rewriting the approved provenance.
 1. Run `heddle orient --json`. If it resolves existing work, follow its emitted
    routing and resume that feature; do not create a duplicate workspace.
 2. For new work, research the intended outcome and actual integration surface
-   under `docs/workflow/brainstorming-guidelines.md`. Retain a research reference
-   and propose the route plus scope, complexity, and testability with reasons.
-   Describe the concept in the brief's `## Concept` section, offer the opt-in
-   concept review, and record the owner's approval there at the research
-   checkpoint, before step 3 binds the research reference.
+   under `docs/workflow/brainstorming-guidelines.md`. Retain a research
+   reference and propose the route plus scope, complexity, and testability with
+   reasons. Describe the concept in the brief's `## Concept` section, offer the
+   opt-in concept review, and record the owner's approval there at the research
+   checkpoint, before step 3 binds the research reference. Record there too
+   whether the owner skips the specification checkpoint or the review change
+   confirmation for this feature (both on unless `checkpoints` in `.heddle.yaml`
+   turns one off), and when the specification checkpoint will not run, the e2e
+   execution grant.
 3. Use `heddle feature prepare <slug> --area <area> --from-file <research-input>`
    to record the intake. Native help defines its input contract. Preparation
    creates no formal feature, and its recommended matrix is not approval.
@@ -64,9 +68,9 @@ diagnosis request alone grants no implementation authority.
 
 For an admitted feature, kickoff and the packaged specify briefing own the
 current stage. The research checkpoint is distinct from the specification
-checkpoint at specify exit and from Checkpoint 1 after spec review. Honor
-already-recorded research and scope choices; reopen them only for material new
-evidence. This skill adds no separate approval step.
+checkpoint at specify exit and from the review change confirmation after each
+document review. Honor already-recorded research and scope choices; reopen them
+only for material new evidence. This skill adds no separate approval step.
 
 Use these sources for their respective contracts:
 

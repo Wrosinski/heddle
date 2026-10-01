@@ -323,6 +323,7 @@ class TestAC10HeddleYamlVocabulary:
             "agents",
             "gates",
             "autopilot",
+            "checkpoints",
         )
 
     def test_layout_keys(self):
@@ -343,6 +344,9 @@ class TestAC10HeddleYamlVocabulary:
 
     def test_gates_keys(self):
         assert schemas.GATES_KEYS == ("enabled",)
+
+    def test_checkpoints_keys(self):
+        assert schemas.CHECKPOINTS_KEYS == ("specification", "review_changes")
 
     def test_autopilot_keys(self):
         assert schemas.AUTOPILOT_KEYS == (

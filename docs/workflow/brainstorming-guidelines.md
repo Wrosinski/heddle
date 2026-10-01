@@ -38,7 +38,9 @@ intent. Engineering tradeoffs remain governed by
   to research questions and proposals. The product edge cases above identify
   consequential scope, not an additional permission procedure. The research
   checkpoint and the specification checkpoint remain distinct checkpoints
-  below.
+  below. At the research checkpoint the owner may skip the specification
+  checkpoint or the review change confirmation for this feature; when the
+  specification checkpoint will not run, ask there for the e2e grant.
 - **The domain boundary.** In Heddle, the first slice must preserve runtime
   write ownership, authorization, recoverable state, and truthful evidence
   and completion. Thin means fewer supported paths, each meeting its full
@@ -268,10 +270,10 @@ user-required prerequisites there; reuse those grants at their approved stages.
 **Present the specification checkpoint before review.** Once both documents
 validate, give the owner a short overview answering the concept's three
 questions for what was actually specified, then check scope and footprint and
-complexity with evidence, exceptions first. The owner's green light is a
-class-8 ruling recorded before spec review, and Checkpoint 1 afterwards confirms
-only what review changed. The workflow guide describes the checkpoint and the
-specify briefing owns its procedure.
+complexity with evidence, exceptions first. The owner's green light is a class-8
+ruling recorded before spec review, and the review change confirmation
+afterwards asks only about what each review changed. The workflow guide
+describes the checkpoint and the specify briefing owns its procedure.
 
 **Immerse in the codebase before writing the spec.** Before creating
 the Feature Spec, examine the actual code areas the feature will

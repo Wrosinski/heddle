@@ -52,14 +52,30 @@ authority for the installed version.
   a class-8 `Specification checkpoint` question (plus the class-5 live question
   when live applies) that holds the feature until the owner approves. Both are
   approval only; revisions happen while they stay pending. The scope,
-  concept-delta, e2e and live rulings move here from Checkpoint 1. The
-  spec-review lead checks the cited rulings before the first gate run, and
-  Checkpoint 1 now confirms only what spec review changed; work specified
-  earlier keeps the full Checkpoint 1. A driven session without an approved
-  concept drafts against it and presents it at this checkpoint.
+  concept-delta, e2e and live rulings move here from Checkpoint 1, and the
+  spec-review lead checks the cited rulings before the first gate run. A
+  driven session without an approved concept drafts against it and presents
+  it at this checkpoint.
 - Widening a milestone's ownership outside the approved footprint during
   implementation, review fixes or completion now needs a class-2 owner
   question first.
+- The review change confirmation replaces Checkpoint 1. At the exit of spec
+  review and of plan review, the lead asks one approval-only question about
+  changes that would alter the owner's specification-checkpoint answer, or
+  nothing; an addition a review proposed defaults to a named deferred
+  follow-up. A spec without a cited ruling gets the green light at the start of
+  spec review instead of the former full Checkpoint 1 batch. The shared
+  decision policy defines the approval of prepared work as a question type,
+  which both checkpoints use, and the spec-review and plan-review briefings
+  gain Authority sections. The workflow guide's Checkpoint 2 is now the
+  peer-review decision batch.
+- Both owner checkpoints are opt-out. Setting `checkpoints.specification` or
+  `checkpoints.review_changes` to `false` in `.heddle.yaml` turns one off for
+  every feature, and `status` and `orient` report both host switches for an
+  admitted feature; the owner can also skip either for one feature at the
+  research checkpoint, which then asks for the e2e grant when the specification
+  checkpoint will not run. Scope changes, concept deltas, footprint widening and
+  execution grants still go to the owner.
 - A class-5 `witness-waiver` decision, resolved with `accept-prior-witness`,
   lets the owner waive one lane's post-review rerun. It binds the latest stable
   passing fact and the current source, so a later relevant edit or a new run

@@ -1809,6 +1809,7 @@ def test_ac16_red_config_scaffold_rail_matches_parser_vocabulary() -> None:
     from heddle.contracts.schemas import (
         AGENTS_KEYS,
         AUTOPILOT_KEYS,
+        CHECKPOINTS_KEYS,
         GATES_KEYS,
         HEDDLE_YAML_SECTIONS,
         HOST_COMMAND_KEYS,
@@ -1821,6 +1822,7 @@ def test_ac16_red_config_scaffold_rail_matches_parser_vocabulary() -> None:
         "agents": set(AGENTS_KEYS),
         "gates": set(GATES_KEYS),
         "autopilot": set(AUTOPILOT_KEYS),
+        "checkpoints": set(CHECKPOINTS_KEYS),
     }
     observed: dict[str, set[str]] = {}
     section_order: list[str] = []

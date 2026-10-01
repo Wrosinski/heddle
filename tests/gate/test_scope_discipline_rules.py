@@ -268,9 +268,10 @@ class TestL3ConceptNote:
 
 class TestL3SpecificationCheckpoint:
     """
-    The owner green-lights the drafted spec and plan before any review;
-    Checkpoint 1 then confirms only review-driven changes, and widening
-    ownership past the approved footprint asks first (owner rulings 2026-10-01).
+    The owner green-lights the drafted spec and plan before any review; the
+    review change confirmation then covers only review-driven changes, either
+    checkpoint can be turned off, and widening ownership past the approved
+    footprint asks first (owner rulings 2026-10-01).
     """
 
     def test_specify_closes_with_the_overview_and_recorded_rulings(self) -> None:
@@ -281,65 +282,166 @@ class TestL3SpecificationCheckpoint:
         )
         for anchor in (
             "Before any review starts",
-            "a short argument, not a form: lead with the exceptions",
+            "a short argument rather than a form: re-answer the approved concept's "
+            "three questions for what was actually specified",
             "**What are we building?**",
-            "the parts that changed shape or were added since the research checkpoint",
-            "**How are we building it?**",
+            "**How are we building it?** The concept's five parts, each as approved "
+            "or with its delta",
             "**How will we know it works?**",
             "Assessment targets never gate completion",
-            "including growth inside an authorized part",
-            "**Footprint and complexity:** the milestones' owned paths grouped by "
-            "area against the approved footprint",
-            "is this the simplest design that meets the ACs",
-            "For a small feature",
+            "including growth inside a part",
+            "**Footprint and complexity:** owned paths by area against the "
+            "approved footprint",
+            "whether this is the simplest design that meets the ACs",
+            "A small feature needs a few sentences",
             "class-8 `question` titled `Specification checkpoint: <slug>`, with "
             "the overview as its body",
             "titled `Live witness: <slug>`",
             "Read the allocated decision IDs back from the workspace `state.yaml`",
-            "Both questions are approval only: give each a single option",
-            '"Resolving this approves the spec and plan as drafted. To change '
-            "anything, leave it pending and revise them in an interactive specify "
-            'session (`heddle kickoff`)."',
-            "Keep the same questions through a revision",
+            "Both are approvals of prepared work under the Decision routing policy",
         ):
             assert anchor in section, anchor
         specify = _folded(RESOURCES / "specify.briefing.md")
         assert "do not record that future native question at specify" not in specify
         assert "that decision ID is the approval reference in the brief" in specify
+        authority = _folded_text(
+            _h2_body(_raw(RESOURCES / "specify.briefing.md"), "Authority")
+        )
+        assert "The stage ends at the specification checkpoint" in authority
 
-    def test_checkpoint_one_reuses_the_ruling_and_keeps_legacy_duties(self) -> None:
-        lead = _folded(RESOURCES / "spec-review.briefing.md")
+    def test_shared_policy_defines_the_approval_of_prepared_work(self) -> None:
+        routing = _folded(RESOURCES / "decision-routing.md")
         for anchor in (
-            "in the workspace `state.yaml` before the first gate run; the gate "
-            "cannot see them",
-            "A citation that names no resolved checkpoint decision counts as absent",
-            "do not re-ask what the owner already ruled",
-            "Checkpoint 1 then confirms only what spec review changed",
-            "that no gate REPORT decision already owns",
-            "one class-2 `question` naming the original ruling, which lists each "
-            "changed part and each new concept delta",
-            "Record nothing when nothing material changed",
-            "It is approval only, as at specify",
-            "matches its approved source",
-            "Without such a citation, the full Checkpoint 1 applies",
-            "reads the plan's Technical Architecture against the approved "
-            "approach and flow",
-            "needs no retroactive concept",
-            "scope question with class 8",
-            "For this earlier work, record one class-5 `question`",
+            "**Approval of prepared work:** when the owner confirms work already "
+            "prepared and resolving the question lets the driver continue without "
+            "another session",
+            "offer one option, approving the work as it stands",
+            "any change means leaving the question pending and revising in an "
+            "interactive session of the stage",
+            "Keep the same question through that revision; the owner's resolution "
+            "names what changed",
+            "name that ruling and describe only what would change the owner's "
+            "earlier answer",
         ):
-            assert anchor in lead, anchor
+            assert anchor in routing, anchor
+
+    def test_spec_review_starts_from_the_ruling_and_confirms_changes(self) -> None:
+        raw = _raw(RESOURCES / "spec-review.briefing.md")
+        headings = re.findall(r"^## (.+)$", raw, re.MULTILINE)
+        order = [
+            "Authority",
+            "Owner rulings in force",
+            "Selected review work",
+            "Resolve findings",
+            "Review change confirmation and exit",
+        ]
+        assert [h for h in headings if h in order] == order
+        assert "Checkpoint 1" not in raw
+        rulings = _folded_text(_h2_body(raw, "Owner rulings in force"))
+        for anchor in (
+            "Before the first gate run, read that ruling",
+            "the gate cannot see them",
+            "do not re-ask it",
+            "Confirm too that the spec's Approved concept still matches its "
+            "approved source",
+            "the green light is missing: before any gate run or stage exit",
+            "record it as one class-8 approval of prepared work",
+            "plus the class-5 live question when live applies",
+        ):
+            assert anchor in rulings, anchor
+        confirmation = _folded_text(
+            _h2_body(raw, "Review change confirmation and exit")
+        )
+        for anchor in (
+            "Reviews tend to add requirements",
+            "changes that would alter the owner's answer, such as",
+            "An addition the review proposed defaults to a named deferred "
+            "follow-up unless the contract needs it",
+            "After applying accepted findings and before recording dispositions",
+            "no gate REPORT decision already owns as one class-2 `question`, an "
+            "approval of prepared work",
+            "item by item, not blanket",
+            "cite its ID in the Approved MVP",
+            "Ask nothing when nothing changed that counts",
+        ):
+            assert anchor in confirmation, anchor
         gate = _folded_text(_expanded("spec-review.md"))
         for anchor in (
-            "cites a specification-checkpoint decision ID as the owner's approval",
+            "the Approved MVP cites that decision ID; the lead confirms its status",
             "in `details.scope.confirmation` without claiming the approval yourself",
             "raise a scope-confirmation REPORT only for a scope, part or concept "
             "change this review finds necessary",
-            "A mention of the checkpoint without a decision ID is no citation",
-            "Without that citation, preserve the standing Important REPORT",
-            "each labeled concept delta for confirmation item by item",
+            "a missing citation, including a mention without a decision ID, is an "
+            "Important REPORT",
         ):
             assert anchor in gate, anchor
+        assert "Checkpoint 1" not in gate
+
+    def test_plan_review_exit_confirms_its_own_changes(self) -> None:
+        raw = _raw(RESOURCES / "plan-review.briefing.md")
+        assert "## Authority" in raw
+        exit_text = _folded_text(_h2_body(raw, "Resolve and exit"))
+        for anchor in (
+            "The review change confirmation also closes this stage",
+            "before recording dispositions",
+            "changes that would alter the owner's answer, such as structure no AC "
+            "needs",
+            "An addition the review proposed defaults to a named deferred follow-up",
+            "an approval of prepared work, and cite its ID in the plan, or ask "
+            "nothing when nothing changed that counts",
+        ):
+            assert anchor in exit_text, anchor
+
+    def test_owner_checkpoints_are_opt_out(self) -> None:
+        specify_raw = _raw(RESOURCES / "specify.briefing.md")
+        research = _folded_text(_h2_body(specify_raw, "Research checkpoint"))
+        for anchor in (
+            "`heddle orient --json` reports a host switch off under `checkpoints`",
+            "the owner may also skip either for this feature",
+            "ask here for the e2e execution grant it would carry",
+        ):
+            assert anchor in research, anchor
+        checkpoint = _folded_text(_h2_body(specify_raw, "Specification checkpoint"))
+        for anchor in (
+            "record in the spec's Approved MVP that it is off and who turned it off",
+            "Cite the research checkpoint's e2e grant in the plan by the research "
+            "reference that records it",
+            "An unapproved concept keeps this checkpoint on",
+            "a changed or added part or a concept delta, including a wider "
+            "footprint, goes to the owner as one class-8 approval of prepared work",
+            "a proposed or declined live lane still gets its class-5 question",
+        ):
+            assert anchor in checkpoint, anchor
+        spec_review = _raw(RESOURCES / "spec-review.briefing.md")
+        rulings = _folded_text(_h2_body(spec_review, "Owner rulings in force"))
+        for anchor in (
+            "confirm that against `checkpoints.specification` in `heddle orient "
+            "--json` or the owner's recorded answer",
+            "The research checkpoint's authorization then stands for the parts it "
+            "authorized",
+        ):
+            assert anchor in rulings, anchor
+        for text in (
+            _folded_text(_h2_body(spec_review, "Review change confirmation and exit")),
+            _folded(RESOURCES / "plan-review.briefing.md"),
+        ):
+            assert "`checkpoints.review_changes` in `heddle orient --json`" in text
+            assert (
+                "still covers a change to scope, the approved concept or a witness "
+                "grant" in text
+            )
+        gate = _folded_text(_expanded("spec-review.md"))
+        assert (
+            "the research checkpoint's per-part authorization is the confirmation "
+            "source for the parts it authorized" in gate
+        )
+        for name in (
+            "plan-review.briefing.md",
+            "scaffold.briefing.md",
+            "prompts/plan-review.md",
+            "prompts/review-test-scaffolding.md",
+        ):
+            assert "research reference" in _folded(RESOURCES / name), name
 
     def test_widening_past_the_approved_footprint_asks_first(self) -> None:
         implement = _folded(RESOURCES / "implement.briefing.md")

@@ -165,6 +165,7 @@ class FeatureSnapshot:
     entry: str  # "fresh" | "resume" (WM-10)
     next_steps: str | None  # latest session's next_steps
     state: StateFile  # full typed facts
+    checkpoints: Mapping[str, bool]  # host owner-checkpoint switches
 
     @property
     def plan_path(self) -> str:
@@ -416,6 +417,7 @@ def resolve_snapshot(config: ProjectConfig, slug: str) -> FeatureSnapshot:
         entry=_session_entry(state, required_gates),
         next_steps=state.sessions[-1].next_steps if state.sessions else None,
         state=state,
+        checkpoints=dict(config.checkpoints),
     )
 
 

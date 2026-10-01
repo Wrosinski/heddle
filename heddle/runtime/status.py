@@ -504,6 +504,7 @@ def _snapshot_base_payload(snapshot: FeatureSnapshot) -> dict[str, Any]:
         "authoring_guidance": (
             asdict(authoring_guidance) if authoring_guidance is not None else None
         ),
+        "checkpoints": dict(snapshot.checkpoints),
     }
     if snapshot.state.completion is not None:
         payload.update(

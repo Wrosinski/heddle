@@ -32,3 +32,11 @@
 #   # does not replace feature proof. Heddle does not create a clean environment;
 #   # it runs the command in the current host checkout.
 #   test_command: pytest
+#
+# Owner checkpoints stay on unless a host turns them off. `specification` is
+# the owner's green light on the drafted spec and plan before any review;
+# `review_changes` confirms what spec and plan review changed. The owner can
+# also skip them for one feature at its research checkpoint.
+# checkpoints:
+#   specification: true
+#   review_changes: true

@@ -123,6 +123,13 @@ repository unchanged.
   real verification entry points. These values describe commands; they do not
   grant permission to run broad, external, or paid scopes.
 - Enable the available runners with `agents.claude` and `agents.codex`.
+- Owner checkpoints default on. Set `checkpoints.specification` or
+  `checkpoints.review_changes` to `false` to drop the specification checkpoint
+  or the review change confirmation for every feature; for an admitted feature,
+  `heddle status --json` and `heddle orient --json` report these host switches.
+  Off drops the owner's confirmation of conforming work and review refinements
+  inside approved parts; scope changes, concept deltas and execution grants
+  still go to the owner.
 
 Host tooling owns `.heddle.yaml`'s `autopilot.test_command`, which configures
 the additional close suite run by `heddle feature complete`. It does not replace
@@ -268,7 +275,7 @@ restart completed stages. Accepted features keep their original contract.
 
 The implement-exit witness requirement is runtime-enforced for every feature at
 its next exit from implement, with no policy-version gate. A feature already in
-implement whose Checkpoint 1 live grant names only the final boundary reopens
+implement whose live grant names only the final boundary reopens
 that ruling through a class-2 question before the earlier live run. Features
 already past implement keep their history and may use a witness waiver at their
 final boundary.
@@ -295,12 +302,20 @@ owner names.
 Every new feature now stops once at specify exit, after the documents are
 drafted and before any review, for the owner's specification-checkpoint ruling;
 a driven session records the question and the driver halts until the owner
-rules. Features already past specify keep their recorded Checkpoint 1 rulings.
-During implementation, review fixes and completion, widening ownership outside
-the approved footprint first needs a class-2 question. Overrides of the brief,
-spec or plan scaffold, of the specify, spec-review, plan-review, implement,
-peer-review, robustness or complete briefing, or of the spec-review or
-plan-review prompt shadow this guidance until reconciled.
+rules. A feature whose spec cites no such ruling, and does not record the
+checkpoint as off, gets it at the start of spec review, which replaces the
+former full Checkpoint 1; rulings already recorded stay valid. After spec review
+and after plan review, the review change confirmation asks only about changes
+that would alter the owner's answer. The shared decision policy gains an
+approval-of-prepared-work question type; because every gate prompt carries that
+policy, every gate's `prompt_version` rotates. During implementation, review
+fixes and completion, widening ownership outside the approved footprint first
+needs a class-2 question. A host or owner who trusts the brief can turn either
+checkpoint off (see the host configuration above); the research checkpoint then
+also carries the e2e grant. Overrides of the brief, spec or plan scaffold, of
+the specify, spec-review, plan-review, implement, peer-review, robustness or
+complete briefing, of the spec-review or plan-review prompt, or of
+`decision-routing.md` shadow this guidance until reconciled.
 
 ## Shared decision policy
 

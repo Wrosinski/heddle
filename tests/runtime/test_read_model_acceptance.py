@@ -110,3 +110,23 @@ class TestAC12AgreementBar:
                 f"resolve_snapshot {len(calls)} times — human and JSON must "
                 "render ONE snapshot per invocation (read model/AC-12)"
             )
+
+
+@pytest.mark.parametrize("command", ["status", "orient"])
+def test_read_surfaces_report_the_owner_checkpoint_switches(
+    run_cli, tmp_path, monkeypatch, command
+) -> None:
+    host = make_host(tmp_path, TINY, None)
+    config = host / ".heddle.yaml"
+    config.write_text(
+        config.read_text(encoding="utf-8")
+        + "\ncheckpoints:\n  review_changes: false\n",
+        encoding="utf-8",
+    )
+    monkeypatch.chdir(host)
+    code, out, _err = run_cli([command, "--feature", "sample-feature", "--json"])
+    assert code == 0, out
+    assert json.loads(out)["data"]["checkpoints"] == {
+        "specification": True,
+        "review_changes": False,
+    }

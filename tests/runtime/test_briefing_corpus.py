@@ -410,19 +410,17 @@ class TestAC7KickoffRendersClean:
             assert "Before any review starts" in folded
             assert "titled `Live witness: <slug>`" in folded
             assert "per-attempt/aggregate cost caps sized for both runs" in folded
-            assert "Resolving lets the driver advance straight to spec review" in (
-                folded
-            )
+            assert "both lanes at implement exit" in folded
+            assert "a post-review rerun the owner may decline per lane" in folded
+            assert "resolving them lets the driver advance straight to spec" in (folded)
+            assert "**Approval of prepared work:**" in folded
         elif stage == "spec-review":
-            assert "confirms only what spec review changed" in folded
-            assert "the full Checkpoint 1 applies" in folded
-            assert "including when spec review is Off" in folded
-            assert "no separate e2e decision is needed" in folded
-            assert "scope question with class 8" in folded
-            assert "class-5 `question`" in folded
-            assert "per-attempt/aggregate cost caps" in folded
-            assert "a required one at implement exit, before any review" in folded
-            assert "opt out of a lane's rerun" in folded
+            assert "Review change confirmation and exit" in briefing
+            assert "the green light is missing: before any gate run" in folded
+            assert "**Approval of prepared work:**" in folded
+        elif stage == "plan-review":
+            assert "The review change confirmation also closes this stage" in folded
+            assert "**Approval of prepared work:**" in folded
         elif stage in {"peer-review", "robustness"}:
             assert "Assessment" in briefing and "passing run" in briefing
             assert "replacement output" in briefing
@@ -481,7 +479,7 @@ COMPLETION_FOLD_ITEMS: dict[str, tuple[tuple[str, ...], ...]] = {
     # cleanup/ordering/close-fact anchor sets below) have no rows here.
     "specify.briefing.md": (
         ("feature spec", "implementation plan"),
-        ("research checkpoint", "checkpoint 1"),
+        ("research checkpoint", "review change confirmation"),
         ("related work", "repository evidence"),
         ("implementation parts", "authorization"),
         ("enforcement rules referenced at their source", "design commitments"),
@@ -520,7 +518,7 @@ class TestStageSemanticContracts:
     def test_specify_produces_both_documents_and_separates_checkpoints(self) -> None:
         text = _normalized("specify.briefing.md")
         assert "feature spec" in text and "implementation plan" in text
-        assert "research checkpoint" in text and "checkpoint 1" in text
+        assert "research checkpoint" in text and "review change confirmation" in text
         assert "heddle milestone add" in text and "heddle validate" in text
         assert "verbatim as provenance" in text and "scope delta" in text
         assert "part changed shape" in text and "requiring authorization" in text

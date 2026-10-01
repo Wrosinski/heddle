@@ -64,7 +64,8 @@ The authoring shape is:
   approval reference and a labeled concept delta; spec and plan review check
   against it. The block cites the specification-checkpoint ruling: scope
   confirmation is an explicit owner choice made there, even when nothing
-  changed, and confirms each concept delta.
+  changed, and confirms each concept delta. When the checkpoint is off, it
+  records that and whether the host or the owner turned it off instead.
   Its conceptual end-to-end outline states the e2e/live lane posture and reason;
   concrete witness design belongs in the plan.
 - **Conceptual Design:** terms, interactions, competing goals where consequential,
@@ -267,9 +268,9 @@ user chose the option directly or a lead applied a standing user grant.
   identify the current grant, the scope it covers, the selected choice, and why
   that choice falls inside the grant. Keep this in the first-write rationale and
   point `routes_to` at the real repository document where the ruling applies.
-  A witness grant from the specification checkpoint (Checkpoint 1 for earlier
-  work) is one example: name the approved lane, stages, effects and bounds, and
-  verify that the scaffold-bound exact command fits it. An opt-out of a lane's
+  A witness grant from the specification checkpoint is one example: name the
+  approved lane, stages, effects and bounds, and verify that the scaffold-bound
+  exact command fits it. An opt-out of a lane's
   post-review rerun ruled there is another: the lead resolves the bound
   `witness-waiver` decision and cites that ruling.
 - For an ordinary reversible choice derived from ratified engineering policy,

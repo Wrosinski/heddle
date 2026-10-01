@@ -24,10 +24,11 @@ Ground the scaffold in the repository before writing tests:
 1. Read `heddle status --json`, the Feature Spec's canonical AC set and relevant
    Design Commitments, and the plan's Technical Architecture, verification/
    environment context, Integrated Witness Proposal, and milestones. Follow its
-   exact decision IDs in workspace state to establish grants. For active work
-   predating this proposal section, reconcile existing design and approvals;
-   ask only for missing or materially changed choices, without inventing a past
-   checkpoint or restarting completed stages.
+   exact decision IDs in workspace state, or the cited research reference for
+   an e2e grant made at the research checkpoint, to establish grants. For
+   active work predating this proposal section, reconcile existing design and
+   approvals; ask only for missing or materially changed choices, without
+   inventing a past checkpoint or restarting completed stages.
 2. Confirm every AC ID appears in some milestone's `satisfies` entry. Repair
    missing assignments with `heddle milestone edit` — reading the AC and each
    milestone's scope for best fit — before writing that AC's tests; an

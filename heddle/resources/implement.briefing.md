@@ -172,10 +172,10 @@ formal gate artifacts retain their required structure and non-narration rules.
    resumes from native facts. Milestone advance remains boundary-owned.
 
 Before starting the final milestone, read the Integrated Witness Proposal and
-its exact native decision references, then inspect the live E2E prerequisites and
-their recorded approvals. The specification checkpoint, or Checkpoint 1 for work
-specified before it, settles user-required choices and explicit grants for both
-lanes; scheduled auto-resolvable setup may still need completing.
+the exact decisions or research reference it cites, then inspect the live E2E
+prerequisites and their recorded approvals. The owner's recorded rulings settle
+user-required choices and explicit grants for both lanes; scheduled
+auto-resolvable setup may still need completing.
 Reopen a materially changed choice through a class-2 question naming its original
 ruling. Record a genuinely missing live choice with class 5; obtain missing e2e
 authority in the scope ruling, using class 8 for a new lead-owned scope question.

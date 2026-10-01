@@ -100,7 +100,8 @@ Plan at `[plan-path]`):
   collection, or execution
 - **Integrated Witness Proposal** — the plan's confirmed lanes, conditions,
   coverage fallbacks, prerequisites, effects, caps and explicit grants. Follow
-  its exact decision IDs in workspace state; a lead-authored ruling is not
+  its exact decision IDs in workspace state, or the cited research reference for
+  an e2e grant made at the research checkpoint; a lead-authored ruling is not
   automatically delivered as prior review ground. Existing active features may
   use reconciled prior design/approvals without a retrospective checkpoint.
 

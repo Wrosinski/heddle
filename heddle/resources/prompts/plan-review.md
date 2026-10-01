@@ -27,6 +27,8 @@ Acceptance Criteria; consult a linked settled decision needed to interpret a
 commitment. Do not re-review the spec or access production implementation code.
 The workspace `state.yaml` sits alongside the plan at `[plan-path]`; read the
 proposal's exact decision IDs there to establish the actual rulings and grants.
+An e2e grant made at the research checkpoint is established instead by the
+research reference the proposal cites.
 
 Identify every AC and milestone, including its satisfies, owns, dependencies,
 complexity, and verification facts. Distinguish new files the plan will create
