@@ -250,6 +250,7 @@ class TestAC14StateVocabularyValueLock:
             "target_blocker",
             "supersedes",
             "smoke_disposition",
+            "witness_waiver",
         )
 
     def test_session_keys(self):

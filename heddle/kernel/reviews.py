@@ -254,6 +254,7 @@ def _validate_decision(
         "stage-cap": {3},
         "session-cap": {6, 7},
         "smoke-disposition": {2},
+        "witness-waiver": {5},
         "policy": {None},
     }
     require(
@@ -289,6 +290,10 @@ def _validate_decision(
     require(
         (decision.smoke_disposition is not None) == (kind == "smoke-disposition"),
         "invalid smoke_disposition presence",
+    )
+    require(
+        (decision.witness_waiver is not None) == (kind == "witness-waiver"),
+        "invalid witness_waiver presence",
     )
     if kind == "session-cap":
         require(

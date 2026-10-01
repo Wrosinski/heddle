@@ -101,8 +101,8 @@ before admission; the workflow guide's phase numbers are explanatory labels.
 | `spec-review` | Review the product contract; the lead confirms scope, witness shape, prerequisites and explicit lane grants at Checkpoint 1, even with the reviewer Off. |
 | `plan-review` | Review approach, architecture and delivery strategy. |
 | `scaffold` | Realize the confirmed witness, bind acceptance criteria and exact commands within the recorded grants; route material changes to the original owner. |
-| `implement` | Complete tasks, verify and review each milestone, then advance it. |
-| `peer-review` | Review the integrated change; perform final proof when robustness is Off. |
+| `implement` | Complete tasks, verify and review each milestone, then advance it; exit only after every declared witness lane passes. |
+| `peer-review` | Review the integrated change; perform final proof, including the default witness rerun, when robustness is Off. |
 | `robustness` | Perform selected robustness work and final post-hardening proof; Off adds no substitute inline review. |
 | `complete` | Prepare the human handoff and explicitly accept completion. |
 
@@ -162,19 +162,36 @@ cost and execution authority; an inherited command is not an execution grant.
 The integrated witness design and any declared alignment assessment are authored
 plan judgments, not new state fields or verification scopes. Current milestone,
 acceptance and smoke evidence remain required under existing disposition rules;
-declared live proof is additional. The owning final-boundary lead assesses final
-retained output after the last relevant fix and applicable passing run, with
-native run/source and artifact references. Misalignment blocks the finishing
+declared live proof is additional. The implement lead assesses the retained
+output of the passing pre-review run, and the owning final-boundary lead
+refreshes that assessment after the last relevant fix and applicable passing
+run, with native run/source and artifact references. Misalignment blocks the finishing
 claim; quality observations and the spec's judgment-based Assessment Targets
 never gate it. Session/spec summaries
 reference the plan's assessment instead of creating another evidence owner.
 Assessment edits are authored plan changes, so source-bound review evidence can
 become stale; existing qualification and originating-inspection duties remain.
 
-These documentary duties do not change native enforcement: declared live is
-required at robustness and complete; robustness is traversed even with R Off.
-The peer-review lead then owes live before handoff even though the peer boundary
-does not enforce it.
+Native enforcement places the witness at two points. Once every milestone is
+done, implement exit requires current passing `acceptance` and, when
+`live_e2e_test` is declared, `live`, so review starts only after the witness
+has passed. At the final boundary the same scopes are required again: acceptance
+at peer review when it owns final proof, declared live at robustness and
+complete. Robustness is traversed even with R Off, so the peer-review lead owes
+live before handoff even though the peer boundary does not enforce it.
+
+A stale lane at those later boundaries reruns by default. While review work at
+that boundary is open, readiness orders that rerun after the review actions;
+the lane still blocks exit. A user-resolved
+class-5 `witness-waiver` decision with resolution `accept-prior-witness` can
+instead waive one lane's rerun. It binds the identity of the latest scoped fact,
+which must be stable, passing and on the current command, plus the ownership
+union and current source digest. While those bindings hold, the boundary and
+`complete` accept the content-stale or source-set-stale fact; any later
+relevant edit or new run makes the waiver inert. The waiver never applies at
+implement exit, never qualifies review-disposition evidence, and is named by
+the completion fact. Like accepted degraded smoke, it needs a matching decision
+journal entry at close.
 Checkpoint witness questions use existing decisions, and unresolved questions
 block progression. Recorded grants remain separate from design and prerequisites.
 
@@ -219,6 +236,8 @@ Freshness proves content identity and the recorded process result, not all five
 questions. A proven pre-existing, outside-owned smoke failure requires the
 explicit native degraded-smoke decision and supporting green proof. Its status
 remains failed, with acceptance recorded separately; the exception is not a pass.
+A waived witness rerun likewise keeps its stale status, with the waiver shown
+separately.
 
 ## Review results and closure
 

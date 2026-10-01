@@ -279,6 +279,11 @@ def complete_feature(operation: ops.FeatureComplete) -> HeddleResult:
             ),
             spec_stamp=identity,
             close_suite=suite,
+            waived_witness_decision_ids=tuple(
+                row.waived_by
+                for row in assessment.verifications
+                if row.scope in completion_scopes and row.waived_by is not None
+            ),
         )
         committed = commit_state(
             context.state_path,

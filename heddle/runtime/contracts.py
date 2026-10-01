@@ -208,6 +208,7 @@ _DECISION_KIND_SUMMARIES = {
     "stage-cap": "a reached stage error limit",
     "session-cap": "a reached session limit",
     "smoke-disposition": "an external failed smoke proposal",
+    "witness-waiver": "an owner waiver of one default post-review witness rerun",
 }
 
 DECISION_BATCH_INPUT_SCHEMA: dict[str, Any] = {
@@ -254,6 +255,16 @@ DECISION_BATCH_INPUT_SCHEMA: dict[str, Any] = {
                             "owned_scopes; "
                             "runtime binds current evidence; accept with exact "
                             "resolution accept-degraded-smoke"
+                        ),
+                    },
+                    "witness_waiver": {
+                        "type": "object",
+                        "required": False,
+                        "summary": (
+                            "class-5 waiver of one stale witness lane after "
+                            "implement: scope (acceptance or live); runtime binds "
+                            "the latest stable passing fact and current source; "
+                            "accept with exact resolution accept-prior-witness"
                         ),
                     },
                     "class": {
@@ -337,6 +348,7 @@ DECISION_BATCH_INPUT_SCHEMA: dict[str, Any] = {
         "class; runtime binds current evidence",
         "smoke-disposition requires class 2 and smoke_disposition; "
         "question excludes class 4",
+        "witness-waiver requires class 5 and witness_waiver",
         "class-7 question requires driver source, no target_stage or "
         "target_blocker, and resolves only by disposition",
         "resolve with required --kind, --resolution rationale and --routes-to",
@@ -1470,7 +1482,8 @@ COMMAND_SURFACE: tuple[CommandContract, ...] = (
                 "--kind",
                 "required explicit resolution: disposition, continue-review (one next "
                 "round for the current assignment stop; confirmed cap still applies), "
-                "continue-stage, continue-session, or accept-degraded-smoke",
+                "continue-stage, continue-session, accept-degraded-smoke, or "
+                "accept-prior-witness",
             ),
             FlagSpec(
                 "--resolution",

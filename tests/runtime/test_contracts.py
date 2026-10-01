@@ -644,6 +644,7 @@ class TestInputSchemaBody:
             "target_stage",
             "target_blocker",
             "smoke_disposition",
+            "witness_waiver",
         }
         assert self.ITEM_FIELDS["recommendation"]["required"] is False
 

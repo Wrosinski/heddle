@@ -52,7 +52,7 @@ Each workspace below arms one current derivation.
 | `gate-stage-append-order` | uses append order rather than timestamps |
 | `gate-stage-converged` | routes to `phase-exit` |
 | `gate-run-missing` | reports `gate-not-converged` for a required absent run |
-| `gate-all-converged` | routes to `phase-exit` |
+| `gate-all-converged` | routes to `phase-exit` once an acceptance lane is declared and passes |
 | `stacked-family-a` | reports authorization before pending decisions |
 | `stacked-cross-family` | reports pending decisions before gate convergence |
 

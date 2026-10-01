@@ -7,11 +7,16 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
-from heddle.contracts.decisions import AcceptDegradedSmoke, PolicyResolution
+from heddle.contracts.decisions import (
+    AcceptDegradedSmoke,
+    AcceptPriorWitness,
+    PolicyResolution,
+)
 from heddle.contracts.schemas import POLICY_JOURNAL_FIELDS
 from heddle.kernel.project_config import ProjectConfig
 from heddle.kernel.smoke_disposition import ACCEPT_DEGRADED_SMOKE
 from heddle.kernel.state import DecisionFact, StateFile
+from heddle.kernel.witness_waiver import ACCEPT_PRIOR_WITNESS
 
 _FIELD_RE = re.compile(r"\s*-\s*([^:]+)\s*:\s*(.*)\s*$")
 AuditStatus = Literal["missing", "incomplete", "complete"]
@@ -51,6 +56,12 @@ def journal_decision_facts(state: StateFile) -> tuple[DecisionFact, ...]:
             and decision.status == "resolved"
             and decision.resolution_source == "user"
             and isinstance(decision.resolution, AcceptDegradedSmoke)
+        )
+        or (
+            decision.witness_waiver is not None
+            and decision.status == "resolved"
+            and decision.resolution_source == "user"
+            and isinstance(decision.resolution, AcceptPriorWitness)
         )
     )
 
@@ -148,6 +159,17 @@ def _section_matches_fact(section: str, fact: DecisionFact) -> bool:
             "choice": ACCEPT_DEGRADED_SMOKE,
             "attribution": disposition["attribution"],
             "smoke_fact_sha256": disposition["bindings"]["smoke"],
+        }
+        return all(
+            _normalize_ws(fields.get(key, "")) == _normalize_ws(value)
+            for key, value in expected.items()
+        )
+    if fact.witness_waiver is not None and fact.resolution_source == "user":
+        waiver = fact.witness_waiver
+        expected = {
+            "choice": ACCEPT_PRIOR_WITNESS,
+            "scope": waiver["scope"],
+            "fact_sha256": waiver["fact"],
         }
         return all(
             _normalize_ws(fields.get(key, "")) == _normalize_ws(value)

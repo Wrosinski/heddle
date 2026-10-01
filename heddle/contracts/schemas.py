@@ -91,7 +91,9 @@ COMPLETION_KEYS = (
     "accepted_smoke_decision_id",
     "spec_stamp",
     "close_suite",
+    "waived_witness_decision_ids",
 )
+COMPLETION_OPTIONAL_KEYS = ("waived_witness_decision_ids",)
 SPEC_STAMP_KEYS = ("before_sha256", "after_sha256", "executable")
 CLOSE_SUITE_KEYS = ("command", "log", "exit_code")
 
@@ -203,9 +205,11 @@ DECISION_KEYS = (
     "target_blocker",
     "supersedes",
     "smoke_disposition",
+    "witness_waiver",
 )
 DECISION_OPTIONAL_KEYS = (
     "smoke_disposition",
+    "witness_waiver",
     "class",
     "question",
     "options",
@@ -223,6 +227,7 @@ RESOLUTION_PAYLOAD_KEYS = {
     "continue-stage": ("kind", "review_run_count_before", "gate_run_count_before"),
     "continue-session": ("kind", "session_count_before"),
     "accept-degraded-smoke": ("kind",),
+    "accept-prior-witness": ("kind",),
     "policy": (
         "kind",
         "choice",
@@ -242,6 +247,7 @@ DECISION_RESOLUTION_KINDS = {
     "stage-cap": ("disposition", "continue-stage"),
     "session-cap": ("disposition", "continue-session"),
     "smoke-disposition": ("disposition", "accept-degraded-smoke"),
+    "witness-waiver": ("disposition", "accept-prior-witness"),
     "policy": ("policy",),
 }
 
@@ -265,7 +271,10 @@ ESCALATION_CLASS_SUMMARIES: dict[int, str] = {
     2: "a discovery invalidates a prior user decision's analysis",
     3: "a required gate cap was reached (driver surfaces the batch)",
     4: "gate-recorded REPORT findings (run-gate records these, never decisions add)",
-    5: "live witness shape, prerequisite or execution grant not pre-authorized",
+    5: (
+        "live witness shape, prerequisite or execution grant not pre-authorized, "
+        "or a waived post-review witness rerun"
+    ),
     6: "no progress across two sessions (driver-raised)",
     7: "session attempt cap or verification retry limit reached (driver-raised)",
     8: "irreversible open question no principle covers",
@@ -282,6 +291,7 @@ DECISION_BATCH_KINDS = (
     "stage-cap",
     "session-cap",
     "smoke-disposition",
+    "witness-waiver",
 )
 
 # Kernel-derived blocker → the escalation class whose resolution clears it.

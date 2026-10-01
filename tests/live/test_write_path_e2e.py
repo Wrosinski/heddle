@@ -175,6 +175,17 @@ def test_local_write_path_no_mocks(tmp_path: Path) -> None:
 
     edge = _copy_host(tmp_path, EDGE, "edge")
     phase_state = edge / "plans" / "gate-all-converged" / "state.yaml"
+    # Reviews start only after the declared e2e lane passes at implement exit.
+    witness = _read_yaml(phase_state)
+    witness["commands"]["acceptance_test"] = f"{sys.executable} -c \"print('ok')\""
+    _write_yaml(phase_state, witness)
+    code, envelope, _stderr = _run_heddle(
+        edge, "verify", "--scope", "acceptance", "--feature", "gate-all-converged"
+    )
+    assert code == 0 and envelope["ok"] is True, (
+        f"FAIL live AC-10: implement-exit witness failed: exit={code}, "
+        f"envelope={envelope!r}"
+    )
     before_phase = phase_state.read_bytes()
     code, envelope, _stderr = _run_heddle(
         edge, "phase-exit", "--feature", "gate-all-converged", "--dry-run"

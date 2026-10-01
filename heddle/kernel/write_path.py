@@ -101,6 +101,12 @@ def accept_completion(
     fact = asdict(completion)
     fact["verification_indexes"] = list(completion.verification_indexes)
     fact["review_run_ids"] = list(completion.review_run_ids)
+    if completion.waived_witness_decision_ids:
+        fact["waived_witness_decision_ids"] = list(
+            completion.waived_witness_decision_ids
+        )
+    else:
+        del fact["waived_witness_decision_ids"]
     document["completion"] = fact
     return document
 

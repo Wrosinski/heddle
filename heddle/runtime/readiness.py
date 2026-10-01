@@ -34,6 +34,10 @@ from heddle.kernel.reviews import (
 )
 from heddle.kernel.source_manifest import ObservedPath
 from heddle.kernel.verification import VerificationFreshness
+from heddle.kernel.witness_waiver import (
+    verification_refresh_reason,
+    waivable_witness_rerun,
+)
 from heddle.runtime.flow_changes import phase_exit_grant_blockers
 from heddle.runtime.verification import (
     assess_current_verifications,
@@ -120,6 +124,7 @@ def _assignment_readiness(
     )
     basic = assess_boundary(snapshot.state, boundary, (), (), actionable_verifications)
     rows, actions, blockers = [], list(basic.next_actions), list(basic.blockers)
+    proof_actions = len(actions)
     completed_scopes = {m.id for m in snapshot.state.milestones if m.status == "done"}
     for row in observed["review_closure"]["assignments"]:
         role_stage = ROLE_STAGES[row["role"]]
@@ -185,6 +190,18 @@ def _assignment_readiness(
             if "gate-not-converged" not in blockers:
                 blockers.append("gate-not-converged")
             actions.append(next_action(snapshot, row))
+    if len(actions) > proof_actions:
+        # Open review work here may change owned content again, so a default
+        # post-review witness rerun waits behind it; the lane still blocks exit.
+        reruns = [
+            row.action
+            for row in actionable_verifications
+            if waivable_witness_rerun(boundary.stage, row)
+        ]
+        actions = [
+            *(item for item in actions if item.action not in reruns),
+            *(item for item in actions[:proof_actions] if item.action in reruns),
+        ]
     actions = _group_independent_gate_actions(snapshot, observed, actions)
     derived = derive_next_actions(snapshot)
     off_robustness_exit = _qualified_fresh_off_robustness_exit(
@@ -495,7 +512,9 @@ def readiness_status_block(
     if not assessment.blockers:
         return None
     if assessment.blockers[0] == "verification-missing":
-        return verification_status_block(assessment.verifications, diagnostics)
+        return verification_status_block(
+            assessment.verifications, assessment.boundary.stage, diagnostics
+        )
     return HeddleResult.failure(
         HeddleError(
             code=assessment.blockers[0],
@@ -513,27 +532,31 @@ def readiness_status_block(
 
 def verification_status_block(
     statuses: tuple[VerificationFreshness, ...],
+    stage: str,
     diagnostics: tuple[Diagnostic, ...] = (),
 ) -> HeddleResult | None:
-    stale = tuple(status for status in statuses if not status.authorizes)
+    stale = tuple(status for status in statuses if not status.satisfies_boundary)
     if not stale:
         return None
     first = stale[0]
     assert first.action is not None
+    hint = "rerun every listed verification action and retry the transition"
+    if any(waivable_witness_rerun(stage, status) for status in stale):
+        hint += "; the owner may instead waive a witness lane's post-review rerun"
     return HeddleResult.failure(
         HeddleError(
             code="verification-missing",
             message=(
                 f"verification scope {first.scope!r} is not fresh: {first.status}"
             ),
-            hint="rerun every listed verification action and retry the transition",
+            hint=hint,
         ),
         exit_code=ExitCode.FATAL,
         diagnostics=diagnostics,
         next_actions=tuple(
             NextAction(
                 action=status.action,
-                reason=f"refresh {status.scope} verification ({status.status})",
+                reason=verification_refresh_reason(stage, status),
             )
             for status in stale
             if status.action is not None

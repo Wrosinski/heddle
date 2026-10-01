@@ -22,6 +22,7 @@ from heddle.contracts.schemas import (
     CLOSE_SUITE_KEYS,
     COMMAND_KEYS,
     COMPLETION_KEYS,
+    COMPLETION_OPTIONAL_KEYS,
     CURRENT_STATE_SCHEMA,
     DECISION_KEYS,
     DECISION_OPTIONAL_KEYS,
@@ -69,6 +70,10 @@ from heddle.kernel.source_attribution import (
 from heddle.kernel.source_manifest import (
     EvidenceReference,
     decode_evidence_reference,
+)
+from heddle.kernel.witness_waiver import (
+    validate_witness_bindings,
+    validate_witness_waiver,
 )
 
 INCOMPATIBLE_STATE_SCHEMA = "incompatible-state-schema"
@@ -237,6 +242,7 @@ class DecisionFact:  # §7; DECISION_KEYS
     recommendation: str | None = None
     resolution_source: str | None = None
     smoke_disposition: Mapping[str, Any] | None = None
+    witness_waiver: Mapping[str, Any] | None = None
     origin_run_id: str | None = None
     origin_finding_id: str | None = None
     target_stage: str | None = None
@@ -315,6 +321,7 @@ class CompletionFact:
     accepted_smoke_decision_id: str | None
     spec_stamp: SpecStampIdentity
     close_suite: CloseSuiteFact | None
+    waived_witness_decision_ids: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -639,7 +646,7 @@ def _completion(path: Path, value: Any, state: StateFile) -> CompletionFact:
 
     if not isinstance(value, dict):
         raise reject("must be a mapping or null")
-    _require_keys(path, "completion", value, COMPLETION_KEYS)
+    _require_keys(path, "completion", value, COMPLETION_KEYS, COMPLETION_OPTIONAL_KEYS)
     if state.stage != "complete" or any(
         milestone.status != "done"
         or any(task.status != "done" for task in milestone.tasks)
@@ -737,6 +744,38 @@ def _completion(path: Path, value: Any, state: StateFile) -> CompletionFact:
                 "user smoke acceptance"
             )
         validate_smoke_bindings(state, decision.smoke_disposition)
+    waived_ids = _str_tuple(
+        path,
+        "completion.waived_witness_decision_ids",
+        value.get("waived_witness_decision_ids", []),
+    )
+    if "waived_witness_decision_ids" in value and not waived_ids:
+        raise reject("waived_witness_decision_ids must be omitted when empty")
+    waived_scopes = []
+    for waived_id in waived_ids:
+        decision = next(
+            (decision for decision in state.decisions if decision.id == waived_id),
+            None,
+        )
+        if (
+            decision is None
+            or decision.status != "resolved"
+            or decision.resolution_source != "user"
+            or decision.escalation_class != 5
+            or not (decision.resolved_at or "").strip()
+            or not isinstance(decision.resolution, decision_types.AcceptPriorWitness)
+        ):
+            raise reject(
+                "waived_witness_decision_ids must reference resolved "
+                "user witness waivers"
+            )
+        validate_witness_bindings(state, decision.witness_waiver)
+        assert decision.witness_waiver is not None
+        waived_scopes.append(decision.witness_waiver["scope"])
+    if len(set(waived_scopes)) != len(waived_scopes) or not set(waived_scopes) <= {
+        fact.scope for fact in selected
+    }:
+        raise reject("waived_witness_decision_ids must waive distinct required lanes")
     for fact_index in verification_indexes:
         verification = state.verifications[fact_index]
         if verification.exit_code != 0 and not (
@@ -787,6 +826,7 @@ def _completion(path: Path, value: Any, state: StateFile) -> CompletionFact:
         smoke_id,
         SpecStampIdentity(**stamp),
         close_suite,
+        waived_ids,
     )
 
 
@@ -1245,6 +1285,8 @@ def _resolution(path: Path, value: Any) -> decision_types.Resolution | None:
             return decision_types.ContinueSession(count("session_count_before"))
         case "accept-degraded-smoke":
             return decision_types.AcceptDegradedSmoke()
+        case "accept-prior-witness":
+            return decision_types.AcceptPriorWitness()
         case "policy":
             fields = {
                 key: _str_value(path, f"resolution.{key}", value[key])
@@ -1369,6 +1411,11 @@ def _decision(path: Path, entry: Mapping[str, Any]) -> DecisionFact:
         smoke_disposition=(
             validate_smoke_disposition(entry["smoke_disposition"], bound=True)
             if "smoke_disposition" in entry
+            else None
+        ),
+        witness_waiver=(
+            validate_witness_waiver(entry["witness_waiver"], bound=True)
+            if "witness_waiver" in entry
             else None
         ),
         origin_run_id=_optional_str(

@@ -17,6 +17,7 @@ from heddle.kernel.reviews import (
 )
 from heddle.kernel.state import StateFile
 from heddle.kernel.verification import VerificationFreshness
+from heddle.kernel.witness_waiver import verification_refresh_reason
 
 
 @dataclass(frozen=True)
@@ -109,11 +110,11 @@ def assess_boundary(
             actions.append(NextAction(action, reason))
 
     for verification in verifications:
-        if not verification.authorizes:
+        if not verification.satisfies_boundary:
             block(
                 "verification-missing",
                 verification.action,
-                f"refresh {verification.scope} verification ({verification.status})",
+                verification_refresh_reason(boundary.stage, verification),
             )
 
     for requirement in requirements:

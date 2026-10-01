@@ -13,7 +13,7 @@ from pathlib import Path
 from tempfile import NamedTemporaryFile
 from typing import Any
 
-from heddle.contracts.decisions import AcceptDegradedSmoke
+from heddle.contracts.decisions import AcceptDegradedSmoke, AcceptPriorWitness
 from heddle.contracts.operations import (
     CommandAction,
     ManualAction,
@@ -65,6 +65,12 @@ from heddle.kernel.verification import (
     required_verification_scopes,
     resolve_source_declaration,
     verification_command_for_scope,
+)
+from heddle.kernel.witness_waiver import (
+    WAIVABLE_STATUSES,
+    WAIVER_STAGES,
+    WITNESS_SCOPES,
+    validate_witness_waiver_proposal,
 )
 
 
@@ -318,6 +324,17 @@ def assess_current_verifications(
                     status, action=None, accepted_decision=decision.id
                 )
                 break
+    if state.stage in WAIVER_STAGES:
+        for index, status in enumerate(statuses):
+            if status.scope not in WITNESS_SCOPES or (
+                status.status not in WAIVABLE_STATUSES
+            ):
+                continue
+            waiver = _current_witness_waiver(
+                root, state, status.scope, source_observations
+            )
+            if waiver is not None:
+                statuses[index] = replace(status, action=None, waived_by=waiver)
     return tuple(
         replace(
             status,
@@ -383,6 +400,86 @@ def prepare_smoke_disposition(
             )
         bindings[scope] = verification_fact_identity(fact)
     return {**proposal, "ownership": list(ownership), "bindings": bindings}
+
+
+def prepare_witness_waiver(
+    root: Path,
+    state: StateFile,
+    value: object,
+    *,
+    source_observations: dict[str, ObservedPath] | None = None,
+) -> dict:
+    """Bind a waived rerun to the latest passing fact and current source."""
+    proposal = validate_witness_waiver_proposal(state, value)
+    scope = proposal["scope"]
+    declaration = resolve_source_declaration(state, scope)
+    _definition, manifest, _git = observe_current_source(
+        root,
+        declaration,
+        with_diagnostics=False,
+        scope=scope,
+        source_observations=source_observations,
+    )
+    fact = latest_verification_fact(state.verifications, scope=scope)
+    before = after = None
+    if fact is not None:
+        workspace = root / load_project_config(root).layout.plans / state.feature
+        before = read_source_evidence(workspace, fact.evidence.before)
+        after = read_source_evidence(workspace, fact.evidence.after)
+    status = assess_verification(
+        state.verifications,
+        scope,
+        verification_command_for_scope(state, scope),
+        before,
+        after,
+        manifest,
+    )
+    if status.status == "fresh":
+        raise _source_error(scope, "is current; no rerun waiver is needed")
+    if status.status not in WAIVABLE_STATUSES or status.fact_index is None:
+        raise _source_error(
+            scope,
+            f"cannot waive a rerun of {status.status} evidence; only a stable "
+            "passing run with the current command can stand in for a rerun",
+        )
+    return {
+        **proposal,
+        "fact": verification_fact_identity(state.verifications[status.fact_index]),
+        "ownership": list(declaration.paths),
+        "source_sha256": manifest.source_sha256,
+    }
+
+
+def _current_witness_waiver(
+    root: Path,
+    state: StateFile,
+    scope: str,
+    source_observations: dict[str, ObservedPath] | None,
+) -> str | None:
+    """Return the latest user waiver still bound to this exact evidence."""
+    for decision in reversed(state.decisions):
+        waiver = decision.witness_waiver
+        if (
+            waiver is None
+            or waiver["scope"] != scope
+            or decision.status != "resolved"
+            or decision.resolution_source != "user"
+            or not isinstance(decision.resolution, AcceptPriorWitness)
+            or decision.escalation_class != 5
+            or not (decision.resolved_at or "").strip()
+        ):
+            continue
+        try:
+            current = prepare_witness_waiver(
+                root,
+                state,
+                {"scope": scope},
+                source_observations=source_observations,
+            )
+        except KernelError:
+            return None
+        return decision.id if current == dict(waiver) else None
+    return None
 
 
 def reconcile_current_source(
@@ -568,6 +665,8 @@ def verification_status_payload(
             )
         if status.accepted_decision:
             row["accepted_degraded"] = status.accepted_decision
+        if status.waived_by:
+            row["waived_rerun"] = status.waived_by
         rows.append(row)
     return rows
 

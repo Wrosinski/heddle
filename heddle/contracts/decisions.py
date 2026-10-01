@@ -12,6 +12,7 @@ DecisionKind = Literal[
     "stage-cap",
     "session-cap",
     "smoke-disposition",
+    "witness-waiver",
     "policy",
 ]
 ResolutionKind = Literal[
@@ -20,6 +21,7 @@ ResolutionKind = Literal[
     "continue-stage",
     "continue-session",
     "accept-degraded-smoke",
+    "accept-prior-witness",
     "policy",
 ]
 
@@ -57,6 +59,13 @@ class AcceptDegradedSmoke:
 
 
 @dataclass(frozen=True)
+class AcceptPriorWitness:
+    kind: Literal["accept-prior-witness"] = field(
+        default="accept-prior-witness", init=False
+    )
+
+
+@dataclass(frozen=True)
 class PolicyResolution:
     choice: str
     basis: str
@@ -73,6 +82,7 @@ type Resolution = (
     | ContinueStage
     | ContinueSession
     | AcceptDegradedSmoke
+    | AcceptPriorWitness
     | PolicyResolution
 )
 
@@ -106,6 +116,7 @@ class DecisionInput:
     target_stage: str | None = None
     target_blocker: str | None = None
     smoke_disposition: Mapping[str, object] | None = None
+    witness_waiver: Mapping[str, object] | None = None
 
 
 def resolution_payload(resolution: Resolution) -> dict[str, object]:

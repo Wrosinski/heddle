@@ -79,6 +79,7 @@ class VerificationFreshness:
     action: Action | None
     fact_index: int | None
     accepted_decision: str | None = None
+    waived_by: str | None = None
     applicability: str = "required"
     explanation: Any | None = None
     detail_limit: str | None = None
@@ -90,6 +91,15 @@ class VerificationFreshness:
             and self.status == "failed"
             and self.accepted_decision is not None
         )
+
+    @property
+    def satisfies_boundary(self) -> bool:
+        """Authorizing proof, or a user-waived default post-review rerun.
+
+        A waiver lets a stage boundary accept the earlier passing witness; it
+        never makes that stale fact evidence for anything else.
+        """
+        return self.authorizes or self.waived_by is not None
 
 
 def milestone_for_scope(state: StateFile, scope: str) -> Milestone | None:
@@ -375,12 +385,15 @@ def required_verification_scopes(
         None,
     )
     all_done = all(milestone.status == "done" for milestone in state.milestones)
+    live_declared = bool(state.commands.get("live_e2e_test", "").strip())
     if stage == "implement":
         if current is not None:
             return (current,)
         if not all_done:
             return ()
-        return milestone_ids
+        # Reviews start only after the integrated witness has passed; an empty
+        # skeleton is vacuously done and still owes its declared lanes.
+        return (*milestone_ids, "acceptance", *(("live",) if live_declared else ()))
     assert state.feature_policy is not None
     from heddle.kernel.feature_policy import effective_policy
 
@@ -391,9 +404,6 @@ def required_verification_scopes(
     ):
         return ()
     scopes = ["acceptance", "smoke"]
-    if (
-        stage in {"robustness", "complete"}
-        and state.commands.get("live_e2e_test", "").strip()
-    ):
+    if stage in {"robustness", "complete"} and live_declared:
         scopes.append("live")
     return tuple(scopes)

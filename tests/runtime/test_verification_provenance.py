@@ -1551,14 +1551,16 @@ def test_ac06_phase_exit_lists_all_stale_scopes_then_accepts_reruns(
     assert envelope.get("data") is None
     revision = yaml.safe_load(state_path.read_text())["revision"]
     assert [action["command"] for action in envelope["next_actions"]] == [
-        f"heddle verify --scope m1 --expect-revision {revision} "
-        "--feature sample-feature",
+        f"heddle verify --scope {scope} --expect-revision {revision} "
+        "--feature sample-feature"
+        for scope in ("m1", "acceptance")
     ]
 
-    code, output, _error = run_cli(
-        ["verify", "--scope", "m1", "--feature", "sample-feature", "--json"]
-    )
-    assert code == 0, output
+    for scope in ("m1", "acceptance"):
+        code, output, _error = run_cli(
+            ["verify", "--scope", scope, "--feature", "sample-feature", "--json"]
+        )
+        assert code == 0, output
     code, output, _error = run_cli(
         [
             "phase-exit",
@@ -1571,6 +1573,67 @@ def test_ac06_phase_exit_lists_all_stale_scopes_then_accepts_reruns(
     assert yaml.safe_load(state_path.read_text(encoding="utf-8"))["stage"] == (
         "peer-review"
     )
+
+
+@pytest.mark.parametrize("skeleton", [False, True], ids=["milestones", "empty"])
+def test_implement_exit_waits_for_every_declared_witness_lane(
+    skeleton: bool,
+    run_cli,
+    envelope_tools,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    host, state_path = _v2_host(tmp_path, tier=3)
+    state = yaml.safe_load(state_path.read_text(encoding="utf-8"))
+    state["authorized_through"] = "peer-review"
+    state["milestones"][0]["status"] = "done"
+    # A declared local assertion, not authorization to call a provider.
+    state["commands"]["live_e2e_test"] = state["commands"]["acceptance_test"]
+    if skeleton:
+        state["milestones"] = []
+    _write_yaml(state_path, state)
+    config_path = host / ".heddle.yaml"
+    config = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+    config["gates"] = {"enabled": []}
+    _write_yaml(config_path, config)
+    monkeypatch.chdir(host)
+    before = state_path.read_bytes()
+
+    if skeleton:
+        # A vacuously done skeleton still owes its declared lanes; without
+        # ownership they cannot bind, so the exit names the repair.
+        code, output, _error = run_cli(
+            ["phase-exit", "--feature", "sample-feature", "--json"]
+        )
+        message = envelope_tools.parse(output)["error"]["message"]
+        assert code == 3 and "empty milestone ownership" in message, output
+        assert "heddle milestone edit" in message
+        assert state_path.read_bytes() == before
+        return
+
+    for scope in ("m1", "acceptance"):
+        code, output, _error = run_cli(
+            ["verify", "--scope", scope, "--feature", "sample-feature", "--json"]
+        )
+        assert code == 0, output
+    code, output, _error = run_cli(
+        ["phase-exit", "--feature", "sample-feature", "--json"]
+    )
+    envelope = envelope_tools.parse(output)
+    assert code == 3 and envelope["error"]["code"] == "verification-missing"
+    assert [action["command"] for action in envelope["next_actions"]] == [
+        f"heddle verify --scope live --expect-revision "
+        f"{yaml.safe_load(state_path.read_text())['revision']} "
+        "--feature sample-feature"
+    ]
+    code, output, _error = run_cli(
+        ["verify", "--scope", "live", "--feature", "sample-feature", "--json"]
+    )
+    assert code == 0, output
+    code, output, _error = run_cli(
+        ["phase-exit", "--feature", "sample-feature", "--json"]
+    )
+    assert code == 0, output
 
 
 @pytest.mark.parametrize("declared_live", [False, True])
@@ -2067,8 +2130,9 @@ def test_ac09_portfolio_status_skips_eager_verification_observation(
     ("stage", "statuses", "live", "expected"),
     [
         ("implement", ("current", "todo"), False, ("m1",)),
-        ("implement", ("done", "done"), False, ("m1", "m2")),
-        ("implement", (), False, ()),
+        ("implement", ("done", "done"), False, ("m1", "m2", "acceptance")),
+        ("implement", ("done", "done"), True, ("m1", "m2", "acceptance", "live")),
+        ("implement", (), True, ("acceptance", "live")),
         ("peer-review", ("done", "done"), False, ("acceptance", "smoke")),
         ("robustness", ("done", "done"), False, ("acceptance", "smoke")),
         ("complete", ("done", "done"), True, ("acceptance", "smoke", "live")),

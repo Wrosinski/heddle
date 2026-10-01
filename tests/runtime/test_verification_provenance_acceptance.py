@@ -123,6 +123,11 @@ def test_ac01_through_ac10_bound_attempt_to_retained_completion(
         ["milestone", "advance", "--feature", "sample-feature", "--json"]
     )
     assert code == 0, advance_out
+    # Reviews start only after the integrated witness passes at implement exit.
+    code, verify_out, _ = run_cli(
+        ["verify", "--scope", "acceptance", "--feature", "sample-feature", "--json"]
+    )
+    assert code == 0, verify_out
     code, exit_out, _err = run_cli(
         ["phase-exit", "--feature", "sample-feature", "--json"]
     )
@@ -145,7 +150,7 @@ def test_ac01_through_ac10_bound_attempt_to_retained_completion(
     assert code == 0 and accepted["data"]["accepted"], out
     state = read_state_file(state_path)
     assert state.completion is not None
-    assert state.completion.verification_indexes == (1, 2)
+    assert state.completion.verification_indexes == (2, 3)
     archive = host / "docs/gate-trajectories/.raw/sample-feature/completion.tar.gz"
     with tarfile.open(archive) as retained:
         assert retained.extractfile("state.yaml").read() == state_path.read_bytes()

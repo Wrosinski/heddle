@@ -308,9 +308,18 @@ def parse_assignments(value: Any) -> ReviewAssignments:
     )
 
 
+_ABSENT_ADDITIVE_FIELDS = frozenset({"witness_waiver"})
+"""Optional fact fields added after receipts were sealed; absent, they keep the
+historical identity so earlier receipts still verify unchanged ledger bytes."""
+
+
 def acceptance_record_digest(value: Any) -> str:
     """Return the canonical content identity used by receipt row references."""
     payload = asdict(cast(Any, value)) if is_dataclass(value) else value
+    if is_dataclass(value):
+        for key in _ABSENT_ADDITIVE_FIELDS & payload.keys():
+            if payload[key] is None:
+                del payload[key]
     return hashlib.sha256(
         json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
     ).hexdigest()

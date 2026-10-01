@@ -19,6 +19,27 @@ authority for the installed version.
   overview and canonical GitHub About text and topics follow; `llm-workflow`
   and `harness-engineering` replace the `state-machine` topic.
 - The `heddle help` banner reads "heddle — LLM coding workflow harness".
+- A feature's integrated witness now runs before review. Once every milestone
+  is done, `heddle phase-exit` from implement refuses until `acceptance` and,
+  when `live_e2e_test` is declared, `live` pass on current content. Features in
+  flight meet this at their next exit from implement; one whose live grant
+  names only the final boundary needs that grant reopened first.
+  An implement stage with no milestones owes the same lanes.
+- After review, rerunning a witness lane that review changes made stale stays
+  the default at the final boundary, and readiness says the owner may waive it.
+  While review work at that boundary is still open, readiness lists that rerun
+  after the review actions, so automated flow reruns once the reviews settle.
+
+### Added
+
+- A class-5 `witness-waiver` decision, resolved with `accept-prior-witness`,
+  lets the owner waive one lane's post-review rerun. It binds the latest stable
+  passing fact and the current source, so a later relevant edit or a new run
+  makes it inert. Failed, missing, unstable and command-stale evidence is never
+  waivable, and the waiver never satisfies implement exit or review-disposition
+  evidence. Completion records waived lanes in
+  `completion.waived_witness_decision_ids`, and the close audit expects a
+  matching decision-journal entry.
 
 ## [0.2.0] - 2026-09-29
 

@@ -75,6 +75,7 @@ heddle/kernel/spec_lifecycle.py
 heddle/kernel/state.py
 heddle/kernel/test_bindings.py
 heddle/kernel/verification.py
+heddle/kernel/witness_waiver.py
 heddle/kernel/write_path.py
 heddle/resources/autonomy-addendum.md
 heddle/resources/brief.scaffold.md

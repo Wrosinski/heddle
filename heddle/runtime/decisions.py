@@ -26,6 +26,7 @@ from heddle.kernel.model import FeatureSnapshot, milestones_landed_since
 from heddle.kernel.project_config import KernelError, ProjectConfig, feature_state_path
 from heddle.kernel.smoke_disposition import validate_smoke_proposal
 from heddle.kernel.state import DecisionFact, StateFile, parse_state_document
+from heddle.kernel.witness_waiver import validate_witness_waiver_proposal
 from heddle.runtime import application, audit, state_store
 from heddle.runtime.clock import utc_now_minutes
 from heddle.runtime.diagnostics import kernel_error_result
@@ -39,6 +40,7 @@ from heddle.runtime.recording import allocate_decision_ids
 from heddle.runtime.state_store import check_expect_revision, commit_state
 from heddle.runtime.verification import (
     prepare_smoke_disposition,
+    prepare_witness_waiver,
 )
 from heddle.runtime.write_args import parse_common_with_positionals, usage_failure
 
@@ -131,7 +133,7 @@ def resolve_decision(operation: ops.ResolveDecision) -> HeddleResult:
     if isinstance(target, HeddleResult):
         return target
     affected: dict[str, str] = {}
-    smoke_binding = None
+    evidence_binding = None
     if operation.kind == "accept-degraded-smoke":
         proposed = next(
             (d for d in target.state.decisions if d.id == operation.decision_id), None
@@ -143,7 +145,7 @@ def resolve_decision(operation: ops.ResolveDecision) -> HeddleResult:
         ):
             assert proposed.smoke_disposition is not None
             try:
-                smoke_binding = prepare_smoke_disposition(
+                evidence_binding = prepare_smoke_disposition(
                     target.root,
                     target.state,
                     {
@@ -151,6 +153,24 @@ def resolve_decision(operation: ops.ResolveDecision) -> HeddleResult:
                         for key, value in proposed.smoke_disposition.items()
                         if key not in {"bindings", "ownership"}
                     },
+                )
+            except KernelError as error:
+                return kernel_error_result(error, exit_codes=_RESOLUTION_EXITS)
+    if operation.kind == "accept-prior-witness":
+        proposed = next(
+            (d for d in target.state.decisions if d.id == operation.decision_id), None
+        )
+        if (
+            proposed is not None
+            and proposed.kind == "witness-waiver"
+            and proposed.status != "resolved"
+        ):
+            assert proposed.witness_waiver is not None
+            try:
+                evidence_binding = prepare_witness_waiver(
+                    target.root,
+                    target.state,
+                    {"scope": proposed.witness_waiver["scope"]},
                 )
             except KernelError as error:
                 return kernel_error_result(error, exit_codes=_RESOLUTION_EXITS)
@@ -171,7 +191,9 @@ def resolve_decision(operation: ops.ResolveDecision) -> HeddleResult:
             if _same_resolution(decision, operation, route):
                 return document
             raise _already_resolved(decision.id)
-        resolution = _resolution_for(target, state, decision, operation, smoke_binding)
+        resolution = _resolution_for(
+            target, state, decision, operation, evidence_binding
+        )
         updated = next(d for d in document["decisions"] if d["id"] == decision.id)
         if decision.status == "resolved":
             updated = {
@@ -218,7 +240,7 @@ def _resolution_for(
     state: StateFile,
     decision: DecisionFact,
     operation: ops.ResolveDecision,
-    smoke_binding: dict | None,
+    evidence_binding: dict | None,
 ) -> kinds.Resolution:
     if operation.kind == "disposition":
         return kinds.Disposition()
@@ -270,11 +292,24 @@ def _resolution_for(
         assert decision.smoke_disposition is not None
         # The CAS protects ordinary decision/verification/declaration changes;
         # gate appends at the same revision remain in this locked document.
-        if smoke_binding != dict(decision.smoke_disposition):
+        if evidence_binding != dict(decision.smoke_disposition):
             raise _usage_error(
                 "smoke disposition evidence changed since it was proposed"
             )
         return kinds.AcceptDegradedSmoke()
+    if operation.kind == "accept-prior-witness":
+        assert decision.witness_waiver is not None
+        if evidence_binding != dict(decision.witness_waiver):
+            raise KernelError(
+                code="usage",
+                message="witness evidence changed since the waiver was proposed",
+                hint=(
+                    "resolve this decision with `--kind disposition`, then propose "
+                    "a new witness-waiver against the current evidence or rerun "
+                    "the lane"
+                ),
+            )
+        return kinds.AcceptPriorWitness()
     raise _usage_error(f"unsupported resolution kind {operation.kind}")
 
 
@@ -287,7 +322,24 @@ def decisions_add(operation: ops.DecisionsAdd) -> HeddleResult:
             "decision batch must be nonempty", "provide at least one eligible decision"
         )
     smoke_bindings = {}
+    witness_bindings = {}
     for index, item in enumerate(operation.decisions):
+        if item.kind == "witness-waiver":
+            try:
+                waiver = validate_witness_waiver_proposal(
+                    target.state, item.witness_waiver
+                )
+            except KernelError as error:
+                return kernel_error_result(
+                    _usage_error(error.message), exit_codes=_RESOLUTION_EXITS
+                )
+            try:
+                witness_bindings[index] = prepare_witness_waiver(
+                    target.root, target.state, waiver
+                )
+            except KernelError as error:
+                return kernel_error_result(error, exit_codes=_RESOLUTION_EXITS)
+            continue
         if item.kind != "smoke-disposition":
             continue
         try:
@@ -351,6 +403,8 @@ def decisions_add(operation: ops.DecisionsAdd) -> HeddleResult:
                 _bind_cap(state, target.snapshot, item, fields)
             if item.kind == "smoke-disposition":
                 fields["smoke_disposition"] = smoke_bindings[index]
+            if item.kind == "witness-waiver":
+                fields["witness_waiver"] = witness_bindings[index]
             additions.append(fields)
         document["decisions"].extend(additions)
         try:
@@ -941,7 +995,13 @@ def _decode_decision_batch(
             "provide exactly schema and decisions",
         )
     required = {"kind", "class", "source", "title", "question", "options", "routes_to"}
-    optional = {"recommendation", "target_stage", "target_blocker", "smoke_disposition"}
+    optional = {
+        "recommendation",
+        "target_stage",
+        "target_blocker",
+        "smoke_disposition",
+        "witness_waiver",
+    }
     entries = []
     for item in value["decisions"]:
         if (
