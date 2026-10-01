@@ -581,7 +581,9 @@ def test_ac12_current_parser_observation_status_and_orient_stay_within_ceiling(
             assert code == 0, output
         return assessment.status
 
-    empty_host, empty_state = _v8_host(tmp_path, milestones=False, name="empty-host")
+    # The empty host keeps its current milestone: a zero-milestone implement
+    # stage is vacuously done and owes the acceptance lane before review.
+    empty_host, empty_state = _v8_host(tmp_path, name="empty-host")
     populated_host, populated_state = _v8_host(tmp_path, name="populated-host")
     assert exercise(empty_host, empty_state, populated=False) == "missing"
     assert exercise(populated_host, populated_state, populated=True) == "fresh"
