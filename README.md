@@ -61,8 +61,9 @@ provider.
 ## Try it in two minutes
 
 You need [uv](https://docs.astral.sh/uv/); it fetches Python 3.13 on demand.
-You do not need Codex or Claude Code to look around. Those runners are called
-only when a confirmed review policy schedules a model review.
+You do not need Codex or Claude Code to look around. Heddle calls those runners
+only when a confirmed review policy schedules a model review; a concept review
+you opt into before the spec is a separate call.
 
 Run the v0.2.0 release without installing it:
 
@@ -180,8 +181,9 @@ from the recorded run and refused the boundary.
   it, so two sessions cannot silently overwrite each other.
 - Records live under the plans and intake directories in your repository.
   Whether you commit them is the host's decision.
-- Model reviews cost exactly the provider calls the confirmed policy schedules.
-  All-off is a legal policy; final proof is required regardless.
+- Model reviews cost exactly the provider calls the confirmed policy schedules,
+  plus any concept review you opt into. All-off is a legal policy; final proof
+  is required regardless.
 - Expect more ceremony than a slash command. Small changes can take the Direct
   route without a workspace.
 - This is version 0.2.0. Contracts can change between releases.

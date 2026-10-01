@@ -280,6 +280,19 @@ sync's managed regions do not migrate witness design. Reconcile only selected
 host customizations under the existing authority. Packaged guidance is
 self-contained; the host need not install this checkout's workflow documents.
 
+## Adopting concept notes
+
+New features describe their concept in the brief's `## Concept` section, and
+the owner approves it at the research checkpoint before the spec and plan are
+written. A driven specify session whose bound research has no approved concept
+authors one in the workspace brief, records a class-8 question and stops before
+drafting. Work whose spec or plan was drafted earlier keeps its documents; no
+retroactive concept is needed. The opt-in concept review defaults to GPT-6
+Astra through the Codex CLI; a host without Codex uses the reviewer the owner
+names. Overrides of the brief or spec scaffold, the specify, spec-review or
+plan-review briefing, or the spec-review or plan-review prompt shadow this
+guidance until reconciled.
+
 ## Shared decision policy
 
 Kickoff and reviewer preparation both capture `decision-routing.md` through

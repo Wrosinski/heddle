@@ -76,10 +76,44 @@ The research package contains:
 - An Implementation Parts table with scope, complexity, benefit, and
   authorization per part, not blanket approval.
 - Consequential constraints, labeled assumptions, and unresolved questions.
+- The concept, in the sections the workspace brief's `## Concept` defines, at
+  the altitude of concepts and high-level contracts.
 
 Present materially changed owner choices for direction. In a driven session,
 continue only from recorded resolutions and record unresolved questions with
 `heddle decisions add`. A part without authorization remains Deferred Scope.
+
+A `## Concept` section in the admission-bound research reference, with its
+recorded approval, is the approved concept. Cite it from the workspace brief
+rather than copying it, and leave the bound reference unchanged. When the bound
+research has no concept, author one in the workspace brief's `## Concept`. It
+stays unapproved until the owner approves it in this session or through a
+resolved decision; record that approval (owner and date, or decision ID) in the
+section. Obtain it before drafting the spec or plan. In a driven session,
+record one class-8 `question` to approve or revise the brief's Concept and end
+the session without drafting either document. Work whose spec or plan was
+drafted before concept notes existed keeps its confirmed research and
+documents; do not demand a retroactive concept.
+
+Before approval, offer a concept review. Run it only when the owner opts in; in
+a driven session, only when a recorded owner resolution asks for it. By default
+the reviewer is GPT-6 Astra at `xhigh`, run directly through the Codex CLI
+rather than as a native gate:
+`codex exec --ephemeral --sandbox read-only -m gpt-6-astra -c 'model_reasoning_effort="xhigh"' -C <repo> -o <output> - < <prompt>`.
+Without Codex, use the reviewer the owner names. Write the prompt for this
+feature: supply the brief and concept, name the related specs and code, and ask
+the reviewer to verify factual claims against the repository, challenge the
+approach against the strongest alternative, find missing flow steps, contracts
+and effects on existing records, test assumptions and failure classes, judge
+whether the proof sketch can fail for the real defect, and return a verdict
+with evidence-backed findings. If the read-only sandbox cannot run, the owner
+chooses the fallback and you confirm afterwards that the review changed no
+files. If this session cannot launch the reviewer, hand the prompt to the
+owner. Revise the concept or add open decisions from the findings, and note the
+reviewer, verdict and handling in the Concept section. Keep the raw output
+outside the repository or in an ignored path, never in the feature's
+`reviews/` directory. The review is not native review evidence and grants no
+approval.
 
 ## Author the Feature Spec
 
@@ -93,8 +127,15 @@ Use the packaged scaffold and this document structure:
   outline; the plan owns the concrete witness design.
   If a part changed shape, retain its approved form and mark the revision as
   requiring authorization at Checkpoint 1.
+  Under `### Approved concept`, retain the approved concept's Approach, Flow,
+  Contracts and interfaces, and State and ownership sections verbatim with its
+  approval reference and a labeled concept delta: none, or each departure in
+  approach, flow, contract classification or state ownership, marked as
+  requiring confirmation at Checkpoint 1. Its other sections feed the spec's
+  own sections. Only work drafted before concept notes omits the subsection.
 - Conceptual Design: terms, observable interactions, labeled assumptions,
-  invariants, relevant trust boundaries, and consequential failure classes.
+  invariants, relevant trust boundaries, and consequential failure classes,
+  elaborating the approved concept rather than restating it.
 - Design Commitments: data and authority owners, dependency direction,
   integration/extension seams, consumer promises, costly-to-reverse choices,
   and explicit delegation of reversible internals. A signature belongs here
@@ -136,7 +177,8 @@ Populate `plans/<feature>/plan.md` with:
   patterns, and enforcement rules referenced at their source.
 - Technical Architecture: component responsibilities, interfaces, data flow,
   and the integration approach, without turning delegated internals into new
-  product commitments.
+  product commitments. Follow the approved concept's approach and flow; record a
+  departure as a concept delta in the spec.
 - Implementation Strategy: dependency-ordered, independently verifiable
   milestones with Scope, Work, Decisions, and Discoveries.
 - Verification and Environment: references to native commands, non-obvious
@@ -186,10 +228,11 @@ both documents agree, milestone `satisfies` covers the canonical ACs, and the
 authorized/deferred boundary and remaining decisions are explicit. Readiness
 uses the confirmed matrix; a disabled gate is intentionally not run, not passed.
 
-Checkpoint 1 re-assesses Implementation Parts and confirms witness shape and
-explicit execution grants after the applicable spec-review work. Draft the
-witness question in the plan here; do not record that future native question at
-specify, because an unresolved decision blocks progression. The checkpoint lead
+Checkpoint 1 re-assesses Implementation Parts, confirms concept deltas, and
+confirms witness shape and explicit execution grants after the applicable
+spec-review work. Draft the witness question in the plan here; do not record
+that future native question at specify, because an unresolved decision blocks
+progression. The checkpoint lead
 includes e2e authority in the scope ruling for every posture and records one
 class-5 question for live or declining live for a real-provider feature, bundling
 user-required prerequisites, effects, stages and caps. Recommend e2e iteration

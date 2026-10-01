@@ -28,10 +28,11 @@ A product assessment remains an owned product artifact outside the protected wor
 ## What the review pressures
 
 The spec reviewer reads the Feature Spec, not the Implementation Plan. Check
-the product purpose and authorized scope, conceptual integrity, consequential
-design commitments, canonical AC quality, internal consistency, ambiguity, and
-necessity. Owners, dependency direction, consumer promises, failure/recovery
-classes, and expensive-to-reverse choices must be clear where they matter.
+the product purpose and authorized scope, conceptual integrity and agreement
+with the approved concept, consequential design commitments, canonical AC
+quality, internal consistency, ambiguity, and necessity. Owners, dependency
+direction, consumer promises, failure/recovery classes, and expensive-to-reverse
+choices must be clear where they matter.
 
 Private helper names, routine algorithms, and file layouts may remain delegated.
 Missing EARS copies, implementation architecture, enforcement restatements,
@@ -42,10 +43,18 @@ the post-spec-review scope checkpoint and its native recording duties.
 
 ## Resolve and exit
 
-At Checkpoint 1, the lead presents the plan's Integrated Witness Proposal with
-the scope batch, including when spec review is Off. Keep the gate review at spec
-altitude; the lead checks the plan's concrete proposal and any changed spec
-commitments. The scope ruling explicitly confirms the e2e shape, execution
+At Checkpoint 1, the scope batch also carries each labeled concept delta in the
+spec's Approved concept. The owner confirms deltas item by item, as for changed
+parts. The lead also reads the plan's Technical Architecture against the
+approved approach and flow; a plan that departs from them gets its delta
+recorded in the spec before the batch. Confirm too that the spec's Approved
+concept matches its approved source, the bound research reference or the
+workspace brief, and restore any drift. Work drafted before concept notes
+existed needs no retroactive concept.
+
+The lead presents the plan's Integrated Witness Proposal with the scope batch,
+including when spec review is Off. Keep the gate review at spec altitude; the
+lead checks the plan's concrete proposal and any changed spec commitments. The scope ruling explicitly confirms the e2e shape, execution
 stages and bounded reruns for every posture; no separate e2e decision is needed.
 Recommend e2e during implementation and milestones. Every declared lane has two
 runs: a required one at implement exit, before any review, and a post-review
@@ -89,4 +98,5 @@ Use the runtime's next action for a necessary targeted round or cap/stop
 decision; a limit is not a fixed number of required passes and is not closure.
 Run `heddle validate` after document corrections. Exit toward **plan-review**
 only when native readiness is satisfied and phase-exit authority permits it.
-Checkpoint 1 confirms changed Implementation Parts per part, not blanket.
+Checkpoint 1 confirms changed Implementation Parts per part, not blanket, and
+each concept delta the same way.

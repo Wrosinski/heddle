@@ -77,7 +77,10 @@ Apply supported IMPLEMENT refinements to plan prose and use `heddle milestone
 edit` for native facts. `heddle run-gate` records eligible REPORT decisions; reuse
 those exact owners and the authorized ruling. Use `heddle decisions add` for new
 lead questions. Use `heddle
-review disposition` for evidence-bound original findings and coverage.
+review disposition` for evidence-bound original findings and coverage. A ruling
+that accepts a departure from the spec's approved concept follows the
+workflow's Impact Assessment and Re-Plan protocols, which amend the spec's
+concept delta under that authority.
 
 For source-bound evidence, finish edits, sync, format, inspect, then record
 dispositions. Formatting is an authored byte change when an explicit raw-file

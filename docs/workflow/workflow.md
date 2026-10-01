@@ -197,12 +197,26 @@ internals rather than inventorying every future file or test. Follow the
 brainstorming scope-authorization contract and native intake described above.
 The research checkpoint is not the later post-spec-review scope checkpoint.
 
+Before specifying, describe the concept in the brief's `## Concept` section at
+the altitude of concepts and high-level contracts. The owner approves it at the
+research checkpoint with the decomposition, before the spec and plan are
+written; a driven specify session without an approved concept records a class-8
+question and stops before drafting. An independent concept review runs only
+when the owner opts in; by default it is GPT-6 Astra at `xhigh`, run directly
+through the Codex CLI with a prompt written for the feature, not a native gate.
+The [brainstorming guidelines](brainstorming-guidelines.md) own its sections and
+review procedure.
+
 ## Phase 2: Specification (Feature Spec + Implementation Plan)
 
 The spec owns the product goal, approved scope, concepts, the canonical AC list
 and Design Commitments. The plan owns approach, technical architecture,
 methodology, sequencing and proof strategy. Use their canonical scaffolds and
 [document contracts](document-structure.md); do not create another template here.
+The spec's Approved MVP retains the approved concept's approach, flow,
+contracts and state ownership verbatim and the spec elaborates them; the plan
+follows the approach and flow. A departure is a labeled concept delta, not a
+silent change.
 
 Keep machine-read AC/milestone identifiers and reader anchors stable. Preserve
 Priority and Verified-by linkage without turning each AC into an exhaustive
@@ -233,8 +247,8 @@ or separate synthesis is required for new documents.
 ## Checkpoint 1: User Decision Batch
 
 Present unresolved owner questions and the scope proposal with approved core,
-proposed additions and named deferred parts. **Scope confirmation is explicit
-even when the review finds scope adequate.** Do not silently authorize a part
+proposed additions, named deferred parts and concept deltas. **Scope
+confirmation is explicit even when the review finds scope adequate.** Do not silently authorize a part
 or replace the original pending question on a rerun. Record the actual ruling
 and reconcile affected spec/plan content and review evidence.
 

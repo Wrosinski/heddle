@@ -43,7 +43,12 @@ Assess each of these eight native dimension IDs exactly once:
   authority, and evidence? Identify a concrete failure in the route and its
   consequence, not a preference for another style. When an uncertainty could
   invalidate the approach, require a bounded prototype or other discriminating
-  evidence with a clear proceed/change decision.
+  evidence with a clear proceed/change decision. When the Approved MVP records
+  an approved concept, elaborating it is not a departure. A plan that adopts its
+  rejected alternative or contradicts its flow, contract classification or
+  state ownership without a concept delta in the spec is Important: IMPLEMENT
+  when restoring the approved concept still meets the contract, REPORT when the
+  plan shows the approved concept cannot.
 - **architecture-fit:** Check how responsibilities, interfaces, data flow,
   publication boundaries, and dependencies implement the spec's commitments.
   Apply "One owner per authority", "Dependencies point inward, not back out",

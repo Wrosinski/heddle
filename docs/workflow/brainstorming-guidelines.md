@@ -129,6 +129,48 @@ is exactly why authorization happens at both checkpoints).
 which carry uncertainty? Uncertain areas become candidates for
 prototyping milestones in Phase 2.
 
+**Describe the concept before specifying.** Once research has grounded it,
+write the brief's `## Concept` section: what we are building, the approach and
+the main alternative rejected, the flow from inputs to outputs with one worked
+example, the contracts and interfaces crossed (each new, changed or relied on
+unchanged), state ownership including the effect on existing records,
+assumptions, failure behaviour, a proof sketch, unknowns, future seams and open
+decisions. Stay at the altitude of concepts and high-level contracts; file
+layouts, private helpers and signatures belong later unless a consumer depends
+on them. Size follows the decisions it carries: for a small feature most
+sections are one line or "none". The owner approves the concept at the research
+checkpoint together with the decomposition, so a wrong concept is caught before
+the spec and plan elaborate it; record the approval (owner and date) in the
+section. On the Direct route the approved concept guides the work. On the
+Heddle route, finish the concept and any review before `heddle feature prepare`
+binds the research digest; the spec later retains it. When research reaches
+admission without a concept, the specify session authors one in the workspace
+brief and obtains approval before drafting.
+
+**Offer a concept review; run it only when the owner opts in.** Before
+approval, offer an independent review of the concept. The default reviewer is
+GPT-6 Astra at `xhigh` reasoning, run directly through the Codex CLI rather than
+as a native gate, with a review prompt written for this feature:
+
+```bash
+codex exec --ephemeral --sandbox read-only -m gpt-6-astra \
+  -c 'model_reasoning_effort="xhigh"' -C <repo> -o <review-output> - < <review-prompt>
+```
+
+The prompt supplies the brief and concept and names the related specs and code
+to read. It asks the reviewer to verify factual claims against the repository,
+challenge the approach against the strongest alternative, find missing flow
+steps, contracts and effects on existing records, test the assumptions and
+failure classes, and judge whether the proof sketch can fail for the real
+defect. It asks for a verdict followed by evidence-backed findings. If the host
+cannot run the read-only sandbox, the owner chooses the fallback and the lead
+confirms afterwards that the review changed no files. Without Codex, or when
+the owner prefers, use the reviewer the owner names. Revise the concept or add
+open decisions from the findings before approval, and note the reviewer,
+verdict and handling in the Concept section. Keep the raw output outside the
+repository or in an ignored path, never in a feature's `reviews/` directory. It
+is not native review evidence and grants no approval.
+
 ---
 
 ## Phase 2 — Specification Guidelines
@@ -151,6 +193,15 @@ must be in the spec or pointed to from the spec.
 NOT. Positive scoping ("the feature does X") leaves ambiguity at the
 boundaries. Negative scoping ("this is NOT P&L attribution") closes
 the gap.
+
+**Elaborate the approved concept; do not restate it.** The spec's Approved
+MVP block retains the approved concept's Approach, Flow, Contracts and
+interfaces, and State and ownership sections verbatim, with its approval
+reference and a labeled concept delta. Conceptual Design and Design Commitments
+build on it, its other sections feed the spec's own sections, and the plan's
+Technical Architecture follows its approach and flow. A departure from the approach, flow,
+contract classification or state ownership is recorded as a concept delta for
+confirmation at Checkpoint 1, not made silently.
 
 **Label assumptions explicitly.** In the Conceptual Design, mark
 every assumption that must hold for the design to be valid. These
@@ -291,6 +342,33 @@ MVP + follow-up split?]
 
 [Rough ideas, architecture hunches, known constraints,
 open questions.]
+
+## Concept
+
+[Written after research and approved at the research checkpoint. Concepts and
+high-level contracts only; a section that changes no decision is one line or
+"none". The packaged brief scaffold carries the fuller section prompts.]
+
+1. **What we're building:** the outcome and what it is not.
+2. **Approach:** the mechanism, and the main alternative rejected with its reason.
+3. **Flow:** trigger, inputs, decision steps, outputs, side effects; one worked
+   example with realistic data.
+4. **Contracts and interfaces:** each boundary crossed, marked new, changed or
+   relied on unchanged; whom a changed contract breaks and what migrates.
+5. **State and ownership:** records created or changed, their single writer and
+   lifecycle, and what happens to records that already exist.
+6. **Assumptions:** what breaks if each is false, and how we would notice.
+7. **Failure behaviour:** defer-able loud failures, owner-decided edge cases,
+   and irreversible failures the first slice must handle.
+8. **Proof sketch:** the end-to-end scenario that would show it works, the
+   e2e/live posture, and what is real versus doubled.
+9. **Unknowns and risks:** what could invalidate the concept; whether a spike
+   comes first.
+10. **Future considerations:** seams deliberately not built; named follow-ups
+    stay under Follow-up Increments.
+11. **Open decisions:** owner questions the spec must not start without.
+
+[Approved by: owner and date.]
 
 ## Scope Boundaries (optional)
 

@@ -108,6 +108,159 @@ class TestL3DocRules:
         assert "measured-gap rule" in complete, "R6 distillation step"
 
 
+CONCEPT_SECTIONS = (
+    "What we're building",
+    "Approach",
+    "Flow",
+    "Contracts and interfaces",
+    "State and ownership",
+    "Assumptions",
+    "Failure behaviour",
+    "Proof sketch",
+    "Unknowns and risks",
+    "Future considerations",
+    "Open decisions",
+)
+
+
+def _h2_body(text: str, heading: str) -> str:
+    match = re.search(
+        rf"^## {re.escape(heading)}\n(.*?)(?=^## |\Z)", text, re.MULTILINE | re.DOTALL
+    )
+    assert match, f"missing ## {heading}"
+    return match.group(1)
+
+
+def _dimension(text: str, dimension: str) -> str:
+    """Whitespace-folded body of one `- **<dimension>:**` bullet."""
+    match = re.search(
+        rf"^- \*\*{re.escape(dimension)}:\*\*(.*?)(?=^- \*\*|^\S|\Z)",
+        text,
+        re.MULTILINE | re.DOTALL,
+    )
+    assert match, f"missing dimension {dimension}"
+    return " ".join(match.group(1).split())
+
+
+class TestL3ConceptNote:
+    """
+    The owner approves the concept before the spec, and the document gates hold
+    the spec and plan to it (owner ruling 2026-10-01).
+    """
+
+    def test_both_brief_formats_carry_the_concept_sections(self) -> None:
+        guidelines = _raw(DOCS / "brainstorming-guidelines.md")
+        brief_format = guidelines.split("## Feature Brief Format", 1)[1]
+        for source, text in (
+            ("brief scaffold", _raw(RESOURCES / "brief.scaffold.md")),
+            ("brief format", brief_format),
+        ):
+            labels = re.findall(
+                r"^\d+\. \*\*(.+?):\*\*", _h2_body(text, "Concept"), re.MULTILINE
+            )
+            assert tuple(labels) == CONCEPT_SECTIONS, source
+
+    def test_specify_carries_the_concept_from_checkpoint_to_spec(self) -> None:
+        specify = _folded(RESOURCES / "specify.briefing.md")
+        for anchor in (
+            "the sections the workspace brief's `## Concept` defines",
+            "in the admission-bound research reference, with its recorded "
+            "approval, is the approved concept",
+            "Obtain it before drafting the spec or plan",
+            "record one class-8 `question` to approve or revise the brief's "
+            "Concept and end the session without drafting either document",
+            "do not demand a retroactive concept",
+            "Approach, Flow, Contracts and interfaces, and State and ownership "
+            "sections verbatim with its approval reference and a labeled "
+            "concept delta",
+            "elaborating the approved concept rather than restating it",
+            "Follow the approved concept's approach and flow",
+            "confirms concept deltas",
+        ):
+            assert anchor in specify, anchor
+
+    def test_packaged_concept_review_is_opt_in_and_self_contained(self) -> None:
+        specify = _folded(RESOURCES / "specify.briefing.md")
+        for anchor in (
+            "Run it only when the owner opts in; in a driven session, only when "
+            "a recorded owner resolution asks for it",
+            "codex exec --ephemeral --sandbox read-only -m gpt-6-astra",
+            "rather than as a native gate",
+            "Without Codex, use the reviewer the owner names",
+            "challenge the approach against the strongest alternative",
+            "the owner chooses the fallback and you confirm afterwards that the "
+            "review changed no files",
+            "hand the prompt to the owner",
+            "never in the feature's `reviews/` directory",
+            "not native review evidence and grants no approval",
+        ):
+            assert anchor in specify, anchor
+
+    def test_spec_scaffold_retains_the_concept_inside_approved_mvp(self) -> None:
+        mvp = _h2_body(
+            _raw(RESOURCES / "feature-spec.scaffold.md"), "Approved MVP (from brief)"
+        )
+        concept = re.search(
+            r"^### Approved concept\n(.*?)(?=^### |\Z)", mvp, re.M | re.S
+        )
+        assert concept, "Approved concept must sit inside Approved MVP"
+        body = " ".join(concept.group(1).split())
+        assert "Contracts and interfaces, and State and ownership sections" in body
+        assert "verbatim" in body and "concept delta" in body
+
+    def test_document_gates_hold_spec_and_plan_to_the_concept(self) -> None:
+        coherence = _dimension(_expanded("spec-review.md"), "conceptual-coherence")
+        for anchor in (
+            "elaboration is not a departure",
+            "without a labeled concept delta is Important IMPLEMENT",
+            "Each AC traces to that concept (a flow step, contract, or state or "
+            "existing-record effect)",
+            "not a second finding",
+            "IMPLEMENT when the AC follows from the approved concept, REPORT "
+            "when deferring it is the owner's choice",
+            "A spec without an Approved concept is assessed without one",
+        ):
+            assert anchor in coherence, anchor
+        spec = " ".join(_expanded("spec-review.md").split())
+        assert "each labeled concept delta for confirmation item by item" in spec
+        soundness = _dimension(_expanded("plan-review.md"), "approach-soundness")
+        for anchor in (
+            "elaborating it is not a departure",
+            "adopts its rejected alternative or contradicts its flow",
+            "IMPLEMENT when restoring the approved concept still meets the "
+            "contract, REPORT when the plan shows the approved concept cannot",
+        ):
+            assert anchor in soundness, anchor
+
+    def test_leads_confirm_deltas_and_route_accepted_departures(self) -> None:
+        lead = _folded(RESOURCES / "spec-review.briefing.md")
+        for anchor in (
+            "The owner confirms deltas item by item",
+            "plan's Technical Architecture against the approved approach and flow",
+            "matches its approved source",
+            "needs no retroactive concept",
+            "each concept delta the same way",
+        ):
+            assert anchor in lead, anchor
+        plan_lead = _folded(RESOURCES / "plan-review.briefing.md")
+        assert "accepts a departure from the spec's approved concept" in plan_lead
+
+    def test_guidelines_and_skills_describe_the_concept_review(self) -> None:
+        guidelines = _folded(DOCS / "brainstorming-guidelines.md")
+        for anchor in (
+            "run it only when the owner opts in",
+            "codex exec --ephemeral --sandbox read-only -m gpt-6-astra",
+            'model_reasoning_effort="xhigh"',
+            "rather than as a native gate",
+            "the lead confirms afterwards that the review changed no files",
+            "before `heddle feature prepare` binds the research digest",
+        ):
+            assert anchor in guidelines, anchor
+        for agent in ("claude", "codex"):
+            skill = _folded(REPO_ROOT / f".{agent}/skills/new-feature/SKILL.md")
+            assert "offer the opt-in concept review" in skill, agent
+
+
 class TestL4DomainLeakage:
     """§9.1 L4: shared partials/patterns have no source-only dependencies.
 

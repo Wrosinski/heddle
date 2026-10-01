@@ -16,6 +16,15 @@ _(Who this serves, what they can do afterwards, and why that outcome matters.)_
 _(Retain the Approved Scope Decomposition verbatim as provenance. Distinguish
 the authorized core, named deferred work, and any scope delta.)_
 
+### Approved concept
+
+_(Retain the approved concept's Approach, Flow, Contracts and interfaces, and
+State and ownership sections verbatim as provenance, with its approval
+reference. Then label the concept delta: none, or each departure in approach,
+flow, contract classification or state ownership, marked as requiring
+confirmation at Checkpoint 1. The sections below elaborate the concept rather
+than restate it; its other sections feed them.)_
+
 ### Implementation Parts
 
 | Part | Scope and benefit | Complexity | Authorization |

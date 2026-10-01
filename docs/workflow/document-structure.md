@@ -26,6 +26,7 @@ and filenames. Missing access is not evidence of absence.
 
 | Information | Defining home |
 | --- | --- |
+| Approved concept: approach, flow, contracts, state ownership | The brief's `## Concept`, approved at the research checkpoint; those sections retained verbatim in the spec's Approved MVP |
 | Product goal, observable contract, consequential commitments | Feature Spec |
 | Chosen mechanism, dependencies, milestones and proof approach | Implementation Plan |
 | Scope/complexity/testability axes, confirmed review policy, stage and authorization | Native state |
@@ -58,12 +59,17 @@ The authoring shape is:
 - **Purpose:** who can do what afterwards, why it matters and observable success.
 - **Approved MVP (from brief):** approved core behavior, proposed additions,
   named deferred scope, and the Implementation Parts authorization table. A part
-  without authorization is deferred. Checkpoint scope confirmation remains an
-  explicit owner choice, including when the review finds the scope adequate.
+  without authorization is deferred. `### Approved concept` retains the
+  approved concept's approach, flow, contracts and state ownership verbatim
+  with its approval reference and a labeled concept delta; spec and plan review
+  check against it.
+  Checkpoint scope confirmation remains an explicit owner choice, including when
+  the review finds the scope adequate, and confirms each concept delta.
   Its conceptual end-to-end outline states the e2e/live lane posture and reason;
   concrete witness design belongs in the plan.
 - **Conceptual Design:** terms, interactions, competing goals where consequential,
   labeled assumptions, invariants, domain challenges and relevant failure classes.
+  It elaborates the approved concept rather than restating it.
   Cover what changes a decision. Do not substitute a component tour for behavior.
 - **Acceptance Criteria:** the one canonical list of observable contracts.
 - **Design Commitments:** data ownership, dependency direction, integration and

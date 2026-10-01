@@ -32,6 +32,22 @@ authority for the installed version.
 
 ### Added
 
+- A concept note precedes the Feature Spec. After research, the brief's new
+  `## Concept` section describes what is being built, the approach and the
+  alternative rejected, the flow with a worked example, the contracts crossed
+  (new, changed or relied on unchanged), state ownership including existing
+  records, assumptions, failure behaviour, a proof sketch, unknowns, future
+  seams and open decisions. The owner approves it at the research checkpoint.
+  An independent concept review is offered and runs only on the owner's
+  opt-in, by default GPT-6 Astra at `xhigh` invoked directly through the Codex
+  CLI rather than as a native gate. The spec retains the approved concept's
+  approach, flow, contracts and state ownership verbatim under
+  `### Approved concept` with a labeled concept delta; spec review checks the
+  spec against it and traces each acceptance criterion to it, plan review
+  flags an approach that contradicts it, and Checkpoint 1 confirms each delta.
+  A driven specify session without an approved concept now records a class-8
+  question and stops before drafting. Specs or plans drafted before this need
+  no retroactive concept.
 - A class-5 `witness-waiver` decision, resolved with `accept-prior-witness`,
   lets the owner waive one lane's post-review rerun. It binds the latest stable
   passing fact and the current source, so a later relevant edit or a new run

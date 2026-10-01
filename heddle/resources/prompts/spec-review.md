@@ -21,9 +21,9 @@ schema owns representation; native assignments and dispositions own closure.
 ## Inputs
 
 Use the Gate Runtime Manifest for `[spec-path]`, feature identity, assigned ACs,
-and the review round. Read the full Feature Spec, including its approved scope,
-conceptual design, design commitments, canonical Acceptance Criteria, and
-Decision Log. Identity frontmatter is not an operational progress ledger.
+and the review round. Read the full Feature Spec, including its approved scope
+and approved concept, conceptual design, design commitments, canonical
+Acceptance Criteria, and Decision Log. Identity frontmatter is not an operational progress ledger.
 
 The spec's responsibilities matter more than a prescribed length or copied
 section layout. A missing Approved MVP record is Critical because authorized
@@ -48,6 +48,18 @@ Assess each of these seven native dimension IDs exactly once:
   invariants, commitments, ACs, and settled decisions agree. A genuinely
   unresolved contradiction requires an owner choice. A stale reference to an
   already-resolved commitment needs reconciliation, not another decision.
+  The Approved concept, when present, retains the owner-approved approach,
+  flow, contracts and state ownership that the rest elaborates; elaboration is
+  not a departure. Contradicting it without a labeled concept delta is
+  Important IMPLEMENT: label the delta for the scope confirmation. Each AC
+  traces to that concept (a flow step, contract, or state or existing-record
+  effect), to a Conceptual Design assumption or failure class, or to a labeled
+  delta; an AC with no basis is the purpose-and-scope unmapped addition, not a
+  second finding. A consequential flow step, changed contract, existing-record
+  effect or first-slice failure class with neither an AC nor a named deferral
+  is Important: IMPLEMENT when the AC follows from the approved concept, REPORT
+  when deferring it is the owner's choice. A spec without an Approved concept
+  is assessed without one.
 - **acceptance-criteria-quality:** There is one canonical AC list with unique
   IDs, consistent `Priority: MUST|SHOULD|MAY` (omission defaults to MUST), and
   observable inputs/preconditions, action, outcomes, and consequential failure
@@ -105,7 +117,8 @@ Their absence cannot substitute for identifying a genuine contract gap.
 Scope changes remain user decisions. Preserve the standing Important REPORT
 scope-confirmation question at Checkpoint 1 on an initial review even when the
 proposed scope matches the approved MVP. Name the per-part confirmation and its
-source; do not claim the owner approved it through this review. On reruns,
+source, and each labeled concept delta for confirmation item by item; do not
+claim the owner approved either through this review. On reruns,
 respect the supplied existing owner and resolution rather than reopening or
 duplicating the question. Missing Approved MVP or a core unable to satisfy the
 stated purpose retains its Critical consequence.
