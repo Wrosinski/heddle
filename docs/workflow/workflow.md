@@ -506,7 +506,7 @@ changes can stale existing evidence. Record the entry before a required qualifyi
 final rereview, or revalidate and refresh affected native closure evidence
 afterward; originating-inspection and allowance requirements still apply.
 
-## Checkpoint 2: User Decision Batch
+## Peer-Review Decision Batch
 
 Resolve outstanding owned review questions with their original identity,
 evidence and alternatives. Existing settled decisions stand unless material new
