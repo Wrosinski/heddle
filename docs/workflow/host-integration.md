@@ -260,9 +260,9 @@ heddle orient
 
 New features specified with the updated briefings propose witness design at
 specify and confirm it, prerequisites and explicit execution grants at the
-post-spec-review checkpoint. Existing active features already beyond specify
-reconcile their design and approvals at the next relevant lead session: reuse
-sufficient grants, fill missing references, and ask only about missing or
+specification checkpoint before review. Existing active features already beyond
+specify reconcile their design and approvals at the next relevant lead session:
+reuse sufficient grants, fill missing references, and ask only about missing or
 materially changed choices. Do not invent retrospective checkpoint approval or
 restart completed stages. Accepted features keep their original contract.
 
@@ -280,18 +280,27 @@ sync's managed regions do not migrate witness design. Reconcile only selected
 host customizations under the existing authority. Packaged guidance is
 self-contained; the host need not install this checkout's workflow documents.
 
-## Adopting concept notes
+## Adopting concept notes and the specification checkpoint
 
-New features describe their concept in the brief's `## Concept` section, and
+New features describe their concept in the brief's `## Concept` section by
+answering three questions, including the footprint the change will touch, and
 the owner approves it at the research checkpoint before the spec and plan are
 written. A driven specify session whose bound research has no approved concept
-authors one in the workspace brief, records a class-8 question and stops before
-drafting. Work whose spec or plan was drafted earlier keeps its documents; no
-retroactive concept is needed. The opt-in concept review defaults to GPT-6
-Astra through the Codex CLI; a host without Codex uses the reviewer the owner
-names. Overrides of the brief or spec scaffold, the specify, spec-review or
-plan-review briefing, or the spec-review or plan-review prompt shadow this
-guidance until reconciled.
+authors one in the workspace brief, drafts against it and presents it at the
+specification checkpoint. Work whose spec or plan was drafted earlier keeps its
+documents; no retroactive concept is needed. The opt-in concept review defaults
+to GPT-6 Astra through the Codex CLI; a host without Codex uses the reviewer the
+owner names.
+
+Every new feature now stops once at specify exit, after the documents are
+drafted and before any review, for the owner's specification-checkpoint ruling;
+a driven session records the question and the driver halts until the owner
+rules. Features already past specify keep their recorded Checkpoint 1 rulings.
+During implementation, review fixes and completion, widening ownership outside
+the approved footprint first needs a class-2 question. Overrides of the brief,
+spec or plan scaffold, of the specify, spec-review, plan-review, implement,
+peer-review, robustness or complete briefing, or of the spec-review or
+plan-review prompt shadow this guidance until reconciled.
 
 ## Shared decision policy
 

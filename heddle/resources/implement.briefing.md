@@ -26,7 +26,8 @@ steps as the Tooling Discovery Protocol.
 This session owns implementation and test changes, task facts, verification
 runs, accepted gate remediations, plan continuity, and spec reconciliation
 required by a genuine design discovery. It does not own phase exit, milestone
-advance, decision resolution, or unrecorded scope expansion. Use
+advance, decision resolution, unrecorded scope expansion, or ownership past the
+approved footprint before the owner accepts it. Use
 `heddle decisions add` for user-owned questions; gate REPORT findings are
 recorded by `heddle run-gate` and must not be duplicated.
 
@@ -116,7 +117,14 @@ formal gate artifacts retain their required structure and non-narration rules.
    package creates, renames, or splits a test that satisfies an AC, update that
    AC's `Verified-by:` route in the same task. Keep writes within `owns`. If an
    entangled contract fix needs another path, record the path and reason
-   immediately so the boundary owner amends `owns` before advancement.
+   immediately so the boundary owner amends `owns` before advancement. The
+   approved footprint is the Footprint retained in the spec's Approved concept,
+   plus confirmed concept deltas and widenings the owner accepted since. A path
+   in an area it marks as off limits, or in a product area it does not name,
+   needs one class-2 `question` first, naming the path, the reason and a route
+   that stays inside. Tests, fixtures and docs follow the area they serve.
+   Continue unaffected work; the boundary owner widens `owns` only after the
+   owner accepts. A concept without a Footprint sets no approved footprint.
 3. Run the authorized `heddle verify --scope <milestone>` and exact relevant
    consumer tests discovered by the contract sweep. Diagnose the first causal failure; do
    not weaken a scaffolded contract to obtain green. Keep the progressive
@@ -165,8 +173,9 @@ formal gate artifacts retain their required structure and non-narration rules.
 
 Before starting the final milestone, read the Integrated Witness Proposal and
 its exact native decision references, then inspect the live E2E prerequisites and
-their recorded approvals. Checkpoint 1 settles user-required choices and explicit
-grants for both lanes; scheduled auto-resolvable setup may still need completing.
+their recorded approvals. The specification checkpoint, or Checkpoint 1 for work
+specified before it, settles user-required choices and explicit grants for both
+lanes; scheduled auto-resolvable setup may still need completing.
 Reopen a materially changed choice through a class-2 question naming its original
 ruling. Record a genuinely missing live choice with class 5; obtain missing e2e
 authority in the scope ruling, using class 8 for a new lead-owned scope question.
@@ -253,8 +262,9 @@ stale proof or missing originating inspection require repair; this operation run
 no tests or provider, resolves no decision and closes no missing obligation.
 
 Validate, status, milestone advance and phase-exit give early source-coverage
-advice. Declare actual feature product paths, or attribute exact genuinely
-outside-feature changes with evidence. Missing early ownership and unavailable
+advice. Declare actual feature product paths, after the owner accepts any
+outside the approved footprint, or attribute exact genuinely outside-feature
+changes with evidence. Missing early ownership and unavailable
 baselines are advisory; integrity errors remain failures and final completion
 requires complete coverage.
 

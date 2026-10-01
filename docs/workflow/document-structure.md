@@ -26,7 +26,7 @@ and filenames. Missing access is not evidence of absence.
 
 | Information | Defining home |
 | --- | --- |
-| Approved concept: approach, flow, contracts, state ownership | The brief's `## Concept`, approved at the research checkpoint; those sections retained verbatim in the spec's Approved MVP |
+| Approved concept: what, how (approach, flow, contracts, state ownership, footprint) and how it is proven | The brief's `## Concept`, approved at the research checkpoint; its "How are we building it?" answer retained verbatim in the spec's Approved MVP |
 | Product goal, observable contract, consequential commitments | Feature Spec |
 | Chosen mechanism, dependencies, milestones and proof approach | Implementation Plan |
 | Scope/complexity/testability axes, confirmed review policy, stage and authorization | Native state |
@@ -60,11 +60,11 @@ The authoring shape is:
 - **Approved MVP (from brief):** approved core behavior, proposed additions,
   named deferred scope, and the Implementation Parts authorization table. A part
   without authorization is deferred. `### Approved concept` retains the
-  approved concept's approach, flow, contracts and state ownership verbatim
-  with its approval reference and a labeled concept delta; spec and plan review
-  check against it.
-  Checkpoint scope confirmation remains an explicit owner choice, including when
-  the review finds the scope adequate, and confirms each concept delta.
+  approved concept's "How are we building it?" answer verbatim with its
+  approval reference and a labeled concept delta; spec and plan review check
+  against it. The block cites the specification-checkpoint ruling: scope
+  confirmation is an explicit owner choice made there, even when nothing
+  changed, and confirms each concept delta.
   Its conceptual end-to-end outline states the e2e/live lane posture and reason;
   concrete witness design belongs in the plan.
 - **Conceptual Design:** terms, interactions, competing goals where consequential,
@@ -130,8 +130,9 @@ operational frontmatter and is not another state ledger.
   concrete fallback witnesses, deterministic conditions, real/doubled systems,
   alignment criteria/artifacts, prerequisites, execution stages (the required
   implement-exit run and the default post-review rerun), caps and finishing
-  criterion. Draft at specify; confirm shape and grants at Checkpoint 1;
-  realize at scaffold. Reference exact native rulings rather than copying them.
+  criterion. Draft and rule at specify's specification checkpoint, before any
+  review; realize at scaffold. Reference exact native rulings rather than
+  copying them.
 - **Implementation Strategy:** independently verifiable milestones with scope,
   expected capability, approach, owned write surface, dependencies and acceptance
   evidence. Expand tasks at the current milestone through native operations.
@@ -266,10 +267,11 @@ user chose the option directly or a lead applied a standing user grant.
   identify the current grant, the scope it covers, the selected choice, and why
   that choice falls inside the grant. Keep this in the first-write rationale and
   point `routes_to` at the real repository document where the ruling applies.
-  A Checkpoint 1 witness grant is one example: name the approved lane, stages,
-  effects and bounds, and verify that the scaffold-bound exact command fits it.
-  A Checkpoint 1 opt-out of a lane's post-review rerun is another: the lead
-  resolves the bound `witness-waiver` decision and cites that ruling.
+  A witness grant from the specification checkpoint (Checkpoint 1 for earlier
+  work) is one example: name the approved lane, stages, effects and bounds, and
+  verify that the scaffold-bound exact command fits it. An opt-out of a lane's
+  post-review rerun ruled there is another: the lead resolves the bound
+  `witness-waiver` decision and cites that ruling.
 - For an ordinary reversible choice derived from ratified engineering policy,
   use `heddle decisions record-policy --from-file <path>`. Its policy fact and
   matching journal entry own the attribution; do not route it through user

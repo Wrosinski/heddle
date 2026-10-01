@@ -108,11 +108,11 @@ from a lane never waives the AC. Classify prerequisites as auto-resolvable setup
 or user-required decisions, including targets, credentials by reference, data
 freshness, network, quotas/cost, effects and evidence destination.
 
-Draft at specify; record questions and obtain authorized rulings at the post-spec-review
-Checkpoint 1, including when spec review is Off. An unresolved native question
-blocks progression, so do not create a future checkpoint question during
-specify. The scope ruling explicitly confirms the e2e shape and its execution
-stages and bounded reruns for every posture; no separate e2e decision is needed.
+Draft at specify and record the questions at specify's specification
+checkpoint, before any review and including when spec review is Off; the
+unresolved questions hold the feature until the owner rules. The scope ruling
+explicitly confirms the e2e shape and its execution stages and bounded reruns
+for every posture; no separate e2e decision is needed.
 Recommend e2e authority during implementation and milestones. A live lane or
 declining live has one class-5 question bundling posture, user-required
 prerequisites, allowed effects, per-attempt and aggregate cost caps, execution
@@ -314,7 +314,7 @@ execution evidence; imports and collection hooks must not launch external work.
 | Work stage | Test activity |
 | --- | --- |
 | Research and specification | Inspect contracts/tests and propose integrated witness lanes, prerequisites, caps and grants; no broad baseline by default |
-| Spec review / Checkpoint 1 | Confirm witness shape and explicit execution grants with scope, including when the reviewer is Off; settle owner-required prerequisites |
+| Specification checkpoint | Confirm witness shape and explicit execution grants with scope before any review, including when reviewers are Off; settle owner-required prerequisites. Checkpoint 1 confirms only review-driven changes |
 | Plan review and scaffolding | Review feasibility, realize the confirmed design, bind exact commands, and retain meaningful red/green expectations, costs and fixtures |
 | Task implementation | Run affected behavior and direct-consumer checks; include related slow cases for a concrete reason |
 | Milestone boundary | Execute the applicable recorded milestone proof within its authority; preserve required unrun obligations |

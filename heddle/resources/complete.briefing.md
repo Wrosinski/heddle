@@ -34,10 +34,13 @@ Completion coverage is stricter than the early advisory from validate, status
 and transitions. Assign unresolved feature product changes to their actual
 milestone; use source attribution only for evidenced outside-feature work.
 `heddle milestone edit <mN> --from-file <file>` accepts `owns_append` as a
-normalized union on todo, current and done milestones. Do not combine it with
-replacement `owns`. Repeating an append is a no-op; genuine growth invalidates
-affected proof and requires current verification before retrying completion.
-Bookkeeping exemptions never remove intentional owned inputs or citation checks.
+normalized union on todo, current and done milestones. Appending a path outside
+the approved footprint, meaning the Footprint kept in the spec's Approved
+concept and any widening the owner accepted, needs a class-2 owner question
+first. Do not combine it with replacement `owns`. Repeating an append is a
+no-op; genuine growth invalidates affected proof and requires current
+verification before retrying completion. Bookkeeping exemptions never remove
+intentional owned inputs or citation checks.
 
 Before acceptance, `close_suite_command` and `close_obligation` describe current
 configuration and `close_suite` is null. After acceptance, completion, retry,

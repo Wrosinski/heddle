@@ -97,6 +97,10 @@ inputs remain reviewable without acknowledgement; an unavailable Git observation
 is disclosed. Ignored records are still strict inputs when selected, and later
 formatting can invalidate reviewed bytes. Early coverage advice helps resolve
 ownership or evidenced outside-feature attribution; final coverage is compulsory.
+A review fix that needs a path outside the approved footprint (the spec's
+retained Footprint plus widenings the owner accepted) first gets one class-2
+question naming the path, the reason and a route that stays inside; widen
+`owns` only after the owner accepts.
 
 Invoke `heddle review reaffirm --role <role> --scope feature --feature <slug>`
 only after judging that the original resolutions apply to the current source.
@@ -152,8 +156,9 @@ live does not replace acceptance. A lane made stale by review changes reruns by
 default; announce that rerun before launching it. The owner may instead waive
 one lane's rerun: a class-5 `witness_waiver` decision, resolved with
 accept-prior-witness, binds the latest passing pre-review run and the current
-source. File it with `heddle decisions add` (see `--help`). A Checkpoint 1
-opt-out is a standing grant: the lead files that decision citing the ruling and
+source. File it with `heddle decisions add` (see `--help`). An opt-out ruled at
+the specification checkpoint, or at Checkpoint 1 for earlier work, is a
+standing grant: the lead files that decision citing the ruling and
 resolves it where the session allows; a driven session cannot resolve, so the
 pending decision halts the driver until the owner does. Any later relevant edit
 restores the rerun, and the close records each waiver. A lane whose evidence is

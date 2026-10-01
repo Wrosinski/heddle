@@ -33,21 +33,33 @@ authority for the installed version.
 ### Added
 
 - A concept note precedes the Feature Spec. After research, the brief's new
-  `## Concept` section describes what is being built, the approach and the
-  alternative rejected, the flow with a worked example, the contracts crossed
-  (new, changed or relied on unchanged), state ownership including existing
-  records, assumptions, failure behaviour, a proof sketch, unknowns, future
-  seams and open decisions. The owner approves it at the research checkpoint.
-  An independent concept review is offered and runs only on the owner's
-  opt-in, by default GPT-6 Astra at `xhigh` invoked directly through the Codex
-  CLI rather than as a native gate. The spec retains the approved concept's
-  approach, flow, contracts and state ownership verbatim under
-  `### Approved concept` with a labeled concept delta; spec review checks the
-  spec against it and traces each acceptance criterion to it, plan review
-  flags an approach that contradicts it, and Checkpoint 1 confirms each delta.
-  A driven specify session without an approved concept now records a class-8
-  question and stops before drafting. Specs or plans drafted before this need
-  no retroactive concept.
+  `## Concept` section answers three questions at the altitude of concepts and
+  high-level contracts: what we are building, how (approach and the
+  alternative rejected, flow with a worked example, contracts new, changed or
+  relied on unchanged, state ownership including existing records, and the
+  footprint of codebase areas it will touch), and how we will know it works.
+  The owner approves it at the research checkpoint. An independent concept
+  review is offered and runs only on the owner's opt-in, by default GPT-6
+  Astra at `xhigh` invoked directly through the Codex CLI rather than as a
+  native gate. The spec retains the approved "How are we building it?" answer
+  verbatim under `### Approved concept` with a labeled concept delta; spec
+  review checks the spec against it and traces each acceptance criterion to
+  it, and plan review flags an approach or owned path that departs from it.
+  Specs or plans drafted before this need no retroactive concept.
+- A specification checkpoint closes specify. Before any review, the lead gives
+  the owner a short overview of what was specified, how, and how it will be
+  proven, with a scope check and a footprint-and-complexity check, and records
+  a class-8 `Specification checkpoint` question (plus the class-5 live question
+  when live applies) that holds the feature until the owner approves. Both are
+  approval only; revisions happen while they stay pending. The scope,
+  concept-delta, e2e and live rulings move here from Checkpoint 1. The
+  spec-review lead checks the cited rulings before the first gate run, and
+  Checkpoint 1 now confirms only what spec review changed; work specified
+  earlier keeps the full Checkpoint 1. A driven session without an approved
+  concept drafts against it and presents it at this checkpoint.
+- Widening a milestone's ownership outside the approved footprint during
+  implementation, review fixes or completion now needs a class-2 owner
+  question first.
 - A class-5 `witness-waiver` decision, resolved with `accept-prior-witness`,
   lets the owner waive one lane's post-review rerun. It binds the latest stable
   passing fact and the current source, so a later relevant edit or a new run

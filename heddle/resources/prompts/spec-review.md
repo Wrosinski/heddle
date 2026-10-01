@@ -49,9 +49,9 @@ Assess each of these seven native dimension IDs exactly once:
   unresolved contradiction requires an owner choice. A stale reference to an
   already-resolved commitment needs reconciliation, not another decision.
   The Approved concept, when present, retains the owner-approved approach,
-  flow, contracts and state ownership that the rest elaborates; elaboration is
-  not a departure. Contradicting it without a labeled concept delta is
-  Important IMPLEMENT: label the delta for the scope confirmation. Each AC
+  flow, contracts, state ownership and footprint that the rest elaborates;
+  elaboration is not a departure. Contradicting it without a labeled concept
+  delta is Important IMPLEMENT: label the delta for owner confirmation. Each AC
   traces to that concept (a flow step, contract, or state or existing-record
   effect), to a Conceptual Design assumption or failure class, or to a labeled
   delta; an AC with no basis is the purpose-and-scope unmapped addition, not a
@@ -114,19 +114,27 @@ Do not demand a parallel EARS inventory, copied technical architecture or
 enforcement rules, hours, a task-count band, or a prescribed document length.
 Their absence cannot substitute for identifying a genuine contract gap.
 
-Scope changes remain user decisions. Preserve the standing Important REPORT
+Scope changes remain user decisions. When the Approved MVP cites a
+specification-checkpoint decision ID as the owner's approval, the owner ruled
+on scope per part, concept deltas and witness shape before this review, and the
+lead confirms that ruling's status: name that ID as the confirmation source in
+`details.scope.confirmation` without claiming the approval yourself, and raise
+a scope-confirmation REPORT only for a scope, part or concept change this
+review finds necessary. A mention of the checkpoint without a decision ID is no
+citation. Without that citation, preserve the standing Important REPORT
 scope-confirmation question at Checkpoint 1 on an initial review even when the
 proposed scope matches the approved MVP. Name the per-part confirmation and its
 source, and each labeled concept delta for confirmation item by item; do not
-claim the owner approved either through this review. On reruns,
-respect the supplied existing owner and resolution rather than reopening or
-duplicating the question. Missing Approved MVP or a core unable to satisfy the
-stated purpose retains its Critical consequence.
+claim the owner approved either through this review. On reruns, respect the
+supplied existing owner and resolution rather than reopening or duplicating the
+question. Missing Approved MVP or a core unable to satisfy the stated purpose
+retains its Critical consequence.
 
-The checkpoint lead also confirms witness shape and explicit lane execution
-grants with scope. Note that duty in the scope question without inspecting the
-plan or designing its concrete witness here. The lead owns the separate bundled
-live/declined-live question; this reviewer must not create a duplicate owner.
+Without a cited specification-checkpoint ruling, the checkpoint lead also
+confirms witness shape and explicit lane execution grants with scope. Note that
+duty in the scope question without inspecting the plan or designing its
+concrete witness here. The lead owns the separate bundled live/declined-live
+question; this reviewer must not create a duplicate owner.
 
 ## Findings, evidence, and history
 
@@ -169,7 +177,8 @@ input. State material limits rather than inferring success from unread inputs.
 reason. `details.scope` retains Approved MVP presence, the complete component
 delta and authorization evidence, scope sizing/challenge, integrated acceptance
 outline, conditional increment ladder and additive seams, and the confirmation
-question or exact supplied disposition. Scope sizing concerns usability and
+source: the cited checkpoint ruling, the confirmation question, or the exact
+supplied disposition. Scope sizing concerns usability and
 authorized breadth, not lines, hours, or task counts. When Approved MVP is
 missing, keep delta empty and report the blocking omission. An empty increment
 ladder means the current approved scope stands.

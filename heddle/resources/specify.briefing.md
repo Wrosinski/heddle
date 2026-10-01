@@ -62,8 +62,9 @@ runs in the current host checkout.
 ## Research checkpoint
 
 The Phase 1 research checkpoint precedes specification. It is distinct from
-**Checkpoint 1**, which follows spec review. Preserve already-confirmed research
-and scope; do not repeat approval merely because formal documents now exist.
+the specification checkpoint at this stage's exit and from **Checkpoint 1**,
+which follows spec review. Preserve already-confirmed research and scope; do not
+repeat approval merely because formal documents now exist.
 
 The research package contains:
 
@@ -76,8 +77,8 @@ The research package contains:
 - An Implementation Parts table with scope, complexity, benefit, and
   authorization per part, not blanket approval.
 - Consequential constraints, labeled assumptions, and unresolved questions.
-- The concept, in the sections the workspace brief's `## Concept` defines, at
-  the altitude of concepts and high-level contracts.
+- The concept, answering the three questions the workspace brief's
+  `## Concept` poses, at the altitude of concepts and high-level contracts.
 
 Present materially changed owner choices for direction. In a driven session,
 continue only from recorded resolutions and record unresolved questions with
@@ -89,10 +90,13 @@ rather than copying it, and leave the bound reference unchanged. When the bound
 research has no concept, author one in the workspace brief's `## Concept`. It
 stays unapproved until the owner approves it in this session or through a
 resolved decision; record that approval (owner and date, or decision ID) in the
-section. Obtain it before drafting the spec or plan. In a driven session,
-record one class-8 `question` to approve or revise the brief's Concept and end
-the session without drafting either document. Work whose spec or plan was
-drafted before concept notes existed keeps its confirmed research and
+section. With the owner present, obtain it before drafting the spec or plan. A
+driven session cannot pause for it: author the concept, draft both documents
+against it, and lead the specification checkpoint overview with it, so one
+ruling approves the concept and the specification together; that decision ID is
+the approval reference in the brief and in the spec's Approved concept. Work
+whose spec or
+plan was drafted before concept notes existed keeps its confirmed research and
 documents; do not demand a retroactive concept.
 
 Before approval, offer a concept review. Run it only when the owner opts in; in
@@ -105,7 +109,7 @@ feature: supply the brief and concept, name the related specs and code, and ask
 the reviewer to verify factual claims against the repository, challenge the
 approach against the strongest alternative, find missing flow steps, contracts
 and effects on existing records, test assumptions and failure classes, judge
-whether the proof sketch can fail for the real defect, and return a verdict
+whether the proposed proof can fail for the real defect, and return a verdict
 with evidence-backed findings. If the read-only sandbox cannot run, the owner
 chooses the fallback and you confirm afterwards that the review changed no
 files. If this session cannot launch the reviewer, hand the prompt to the
@@ -126,13 +130,13 @@ Use the packaged scaffold and this document structure:
   State the proposed e2e-only or e2e-plus-live posture and its reason in that
   outline; the plan owns the concrete witness design.
   If a part changed shape, retain its approved form and mark the revision as
-  requiring authorization at Checkpoint 1.
-  Under `### Approved concept`, retain the approved concept's Approach, Flow,
-  Contracts and interfaces, and State and ownership sections verbatim with its
-  approval reference and a labeled concept delta: none, or each departure in
-  approach, flow, contract classification or state ownership, marked as
-  requiring confirmation at Checkpoint 1. Its other sections feed the spec's
-  own sections. Only work drafted before concept notes omits the subsection.
+  requiring authorization at the specification checkpoint.
+  Under `### Approved concept`, retain the approved concept's "How are we
+  building it?" answer verbatim with its approval reference and a labeled
+  concept delta: none, or each departure in approach, flow, contract
+  classification, state ownership or footprint, marked for confirmation at the
+  specification checkpoint. Its other answers feed the spec's own sections.
+  Only work drafted before concept notes omits the subsection.
 - Conceptual Design: terms, observable interactions, labeled assumptions,
   invariants, relevant trust boundaries, and consequential failure classes,
   elaborating the approved concept rather than restating it.
@@ -177,8 +181,8 @@ Populate `plans/<feature>/plan.md` with:
   patterns, and enforcement rules referenced at their source.
 - Technical Architecture: component responsibilities, interfaces, data flow,
   and the integration approach, without turning delegated internals into new
-  product commitments. Follow the approved concept's approach and flow; record a
-  departure as a concept delta in the spec.
+  product commitments. Follow the approved concept's approach, flow and
+  footprint; record a departure as a concept delta in the spec.
 - Implementation Strategy: dependency-ordered, independently verifiable
   milestones with Scope, Work, Decisions, and Discoveries.
 - Verification and Environment: references to native commands, non-obvious
@@ -228,15 +232,62 @@ both documents agree, milestone `satisfies` covers the canonical ACs, and the
 authorized/deferred boundary and remaining decisions are explicit. Readiness
 uses the confirmed matrix; a disabled gate is intentionally not run, not passed.
 
-Checkpoint 1 re-assesses Implementation Parts, confirms concept deltas, and
-confirms witness shape and explicit execution grants after the applicable
-spec-review work. Draft the witness question in the plan here; do not record
-that future native question at specify, because an unresolved decision blocks
-progression. The checkpoint lead
-includes e2e authority in the scope ruling for every posture and records one
-class-5 question for live or declining live for a real-provider feature, bundling
-user-required prerequisites, effects, stages and caps. Recommend e2e iteration
-during implementation and milestones, both lanes at implement exit, and a
-post-review rerun the owner may decline per lane.
-Do not claim that later authorization here. Follow native next actions and the
-caller's phase-exit authority.
+## Specification checkpoint
+
+Before any review starts, the owner gets an overview of what was specified and
+gives an explicit green light. Present it once `heddle validate` passes. It is
+a short argument, not a form: lead with the exceptions, changes and risks, and
+say "as approved" for the rest; an unapproved concept from a driven session is
+the first exception. For a small feature, each answer may be a few sentences
+and each check one line. It answers three questions:
+
+1. **What are we building?** The core slice as specified, the parts that
+   changed shape or were added since the research checkpoint, the concept
+   deltas ("none" is a valid answer), and what is deferred.
+2. **How are we building it?** The components and their responsibilities, where
+   the change connects to existing code, and the alternative rejected.
+3. **How will we know it works?** The ACs in compact form; the definition of
+   done, meaning the proof that must pass; the e2e and live scenario in plain
+   words, with what runs, what is real versus doubled, and what it costs; and
+   whether anything is judged rather than checked. Assessment targets never
+   gate completion.
+
+It then makes two checks with evidence, not assertion:
+
+- **Scope:** ACs and plan items measured against the parts as authorized at the
+  research checkpoint and the approved concept: anything that does not trace to
+  them, including growth inside an authorized part, with its cost. The default
+  for such an addition is deferral.
+- **Footprint and complexity:** the milestones' owned paths grouped by area
+  against the approved footprint, existing contracts changed, the new public
+  surface, and any layer, abstraction or module no AC needs. Close with your
+  judgment: is this the simplest design that meets the ACs, and where is
+  over-engineering most likely?
+
+Record one class-8 `question` titled `Specification checkpoint: <slug>`, with
+the overview as its body. It carries scope per part, concept deltas, and the
+e2e shape, execution stages, bounded reruns and execution grant. Recommend e2e
+iteration during implementation and milestones, both lanes at implement exit,
+and a post-review rerun the owner may decline per lane; record that choice so a
+later lead can apply it as a standing grant through a witness waiver. When live
+is proposed, or declined for a real-provider feature, also record one class-5
+`question` titled `Live witness: <slug>`. Bundle the posture and reason, all
+user-required prerequisites, allowed effects and cleanup or recovery,
+time/turn/retry and per-attempt/aggregate cost caps sized for both runs, and the
+live stages and bounded reruns, or the reason and a concrete fallback. Draft
+both documents with the recommended posture. Read the allocated decision IDs
+back from the workspace `state.yaml` and cite both in the spec's Approved MVP
+and the plan's Integrated Witness Proposal. Scope confirmation and credentials
+alone are not execution grants.
+
+Both questions are approval only: give each a single option approving the
+documents as drafted, and end each body with: "Resolving this approves the spec
+and plan as drafted. To change anything, leave it pending and revise them in an
+interactive specify session (`heddle kickoff`)." Resolving lets the driver
+advance straight to spec review, so any change, including narrowing scope or a
+different live posture, cap or prerequisite, is made while the questions stay
+pending. Keep the same questions through a revision rather than recording new
+ones; the owner's rationale names the change. With the owner present, present
+the overview and record the actual ruling, actor and authority. A driven
+session records the questions and ends. Do not claim the approval before it is
+recorded. Follow native next actions and the caller's phase-exit authority.

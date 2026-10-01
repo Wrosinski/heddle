@@ -41,38 +41,65 @@ consequential commitment or observable acceptance clause still is a defect.
 Use the delivered Decision routing policy for ownership; this briefing retains
 the post-spec-review scope checkpoint and its native recording duties.
 
-## Resolve and exit
+## Checkpoint 1
 
-At Checkpoint 1, the scope batch also carries each labeled concept delta in the
-spec's Approved concept. The owner confirms deltas item by item, as for changed
-parts. The lead also reads the plan's Technical Architecture against the
-approved approach and flow; a plan that departs from them gets its delta
-recorded in the spec before the batch. Confirm too that the spec's Approved
-concept matches its approved source, the bound research reference or the
-workspace brief, and restore any drift. Work drafted before concept notes
-existed needs no retroactive concept.
+When the spec's Approved MVP cites a specification-checkpoint decision ID, read
+that ruling, and any live ruling cited beside it, in the workspace `state.yaml`
+before the first gate run; the gate cannot see them. Confirm that the class-8
+`Specification checkpoint` question is resolved and that the spec and plan
+match what the owner approved. Apply any change a ruling made, such as a
+narrowed part or a different live posture, then run `heddle validate`. A
+citation that names no resolved checkpoint decision counts as absent. The
+confirmed rulings stand for scope per part, concept deltas, witness shape,
+stages and grants; do not re-ask what the owner already ruled.
+
+Checkpoint 1 then confirms only what spec review changed: a changed part, a new
+concept delta, or a changed AC set or witness shape that no gate REPORT decision
+already owns. Apply those changes first, then record them together as one
+class-2 `question` naming the original ruling, which lists each changed part and
+each new concept delta for confirmation item by item, not blanket. Record
+nothing when nothing material changed. It is approval only, as at specify: give
+it a single option approving the revised documents, and say in its body that any
+other outcome means leaving it pending and revising in an interactive
+spec-review session, because resolving it lets the driver advance to plan
+review. Confirm too that the spec's Approved concept still matches its approved
+source, the bound research reference or the workspace brief, and restore any
+drift.
+
+### Work specified before the specification checkpoint
+
+Without such a citation, the full Checkpoint 1 applies. Its scope batch carries
+each labeled concept delta in the spec's Approved concept, confirmed item by
+item as for changed parts; the lead reads the plan's Technical Architecture
+against the approved approach and flow and records any departure as a delta
+before the batch. Work drafted before concept notes existed needs no
+retroactive concept.
 
 The lead presents the plan's Integrated Witness Proposal with the scope batch,
-including when spec review is Off. Keep the gate review at spec altitude; the
-lead checks the plan's concrete proposal and any changed spec commitments. The scope ruling explicitly confirms the e2e shape, execution
-stages and bounded reruns for every posture; no separate e2e decision is needed.
-Recommend e2e during implementation and milestones. Every declared lane has two
-runs: a required one at implement exit, before any review, and a post-review
-rerun that happens by default. The owner may opt out of a lane's rerun here;
-record that choice in the ruling so a later lead can apply it as a standing
-grant through a witness waiver.
-Reuse an existing scope decision; if none exists, including when the reviewer
-is Off, record the lead-owned scope question with class 8. Apply only the
-authorized owner's ruling or an identified standing grant.
+including when spec review is Off, and checks the plan's concrete proposal and
+any changed spec commitments while keeping the gate review at spec altitude. The
+scope ruling explicitly confirms the e2e shape, execution stages and bounded
+reruns for every posture; no separate e2e decision is needed. Recommend e2e
+during implementation and milestones. Every declared lane has two runs: a
+required one at implement exit, before any review, and a post-review rerun that
+happens by default. The owner may opt out of a lane's rerun here; record that
+choice in the ruling so a later lead can apply it as a standing grant through a
+witness waiver. Reuse an existing scope decision; if none exists, including when
+the reviewer is Off, record the lead-owned scope question with class 8. Apply
+only the authorized owner's ruling or an identified standing grant.
 
-Record one class-5 `question`, titled `Live witness: <slug>`, when proposing
-live or declining it for a real-provider feature. Bundle the posture and reason,
-all user-required prerequisites, allowed effects and cleanup/recovery,
-time/turn/retry and per-attempt/aggregate cost caps, live stages and bounded
-reruns, or the reason and concrete fallback. Recommend live at implement exit
-with the default post-review rerun, and size the caps for both runs. Scope confirmation and credentials alone are not execution grants.
-Record the actual ruling, actor and authority natively and reference exact
-decision IDs from the plan. Preserve already applicable grants.
+For this earlier work, record one class-5 `question`, titled
+`Live witness: <slug>`, when proposing live or declining it for a real-provider
+feature. Bundle the posture and reason, all user-required prerequisites,
+allowed effects and cleanup/recovery, time/turn/retry and
+per-attempt/aggregate cost caps, live stages and bounded reruns, or the reason
+and concrete fallback. Recommend live at implement exit with the default
+post-review rerun, and size the caps for both runs. Scope confirmation and
+credentials alone are not execution grants. Record the actual ruling, actor and
+authority natively and reference exact decision IDs from the plan. Preserve
+already applicable grants.
+
+## Resolve and exit
 
 Settle user-required choices before progression; unresolved native questions
 are blockers. Scheduled auto-resolvable setup may remain a plan task after
@@ -98,5 +125,3 @@ Use the runtime's next action for a necessary targeted round or cap/stop
 decision; a limit is not a fixed number of required passes and is not closure.
 Run `heddle validate` after document corrections. Exit toward **plan-review**
 only when native readiness is satisfied and phase-exit authority permits it.
-Checkpoint 1 confirms changed Implementation Parts per part, not blanket, and
-each concept delta the same way.

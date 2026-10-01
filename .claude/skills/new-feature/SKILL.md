@@ -63,9 +63,10 @@ diagnosis request alone grants no implementation authority.
 ## Research and Specification Contract
 
 For an admitted feature, kickoff and the packaged specify briefing own the
-current stage. The research checkpoint is distinct from Checkpoint 1 after
-spec review. Honor already-recorded research and scope choices; reopen them
-only for material new evidence. This skill adds no separate approval step.
+current stage. The research checkpoint is distinct from the specification
+checkpoint at specify exit and from Checkpoint 1 after spec review. Honor
+already-recorded research and scope choices; reopen them only for material new
+evidence. This skill adds no separate approval step.
 
 Use these sources for their respective contracts:
 

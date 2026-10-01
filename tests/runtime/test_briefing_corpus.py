@@ -406,9 +406,16 @@ class TestAC7KickoffRendersClean:
         # These are instruction-delivery checks, not model-judgment evidence.
         folded = " ".join(briefing.split())
         if stage == "specify":
-            assert "do not record that future native question at specify" in folded
-            assert "unresolved decision blocks progression" in folded
+            assert "titled `Specification checkpoint: <slug>`" in folded
+            assert "Before any review starts" in folded
+            assert "titled `Live witness: <slug>`" in folded
+            assert "per-attempt/aggregate cost caps sized for both runs" in folded
+            assert "Resolving lets the driver advance straight to spec review" in (
+                folded
+            )
         elif stage == "spec-review":
+            assert "confirms only what spec review changed" in folded
+            assert "the full Checkpoint 1 applies" in folded
             assert "including when spec review is Off" in folded
             assert "no separate e2e decision is needed" in folded
             assert "scope question with class 8" in folded
@@ -429,7 +436,7 @@ class TestAC7KickoffRendersClean:
             assert "live does not replace acceptance" in folded
             assert "class-5 `witness_waiver` decision" in folded
             assert "accept-prior-witness" in folded
-            assert "Checkpoint 1 opt-out" in folded
+            assert "opt-out ruled at the specification checkpoint" in folded
             assert "`heddle decisions add" in folded
             assert {
                 "peer-review": "pending decision halts the driver",

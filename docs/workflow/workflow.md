@@ -195,17 +195,19 @@ fallback. Distinguish observed behavior, inference and unknowns.
 Resolve consequential commitments and label assumptions. Delegate reversible
 internals rather than inventorying every future file or test. Follow the
 brainstorming scope-authorization contract and native intake described above.
-The research checkpoint is not the later post-spec-review scope checkpoint.
+The research checkpoint is not the later specification checkpoint.
 
-Before specifying, describe the concept in the brief's `## Concept` section at
-the altitude of concepts and high-level contracts. The owner approves it at the
-research checkpoint with the decomposition, before the spec and plan are
-written; a driven specify session without an approved concept records a class-8
-question and stops before drafting. An independent concept review runs only
-when the owner opts in; by default it is GPT-6 Astra at `xhigh`, run directly
-through the Codex CLI with a prompt written for the feature, not a native gate.
-The [brainstorming guidelines](brainstorming-guidelines.md) own its sections and
-review procedure.
+Before specifying, describe the concept in the brief's `## Concept` section by
+answering three questions at the altitude of concepts and high-level contracts:
+what are we building, how are we building it (including the footprint it will
+touch), and how will we know it works. The owner approves it at the research
+checkpoint with the decomposition, before the spec and plan are written; a
+driven specify session without an approved concept drafts against it and
+presents it at the specification checkpoint. An independent concept review runs
+only when the owner opts in; by default it is GPT-6 Astra at `xhigh`, run
+directly through the Codex CLI with a prompt written for the feature, not a
+native gate. The [brainstorming guidelines](brainstorming-guidelines.md) own its
+sections and review procedure.
 
 ## Phase 2: Specification (Feature Spec + Implementation Plan)
 
@@ -213,10 +215,9 @@ The spec owns the product goal, approved scope, concepts, the canonical AC list
 and Design Commitments. The plan owns approach, technical architecture,
 methodology, sequencing and proof strategy. Use their canonical scaffolds and
 [document contracts](document-structure.md); do not create another template here.
-The spec's Approved MVP retains the approved concept's approach, flow,
-contracts and state ownership verbatim and the spec elaborates them; the plan
-follows the approach and flow. A departure is a labeled concept delta, not a
-silent change.
+The spec's Approved MVP retains the approved concept's "How are we building
+it?" answer verbatim and the spec elaborates it; the plan follows its approach,
+flow and footprint. A departure is a labeled concept delta, not a silent change.
 
 Keep machine-read AC/milestone identifiers and reader anchors stable. Preserve
 Priority and Verified-by linkage without turning each AC into an exhaustive
@@ -230,8 +231,33 @@ After drafting both documents, propose the integrated witness in the plan's
 lanes, AC coverage and concrete fallback witnesses, pass conditions, real versus
 doubled systems, alignment criteria/artifacts, prerequisites, execution stages,
 caps and finishing criterion. State the conceptual lane posture in the spec.
-Draft checkpoint questions here; create their native records at Checkpoint 1
-because unresolved decisions block progression. The proposal grants no execution.
+Record its rulings at the specification checkpoint below. The proposal itself
+grants no execution.
+
+## Specification Checkpoint
+
+Before any review starts, the specify lead gives the owner a short overview of
+what was specified, and the owner gives an explicit green light. The overview
+answers the concept's three questions for the drafted spec and plan: the core
+slice, changed parts, concept deltas and deferred work; the components, where
+they connect and the alternative rejected; and the ACs, the definition of done,
+the e2e/live scenario and anything judged rather than checked. It then checks
+scope (anything, including growth inside an authorized part, that does not
+trace to the parts authorized at the research checkpoint and the approved
+concept) and footprint and complexity (owned paths against the approved
+footprint, contracts changed, new public surface, structure no AC needs), with
+evidence and exceptions first. A small feature gets a few sentences.
+
+The lead records one class-8 question, `Specification checkpoint: <slug>`, with
+the overview as its body. It carries scope per part, concept deltas and the e2e
+shape, stages and grant; live, or declining live for a real-provider feature,
+adds the class-5 `Live witness: <slug>` question. Both are cited in the spec's
+Approved MVP and the plan. Both questions are approval only, with a single
+option: resolving lets the driver advance to spec review, so revisions happen
+in an interactive specify session while the questions stay open. Later,
+widening ownership outside the approved footprint (the spec's retained
+Footprint plus accepted widenings) needs one class-2 question first; tests and
+docs follow the area they serve.
 
 ## Phase 3: Automated Spec Review & Refinement (CLI Gate)
 
@@ -246,11 +272,20 @@ or separate synthesis is required for new documents.
 
 ## Checkpoint 1: User Decision Batch
 
+When the spec cites a specification-checkpoint ruling, the lead first checks
+that ruling in native state, since the gate cannot see it, and reconciles the
+documents with it. Checkpoint 1 then confirms only what spec review changed:
+changed parts, new concept deltas, or a changed AC set or witness shape that no
+gate REPORT already owns, as one approval-only class-2 question naming that
+ruling, or nothing. Work specified before the specification checkpoint existed
+keeps the full batch below.
+
 Present unresolved owner questions and the scope proposal with approved core,
 proposed additions, named deferred parts and concept deltas. **Scope
-confirmation is explicit even when the review finds scope adequate.** Do not silently authorize a part
-or replace the original pending question on a rerun. Record the actual ruling
-and reconcile affected spec/plan content and review evidence.
+confirmation is explicit even when the review finds scope adequate.** Do not
+silently authorize a part or replace the original pending question on a rerun.
+Record the actual ruling and reconcile affected spec/plan content and review
+evidence.
 
 The spec-review lead confirms the integrated witness in this batch even when
 spec review is Off. The scope ruling explicitly includes the e2e shape, execution

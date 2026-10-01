@@ -51,7 +51,9 @@ scoped budget exception instead of dropping proof.
 
 Apply accepted hardening in code and tests, run the affected verification after
 each change batch, and commit the final robustness fixes. The gate is a
-non-modifying evaluator; this phase session owns remediation.
+non-modifying evaluator; this phase session owns remediation. Hardening that
+would widen `owns` past the Footprint the spec retains, or past an accepted
+widening of it, asks the owner first through a class-2 question.
 
 Use the same reconciliation routes as peer review. Pure implementation defects
 change code/tests. Documentary drift under an unchanged approved contract may
@@ -135,12 +137,13 @@ the same relevant content; live does not replace acceptance. These are reruns:
 both lanes passed at implement exit, and repeating a lane that hardening or review
 fixes made stale is the default, announced before launch. The owner may waive
 one lane's rerun through a class-5 `witness_waiver` decision resolved with
-accept-prior-witness; propose it via `heddle decisions add --help`. A
-Checkpoint 1 opt-out counts as a standing grant the lead cites when filing that
-decision. A driven session never resolves it: the pending question stops the
-driver until the owner rules, while an interactive lead may resolve it on that
-cited grant. The waiver binds the latest passing pre-review run to the current
-source; a later relevant edit restores the rerun. A waiver made at peer review
+accept-prior-witness; propose it via `heddle decisions add --help`. The owner's
+opt-out ruled at the specification checkpoint (Checkpoint 1 for earlier work)
+counts as a standing grant the lead cites when filing that decision. A driven
+session never resolves it: the pending question stops the driver until the
+owner rules, while an interactive lead may resolve it on that cited grant. The
+waiver binds the latest passing pre-review run to the current source; a later
+relevant edit restores the rerun. A waiver made at peer review
 stays valid here while that source is unchanged. Verification evidence for a
 finding disposition needs a fresh run even when the lane's rerun is waived. A
 declined lane retains its owner-confirmed reason and concrete fallback. Deferring execution

@@ -59,8 +59,8 @@ review, and again by default after review changes. Give live time/turn/retry and
 per-attempt/aggregate cost caps expected to accommodate both healthy runs with
 headroom.)_
 
-_(Draft at specify; the lead records the witness batch and obtains its ruling at
-Checkpoint 1 after spec review, including when the reviewer is Off. The scope
+_(Draft at specify; the lead records the witness rulings at the specification
+checkpoint before any review, including when reviewers are Off. The scope
 ruling includes explicit e2e execution authority for every posture; live or
 declining live for a real-provider feature has a bundled class-5 question.
 Reference exact native decision IDs and grants here. Unresolved owner choices

@@ -108,18 +108,17 @@ class TestL3DocRules:
         assert "measured-gap rule" in complete, "R6 distillation step"
 
 
-CONCEPT_SECTIONS = (
-    "What we're building",
+CONCEPT_QUESTIONS = (
+    "What are we building?",
+    "How are we building it?",
+    "How will we know it works?",
+)
+HOW_PARTS = (
     "Approach",
     "Flow",
     "Contracts and interfaces",
     "State and ownership",
-    "Assumptions",
-    "Failure behaviour",
-    "Proof sketch",
-    "Unknowns and risks",
-    "Future considerations",
-    "Open decisions",
+    "Footprint",
 )
 
 
@@ -128,6 +127,14 @@ def _h2_body(text: str, heading: str) -> str:
         rf"^## {re.escape(heading)}\n(.*?)(?=^## |\Z)", text, re.MULTILINE | re.DOTALL
     )
     assert match, f"missing ## {heading}"
+    return match.group(1)
+
+
+def _subsection_body(text: str, heading: str) -> str:
+    match = re.search(
+        rf"^### {re.escape(heading)}\n(.*?)(?=^### |\Z)", text, re.MULTILINE | re.DOTALL
+    )
+    assert match, f"missing ### {heading}"
     return match.group(1)
 
 
@@ -142,40 +149,50 @@ def _dimension(text: str, dimension: str) -> str:
     return " ".join(match.group(1).split())
 
 
+def _folded_text(text: str) -> str:
+    return " ".join(text.split())
+
+
 class TestL3ConceptNote:
     """
-    The owner approves the concept before the spec, and the document gates hold
-    the spec and plan to it (owner ruling 2026-10-01).
+    The owner approves a three-question concept before the spec, and the
+    document gates hold the spec and plan to it (owner rulings 2026-10-01).
     """
 
-    def test_both_brief_formats_carry_the_concept_sections(self) -> None:
+    def test_both_brief_formats_answer_the_three_questions(self) -> None:
         guidelines = _raw(DOCS / "brainstorming-guidelines.md")
         brief_format = guidelines.split("## Feature Brief Format", 1)[1]
         for source, text in (
             ("brief scaffold", _raw(RESOURCES / "brief.scaffold.md")),
             ("brief format", brief_format),
         ):
-            labels = re.findall(
-                r"^\d+\. \*\*(.+?):\*\*", _h2_body(text, "Concept"), re.MULTILINE
-            )
-            assert tuple(labels) == CONCEPT_SECTIONS, source
+            concept = _h2_body(text, "Concept")
+            questions = re.findall(r"^### (.+)$", concept, re.MULTILINE)
+            assert tuple(questions) == CONCEPT_QUESTIONS, source
+            how = _subsection_body(concept, "How are we building it?")
+            parts = re.findall(r"^- \*\*(.+?):\*\*", how, re.MULTILINE)
+            assert tuple(parts) == HOW_PARTS, source
+        scaffold = _folded(RESOURCES / "brief.scaffold.md")
+        assert "they are not fields to fill" in scaffold
+        assert "The spec retains this answer verbatim" in scaffold
 
     def test_specify_carries_the_concept_from_checkpoint_to_spec(self) -> None:
         specify = _folded(RESOURCES / "specify.briefing.md")
         for anchor in (
-            "the sections the workspace brief's `## Concept` defines",
+            "answering the three questions the workspace brief's `## Concept` poses",
             "in the admission-bound research reference, with its recorded "
             "approval, is the approved concept",
-            "Obtain it before drafting the spec or plan",
-            "record one class-8 `question` to approve or revise the brief's "
-            "Concept and end the session without drafting either document",
+            "With the owner present, obtain it before drafting the spec or plan",
+            "A driven session cannot pause for it: author the concept, draft both "
+            "documents against it, and lead the specification checkpoint overview "
+            "with it",
             "do not demand a retroactive concept",
-            "Approach, Flow, Contracts and interfaces, and State and ownership "
-            "sections verbatim with its approval reference and a labeled "
-            "concept delta",
+            'retain the approved concept\'s "How are we building it?" answer '
+            "verbatim with its approval reference and a labeled concept delta",
+            "state ownership or footprint, marked for confirmation at the "
+            "specification checkpoint",
             "elaborating the approved concept rather than restating it",
-            "Follow the approved concept's approach and flow",
-            "confirms concept deltas",
+            "Follow the approved concept's approach, flow and footprint",
         ):
             assert anchor in specify, anchor
 
@@ -200,17 +217,15 @@ class TestL3ConceptNote:
         mvp = _h2_body(
             _raw(RESOURCES / "feature-spec.scaffold.md"), "Approved MVP (from brief)"
         )
-        concept = re.search(
-            r"^### Approved concept\n(.*?)(?=^### |\Z)", mvp, re.M | re.S
-        )
-        assert concept, "Approved concept must sit inside Approved MVP"
-        body = " ".join(concept.group(1).split())
-        assert "Contracts and interfaces, and State and ownership sections" in body
-        assert "verbatim" in body and "concept delta" in body
+        assert "Cite the specification-checkpoint decision ID" in _folded_text(mvp)
+        body = _folded_text(_subsection_body(mvp, "Approved concept"))
+        assert '"How are we building it?" answer verbatim' in body
+        assert "state ownership or footprint" in body and "concept delta" in body
 
     def test_document_gates_hold_spec_and_plan_to_the_concept(self) -> None:
         coherence = _dimension(_expanded("spec-review.md"), "conceptual-coherence")
         for anchor in (
+            "contracts, state ownership and footprint that the rest elaborates",
             "elaboration is not a departure",
             "without a labeled concept delta is Important IMPLEMENT",
             "Each AC traces to that concept (a flow step, contract, or state or "
@@ -221,27 +236,17 @@ class TestL3ConceptNote:
             "A spec without an Approved concept is assessed without one",
         ):
             assert anchor in coherence, anchor
-        spec = " ".join(_expanded("spec-review.md").split())
-        assert "each labeled concept delta for confirmation item by item" in spec
         soundness = _dimension(_expanded("plan-review.md"), "approach-soundness")
         for anchor in (
             "elaborating it is not a departure",
-            "adopts its rejected alternative or contradicts its flow",
+            "adopts its rejected alternative, contradicts its flow",
+            "owns paths outside its footprint",
             "IMPLEMENT when restoring the approved concept still meets the "
             "contract, REPORT when the plan shows the approved concept cannot",
         ):
             assert anchor in soundness, anchor
 
-    def test_leads_confirm_deltas_and_route_accepted_departures(self) -> None:
-        lead = _folded(RESOURCES / "spec-review.briefing.md")
-        for anchor in (
-            "The owner confirms deltas item by item",
-            "plan's Technical Architecture against the approved approach and flow",
-            "matches its approved source",
-            "needs no retroactive concept",
-            "each concept delta the same way",
-        ):
-            assert anchor in lead, anchor
+    def test_plan_lead_routes_accepted_departures(self) -> None:
         plan_lead = _folded(RESOURCES / "plan-review.briefing.md")
         assert "accepts a departure from the spec's approved concept" in plan_lead
 
@@ -259,6 +264,103 @@ class TestL3ConceptNote:
         for agent in ("claude", "codex"):
             skill = _folded(REPO_ROOT / f".{agent}/skills/new-feature/SKILL.md")
             assert "offer the opt-in concept review" in skill, agent
+
+
+class TestL3SpecificationCheckpoint:
+    """
+    The owner green-lights the drafted spec and plan before any review;
+    Checkpoint 1 then confirms only review-driven changes, and widening
+    ownership past the approved footprint asks first (owner rulings 2026-10-01).
+    """
+
+    def test_specify_closes_with_the_overview_and_recorded_rulings(self) -> None:
+        section = _folded_text(
+            _h2_body(
+                _raw(RESOURCES / "specify.briefing.md"), "Specification checkpoint"
+            )
+        )
+        for anchor in (
+            "Before any review starts",
+            "a short argument, not a form: lead with the exceptions",
+            "**What are we building?**",
+            "the parts that changed shape or were added since the research checkpoint",
+            "**How are we building it?**",
+            "**How will we know it works?**",
+            "Assessment targets never gate completion",
+            "including growth inside an authorized part",
+            "**Footprint and complexity:** the milestones' owned paths grouped by "
+            "area against the approved footprint",
+            "is this the simplest design that meets the ACs",
+            "For a small feature",
+            "class-8 `question` titled `Specification checkpoint: <slug>`, with "
+            "the overview as its body",
+            "titled `Live witness: <slug>`",
+            "Read the allocated decision IDs back from the workspace `state.yaml`",
+            "Both questions are approval only: give each a single option",
+            '"Resolving this approves the spec and plan as drafted. To change '
+            "anything, leave it pending and revise them in an interactive specify "
+            'session (`heddle kickoff`)."',
+            "Keep the same questions through a revision",
+        ):
+            assert anchor in section, anchor
+        specify = _folded(RESOURCES / "specify.briefing.md")
+        assert "do not record that future native question at specify" not in specify
+        assert "that decision ID is the approval reference in the brief" in specify
+
+    def test_checkpoint_one_reuses_the_ruling_and_keeps_legacy_duties(self) -> None:
+        lead = _folded(RESOURCES / "spec-review.briefing.md")
+        for anchor in (
+            "in the workspace `state.yaml` before the first gate run; the gate "
+            "cannot see them",
+            "A citation that names no resolved checkpoint decision counts as absent",
+            "do not re-ask what the owner already ruled",
+            "Checkpoint 1 then confirms only what spec review changed",
+            "that no gate REPORT decision already owns",
+            "one class-2 `question` naming the original ruling, which lists each "
+            "changed part and each new concept delta",
+            "Record nothing when nothing material changed",
+            "It is approval only, as at specify",
+            "matches its approved source",
+            "Without such a citation, the full Checkpoint 1 applies",
+            "reads the plan's Technical Architecture against the approved "
+            "approach and flow",
+            "needs no retroactive concept",
+            "scope question with class 8",
+            "For this earlier work, record one class-5 `question`",
+        ):
+            assert anchor in lead, anchor
+        gate = _folded_text(_expanded("spec-review.md"))
+        for anchor in (
+            "cites a specification-checkpoint decision ID as the owner's approval",
+            "in `details.scope.confirmation` without claiming the approval yourself",
+            "raise a scope-confirmation REPORT only for a scope, part or concept "
+            "change this review finds necessary",
+            "A mention of the checkpoint without a decision ID is no citation",
+            "Without that citation, preserve the standing Important REPORT",
+            "each labeled concept delta for confirmation item by item",
+        ):
+            assert anchor in gate, anchor
+
+    def test_widening_past_the_approved_footprint_asks_first(self) -> None:
+        implement = _folded(RESOURCES / "implement.briefing.md")
+        for anchor in (
+            "ownership past the approved footprint before the owner accepts it",
+            "The approved footprint is the Footprint retained in the spec's "
+            "Approved concept, plus confirmed concept deltas and widenings the "
+            "owner accepted since",
+            "needs one class-2 `question` first, naming the path, the reason and "
+            "a route that stays inside",
+            "Tests, fixtures and docs follow the area they serve",
+            "the boundary owner widens `owns` only after the owner accepts",
+            "A concept without a Footprint sets no approved footprint",
+        ):
+            assert anchor in implement, anchor
+        for briefing, anchor in (
+            ("peer-review", "first gets one class-2 question naming the path"),
+            ("robustness", "asks the owner first through a class-2 question"),
+            ("complete", "Appending a path outside the approved footprint"),
+        ):
+            assert anchor in _folded(RESOURCES / f"{briefing}.briefing.md"), briefing
 
 
 class TestL4DomainLeakage:

@@ -36,8 +36,9 @@ intent. Engineering tradeoffs remain governed by
   the first slice's contract.
 - **Decision ownership.** Apply the [shared decision policy](../../heddle/resources/decision-routing.md)
   to research questions and proposals. The product edge cases above identify
-  consequential scope, not an additional permission procedure. Research and
-  post-spec-review scope confirmation remain distinct checkpoints below.
+  consequential scope, not an additional permission procedure. The research
+  checkpoint and the specification checkpoint remain distinct checkpoints
+  below.
 - **The domain boundary.** In Heddle, the first slice must preserve runtime
   write ownership, authorization, recoverable state, and truthful evidence
   and completion. Thin means fewer supported paths, each meeting its full
@@ -110,8 +111,8 @@ high-uncertainty features split. This is a soft discipline: the goal is
 to start using the feature sooner and defer the cost of specifying
 scope we may not need, not to force every feature into increments. The
 proposed decomposition is always surfaced to the user as an explicit
-decision — at the Phase 1 checkpoint, and again at Checkpoint 1 after
-spec review — never silently assumed.
+decision — at the Phase 1 checkpoint, and again at the specification
+checkpoint before review — never silently assumed.
 
 **Present the Implementation Parts for per-part authorization.** At the
 Phase 1 checkpoint, the Scope Decomposition is presented as a per-part
@@ -121,31 +122,36 @@ assessment, and the benefit / core functionality it delivers — and
 implemented**. Authorization is per part, not blanket; a part without
 authorization defaults to Deferred Scope. The same table, re-assessed
 against the drafted spec, is recorded in the spec's Approved MVP block
-(`docs/workflow/document-structure.md` §2) and re-confirmed at
-Checkpoint 1 (parts often change shape between brief and spec — which
-is exactly why authorization happens at both checkpoints).
+(`docs/workflow/document-structure.md` §2) and re-confirmed at the
+specification checkpoint (parts often change shape between brief and spec —
+which is exactly why authorization happens at both checkpoints).
 
 **Identify unknowns early.** Which aspects are well-understood and
 which carry uncertainty? Uncertain areas become candidates for
 prototyping milestones in Phase 2.
 
 **Describe the concept before specifying.** Once research has grounded it,
-write the brief's `## Concept` section: what we are building, the approach and
-the main alternative rejected, the flow from inputs to outputs with one worked
-example, the contracts and interfaces crossed (each new, changed or relied on
-unchanged), state ownership including the effect on existing records,
-assumptions, failure behaviour, a proof sketch, unknowns, future seams and open
-decisions. Stay at the altitude of concepts and high-level contracts; file
+write the brief's `## Concept` section as answers to three questions. *What are
+we building?* The outcome and what it is not, the failure behaviour the first
+slice must handle, follow-up seams and open owner questions. *How are we
+building it?* The approach and the alternative rejected, the flow with one
+worked example, the contracts and interfaces crossed (each new, changed or
+relied on unchanged), state ownership including the effect on existing records,
+and the footprint: the codebase areas the change will touch and the nearby ones
+it must not. *How will we know it works?* The end-to-end scenario and e2e/live
+posture, anything judged rather than checked, and the assumptions it rests on.
+The packaged brief scaffold carries the prompts for each answer; they are not
+fields to fill. Stay at the altitude of concepts and high-level contracts; file
 layouts, private helpers and signatures belong later unless a consumer depends
-on them. Size follows the decisions it carries: for a small feature most
-sections are one line or "none". The owner approves the concept at the research
-checkpoint together with the decomposition, so a wrong concept is caught before
-the spec and plan elaborate it; record the approval (owner and date) in the
-section. On the Direct route the approved concept guides the work. On the
-Heddle route, finish the concept and any review before `heddle feature prepare`
-binds the research digest; the spec later retains it. When research reaches
-admission without a concept, the specify session authors one in the workspace
-brief and obtains approval before drafting.
+on them. Size follows the decisions it carries. The owner approves the concept
+at the research checkpoint together with the decomposition, so a wrong concept
+is caught before the spec and plan elaborate it; record the approval (owner and
+date) in the section. On the Direct route the approved concept guides the work.
+On the Heddle route, finish the concept and any review before
+`heddle feature prepare` binds the research digest; the spec later retains it.
+When research reaches admission without a concept, the specify session authors
+one in the workspace brief and obtains approval before drafting, or in a driven
+session presents it for approval at the specification checkpoint.
 
 **Offer a concept review; run it only when the owner opts in.** Before
 approval, offer an independent review of the concept. The default reviewer is
@@ -161,7 +167,7 @@ The prompt supplies the brief and concept and names the related specs and code
 to read. It asks the reviewer to verify factual claims against the repository,
 challenge the approach against the strongest alternative, find missing flow
 steps, contracts and effects on existing records, test the assumptions and
-failure classes, and judge whether the proof sketch can fail for the real
+failure classes, and judge whether the proposed proof can fail for the real
 defect. It asks for a verdict followed by evidence-backed findings. If the host
 cannot run the read-only sandbox, the owner chooses the fallback and the lead
 confirms afterwards that the review changed no files. Without Codex, or when
@@ -195,13 +201,13 @@ boundaries. Negative scoping ("this is NOT P&L attribution") closes
 the gap.
 
 **Elaborate the approved concept; do not restate it.** The spec's Approved
-MVP block retains the approved concept's Approach, Flow, Contracts and
-interfaces, and State and ownership sections verbatim, with its approval
-reference and a labeled concept delta. Conceptual Design and Design Commitments
-build on it, its other sections feed the spec's own sections, and the plan's
-Technical Architecture follows its approach and flow. A departure from the approach, flow,
-contract classification or state ownership is recorded as a concept delta for
-confirmation at Checkpoint 1, not made silently.
+MVP block retains the approved concept's "How are we building it?" answer
+verbatim, with its approval reference and a labeled concept delta. Conceptual
+Design and Design Commitments build on it, its other answers feed the spec's
+own sections, and the plan's Technical Architecture follows its approach, flow
+and footprint. A departure from the approach, flow, contract classification,
+state ownership or footprint is recorded as a concept delta for confirmation at
+the specification checkpoint, not made silently.
 
 **Label assumptions explicitly.** In the Conceptual Design, mark
 every assumption that must hold for the design to be valid. These
@@ -254,12 +260,18 @@ implementation recipe or a second Acceptance Criteria list.
 the complete flow, e2e and feasible live lanes, AC coverage/fallback witnesses,
 pass conditions, real versus doubled systems, alignment criteria/artifacts,
 prerequisites, execution stages, caps and finishing criterion. State conceptual
-lane posture in the spec. Draft the question at specify; the spec-review lead
-records the native witness batch with scope and obtains its authorized ruling at Checkpoint 1,
-including when the reviewer is Off. Confirm explicit grants for both proposed
-lanes and settle user-required prerequisites there; reuse those grants at their
-approved stages. Native unresolved questions block progression, so recording one
-at specify cannot defer it to the later checkpoint.
+lane posture in the spec. The specify lead records the witness rulings with
+scope at the specification checkpoint, before any review and including when
+reviewers are Off. Confirm explicit grants for both proposed lanes and settle
+user-required prerequisites there; reuse those grants at their approved stages.
+
+**Present the specification checkpoint before review.** Once both documents
+validate, give the owner a short overview answering the concept's three
+questions for what was actually specified, then check scope and footprint and
+complexity with evidence, exceptions first. The owner's green light is a
+class-8 ruling recorded before spec review, and Checkpoint 1 afterwards confirms
+only what review changed. The workflow guide describes the checkpoint and the
+specify briefing owns its procedure.
 
 **Immerse in the codebase before writing the spec.** Before creating
 the Feature Spec, examine the actual code areas the feature will
@@ -345,28 +357,33 @@ open questions.]
 
 ## Concept
 
-[Written after research and approved at the research checkpoint. Concepts and
-high-level contracts only; a section that changes no decision is one line or
-"none". The packaged brief scaffold carries the fuller section prompts.]
+[Written after research and approved at the research checkpoint. Answer three
+questions at concept altitude; the packaged brief scaffold carries the prompts
+for each. A point that changes no decision gets a line or nothing.]
 
-1. **What we're building:** the outcome and what it is not.
-2. **Approach:** the mechanism, and the main alternative rejected with its reason.
-3. **Flow:** trigger, inputs, decision steps, outputs, side effects; one worked
-   example with realistic data.
-4. **Contracts and interfaces:** each boundary crossed, marked new, changed or
-   relied on unchanged; whom a changed contract breaks and what migrates.
-5. **State and ownership:** records created or changed, their single writer and
-   lifecycle, and what happens to records that already exist.
-6. **Assumptions:** what breaks if each is false, and how we would notice.
-7. **Failure behaviour:** defer-able loud failures, owner-decided edge cases,
-   and irreversible failures the first slice must handle.
-8. **Proof sketch:** the end-to-end scenario that would show it works, the
-   e2e/live posture, and what is real versus doubled.
-9. **Unknowns and risks:** what could invalidate the concept; whether a spike
-   comes first.
-10. **Future considerations:** seams deliberately not built; named follow-ups
-    stay under Follow-up Increments.
-11. **Open decisions:** owner questions the spec must not start without.
+### What are we building?
+
+[The outcome and what it is not; failure behaviour the first slice must
+handle; owner questions the spec must not start without. Follow-ups stay under
+Follow-up Increments.]
+
+### How are we building it?
+
+- **Approach:** the mechanism, the alternative rejected, and why this is the
+  simplest that works.
+- **Flow:** trigger, inputs, decision steps, outputs, side effects; one worked
+  example with realistic data.
+- **Contracts and interfaces:** each boundary crossed, marked new, changed or
+  relied on unchanged; whom a changed contract breaks and what migrates.
+- **State and ownership:** records created or changed, their single writer and
+  lifecycle, and what happens to records that already exist.
+- **Footprint:** the codebase areas it will touch, and nearby ones it must not.
+
+### How will we know it works?
+
+[The end-to-end scenario, the e2e/live posture and what is real versus doubled;
+anything judged rather than checked; the assumptions it rests on and how we
+would notice one failing; whether a spike comes first.]
 
 [Approved by: owner and date.]
 
