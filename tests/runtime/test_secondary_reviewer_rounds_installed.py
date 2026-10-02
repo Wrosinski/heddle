@@ -21,7 +21,9 @@ from tests.secondary_rounds_helpers import (
     ASTRA_HIGH,
     FABLE_HIGH,
     assert_old_shape,
+    assert_pre_change_ledger,
     assignment_rounds,
+    delivered_targets,
     install_old_shape,
     slot_names,
     windowed,
@@ -117,7 +119,10 @@ def _run_routed_slot(case, providers, expected):
     assert {key: arguments[key] for key in expected} == expected, (
         f"FAIL AC-3: readiness selected {arguments}"
     )
-    case.run("run-gate", "spec-review", "--cli", arguments["cli"], expected=(0, 4))
+    ran = case.run(
+        "run-gate", "spec-review", "--cli", arguments["cli"], expected=(0, 4)
+    )
+    assert ran["data"]["accepted"], ran
     call = providers.calls()[-1]
     assert _selection(call) == expected, f"FAIL AC-3: provider received {call}"
     return yaml.safe_load(case.state.read_text())["gates"][-1]["runs"][-1]
@@ -208,7 +213,12 @@ def test_secondary_rounds_installed_host_a_journey(installed, tmp_path):
     _dispose(
         case,
         [
-            _row(origins["secondary"], "SP-I2", requires_inspection=True),
+            _row(
+                origins["secondary"],
+                "SP-I2",
+                status="retained",
+                requires_inspection=True,
+            ),
             *[
                 _row(run_id, "@coverage", status="settled")
                 for run_id in origins.values()
@@ -262,9 +272,10 @@ def test_secondary_rounds_installed_host_a_journey(installed, tmp_path):
     )
     secondary = _run_routed_slot(case, providers, FABLE_HIGH)
     delivered = providers.calls()[-1]
-    text = delivered["stdin"] + " ".join(delivered["argv"])
-    for fact in (origins["secondary"], "SP-I2"):
-        assert fact in text, f"FAIL AC-4: secondary's round-2 input omits {fact}"
+    assert (origins["secondary"], "SP-I2") in delivered_targets(delivered["stdin"]), (
+        "FAIL AC-4: the secondary's round-2 targets omit its own finding"
+    )
+    assert "SECONDARY_ORIGINAL_CONCERN" in delivered["stdin"]
     closed = _dispose(
         case,
         [
@@ -309,6 +320,7 @@ def test_secondary_rounds_installed_host_a_journey(installed, tmp_path):
 def test_secondary_rounds_installed_host_b_pre_change_state(
     installed, tmp_path, monkeypatch, run_cli
 ):
+    """Survivor pin (AC-2 read path): pre-change state through the wheel."""
     root, path = current_host(tmp_path, monkeypatch)
     literal = install_old_shape(path, spec_limit=3, spec_minimum=3)
     provider_transport(monkeypatch, review_content())
@@ -331,6 +343,7 @@ def test_secondary_rounds_installed_host_b_pre_change_state(
         assert recorded.ok, recorded.to_envelope()
     value = yaml.safe_load(path.read_text())
     assert_old_shape(value)
+    assert_pre_change_ledger(path)
     assert value["feature_policy"] == literal
     assert [slot_names(row) for row in assignment_rounds(path)] == [
         ["primary", "secondary"],

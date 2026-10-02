@@ -502,11 +502,11 @@ def test_ac1_window_values_inside_the_rule_decode(value, kw):
     assert _window_of(decoded) == value
 
 
-def test_ac1_absent_window_decodes_as_one_and_keeps_the_wire_shape():
+def test_ac1_absent_window_decodes_as_one():
     kernel = api("heddle.kernel.feature_policy")
     document = _windowed_wire(1)
     for row in document["entries"]:
-        row.pop("secondary_rounds")
+        row.pop("secondary_rounds", None)
     decoded = kernel.parse_policy(document)
     assert {_window_of(decoded, role) for role in ROLES} == {1}
 
@@ -597,6 +597,16 @@ def test_ac7_window_predicate_counts_rounds_from_the_first(window, expected):
             3,
             6,
         ),
+    ],
+    ids=[
+        "survivor-primary-only",
+        "survivor-window-absent",
+        "window-2",
+        "window-at-limit",
+        "all",
+        "all-minimum-1",
+        "convergence-all",
+        "off-retains-secondary",
     ],
 )
 def test_ac7_budget_adds_the_rounds_the_secondary_serves(spec, minimum, maximum):

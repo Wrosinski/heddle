@@ -105,3 +105,36 @@ def assignment_rounds(path, role="spec-review", scope="feature"):
 
 def slot_names(round_row):
     return [slot["name"] for slot in round_row["slots"]]
+
+
+TARGET_MARKER = "Preserve originating run IDs and finding IDs: "
+PRE_CHANGE_ROUND_KEYS = {
+    "number",
+    "policy_revision",
+    "purpose",
+    "reason",
+    "scope_identity",
+    "before_open",
+    "slots",
+    "scope_change",
+}
+
+
+def delivered_targets(text):
+    """The verification targets a reviewer invocation was told to account for."""
+    import json
+
+    index = text.find(TARGET_MARKER)
+    assert index >= 0, "FAIL AC-4: the invocation carries no verification targets"
+    targets, _end = json.JSONDecoder().raw_decode(text[index + len(TARGET_MARKER) :])
+    return [tuple(target) for target in targets]
+
+
+def assert_pre_change_ledger(path):
+    """Recorded rounds and slots keep exactly the pre-change record shape."""
+    value = yaml.safe_load(path.read_text())
+    for assignment in value["review_assignments"]["assignments"]:
+        for row in assignment["rounds"]:
+            assert set(row) == PRE_CHANGE_ROUND_KEYS, f"FAIL AC-2: round shape {row}"
+            for slot in row["slots"]:
+                assert set(slot) == {"name", "reviewer"}, f"FAIL AC-2: slot {slot}"

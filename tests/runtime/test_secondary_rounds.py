@@ -18,7 +18,9 @@ from tests.secondary_rounds_helpers import (
     ASTRA_HIGH,
     FABLE_HIGH,
     assert_old_shape,
+    assert_pre_change_ledger,
     assignment_rounds,
+    delivered_targets,
     install_old_shape,
     old_shape_policy,
     slot_names,
@@ -80,7 +82,7 @@ def _run_routed_slot(run_cli, path, expected):
     code, result = gate_command(
         run_cli, "run-gate", operation.gate, "--cli", operation.cli
     )
-    assert code in (0, 4) and result["ok"], result
+    assert code in (0, 4) and result["ok"] and result["data"]["accepted"], result
     return runs(path)[-1]
 
 
@@ -160,7 +162,9 @@ def test_ac3_ac4_all_window_freezes_both_slots_and_secondary_closes_its_own_duty
     recorded = _settle(
         path,
         first,
-        disposition(origins["secondary"], "SP-I2", requires_inspection=True),
+        disposition(
+            origins["secondary"], "SP-I2", status="retained", requires_inspection=True
+        ),
     )
     assert [origins["secondary"], "SP-I2"] in recorded.data["closure"]["open_refs"]
 
@@ -176,6 +180,11 @@ def test_ac3_ac4_all_window_freezes_both_slots_and_secondary_closes_its_own_duty
     assert not waiting["closed"] and waiting["missing_slots"] == ["secondary"], (
         "FAIL AC-4: the review must stay open while the secondary slot has no result"
     )
+    before = path.read_bytes()
+    early = open_round(path, purpose="independent-pass")
+    assert not early.ok and path.read_bytes() == before and len(calls) == 3, (
+        "FAIL AC-3: a round opened while the secondary slot had no result"
+    )
     secondary_run = _run_routed_slot(run_cli, path, FABLE_HIGH)
     assert (secondary_run["round_number"], secondary_run["reviewer_slot"]) == (
         2,
@@ -183,10 +192,10 @@ def test_ac3_ac4_all_window_freezes_both_slots_and_secondary_closes_its_own_duty
     )
     cli, prompt, _command = calls[-1]
     assert cli == "claude"
-    for fact in (origins["secondary"], "SP-I2", "SECONDARY_ORIGINAL_CONCERN"):
-        assert fact in prompt, (
-            f"FAIL AC-4: the secondary's round-2 targets omit its own finding ({fact})"
-        )
+    assert (origins["secondary"], "SP-I2") in delivered_targets(prompt), (
+        "FAIL AC-4: the secondary's round-2 targets omit its own finding"
+    )
+    assert "SECONDARY_ORIGINAL_CONCERN" in prompt
 
     # Survivor: evidence from another reviewer never qualifies an inspection duty.
     before = path.read_bytes()
@@ -202,6 +211,9 @@ def test_ac3_ac4_all_window_freezes_both_slots_and_secondary_closes_its_own_duty
         ],
     )
     assert not wrong.ok and path.read_bytes() == before
+    assert [row["predicate"] for row in wrong.error.details["rows"]] == [
+        "review-not-qualifying"
+    ], wrong.to_envelope()
     closed = _settle(
         path,
         [primary_run, secondary_run],
@@ -305,6 +317,43 @@ def test_ac5_amendment_applies_from_the_next_round(tmp_path, monkeypatch, run_cl
     assert all("secondary_rounds" not in row for row in history[0]["entries"])
 
 
+@pytest.mark.parametrize("change", ["narrow", "remove"])
+def test_ac5_ac6_narrowing_or_removal_applies_from_the_next_round(
+    change, tmp_path, monkeypatch, run_cli
+):
+    dual = entry("spec-review", limit=3, minimum_rounds=3, secondary=FABLE)
+    _root, path = current_host(
+        tmp_path, monkeypatch, overrides={"spec-review": windowed(dual, "all")}
+    )
+    provider_transport(monkeypatch, review_content())
+    for number in (1, 2):
+        if number == 2:
+            assert open_round(path, purpose="independent-pass").ok
+        _settle(
+            path,
+            [
+                _run_routed_slot(run_cli, path, ASTRA_HIGH),
+                _run_routed_slot(run_cli, path, FABLE_HIGH),
+            ],
+        )
+    earlier = assignment_rounds(path)
+    after = (
+        dual if change == "narrow" else entry("spec-review", limit=3, minimum_rounds=3)
+    )
+    amended = _amend(path, revision=2, **{"spec-review": after})
+    assert amended.ok, amended.to_envelope()
+    assert open_round(path, purpose="independent-pass").ok
+    rounds = assignment_rounds(path)
+    assert rounds[:2] == earlier
+    assert [slot_names(row) for row in rounds] == [BOTH, BOTH, PRIMARY], (
+        f"FAIL AC-6: {change} must apply from the next round only"
+    )
+    assert [row["policy_revision"] for row in rounds] == [1, 1, 2]
+    # The earlier dual rounds still validate against their own revision.
+    parse_state_document(_state(path), source=path)
+    assert execute(ops.Status(feature=V7_FEATURE)).ok
+
+
 def _refusal(path, overrides, *, revision):
     before = path.read_bytes()
     refused = _amend(path, revision=revision, **overrides)
@@ -331,12 +380,16 @@ def test_ac6_amendment_refuses_only_a_secondary_that_can_serve_no_open_round(
     # Refused: added at the limit, or with a window that ends before round 2.
     for window, limit in ((None, 1), ("all", 1), (1, 2)):
         message = _refusal(path, spec(window, limit), revision=2)
-        for fact in ("spec-review", "feature", "round 1", str(window or 1)):
+        for fact in (
+            "spec-review",
+            f"secondary_rounds {window or 1}",
+            "feature review at round 1",
+        ):
             assert fact in message, f"FAIL AC-6: refusal omits {fact!r}: {message}"
-    # Accepted: the same `all` with the limit raised in the same revision.
     revision = 2
     for overrides in (
-        spec("all", 2),
+        spec(2, 2),  # The smallest integer window that reaches round 2.
+        spec("all", 2),  # The same `all` with the limit raised in one revision.
         spec(1, 2),  # Narrowing is never refused.
     ):
         accepted = _amend(path, revision=revision, **overrides)
@@ -352,6 +405,13 @@ def test_ac6_amendment_refuses_only_a_secondary_that_can_serve_no_open_round(
             **spec(1, 2),
             "plan-review": entry("plan-review", primary=SOL, secondary=FABLE),
             "milestone-review": entry("milestone-review", primary=SOL, secondary=FABLE),
+        },
+        # Convergence always allows the next round, so `all` serves it.
+        {
+            "spec-review": windowed(
+                entry("spec-review", mode="convergence", limit=None, secondary=FABLE),
+                "all",
+            )
         },
         # Removal is never refused.
         {"spec-review": entry("spec-review", limit=2)},
@@ -427,6 +487,7 @@ def test_ac2_old_shape_state_reads_reconfirms_and_raises_allowance_unchanged(
     _settle(path, [_run_routed_slot(run_cli, path, ASTRA_HIGH)])
     value = _state(path)
     assert_old_shape(value)
+    assert_pre_change_ledger(path)
     assert value["feature_policy"] == literal
     rounds = assignment_rounds(path)
     assert [slot_names(row) for row in rounds] == [BOTH, PRIMARY]

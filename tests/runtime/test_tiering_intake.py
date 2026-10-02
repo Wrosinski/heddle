@@ -31,6 +31,11 @@ def host(tmp_path, monkeypatch):
     return blank_host(tmp_path, monkeypatch)
 
 
+def _effective_entries(stored):
+    """Stored entries omit window 1; the effective projection states it."""
+    return [{"secondary_rounds": 1, **row} for row in stored]
+
+
 def intake(host):
     return host / ".heddle" / "intake" / f"{FEATURE}.yaml"
 
@@ -363,7 +368,9 @@ def test_ac1_confirmed_admission_transfers_policy_once_and_exact_retry_is_readba
     assert "tier" not in value
     expected = json.loads(json.dumps(wire_policy(overrides=selected)))
     assert value["feature_policy"] == confirmed_policy == expected
-    assert result.data["effective_policy"]["entries"] == confirmed_policy["entries"]
+    assert result.data["effective_policy"]["entries"] == _effective_entries(
+        confirmed_policy["entries"]
+    )
     assert (host / "docs/features/runtime" / f"{FEATURE}.md").is_file()
     assert (host / "plans" / FEATURE / "plan.md").is_file()
     assert before_start  # Confirmation existed before formal state.
@@ -745,8 +752,8 @@ def test_ac7_start_replay_after_policy_amendment_is_current_owner_readback(host)
     before = snapshot(host)
     replay = invoke("FeatureStart", slug=FEATURE)
     assert replay.ok, replay.to_envelope()
-    assert replay.data["effective_policy"]["entries"] == json.loads(
-        json.dumps(revised["entries"])
+    assert replay.data["effective_policy"]["entries"] == _effective_entries(
+        json.loads(json.dumps(revised["entries"]))
     )
     assert snapshot(host) == before
     assert intake(host).read_bytes() == original_intake
@@ -919,3 +926,23 @@ def test_ac8_prepare_recommends_windows_and_a_suggestion_that_selects_nothing(ho
         SCAFFOLD_SUGGESTION["secondary"],
         "all",
     )
+
+
+def test_ac1_explicit_window_one_is_stored_as_absence(host):
+    """D3 stored form: a written window 1 is persisted without the field."""
+    confirmed(host)
+    revision = yaml.safe_load(intake(host).read_text())["revision"]
+    explicit = wire_policy(
+        revision=2, overrides={"spec-review": entry("spec-review", secondary=FABLE)}
+    )
+    for row in explicit["entries"]:
+        row["secondary_rounds"] = 1
+    stored = invoke(
+        "FeaturePolicy", slug=FEATURE, payload=explicit, expect_revision=revision
+    )
+    assert stored.ok and stored.data["wrote"], stored.to_envelope()
+    value = yaml.safe_load(intake(host).read_text())
+    for policy in (value["feature_policy"], *value["policy_history"]):
+        assert all("secondary_rounds" not in row for row in policy["entries"]), (
+            "FAIL AC-1: window 1 must be stored as absence"
+        )

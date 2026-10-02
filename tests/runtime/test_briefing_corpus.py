@@ -1020,22 +1020,31 @@ class TestCompletionPermissionContainment:
         )
 
 
+# (path, must name the window): guidance that describes secondary scheduling.
 SECONDARY_WINDOW_GUIDANCE = (
-    RESOURCES / "peer-review.briefing.md",
-    REPO_ROOT / "docs/design/workflow-model.md",
+    (RESOURCES / "peer-review.briefing.md", True),
+    (REPO_ROOT / "docs/design/workflow-model.md", True),
+    (REPO_ROOT / "docs/workflow/workflow.md", True),
+    (REPO_ROOT / "docs/testing/test-selection-map.md", False),
 )
 
 
-@pytest.mark.parametrize("path", SECONDARY_WINDOW_GUIDANCE, ids=lambda path: path.name)
-def test_secondary_window_guidance_names_the_window(path) -> None:
+@pytest.mark.parametrize(
+    "path,names_window",
+    SECONDARY_WINDOW_GUIDANCE,
+    ids=[path.name for path, _names in SECONDARY_WINDOW_GUIDANCE],
+)
+def test_secondary_window_guidance_names_the_window(path, names_window) -> None:
     """secondary-reviewer-rounds-v1 AC-10: no round-1-only guidance survives."""
     text = " ".join(path.read_text(encoding="utf-8").split())
-    assert "secondary_rounds" in text, (
-        f"FAIL AC-10: {path.name} does not name the secondary window"
-    )
+    if names_window:
+        assert "secondary_rounds" in text, (
+            f"FAIL AC-10: {path.name} does not name the secondary window"
+        )
     for retired in (
         "joins round 1 only",
         "joins the first round only",
         "(first round only)",
+        "first-round-only secondary",
     ):
         assert retired not in text, f"FAIL AC-10: {path.name} keeps {retired!r}"
