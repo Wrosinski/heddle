@@ -113,8 +113,8 @@ Prepare returns a recommended review policy as JSON: eight roles, each with a
 provider CLI, model, reasoning effort, round mode and limit. For this small,
 low-complexity, fully testable change the recommendation is the `light` base:
 five roles on with a two-round upper limit, three roles off, and Codex and Claude
-Code both reviewing spec and plan in the first round. See the
-[reviewer defaults](design/workflow-model.md#admission-and-review-policy).
+Code both reviewing spec and plan in every round (`secondary_rounds: all`). See
+the [reviewer defaults](design/workflow-model.md#admission-and-review-policy).
 Preparation is not approval.
 
 Second, the owner confirms the complete policy. For the tour every role is

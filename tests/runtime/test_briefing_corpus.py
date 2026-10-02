@@ -1026,6 +1026,7 @@ SECONDARY_WINDOW_GUIDANCE = (
     (REPO_ROOT / "docs/design/workflow-model.md", True),
     (REPO_ROOT / "docs/workflow/workflow.md", True),
     (REPO_ROOT / "docs/testing/test-selection-map.md", False),
+    (REPO_ROOT / "docs/tour.md", True),
 )
 
 
@@ -1046,5 +1047,6 @@ def test_secondary_window_guidance_names_the_window(path, names_window) -> None:
         "joins the first round only",
         "(first round only)",
         "first-round-only secondary",
+        "spec and plan in the first round",
     ):
         assert retired not in text, f"FAIL AC-10: {path.name} keeps {retired!r}"
