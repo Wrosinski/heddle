@@ -388,8 +388,10 @@ def test_ac6_amendment_refuses_only_a_secondary_that_can_serve_no_open_round(
             assert fact in message, f"FAIL AC-6: refusal omits {fact!r}: {message}"
     revision = 2
     for overrides in (
-        spec(2, 2),  # The smallest integer window that reaches round 2.
-        spec("all", 2),  # The same `all` with the limit raised in one revision.
+        # Added with the limit raised from 1 in the same revision, at the
+        # smallest integer window that reaches round 2.
+        spec(2, 2),
+        spec("all", 2),  # Widening 2 to `all` at an unchanged limit.
         spec(1, 2),  # Narrowing is never refused.
     ):
         accepted = _amend(path, revision=revision, **overrides)

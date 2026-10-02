@@ -88,13 +88,7 @@ def _slot_refusal(
     state: StateFile, role: str, row: AssignmentRound, cli: str | None
 ) -> KernelError:
     """Name the round's slots, and the secondary's window when it is outside."""
-    policy = next(
-        entry
-        for confirmed in state.policy_history
-        if confirmed.revision == row.policy_revision
-        for entry in confirmed.entries
-        if entry.role == role
-    )
+    policy = core.policy_at_revision(state, role, row.policy_revision)
     secondary = policy.secondary
     if (
         secondary is not None
