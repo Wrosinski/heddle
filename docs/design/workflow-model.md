@@ -43,8 +43,16 @@ execution. Host exclusions constrain the selection without silently replacing
 reviewers.
 
 Each review role has a feature or milestone scope, a primary reviewer, an
-optional independent secondary reviewer that joins the first round only, and one
-of these modes:
+optional independent secondary reviewer, and one of these modes. The secondary
+serves the rounds its `secondary_rounds` window names, counted from the
+review's first round: a positive integer *n* for rounds 1 to *n* (at most an
+upper-limit role's round limit), or `all` for every round, which follows later
+allowance raises. Absent means 1 and is how window 1 is stored; a value other
+than 1 needs a secondary. Each round freezes its reviewers when it opens, so an
+amendment applies from the next round, and an amendment that adds, replaces or
+widens a secondary is refused when that secondary could serve no round the role
+can still open. Older Heddle builds refuse a policy that sets a window other
+than 1. The modes are:
 
 | Mode | Meaning |
 | --- | --- |
@@ -53,23 +61,29 @@ of these modes:
 | `convergence` | Required minimum rounds without a numerical quality-round ceiling; closure and stop rules still apply. |
 
 Reviewer selections include CLI, model and reasoning effort. The policy exposes
-minimum and maximum call budgets; an unbounded assignment is reported as such.
+minimum and maximum call budgets: each active role adds its primary rounds plus
+the rounds within them that its secondary serves; an unbounded assignment is
+reported as such.
 Amendments retain policy history and spent work. All-Off review policy does not
 waive final verification. Robustness review requires an explicit integration gap
 and supporting references; it is not inferred from size alone.
 
 The recommended reviewer defaults are:
 
-| Review role | Primary model / effort | Secondary model / effort (first round only) |
-| --- | --- | --- |
-| `spec-review` | `gpt-6-astra` / `xhigh` | `claude-fable-5-1` / `xhigh` |
-| `plan-review` | `gpt-6-astra` / `xhigh` | `claude-fable-5-1` / `xhigh` |
-| `review-test-scaffolding` | `claude-opus-5-5` / `xhigh` | None |
-| `milestone-review` | `claude-opus-5-5` / `high` | None |
-| `peer-review-sequential` | `claude-opus-5-5` / `xhigh` | None |
-| `behavior-review` | `claude-opus-5-5` / `xhigh` | `gpt-6-astra` / `xhigh` |
-| `complexity-review` | `claude-opus-5-5` / `xhigh` | None |
-| `robustness-analysis` | `gpt-6-astra` / `xhigh` | `claude-fable-5-1` / `xhigh` |
+| Review role | Primary model / effort | Secondary model / effort | `secondary_rounds` |
+| --- | --- | --- | --- |
+| `spec-review` | `gpt-6-astra` / `xhigh` | `claude-fable-5-1` / `xhigh` | `all` |
+| `plan-review` | `gpt-6-astra` / `xhigh` | `claude-fable-5-1` / `xhigh` | `all` |
+| `review-test-scaffolding` | `claude-opus-5-5` / `xhigh` | None (suggested: `gpt-6-astra` / `xhigh`) | `all` when the suggestion is adopted |
+| `milestone-review` | `claude-opus-5-5` / `high` | None | — |
+| `peer-review-sequential` | `claude-opus-5-5` / `xhigh` | None | — |
+| `behavior-review` | `claude-opus-5-5` / `xhigh` | `gpt-6-astra` / `xhigh` | 1 |
+| `complexity-review` | `claude-opus-5-5` / `xhigh` | None | — |
+| `robustness-analysis` | `gpt-6-astra` / `xhigh` | `claude-fable-5-1` / `xhigh` | 1 |
+
+The recommendation's suggestions list the scaffolding secondary. A suggestion
+selects nothing and schedules no call until the owner copies its `secondary`
+and `secondary_rounds` into that role's entry at confirmation.
 
 GPT models use Codex; Claude models use Claude Code. These reviewer choices
 apply across scope, complexity and testability assessments. Those axes still

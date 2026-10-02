@@ -83,8 +83,10 @@ For further inspection after lead closure, request boundary-owned
 `heddle.review-round-input/v1`, the selected whole-feature role, scope `feature`,
 purpose `verification` and a concrete reason. The complete JSON example is in
 `implement.briefing.md`; use `behavior-review` or the actual confirmed role here.
-Then execute the selected gate. A later round has only the primary slot, since
-a policy secondary joins round 1 only, so run it without `--cli`. The unsealed
+Then execute the selected gate. A round includes the policy secondary only
+inside the role's `secondary_rounds` window (rounds 1 to n, or `all`), counted
+from the review's first round. Run each slot readiness names; a round outside
+the window has only the primary slot, so run it without `--cli`. The unsealed
 assignment must have remaining allowance, all prior slots filled and no
 unresolved stop; off roles and sealed acceptances require their own remedies.
 Targets cover mandatory concerns from all preceding slots plus open originals.
