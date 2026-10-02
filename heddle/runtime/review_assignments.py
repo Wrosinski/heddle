@@ -56,7 +56,10 @@ from heddle.io.source import (
     resolve_source_definition,
 )
 from heddle.kernel import review_assignments as core
-from heddle.kernel.feature_policy import validate_host_review_selection
+from heddle.kernel.feature_policy import (
+    secondary_serves,
+    validate_host_review_selection,
+)
 from heddle.kernel.managed_regions import authored_plan_observation
 from heddle.kernel.model import FeatureSnapshot
 from heddle.kernel.project_config import KernelError, ProjectConfig, feature_state_path
@@ -84,14 +87,27 @@ from heddle.runtime.write_args import parse_write_args, usage_failure
 def _slot_refusal(
     state: StateFile, role: str, row: AssignmentRound, cli: str | None
 ) -> KernelError:
-    """Name the round's slots; a policy secondary joins round 1 only."""
-    secondary = core.selected_policy(state, role).secondary
-    if row.number > 1 and secondary is not None and secondary.cli == cli:
+    """Name the round's slots, and the secondary's window when it is outside."""
+    policy = next(
+        entry
+        for confirmed in state.policy_history
+        if confirmed.revision == row.policy_revision
+        for entry in confirmed.entries
+        if entry.role == role
+    )
+    secondary = policy.secondary
+    if (
+        secondary is not None
+        and secondary.cli == cli
+        and not secondary_serves(policy, row.number)
+    ):
         primary = next(s for s in row.slots if s.name == "primary")
+        window = policy.secondary_rounds
+        span = "round 1 only" if window == 1 else f"rounds 1 to {window}"
         message = (
             f"{role} round {row.number} has only the primary slot "
-            f"({primary.reviewer.cli}); the secondary reviewer ({cli}) joins "
-            "round 1 only"
+            f"({primary.reviewer.cli}); the secondary reviewer ({cli}) serves "
+            f"{span} (secondary_rounds: {window})"
         )
         hint = "omit --cli to run the primary slot of this round"
     else:

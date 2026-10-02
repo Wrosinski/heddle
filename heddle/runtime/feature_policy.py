@@ -28,6 +28,7 @@ from heddle.kernel.project_config import (
     feature_state_path,
     load_project_config_from_cwd,
 )
+from heddle.kernel.review_assignments import secondary_window_refusal
 from heddle.kernel.state import parse_state_document
 from heddle.runtime import intake
 from heddle.runtime.clock import utc_now_minutes
@@ -79,6 +80,20 @@ def _transform(
             code="workspace-invalid",
             message=f"policy revision must be {expected}, got {policy.revision}",
             hint="reread the current policy, then submit the next policy revision",
+        )
+    if "review_assignments" in document and (
+        refusal := secondary_window_refusal(
+            parse_state_document(
+                document, source=feature_state_path(config, operation.slug)
+            ),
+            policy,
+        )
+    ):
+        raise KernelError(
+            code="workspace-invalid",
+            message=f"feature policy amendment refused: {refusal}",
+            hint="raise the round limit or widen the window in the same revision, "
+            "or leave that role's secondary unchanged",
         )
     history = result.setdefault("policy_history", [previous] if previous else [])
     history.append(wire)

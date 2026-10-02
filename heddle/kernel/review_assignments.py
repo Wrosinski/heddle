@@ -11,6 +11,8 @@ from typing import TYPE_CHECKING, Any, cast
 from heddle.contracts.decisions import AcceptDegradedSmoke, ContinueReview
 from heddle.contracts.feature_policy import (
     ROLES,
+    SECONDARY_ROUNDS_ALL,
+    ConfirmedPolicy,
     GatePolicy,
     ReviewClosureFacts,
     ReviewDecision,
@@ -45,6 +47,7 @@ from heddle.contracts.review_assignments import (
     parse_review_attempt,
     review_attempt_document,
 )
+from heddle.kernel.feature_policy import secondary_serves
 from heddle.kernel.project_config import KernelError
 from heddle.kernel.review_closure import assess_review_closure
 from heddle.kernel.source_manifest import normalize_paths
@@ -941,9 +944,6 @@ def new_round(
     policy = selected_policy(state, assignment.role)
     number = len(assignment.rounds) + 1
     _check_round_allowance(policy, number)
-    slots = [ReviewerSlot("primary", policy.primary)]
-    if number == 1 and policy.secondary is not None:
-        slots.append(ReviewerSlot("secondary", policy.secondary))
     assert state.feature_policy is not None
     return AssignmentRound(
         number,
@@ -952,9 +952,75 @@ def new_round(
         reason,
         scope_identity(assignment, scope_change),
         before_open,
-        tuple(slots),
+        round_slots(policy, number),
         scope_change,
     )
+
+
+def round_slots(policy: GatePolicy, number: int) -> tuple[ReviewerSlot, ...]:
+    """The reviewers a round freezes: the primary, plus the in-window secondary."""
+    slots = [ReviewerSlot("primary", policy.primary)]
+    if secondary_serves(policy, number):
+        assert policy.secondary is not None
+        slots.append(ReviewerSlot("secondary", policy.secondary))
+    return tuple(slots)
+
+
+def _window_rank(policy: GatePolicy) -> float:
+    window = policy.secondary_rounds
+    return float("inf") if window == SECONDARY_ROUNDS_ALL else float(window)
+
+
+def _secondary_grows(before: GatePolicy, after: GatePolicy) -> bool:
+    """Added, replaced or widened; removal and narrowing never qualify."""
+    if after.secondary is None:
+        return False
+    return before.secondary != after.secondary or (
+        _window_rank(after) > _window_rank(before)
+    )
+
+
+def secondary_window_refusal(state: StateFile, incoming: ConfirmedPolicy) -> str | None:
+    """Name a changed secondary that could serve no round its role can open."""
+    from heddle.contracts.schemas import STAGES
+
+    if state.feature_policy is None:
+        return None
+    previous = {row.role: row for row in state.feature_policy.entries}
+    sealed = validate_boundary_acceptances(state)
+    for policy in incoming.entries:
+        if policy.mode == "off" or not _secondary_grows(previous[policy.role], policy):
+            continue
+        reviews = [
+            row
+            for row in state.review_assignments.assignments
+            if row.role == policy.role
+        ]
+        started = {row.scope for row in reviews}
+        # Round 1 of a review not yet started always includes the secondary.
+        unstarted = (
+            "feature" not in started
+            if policy.scope == "feature"
+            else any(m.id not in started for m in state.milestones)
+            or STAGES.index(state.stage) <= STAGES.index("implement")
+        )
+        if unstarted or any(
+            row.id not in sealed
+            and (policy.limit is None or len(row.rounds) < policy.limit)
+            and secondary_serves(policy, len(row.rounds) + 1)
+            for row in reviews
+        ):
+            continue
+        checked = "; ".join(
+            f"{row.scope} review at round {len(row.rounds)}"
+            + (" (sealed)" if row.id in sealed else "")
+            for row in reviews
+        )
+        return (
+            f"{policy.role} secondary_rounds {policy.secondary_rounds} serves no "
+            f"round the role can still open ({checked or 'no review can open'})"
+        )
+    return None
 
 
 def scope_identity(
@@ -1359,10 +1425,9 @@ def validate_assignments(state: StateFile) -> None:
                 if p.role == assignment.role
             )
             _check_round_allowance(authorized, row.number)
-            expected = [ReviewerSlot("primary", authorized.primary)]
-            if row.number == 1 and authorized.secondary is not None:
-                expected.append(ReviewerSlot("secondary", authorized.secondary))
-            if authorized.mode == "off" or row.slots != tuple(expected):
+            if authorized.mode == "off" or row.slots != round_slots(
+                authorized, row.number
+            ):
                 raise invalid("frozen reviewer slots differ from confirmed policy")
             prior = ReviewAssignment(
                 assignment.id,
