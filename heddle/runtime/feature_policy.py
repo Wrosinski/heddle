@@ -72,7 +72,8 @@ def _transform(
         )
     wire = intake.policy_document(policy)
     previous = result.get("feature_policy")
-    if wire == previous:
+    # Parsed, so either spelling of window 1 on either side is the same policy.
+    if previous is not None and parse_policy(previous) == policy:
         return result
     expected = previous["revision"] + 1 if previous else 1
     if policy.revision != expected:

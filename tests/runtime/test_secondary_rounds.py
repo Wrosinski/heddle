@@ -543,6 +543,28 @@ def test_ac2_old_shape_state_reads_reconfirms_and_raises_allowance_unchanged(
     assert slot_names(assignment_rounds(path)[2]) == PRIMARY
 
 
+def test_ac2_replay_matches_a_stored_explicit_window_one(tmp_path, monkeypatch):
+    """A decoder-valid stored explicit 1 is the same policy as its absence."""
+    _root, path = current_host(tmp_path, monkeypatch)
+    value = _state(path)
+    for row in value["feature_policy"]["entries"]:
+        row["secondary_rounds"] = 1
+    path.write_text(yaml.safe_dump(value, sort_keys=False))
+    stored = _state(path)["feature_policy"]
+    before = path.read_bytes()
+    for payload in (stored, wire_policy()):
+        replay = invoke(
+            "FeaturePolicy",
+            slug=V7_FEATURE,
+            payload=payload,
+            expect_revision=_state(path)["revision"],
+        )
+        assert replay.ok and not replay.data["wrote"], (
+            f"FAIL AC-2: an unchanged re-confirmation must write nothing: {replay}"
+        )
+        assert path.read_bytes() == before
+
+
 def test_ac6_survivor_intake_reconfirmation_before_admission_is_not_checked(
     tmp_path, monkeypatch
 ):
