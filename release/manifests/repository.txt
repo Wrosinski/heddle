@@ -493,6 +493,7 @@ tests/kernel/test_primary_test_bindings.py
 tests/kernel/test_project_config.py
 tests/kernel/test_review_closure.py
 tests/kernel/test_sealed_review_boundaries.py
+tests/kernel/test_secondary_rounds.py
 tests/kernel/test_staleness_note.py
 tests/kernel/test_tiering_policy.py
 tests/kernel/test_transcriptions.py
@@ -595,6 +596,8 @@ tests/runtime/test_schemas.py
 tests/runtime/test_sealed_review_boundaries.py
 tests/runtime/test_search.py
 tests/runtime/test_search_acceptance.py
+tests/runtime/test_secondary_reviewer_rounds_installed.py
+tests/runtime/test_secondary_rounds.py
 tests/runtime/test_show_prompt_command.py
 tests/runtime/test_source_attribution.py
 tests/runtime/test_source_evidence.py
@@ -630,6 +633,7 @@ tests/runtime/validation_helpers.py
 tests/runtime/verification_provenance_helpers.py
 tests/runtime/wheel_harness.py
 tests/runtime/write_path_helpers.py
+tests/secondary_rounds_helpers.py
 tests/structured_review_helpers.py
 tests/tiering_completion_helpers.py
 tests/tiering_helpers.py

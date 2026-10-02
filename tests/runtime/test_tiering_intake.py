@@ -929,7 +929,7 @@ def test_ac8_prepare_recommends_windows_and_a_suggestion_that_selects_nothing(ho
 
 
 def test_ac1_explicit_window_one_is_stored_as_absence(host):
-    """D3 stored form: a written window 1 is persisted without the field."""
+    """The stored form: a written window 1 is persisted without the field."""
     confirmed(host)
     revision = yaml.safe_load(intake(host).read_text())["revision"]
     explicit = wire_policy(
