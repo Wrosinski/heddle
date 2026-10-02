@@ -842,3 +842,80 @@ def test_ac7_formal_policy_faults_do_not_offer_intake_repair(host, fault, remedy
     assert remedy.lower() in (refused.error.hint + refused.error.message).lower()
     assert "feature prepare" not in refused.error.hint
     assert snapshot(host) == before
+
+
+# secondary-reviewer-rounds-v1 (AC-1, AC-8) at the public intake boundary.
+SCAFFOLD_SUGGESTION = {
+    "role": "review-test-scaffolding",
+    "secondary": {"cli": "codex", "model": "gpt-6-astra", "reasoning_effort": "xhigh"},
+    "secondary_rounds": "all",
+}
+
+
+def test_ac1_invalid_window_is_refused_naming_role_and_field_without_writes(host):
+    prepared(host)
+    revision = yaml.safe_load(intake(host).read_text())["revision"]
+    invalid = wire_policy(overrides={"spec-review": entry("spec-review")})
+    invalid["entries"][0]["secondary_rounds"] = 2
+    before = snapshot(host)
+    refused = invoke(
+        "FeaturePolicy", slug=FEATURE, payload=invalid, expect_revision=revision
+    )
+    assert not refused.ok and refused.error.code == "workspace-invalid"
+    for fact in ("spec-review", "secondary_rounds"):
+        assert fact in refused.error.message, (
+            f"FAIL AC-1: refusal omits {fact!r}: {refused.error.message}"
+        )
+    assert snapshot(host) == before
+
+
+def test_ac8_prepare_recommends_windows_and_a_suggestion_that_selects_nothing(host):
+    recommendation = prepared(host).data["recommendation"]
+    windows = {
+        row["role"]: row.get("secondary_rounds", 1) for row in recommendation["entries"]
+    }
+    assert (windows.pop("spec-review"), windows.pop("plan-review")) == ("all", "all"), (
+        "FAIL AC-8: spec and plan review must recommend window all"
+    )
+    assert set(windows.values()) == {1}
+    assert recommendation.get("suggestions") == [SCAFFOLD_SUGGESTION], (
+        "FAIL AC-8: the recommendation must suggest the scaffolding secondary"
+    )
+    revision = yaml.safe_load(intake(host).read_text())["revision"]
+    verbatim = wire_policy()
+    verbatim["entries"] = deepcopy(recommendation["entries"])
+    accepted = invoke(
+        "FeaturePolicy",
+        slug=FEATURE,
+        payload=verbatim,
+        expect_revision=revision,
+        dry_run=True,
+    )
+    assert accepted.ok, accepted.to_envelope()
+    scaffold = next(
+        row
+        for row in accepted.data["effective_policy"]["entries"]
+        if row["role"] == "review-test-scaffolding"
+    )
+    assert scaffold["secondary"] is None
+    adopted = deepcopy(verbatim)
+    row = next(
+        row for row in adopted["entries"] if row["role"] == "review-test-scaffolding"
+    )
+    row.update(
+        secondary=SCAFFOLD_SUGGESTION["secondary"],
+        secondary_rounds=SCAFFOLD_SUGGESTION["secondary_rounds"],
+    )
+    chosen = invoke(
+        "FeaturePolicy", slug=FEATURE, payload=adopted, expect_revision=revision
+    )
+    assert chosen.ok, chosen.to_envelope()
+    stored = next(
+        row
+        for row in yaml.safe_load(intake(host).read_text())["feature_policy"]["entries"]
+        if row["role"] == "review-test-scaffolding"
+    )
+    assert (stored["secondary"], stored["secondary_rounds"]) == (
+        SCAFFOLD_SUGGESTION["secondary"],
+        "all",
+    )

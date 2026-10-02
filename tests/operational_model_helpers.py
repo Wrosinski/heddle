@@ -180,7 +180,7 @@ def session(*, stage="implement", advanced=False):
 def document(**kw):
     from dataclasses import asdict
 
-    from tests.tiering_helpers import ROLES, entry, policy
+    from tests.tiering_helpers import ROLES, entry, policy, without_default_window
 
     kw.pop("tier", None)
     current_policy = policy(
@@ -207,10 +207,9 @@ def document(**kw):
         "verifications": [],
         "sessions": [],
         "milestones": [],
-        "feature_policy": {
-            "schema": "heddle.feature-policy/v1",
-            **asdict(current_policy),
-        },
+        "feature_policy": without_default_window(
+            {"schema": "heddle.feature-policy/v1", **asdict(current_policy)}
+        ),
         "review_assignments": {
             "schema": "heddle.review-assignments/v3",
             "assignments": [],

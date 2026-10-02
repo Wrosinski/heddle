@@ -121,8 +121,18 @@ def policy(*, overrides=None, assessment=None, revision=1):
     )
 
 
+def without_default_window(document):
+    """Store window 1 as absence, exactly as every pre-change policy was."""
+    for row in document["entries"]:
+        if row.get("secondary_rounds", 1) == 1:
+            row.pop("secondary_rounds", None)
+    return document
+
+
 def wire_policy(**kwargs):
-    return {"schema": "heddle.feature-policy/v1", **asdict(policy(**kwargs))}
+    return without_default_window(
+        {"schema": "heddle.feature-policy/v1", **asdict(policy(**kwargs))}
+    )
 
 
 def blank_host(tmp_path, monkeypatch):

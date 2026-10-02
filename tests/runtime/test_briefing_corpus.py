@@ -1018,3 +1018,24 @@ class TestCompletionPermissionContainment:
             f"FAIL AC-6: robustness.briefing.md must not own completion stage close "
             f"artifacts: {offenders}"
         )
+
+
+SECONDARY_WINDOW_GUIDANCE = (
+    RESOURCES / "peer-review.briefing.md",
+    REPO_ROOT / "docs/design/workflow-model.md",
+)
+
+
+@pytest.mark.parametrize("path", SECONDARY_WINDOW_GUIDANCE, ids=lambda path: path.name)
+def test_secondary_window_guidance_names_the_window(path) -> None:
+    """secondary-reviewer-rounds-v1 AC-10: no round-1-only guidance survives."""
+    text = " ".join(path.read_text(encoding="utf-8").split())
+    assert "secondary_rounds" in text, (
+        f"FAIL AC-10: {path.name} does not name the secondary window"
+    )
+    for retired in (
+        "joins round 1 only",
+        "joins the first round only",
+        "(first round only)",
+    ):
+        assert retired not in text, f"FAIL AC-10: {path.name} keeps {retired!r}"

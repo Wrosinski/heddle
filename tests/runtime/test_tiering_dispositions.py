@@ -751,7 +751,8 @@ def test_slot_refusal_names_the_round_and_its_slots(
     assert code != 0, refused
     assert refused["error"]["message"] == (
         "review assignment: spec-review round 2 has only the primary slot "
-        "(codex); the secondary reviewer (claude) joins round 1 only"
+        "(codex); the secondary reviewer (claude) serves round 1 only "
+        "(secondary_rounds: 1)"
         if dual
         else "review assignment: requested CLI claude is not a confirmed slot "
         "of spec-review round 1 (slots: primary codex)"

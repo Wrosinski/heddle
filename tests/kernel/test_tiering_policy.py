@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict, replace
+from dataclasses import asdict, fields, replace
 from pathlib import Path
 
 import pytest
@@ -110,8 +110,9 @@ def test_ac2_all_axis_boundaries_recommend_the_declared_base(
             "minimum_rounds": 1 if active else 0,
             "primary": reviewers[row.role],
             "secondary": secondaries.get(row.role),
+            "secondary_rounds": "all" if doc else 1,
         }
-        assert actual == expected, row.role
+        assert actual == expected, f"FAIL AC-8: {row.role} recommendation"
     effective = api("heddle.kernel.feature_policy").effective_policy(
         policy(
             assessment=axes(scope, complexity, testability),
@@ -120,6 +121,18 @@ def test_ac2_all_axis_boundaries_recommend_the_declared_base(
     )
     assert effective.budget.feature_minimum == (6 if base == "light" else 8)
     assert effective.budget.per_milestone_minimum == 1
+    # AC-7 literal oracle: spec and plan add `all` secondary calls.
+    maximum = (
+        None
+        if scope == "large" and complexity == "high"
+        else {
+            ("light", "low"): 12,
+            ("light", "high"): 16,
+            ("full", "low"): 15,
+            ("full", "high"): 19,
+        }[base, complexity]
+    )
+    assert effective.budget.feature_maximum == maximum, "FAIL AC-7: default budget"
 
 
 def test_ac2_large_high_default_roles_tuples_and_dual_first_schedule():
@@ -440,3 +453,202 @@ def test_v8_snapshot_uses_confirmed_policy_without_legacy_tier(
     assert snapshot.state.feature_policy is not None
     assert snapshot.state.feature_policy.revision == 1
     assert path.read_bytes() == before
+
+
+# secondary-reviewer-rounds-v1 (AC-1, AC-7, AC-8): the window on a role entry.
+ASTRA_SUGGESTION = {"cli": "codex", "model": "gpt-6-astra", "reasoning_effort": "xhigh"}
+
+
+def _windowed_wire(value, *, role="spec-review", secondary=FABLE, **kw):
+    """A literal wire policy whose one entry states an explicit window."""
+    chosen = entry(role, secondary=secondary, **kw)
+    document = {
+        "schema": "heddle.feature-policy/v1",
+        **asdict(policy(overrides={role: chosen})),
+    }
+    for row in document["entries"]:
+        row.pop("secondary_rounds", None)
+        if row["role"] == role:
+            row["secondary_rounds"] = value
+    return document
+
+
+def _window_of(confirmed, role="spec-review"):
+    row = next(row for row in confirmed.entries if row.role == role)
+    assert hasattr(row, "secondary_rounds"), (
+        "FAIL AC-1: policy entries have no secondary_rounds window"
+    )
+    return row.secondary_rounds
+
+
+@pytest.mark.parametrize(
+    "value,kw",
+    [
+        ("all", {}),
+        (1, {}),
+        (2, {}),
+        (1, {"secondary": None}),
+        (7, {"mode": "convergence", "limit": None}),
+        ("all", {"mode": "convergence", "limit": None}),
+        (5, {"mode": "off", "limit": None, "minimum_rounds": 0}),
+    ],
+)
+def test_ac1_window_values_inside_the_rule_decode(value, kw):
+    kernel = api("heddle.kernel.feature_policy")
+    try:
+        decoded = kernel.parse_policy(_windowed_wire(value, **kw))
+    except ValueError as error:
+        pytest.fail(f"FAIL AC-1: valid window {value!r} refused: {error}")
+    assert _window_of(decoded) == value
+
+
+def test_ac1_absent_window_decodes_as_one_and_keeps_the_wire_shape():
+    kernel = api("heddle.kernel.feature_policy")
+    document = _windowed_wire(1)
+    for row in document["entries"]:
+        row.pop("secondary_rounds")
+    decoded = kernel.parse_policy(document)
+    assert {_window_of(decoded, role) for role in ROLES} == {1}
+
+
+@pytest.mark.parametrize(
+    "value,kw",
+    [
+        (0, {}),
+        (-1, {}),
+        (True, {}),
+        (False, {}),
+        (1.5, {}),
+        ("2", {}),
+        (None, {}),
+        ("", {}),
+        ("ALL", {}),
+        ("every", {}),
+        (3, {}),
+        (2, {"secondary": None}),
+        ("all", {"secondary": None}),
+        (3, {"mode": "off", "limit": None, "minimum_rounds": 0, "secondary": None}),
+    ],
+    ids=lambda item: repr(item) if not isinstance(item, dict) else "-".join(item),
+)
+def test_ac1_window_values_outside_the_rule_are_refused_naming_role_and_field(
+    value, kw
+):
+    kernel = api("heddle.kernel.feature_policy")
+    with pytest.raises(ValueError) as refused:
+        kernel.parse_policy(_windowed_wire(value, **kw))
+    message = str(refused.value)
+    assert "spec-review" in message and "secondary_rounds" in message, (
+        f"FAIL AC-1: refusal of {value!r} must name the role and field: {message}"
+    )
+
+
+@pytest.mark.parametrize(
+    "window,expected",
+    [
+        (None, (True, False, False, False, False)),
+        (1, (True, False, False, False, False)),
+        (3, (True, True, True, False, False)),
+        ("all", (True, True, True, True, True)),
+    ],
+)
+def test_ac7_window_predicate_counts_rounds_from_the_first(window, expected):
+    kernel = api("heddle.kernel.feature_policy")
+    assert hasattr(kernel, "secondary_serves"), (
+        "FAIL AC-7: the policy resolver has no secondary window predicate"
+    )
+    row = entry("spec-review", limit=5, secondary=FABLE)
+    if window is not None:
+        row = replace(row, secondary_rounds=window)
+    assert tuple(kernel.secondary_serves(row, n) for n in range(1, 6)) == expected
+    primary_only = entry("spec-review", limit=5)
+    assert not any(kernel.secondary_serves(primary_only, n) for n in range(1, 6))
+
+
+# Literal Light fixture: spec, plan, scaffold and peer each add 1 to 2 calls.
+@pytest.mark.parametrize(
+    "spec,minimum,maximum",
+    [
+        ({"limit": 3, "minimum_rounds": 2}, 5, 9),
+        ({"limit": 3, "minimum_rounds": 2, "secondary": FABLE}, 6, 10),
+        ({"limit": 3, "minimum_rounds": 2, "secondary": FABLE, "window": 2}, 7, 11),
+        ({"limit": 3, "minimum_rounds": 2, "secondary": FABLE, "window": 3}, 7, 12),
+        ({"limit": 3, "minimum_rounds": 2, "secondary": FABLE, "window": "all"}, 7, 12),
+        ({"limit": 3, "minimum_rounds": 1, "secondary": FABLE, "window": "all"}, 5, 12),
+        (
+            {
+                "mode": "convergence",
+                "limit": None,
+                "minimum_rounds": 2,
+                "secondary": FABLE,
+                "window": "all",
+            },
+            7,
+            None,
+        ),
+        (
+            {
+                "mode": "off",
+                "limit": None,
+                "minimum_rounds": 0,
+                "secondary": FABLE,
+                "window": "all",
+            },
+            3,
+            6,
+        ),
+    ],
+)
+def test_ac7_budget_adds_the_rounds_the_secondary_serves(spec, minimum, maximum):
+    kernel = api("heddle.kernel.feature_policy")
+    spec = dict(spec)
+    window = spec.pop("window", None)
+    row = entry("spec-review", **spec)
+    if window is not None:
+        assert "secondary_rounds" in {f.name for f in fields(row)}, (
+            "FAIL AC-7: policy entries have no secondary_rounds window"
+        )
+        row = replace(row, secondary_rounds=window)
+    budget = kernel.effective_policy(policy(overrides={"spec-review": row})).budget
+    assert (budget.feature_minimum, budget.feature_maximum) == (minimum, maximum), (
+        f"FAIL AC-7: window {window!r} budget"
+    )
+
+
+def test_ac8_suggestions_name_the_scaffolding_secondary_without_selecting_it():
+    from heddle.contracts import operations as ops
+
+    kernel = api("heddle.kernel.feature_policy")
+    for assessment in (axes(), axes("large", "high", "none")):
+        result = kernel.recommend_policy(assessment)
+        payload = ops.decoded_payload(result)
+        assert "suggestions" in payload, (
+            "FAIL AC-8: the recommendation carries no suggestions"
+        )
+        assert payload["suggestions"] == [
+            {
+                "role": "review-test-scaffolding",
+                "secondary": ASTRA_SUGGESTION,
+                "secondary_rounds": "all",
+            }
+        ]
+        rows = {row.role: row for row in result.entries}
+        assert rows["review-test-scaffolding"].secondary is None
+        confirmed = kernel.effective_policy(
+            policy(assessment=assessment, overrides=rows)
+        )
+        scaffold = next(
+            row for row in confirmed.entries if row.role == "review-test-scaffolding"
+        )
+        assert scaffold.secondary is None
+        adopted = replace(
+            scaffold,
+            secondary=api().Reviewer(**ASTRA_SUGGESTION),
+            secondary_rounds="all",
+        )
+        kernel.effective_policy(
+            policy(
+                assessment=assessment,
+                overrides={**rows, "review-test-scaffolding": adopted},
+            )
+        )

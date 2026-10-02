@@ -570,3 +570,24 @@ def test_ac1_survivor_all_authoring_decoders_reject_unknown_fields(
         )
     )
     assert not rejected.ok and rejected.error.code == "disposition-batch-invalid"
+
+
+def test_ac10_policy_help_documents_the_secondary_window(run_cli) -> None:
+    """secondary-reviewer-rounds-v1 AC-10: the public policy contract."""
+    entry_fields = _command("feature policy")["input_schema"]["fields"]["entries"][
+        "items"
+    ]["fields"]
+    assert "secondary_rounds" in entry_fields, (
+        "FAIL AC-10: the policy entry contract omits secondary_rounds"
+    )
+    window = entry_fields["secondary_rounds"]
+    assert window["required"] is False
+    summary = " ".join(window["summary"].split())
+    for phrase in ("all", "default 1", "round limit", "first round", "older"):
+        assert phrase in summary, f"FAIL AC-10: window summary omits {phrase!r}"
+    assert "round 1 only" not in entry_fields["secondary"]["summary"]
+    code, output, error = run_cli(["feature", "policy", "--help"])
+    rendered = " ".join((output + error).split())
+    assert code == 0
+    for phrase in ("secondary_rounds", "suggestion"):
+        assert phrase in rendered, f"FAIL AC-10: policy help omits {phrase!r}"

@@ -478,3 +478,72 @@ def _install_forbidden_source_audit_hook(site_packages: Path) -> None:
         "import heddle_portability_audit\n",
         encoding="utf-8",
     )
+
+
+def write_review_shims(bin_dir: Path, responses: Path, log_path: Path) -> Path:
+    """Doubled claude and codex CLIs that return ``responses/<cli>.json``.
+
+    Each call logs argv, the controlled environment and stdin like
+    ``write_claude_shim``; the test writes the canonical review content each
+    CLI returns before running the gate.
+    """
+    for cli in ("claude", "codex"):
+        write_executable(
+            bin_dir / cli,
+            textwrap.dedent(
+                f"""\
+                #!/usr/bin/env python3
+                import json
+                import os
+                import sys
+                from pathlib import Path
+
+                CLI = {cli!r}
+                stdin = "" if sys.stdin.isatty() else sys.stdin.read()
+                environment = {{
+                    key: os.environ.get(key)
+                    for key in (
+                        "CLAUDECODE",
+                        "HEDDLE_AGENT_SESSION",
+                        "CLAUDE_CODE_EFFORT_LEVEL",
+                        "BASH_DEFAULT_TIMEOUT_MS",
+                        "BASH_MAX_TIMEOUT_MS",
+                    )
+                }}
+                with Path({str(log_path)!r}).open("a", encoding="utf-8") as stream:
+                    stream.write(
+                        json.dumps(
+                            {{
+                                "cli": CLI,
+                                "argv": sys.argv[1:],
+                                "environment": environment,
+                                "stdin": stdin,
+                            }}
+                        )
+                    )
+                    stream.write("\\n")
+                content = Path({str(responses)!r}, CLI + ".json").read_text()
+                if CLI == "claude":
+                    event = {{
+                        "type": "result",
+                        "subtype": "success",
+                        "is_error": False,
+                        "structured_output": json.loads(content),
+                    }}
+                    sys.stdout.write(json.dumps(event) + "\\n")
+                else:
+                    argv = sys.argv[1:]
+                    Path(argv[argv.index("-o") + 1]).write_text(content)
+                    events = (
+                        {{
+                            "type": "item.completed",
+                            "item": {{"type": "agent_message", "text": content}},
+                        }},
+                        {{"type": "turn.completed", "usage": {{}}}},
+                    )
+                    for item in events:
+                        sys.stdout.write(json.dumps(item) + "\\n")
+                """
+            ),
+        )
+    return bin_dir
