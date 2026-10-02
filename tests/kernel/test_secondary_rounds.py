@@ -6,7 +6,7 @@ from dataclasses import fields, replace
 
 import pytest
 
-from tests.tiering_helpers import FABLE, api, entry
+from tests.tiering_helpers import FABLE, SOL, api, entry
 
 
 def _round_slots():
@@ -68,3 +68,104 @@ def test_ac3_all_keeps_serving_after_an_allowance_raises_the_limit():
     row = _windowed("all", limit=2)
     raised = replace(row, limit=6)
     assert [len(round_slots(raised, number)) for number in range(1, 7)] == [2] * 6
+
+
+def _milestone_review_state(stage, rounds_by_milestone):
+    """A parsed state whose milestone reviews have opened the given rounds."""
+    from pathlib import Path
+
+    from heddle.contracts.review_assignments import (
+        AssignmentRound,
+        ReviewAssignment,
+        ReviewAssignments,
+        ReviewerSlot,
+    )
+    from heddle.kernel.state import parse_state_document
+    from tests.operational_model_helpers import document
+
+    state = parse_state_document(document(), source=Path("state.yaml"))
+    reviewing = entry("milestone-review", primary=SOL)
+    policy = replace(
+        state.feature_policy,
+        entries=tuple(
+            reviewing if row.role == "milestone-review" else row
+            for row in state.feature_policy.entries
+        ),
+    )
+    primary = (ReviewerSlot("primary", reviewing.primary),)
+    assignments = tuple(
+        ReviewAssignment(
+            f"milestone-review-{scope}",
+            "milestone-review",
+            scope,
+            1,
+            tuple(
+                AssignmentRound(
+                    number,
+                    1,
+                    "initial" if number == 1 else "verification",
+                    "Review the milestone.",
+                    scope,
+                    (),
+                    primary,
+                )
+                for number in range(1, count + 1)
+            ),
+        )
+        for scope, count in rounds_by_milestone.items()
+    )
+    return replace(
+        state,
+        stage=stage,
+        feature_policy=policy,
+        policy_history=(policy,),
+        review_assignments=ReviewAssignments(assignments=assignments),
+    )
+
+
+@pytest.mark.parametrize(
+    "stage,rounds,window,refused",
+    [
+        # Past implement with every milestone review started, the next round decides.
+        ("peer-review", {"m1": 1, "m2": 1}, 1, True),
+        ("peer-review", {"m1": 1, "m2": 1}, 2, False),
+        ("peer-review", {"m1": 1, "m2": 1}, "all", False),
+        ("peer-review", {"m1": 2, "m2": 2}, "all", True),
+        ("peer-review", {"m1": 2, "m2": 1}, 2, False),
+        # A milestone whose review has not started opens round 1 with the secondary.
+        ("peer-review", {"m1": 2}, 1, False),
+        # At or before implement a milestone can still be added.
+        ("implement", {"m1": 2, "m2": 2}, 1, False),
+    ],
+)
+def test_ac6_milestone_review_amendment_follows_the_rounds_milestones_can_open(
+    stage, rounds, window, refused
+):
+    kernel = api("heddle.kernel.review_assignments")
+    assert hasattr(kernel, "secondary_window_refusal"), (
+        "FAIL AC-6: the review-assignment kernel has no amendment window check"
+    )
+    state = _milestone_review_state(stage, rounds)
+    added = replace(
+        entry("milestone-review", primary=SOL, secondary=FABLE),
+        secondary_rounds=window,
+    )
+    incoming = replace(
+        state.feature_policy,
+        revision=2,
+        entries=tuple(
+            added if row.role == "milestone-review" else row
+            for row in state.feature_policy.entries
+        ),
+    )
+    message = kernel.secondary_window_refusal(state, incoming)
+    if not refused:
+        assert message is None, f"FAIL AC-6: an openable round was refused: {message}"
+        return
+    assert message is not None, "FAIL AC-6: a secondary that can serve no round passed"
+    for fact in (
+        "milestone-review",
+        f"secondary_rounds {window}",
+        "m1 review at round",
+    ):
+        assert fact in message, f"FAIL AC-6: refusal omits {fact!r}: {message}"
