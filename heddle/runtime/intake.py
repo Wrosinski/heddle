@@ -136,7 +136,12 @@ def intake_digest(document: dict[str, Any]) -> str:
 
 
 def policy_document(policy: ConfirmedPolicy) -> dict[str, Any]:
-    return {"schema": POLICY_SCHEMA, **ops.decoded_payload(policy)}
+    """The one persisted policy form; window 1 is stored as absence."""
+    document = {"schema": POLICY_SCHEMA, **ops.decoded_payload(policy)}
+    for entry in document["entries"]:
+        if entry["secondary_rounds"] == 1:
+            del entry["secondary_rounds"]
+    return document
 
 
 def policy_projection(policy: ConfirmedPolicy) -> dict[str, Any]:

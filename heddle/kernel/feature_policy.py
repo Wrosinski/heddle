@@ -18,6 +18,7 @@ from heddle.contracts.feature_policy import (
     REVIEWER_FIELDS,
     ROLES,
     SCOPES,
+    SECONDARY_ROUNDS_ALL,
     TESTABILITIES,
     TRIGGER_FIELDS,
     CallBudget,
@@ -27,6 +28,7 @@ from heddle.contracts.feature_policy import (
     GatePolicy,
     Recommendation,
     Reviewer,
+    SecondarySuggestion,
 )
 from heddle.contracts.gate_execution import VALID_GATE_CLIS, VALID_REASONING_EFFORTS
 
@@ -183,6 +185,7 @@ def validate_gate_policy(row: GatePolicy) -> None:
         _reviewer(row.secondary)
         if row.secondary.cli == row.primary.cli:
             raise ValueError("policy secondary needs an independent reviewer CLI")
+    _secondary_rounds(row)
     if row.trigger is not None:
         if set(row.trigger) != set(TRIGGER_FIELDS):
             raise ValueError("policy trigger needs gate, gap and references")
@@ -196,6 +199,38 @@ def validate_gate_policy(row: GatePolicy) -> None:
             _text(reference, "trigger reference")
     elif row.role == "robustness-analysis" and row.mode != "off":
         raise ValueError("enabled robustness-analysis needs its conditional trigger")
+
+
+def _secondary_rounds(row: GatePolicy) -> None:
+    window = row.secondary_rounds
+    if window != SECONDARY_ROUNDS_ALL and (type(window) is not int or window < 1):
+        raise ValueError(
+            f"policy gate {row.role} secondary_rounds must be a positive integer "
+            f"or {SECONDARY_ROUNDS_ALL!r}, got {window!r}"
+        )
+    if window != 1 and row.secondary is None:
+        raise ValueError(
+            f"policy gate {row.role} secondary_rounds {window} needs a secondary "
+            "reviewer"
+        )
+    if (
+        type(window) is int
+        and row.mode == "upper-limit"
+        and row.limit is not None
+        and window > row.limit
+    ):
+        raise ValueError(
+            f"policy gate {row.role} secondary_rounds {window} exceeds the round "
+            f"limit {row.limit}"
+        )
+
+
+def secondary_serves(policy: GatePolicy, number: int) -> bool:
+    """The one rule for whether this entry's secondary serves round ``number``."""
+    window = policy.secondary_rounds
+    return policy.secondary is not None and (
+        window == SECONDARY_ROUNDS_ALL or (isinstance(window, int) and number <= window)
+    )
 
 
 def _base(axes: FeatureAxes) -> str:
@@ -260,9 +295,13 @@ def recommend_policy(axes: FeatureAxes) -> Recommendation:
                 minimum_rounds=0 if mode == "off" else 1,
                 primary=reviewers[role],
                 secondary=secondary_reviewers.get(role),
+                secondary_rounds=SECONDARY_ROUNDS_ALL if role in DOCUMENT_ROLES else 1,
             )
         )
-    return Recommendation(base, tuple(entries))
+    suggestions = (
+        SecondarySuggestion("review-test-scaffolding", astra, SECONDARY_ROUNDS_ALL),
+    )
+    return Recommendation(base, tuple(entries), suggestions)
 
 
 def effective_policy(policy: ConfirmedPolicy) -> EffectivePolicy:
@@ -281,12 +320,11 @@ def effective_policy(policy: ConfirmedPolicy) -> EffectivePolicy:
         for row in policy.entries:
             if row.scope != scope or row.mode == "off":
                 continue
-            secondary = int(row.secondary is not None)
-            minimum += row.minimum_rounds + secondary
+            minimum += _calls(row, row.minimum_rounds)
             maximum = (
                 None
                 if maximum is None or row.limit is None
-                else maximum + row.limit + secondary
+                else maximum + _calls(row, row.limit)
             )
         totals[scope] = minimum, maximum
     return EffectivePolicy(
@@ -308,6 +346,11 @@ def effective_policy(policy: ConfirmedPolicy) -> EffectivePolicy:
         )
         else "peer-review",
     )
+
+
+def _calls(row: GatePolicy, rounds: int) -> int:
+    """Primary calls plus the secondary calls its window schedules."""
+    return rounds + sum(secondary_serves(row, n) for n in range(1, rounds + 1))
 
 
 def increase_review_allowance(

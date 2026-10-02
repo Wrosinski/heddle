@@ -712,10 +712,25 @@ FEATURE_POLICY_INPUT_SCHEMA: dict[str, Any] = {
                                 "required": False,
                                 "summary": (
                                     "optional independent reviewer selection; "
-                                    "joins round 1 only, later rounds run the "
-                                    "primary alone; retained but inactive when off"
+                                    "serves the rounds secondary_rounds names, "
+                                    "other rounds run the primary alone; "
+                                    "retained but inactive when off"
                                 ),
                                 "fields": _REVIEWER_FIELDS,
+                            },
+                            "secondary_rounds": {
+                                "type": "integer or string",
+                                "required": False,
+                                "summary": (
+                                    "rounds the secondary serves, counted from the "
+                                    "review's first round: a positive integer n "
+                                    "for rounds 1 to n (at most the round limit) "
+                                    "or all for every round, which follows later "
+                                    "allowance raises; default 1 when absent; "
+                                    "a value other than 1 needs a secondary; "
+                                    "older Heddle builds refuse a policy that "
+                                    "sets a value other than 1"
+                                ),
                             },
                             "trigger": {
                                 "type": "object or null",
@@ -760,6 +775,8 @@ FEATURE_POLICY_INPUT_SCHEMA: dict[str, Any] = {
         "the owner revision separately from the policy revision.",
         "Every live role appears exactly once; role, scope, mode, reviewer and "
         "trigger semantics remain validated by the policy owner.",
+        "A recommendation suggestion is not a selection: copy its secondary and "
+        "secondary_rounds into that role's entry to select it.",
     ],
 }
 

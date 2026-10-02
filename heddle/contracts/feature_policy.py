@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass, fields
-from typing import Any
+from typing import Any, Final, Literal
 
 from heddle.contracts.gates import GATE_CATALOG
 
@@ -21,7 +21,9 @@ SCOPES = frozenset({"small", "medium", "large"})
 COMPLEXITIES = frozenset({"low", "high"})
 TESTABILITIES = frozenset({"full", "partial", "none"})
 MODES = frozenset({"off", "upper-limit", "convergence"})
+SECONDARY_ROUNDS_ALL: Final = "all"
 type OriginalRef = tuple[str, str]
+type SecondaryRounds = int | Literal["all"]
 
 
 @dataclass(frozen=True)
@@ -50,6 +52,8 @@ class GatePolicy:
     minimum_rounds: int
     primary: Reviewer
     secondary: Reviewer | None = None
+    # Rounds 1..n, or every round, counted from the review's first round.
+    secondary_rounds: SecondaryRounds = 1
     trigger: Mapping[str, object] | None = None
 
 
@@ -68,15 +72,25 @@ def _model_fields(model: type[Any]) -> tuple[str, ...]:
 FEATURE_AXES_FIELDS = _model_fields(FeatureAxes)
 REVIEWER_FIELDS = _model_fields(Reviewer)
 GATE_POLICY_FIELDS = _model_fields(GatePolicy)
-GATE_POLICY_OPTIONAL_FIELDS = ("secondary", "trigger")
+GATE_POLICY_OPTIONAL_FIELDS = ("secondary", "secondary_rounds", "trigger")
 CONFIRMED_POLICY_FIELDS = _model_fields(ConfirmedPolicy)
 POLICY_INPUT_FIELDS = ("schema", *CONFIRMED_POLICY_FIELDS)
+
+
+@dataclass(frozen=True)
+class SecondarySuggestion:
+    """A reviewer the owner may copy into a role entry; it selects nothing."""
+
+    role: str
+    secondary: Reviewer
+    secondary_rounds: SecondaryRounds
 
 
 @dataclass(frozen=True)
 class Recommendation:
     base: str
     entries: tuple[GatePolicy, ...]
+    suggestions: tuple[SecondarySuggestion, ...] = ()
 
 
 @dataclass(frozen=True)
