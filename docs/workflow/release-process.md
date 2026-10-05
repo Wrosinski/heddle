@@ -14,13 +14,17 @@ which tests a release must run.
 Work lands on `dev` and is pushed there. `main` points at the latest release:
 it moves only when a release ships, by fast-forward to the release commit, so
 it never carries unreleased work. GitHub enforces linear history on `main`,
-which rules out merge commits there. The GitHub default branch stays `main`, so
-the landing page and an install without a tag show the latest release.
+which rules out merge commits there, and refuses to move `main` to a commit
+until the `quality` CI check has passed on it. Push the release commit to
+`dev` and let CI finish before shipping. Branch protection on `dev` refuses
+force-pushes and deletion. The GitHub default branch stays `main`, so the
+landing page and an install without a tag show the latest release.
 
 A patch release normally comes from `dev` like any other. When `dev` carries
 unreleased work that must not ship yet, branch `hotfix/x.y.z` from the last
-release tag, prepare the release commit there, and release it as below. Then
-merge `main` into `dev`, so that the next fast-forward of `main` still applies.
+release tag, prepare the release commit there, push the branch so CI runs on
+it, and release it as below. Then merge `main` into `dev`, so that the next
+fast-forward of `main` still applies.
 
 ## Versioning
 
