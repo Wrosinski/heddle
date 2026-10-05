@@ -23,7 +23,9 @@ Do not include credentials, private workflow records, generated environments, or
 provider transcripts. Do not run live providers, publish artifacts, or mutate a
 remote unless the repository owner explicitly authorizes that action.
 Follow the [local workflow records policy](docs/workflow/local-records.md).
-Releases follow the [release process](docs/workflow/release-process.md).
+Base changes on `dev` and propose them against `dev`; `main` points at the
+latest release. Releases follow the
+[release process](docs/workflow/release-process.md).
 
 Bug reports and proposals should state the current behavior, desired behavior,
 minimal reproduction, environment, and relevant evidence. Security reports use

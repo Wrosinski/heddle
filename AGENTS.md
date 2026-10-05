@@ -36,6 +36,11 @@ inspect nested launches before execution. Use `--test-band e2e --allow-e2e`
 or `--test-band live --allow-live --allow-e2e` only for an exactly authorized
 file or node selection.
 
+Branches: `dev` is the working branch. Base work on it, land finished work on
+it, and push to it by default. `main` points at the latest release and moves
+only when a release ships, by fast-forward, following
+[the release process](docs/workflow/release-process.md).
+
 Committing: use `scripts/git-commit-retry.sh <git-commit args>` — when pre-commit hooks reformat
 staged files it re-stages exactly those files and retries once; any other failure propagates
 unchanged.

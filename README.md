@@ -78,7 +78,7 @@ uv tool install --python 3.13 "heddle @ git+https://github.com/Wrosinski/heddle.
 heddle help
 ```
 
-Drop `@v0.2.0` to follow the default branch instead.
+Replace `@v0.2.0` with `@dev` to follow unreleased work instead.
 
 The PyPI package named `heddle` is an unrelated project; do not install it by
 bare name.

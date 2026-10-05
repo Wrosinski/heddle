@@ -9,6 +9,19 @@ metadata on GitHub, and what stays manual. The
 artifact contents are public; the [testing strategy](testing-strategy.md) owns
 which tests a release must run.
 
+## Branches
+
+Work lands on `dev` and is pushed there. `main` points at the latest release:
+it moves only when a release ships, by fast-forward to the release commit, so
+it never carries unreleased work. GitHub enforces linear history on `main`,
+which rules out merge commits there. The GitHub default branch stays `main`, so
+the landing page and an install without a tag show the latest release.
+
+A patch release normally comes from `dev` like any other. When `dev` carries
+unreleased work that must not ship yet, branch `hotfix/x.y.z` from the last
+release tag, prepare the release commit there, and release it as below. Then
+merge `main` into `dev`, so that the next fast-forward of `main` still applies.
+
 ## Versioning
 
 Versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html) and
@@ -22,9 +35,10 @@ latest.
 
 ## Prepare the release commit
 
-1. Set `version` in `pyproject.toml` and move the changelog entries into a
-   `## [x.y.z] - YYYY-MM-DD` section whose link at the bottom of the file
-   points at `https://github.com/Wrosinski/heddle/releases/tag/vx.y.z`.
+1. On `dev`, set `version` in `pyproject.toml` and move the changelog entries
+   into a `## [x.y.z] - YYYY-MM-DD` section whose link at the bottom of the
+   file points at `https://github.com/Wrosinski/heddle/releases/tag/vx.y.z`.
+   Point the `[Unreleased]` link at `compare/vx.y.z...dev`.
 2. Run pre-commit on the complete tree and the release proof the testing
    strategy requires.
 3. From a clean tree, run `scripts/qualify-public-repository.sh`. It archives
@@ -34,7 +48,8 @@ latest.
    installs the rebuilt wheel into a fresh environment, and runs `heddle init`
    and `heddle doctor` against a throwaway host. When a public surface changed
    on purpose, update the manifests in the same change and rerun.
-4. Commit as `chore: release vx.y.z`.
+4. Commit as `chore: release vx.y.z` and push `dev`. CI runs on the push;
+   wait for it to pass before shipping.
 
 ## Build the artifacts
 
@@ -54,11 +69,17 @@ green.
 
 ## Tag and draft
 
-Create an annotated tag on the release commit and push it with the branch:
+Fast-forward `main` to the release commit, then create an annotated tag on it
+and push both. `--ff-only` refuses when `main` has a commit the release lacks,
+such as an unmerged hotfix; merge `main` into `dev` and prepare the release
+again rather than forcing it:
 
 ```bash
+git switch main
+git merge --ff-only <release-commit>
 git tag -a vx.y.z -m "Heddle vx.y.z"
 git push origin main vx.y.z
+git switch dev
 ```
 
 Create the release as a draft so every asset is attached before anything is
@@ -72,7 +93,7 @@ gh release create vx.y.z --draft --verify-tag --title "Heddle vx.y.z" \
 ```
 
 Write the notes by hand. GitHub's generated notes are built from merged pull
-requests and this repository commits to `main` directly, so they would be
+requests and this repository commits to `dev` directly, so they would be
 empty. The shape used for 0.2.0 is the template. It has no general
 introduction and no install section; the README carries the install commands.
 
