@@ -817,6 +817,43 @@ def test_ac8_source_drift_keeps_outputs_without_review_credit(
     } == artifacts
 
 
+def test_ac1_ac3_a_repaired_changed_source_review_rejoins_later_launch_sets(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The changed-source exclusion lasts only until the slots are repaired."""
+    from heddle.gate import entry
+    from tests.concurrent_review_helpers import canonical_outcome, reach_round_two
+
+    host, state_path = same_gate_host(tmp_path, monkeypatch, window="all")
+    spec = host / f"docs/features/runtime/{V7_FEATURE}.md"
+
+    def drifting(gate_type, context, *, feature, **_kwargs):
+        outcome = canonical_outcome(gate_type, context, feature)
+        if context.prepared_run.reviewer_slot == PRIMARY:
+            spec.write_text(spec.read_text() + "\nmaterial drift\n")
+        return outcome
+
+    with monkeypatch.context() as patch:
+        patch.setattr(entry, "run_gate_for_runtime", drifting)
+        drifted = execute_batch()
+    assert not drifted.ok
+    assert batch_command() not in commands(status_actions()), (
+        "fixture precondition: the drifted review is pending repair"
+    )
+    reach_round_two(state_path, monkeypatch)
+    assert batch_command() in commands(status_actions()), (
+        "FAIL AC-1: a repaired review stays out of later launch sets"
+    )
+    with multiprocessing.Manager() as manager:
+        starts, _finishes, _seen = install_slot_engine(monkeypatch, manager)
+        result = execute_batch()
+        started = [
+            (row["gate"], row["reviewer_slot"], row["round_number"]) for row in starts
+        ]
+    assert result.ok, result.to_envelope()
+    assert sorted(started) == [(SPEC, PRIMARY, 2), (SPEC, SECONDARY, 2)]
+
+
 def _normalized(state_path: Path) -> dict:
     """State facts that must match across launch modes (AC-9)."""
     from heddle.contracts import operations as ops

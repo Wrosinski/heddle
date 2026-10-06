@@ -189,16 +189,25 @@ def resolve_invocation(
 def changed_source_attempt_is_pending(
     state: StateFile, assignment: ReviewAssignment
 ) -> bool:
-    """True while completed output bound to changed source awaits repair."""
+    """True while completed output bound to changed source awaits repair.
+
+    Only a current-round slot whose latest attempt is that rejection is
+    pending; a later attempt for the slot or a new round ends it.
+    """
+    current = core.launch_round(state, assignment).number
+    latest = {
+        attempt.reviewer_slot: attempt
+        for attempt in state.review_assignments.attempts
+        if attempt.assignment_id == assignment.id and attempt.round_number == current
+    }
     return any(
-        attempt.assignment_id == assignment.id
-        and isinstance(attempt.outcome, EngineFailure)
+        isinstance(attempt.outcome, EngineFailure)
         and attempt.outcome.reason
         in {
             FailureReason.REVIEWED_SOURCE_CHANGED.value,
             FailureReason.REVIEWED_SOURCE_UNAVAILABLE.value,
         }
-        for attempt in state.review_assignments.attempts
+        for attempt in latest.values()
     )
 
 
