@@ -121,6 +121,41 @@ class TestBoundaryAndProofPartial:
         assert "the missing AC bears on classification" in standards
 
 
+class TestReviewEvidenceKindsPartial:
+    # Spec and plan review state their own document-level evidence kinds; the
+    # prompts below review tests or code and are validated against this rule.
+    SPLICING_PROMPTS = (
+        "peer-review-sequential.md",
+        "review-test-scaffolding.md",
+        "robustness-analysis.md",
+    )
+
+    def test_evidence_reviewing_prompts_splice_the_rule(self) -> None:
+        missing = [
+            name
+            for name in self.SPLICING_PROMPTS
+            if "[partial-review-evidence-kinds]" not in _raw(PROMPTS / name)
+        ]
+        assert not missing, f"review-evidence-kinds splice missing from: {missing}"
+
+    def test_rule_lives_only_in_the_partial(self) -> None:
+        carriers = [
+            str(p.relative_to(PROMPTS))
+            for p in sorted(PROMPTS.rglob("*.md"))
+            if "Preserve Trace versus Speculation" in " ".join(_raw(p).split())
+        ]
+        assert carriers == ["_partials/review-evidence-kinds.md"], (
+            f"evidence-kind rule duplicated or lost: {carriers}"
+        )
+
+    def test_absent_evidence_cannot_establish_full_coverage(self) -> None:
+        expanded = " ".join(_expanded("peer-review-sequential.md").split())
+        assert (
+            "Unavailable, speculative or absent evidence cannot establish AC `pass`, "
+            "full test coverage"
+        ) in expanded
+
+
 class TestVerificationSweepGrafts:
     def test_implement_briefing_carries_build_time_sweeps(self) -> None:
         text = " ".join(_raw(RESOURCES / "implement.briefing.md").split())

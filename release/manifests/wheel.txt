@@ -108,6 +108,7 @@ heddle/resources/prompts/_partials/necessity-anchor.md
 heddle/resources/prompts/_partials/nothing-found-evidence.md
 heddle/resources/prompts/_partials/principles-check.md
 heddle/resources/prompts/_partials/review-evidence-depth.md
+heddle/resources/prompts/_partials/review-evidence-kinds.md
 heddle/resources/prompts/_partials/settled-ground.md
 heddle/resources/prompts/_partials/severity-threat-actor-anchor.md
 heddle/resources/prompts/_partials/test-execution-scope.md
