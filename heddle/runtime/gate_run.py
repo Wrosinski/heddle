@@ -15,7 +15,6 @@ from pathlib import Path
 from typing import Any, cast
 
 from heddle.contracts import operations as ops
-from heddle.contracts.gates import INDEPENDENT_GATE_GROUPS
 from heddle.contracts.operations import RunGate, RunGates
 from heddle.contracts.result import (
     Diagnostic,
@@ -31,7 +30,11 @@ from heddle.contracts.review_assignments import (
     RetainedReview,
     ReviewAssignment,
 )
-from heddle.contracts.schemas import WORKSPACE_STATE, normalize_decision_route
+from heddle.contracts.schemas import (
+    REVIEW_LAUNCH_MODES,
+    WORKSPACE_STATE,
+    normalize_decision_route,
+)
 from heddle.gate import entry
 from heddle.gate.preparation import gate_scope, prepared_validation_error
 from heddle.gate.registry import GATES, VERDICT_PRODUCING_GATES
@@ -62,10 +65,11 @@ from heddle.runtime.feature_context import (
 from heddle.runtime.locking import prepare_state_recording_lock
 from heddle.runtime.output import emit_envelope
 from heddle.runtime.readiness import (
-    assess_current_readiness,
+    current_launch_set,
     readiness_failure,
     select_review_milestone,
 )
+from heddle.runtime.review_launch import LaunchMember
 
 # the handler-owned code→exit mapping for the run-gate read surface
 # (resolution failures); mirrors status/orient's read-surface mapping.
@@ -102,7 +106,6 @@ _USAGE = (
     "[--model <id>] [--reasoning-effort low|medium|high|xhigh] [--json]"
 )
 _BATCH_USAGE = "usage: heddle run-gates [--feature <slug>] [--json]"
-_DISTINCT_GATE_GROUP = INDEPENDENT_GATE_GROUPS[0]
 
 
 def requires_codex_lane(required_gates: tuple[str, ...]) -> bool:
@@ -346,10 +349,35 @@ class _BatchMember:
     publication: str = "pending"
     execution: str = "pending"
     error: HeddleError | None = None
+    error_exit: ExitCode = ExitCode.FATAL
+    launch: LaunchMember | None = None
+
+    @property
+    def key(self) -> tuple[str, str, str]:
+        assert self.launch is not None
+        return self.launch.key
+
+    @property
+    def label(self) -> str:
+        assert self.launch is not None
+        return self.launch.label
+
+
+@dataclass
+class _Publication:
+    """Publication-order recording progress shared by the batch loop."""
+
+    expected_revision: int
+    cursor: int = 0
+    stopped: bool = False
+
+
+# Success carries the most severe member exit, as a standalone run would.
+_EXIT_SEVERITY = (ExitCode.OK, ExitCode.ADVISORY, ExitCode.FATAL)
 
 
 def execute_gates(parsed: RunGates) -> HeddleResult:
-    """Run the one declared independent review group with parent-owned writes."""
+    """Run the current launch set: review slots that read no member's findings."""
     resolved = resolve_snapshot_from_cwd(parsed.feature, writable=True)
     if isinstance(resolved, ResolveFeatureFailure):
         return kernel_error_result(
@@ -359,43 +387,22 @@ def execute_gates(parsed: RunGates) -> HeddleResult:
             include_feature_switch_action=False,
         )
     try:
-        eligible, current_actions = _batch_readiness(resolved)
-    except KernelError as error:
-        return kernel_error_result(
-            error,
-            exit_codes=_RESOLUTION_EXITS,
-            diagnostics=resolved.diagnostics,
-            include_feature_switch_action=False,
-        )
-    try:
+        launch, current_actions = current_launch_set(resolved.config, resolved.snapshot)
+        if len(launch) < 2:
+            return _batch_ineligible(resolved, current_actions)
         prepare_state_recording_lock(
             resolved.config.root / resolved.snapshot.workspace / WORKSPACE_STATE
         )
-        lock_inputs = []
-        for gate in _DISTINCT_GATE_GROUP:
-            gate_type = GATES[gate]
-            operation = RunGate(gate, feature=resolved.feature)
-            invocation = _resolve_invocation(
-                resolved.snapshot, resolved.config, gate_type, operation
-            )
-            context = entry.build_gate_lock_context(
-                resolved.snapshot, resolved.config, gate_type, milestone_id=None
-            )
-            lock_inputs.append((context, invocation))
+        lock_inputs = _batch_lock_inputs(resolved, launch)
     except (KernelError, OSError, UnicodeDecodeError, MemoryError) as error:
-        if (
-            not eligible
-            and isinstance(error, KernelError)
-            and error.message.startswith("review assignment:")
-        ):
-            return _batch_ineligible(resolved, current_actions)
         return _batch_input_failure(resolved, "batch lock inputs", error)
 
-    members: list[_BatchMember]
     try:
         with ExitStack() as stack:
-            for context, invocation in lock_inputs:
-                stack.enter_context(entry.gate_lock_for_runtime(context, invocation))
+            held = {
+                gate: stack.enter_context(entry.gate_lock_for_runtime(*lock_input))
+                for gate, lock_input in lock_inputs.items()
+            }
             refreshed = resolve_snapshot_from_cwd(resolved.feature, writable=True)
             if isinstance(refreshed, ResolveFeatureFailure):
                 return kernel_error_result(
@@ -405,36 +412,69 @@ def execute_gates(parsed: RunGates) -> HeddleResult:
                     include_feature_switch_action=False,
                 )
             resolved = refreshed
-            eligible, current_actions = _batch_readiness(resolved)
-            prepared = _prepare_batch_members(resolved)
+            current, current_actions = current_launch_set(
+                resolved.config, resolved.snapshot
+            )
+            # Another lead may have recorded a slot, or the milestone moved,
+            # while this command waited; either way the set it derived first
+            # is no longer the one readiness offers.
+            if [member.key for member in current] != [
+                member.key for member in launch
+            ] or {
+                gate: entry.gate_lock_path_for_runtime(*lock_input)
+                for gate, lock_input in _batch_lock_inputs(resolved, current).items()
+            } != held:
+                return _batch_changed(resolved, current_actions)
+            prepared = _prepare_batch_members(resolved, current)
             if isinstance(prepared, HeddleResult):
-                if (
-                    not eligible
-                    and prepared.error is not None
-                    and prepared.error.message.startswith("review assignment:")
-                ):
-                    return _batch_ineligible(resolved, current_actions)
                 return prepared
-            members = prepared
-            # Current readiness controls provider admission, while exact and
-            # orphan recovery remain valid after readiness has advanced beyond
-            # the batch action.  This check is deliberately under both member
-            # locks and after preparation has classified every member.
-            if not eligible and any(member.reuse == "none" for member in members):
-                return _batch_ineligible(resolved, current_actions)
-            interrupted = _execute_batch_workers(resolved, members)
+            publication = _Publication(resolved.snapshot.state.revision)
+            interrupted = _execute_batch_workers(resolved, prepared, publication)
             if interrupted is not None:
                 return interrupted
+            return _batch_result(resolved, prepared)
     except (KernelError, OSError, UnicodeDecodeError, MemoryError) as error:
         return _batch_input_failure(resolved, "batch admission", error)
 
-    return _publish_batch(resolved, members)
+
+def _batch_lock_inputs(
+    resolved: ResolvedSnapshotContext, launch: tuple[LaunchMember, ...]
+) -> dict[str, tuple[Any, ResolvedGateInvocation]]:
+    """One lock input per distinct member gate, in the members' catalog order."""
+    inputs: dict[str, tuple[Any, ResolvedGateInvocation]] = {}
+    for member in launch:
+        if member.role in inputs:
+            continue
+        gate_type = GATES[member.role]
+        invocation = _resolve_invocation(
+            resolved.snapshot,
+            resolved.config,
+            gate_type,
+            _slot_operation(resolved.feature, member),
+        )
+        context = entry.build_gate_lock_context(
+            resolved.snapshot,
+            resolved.config,
+            gate_type,
+            milestone_id=member.scope if gate_type.requires_milestone else None,
+        )
+        inputs[member.role] = (context, invocation)
+    return inputs
+
+
+def _slot_operation(feature: str, member: LaunchMember) -> RunGate:
+    """The member's own standalone command, carrying its frozen reviewer."""
+    return RunGate(member.role, feature=feature, **asdict(member.reviewer))
 
 
 def _prepare_batch_members(
-    resolved: ResolvedSnapshotContext,
+    resolved: ResolvedSnapshotContext, launch: tuple[LaunchMember, ...]
 ) -> list[_BatchMember] | HeddleResult:
-    """Prepare both immutable inputs and admit every new call before launch."""
+    """Prepare every member's immutable input before any provider call.
+
+    A member whose preparation refuses refuses the batch with the refusal its
+    standalone ``run-gate`` would return, naming that member.
+    """
     snapshot, config = resolved.snapshot, resolved.config
     try:
         from heddle.runtime.review_assignments import (
@@ -452,27 +492,67 @@ def _prepare_batch_members(
             )
         )
         verification_statuses(config.root, snapshot.state)
-        members = []
-        for gate in _DISTINCT_GATE_GROUP:
-            gate_type = GATES[gate]
-            parsed = RunGate(gate, feature=resolved.feature)
-            invocation = _resolve_invocation(snapshot, config, gate_type, parsed)
-            members.append(
-                _prepare_member(
-                    resolved,
-                    parsed,
-                    gate_type,
-                    invocation,
-                    retained,
-                    block_rejected_source_retry=True,
-                )
-            )
     except (KernelError, OSError, UnicodeDecodeError, ValueError, MemoryError) as error:
         return _batch_input_failure(resolved, "batch inputs", error)
-    failure = next((item for item in members if isinstance(item, HeddleResult)), None)
-    if failure is not None:
-        return failure
-    return cast(list[_BatchMember], members)
+    members = []
+    for launch_member in launch:
+        parsed = _slot_operation(resolved.feature, launch_member)
+        gate_type = GATES[launch_member.role]
+        try:
+            invocation = _resolve_invocation(snapshot, config, gate_type, parsed)
+            member = _prepare_member(resolved, parsed, gate_type, invocation, retained)
+        except (
+            KernelError,
+            OSError,
+            UnicodeDecodeError,
+            ValueError,
+            MemoryError,
+        ) as error:
+            member = _preparation_failure(resolved, error)
+        if isinstance(member, HeddleResult):
+            return _naming_member(member, launch_member)
+        member.launch = launch_member
+        members.append(member)
+    return members
+
+
+def _preparation_failure(
+    resolved: ResolvedSnapshotContext, error: BaseException
+) -> HeddleResult:
+    """The typed refusal a standalone run-gate returns for unpreparable inputs."""
+    typed_error = (
+        error
+        if isinstance(error, KernelError)
+        else KernelError(
+            code="workspace-invalid",
+            message=f"gate inputs could not be prepared: {error}",
+            hint="restore every declared readable gate input, then rerun the gate",
+        )
+    )
+    return kernel_error_result(
+        typed_error,
+        exit_codes=_RESOLUTION_EXITS,
+        diagnostics=resolved.diagnostics,
+        include_feature_switch_action=False,
+    )
+
+
+def _naming_member(result: HeddleResult, member: LaunchMember) -> HeddleResult:
+    assert result.error is not None
+    error = result.error
+    return replace(
+        result,
+        error=HeddleError(
+            error.code,
+            error.message,
+            error.hint,
+            {**error.details, "selected_member": _member_identity(member)},
+        ),
+    )
+
+
+def _member_identity(member: LaunchMember) -> dict[str, str]:
+    return {"gate": member.role, "scope": member.scope, "reviewer_slot": member.slot}
 
 
 def _prepare_member(
@@ -483,7 +563,6 @@ def _prepare_member(
     retained: Mapping[str, entry.ReviewResult],
     *,
     held_lock_path: Path | None = None,
-    block_rejected_source_retry: bool = False,
 ) -> _BatchMember | HeddleResult:
     snapshot, config = resolved.snapshot, resolved.config
     captures: dict[str, ObservedPath] = {}
@@ -539,18 +618,6 @@ def _prepare_member(
         if fact.gate == parsed.gate and fact.scope == scope
         for run in fact.runs
     )
-    if block_rejected_source_retry and _changed_source_attempt_is_pending(
-        snapshot.state, policy.assignment
-    ):
-        return _batch_input_failure(
-            resolved,
-            "batch recovery",
-            KernelError(
-                code="workspace-invalid",
-                message=f"{parsed.gate} has completed output bound to changed source",
-                hint="preserve the completed artifact and repair its current binding",
-            ),
-        )
     recovered = _unrecorded_completion(resolved, parsed, prepared)
     if recovered is not None:
         attempt = _review_attempt(
@@ -624,21 +691,6 @@ def _prepare_member(
         attempt,
         "none",
         preparation_diagnostics,
-    )
-
-
-def _changed_source_attempt_is_pending(
-    state: StateFile, assignment: ReviewAssignment
-) -> bool:
-    return any(
-        attempt.assignment_id == assignment.id
-        and isinstance(attempt.outcome, EngineFailure)
-        and attempt.outcome.reason
-        in {
-            FailureReason.REVIEWED_SOURCE_CHANGED.value,
-            FailureReason.REVIEWED_SOURCE_UNAVAILABLE.value,
-        }
-        for attempt in state.review_assignments.attempts
     )
 
 
@@ -729,7 +781,9 @@ def _unrecorded_completion(
     return None
 
 
-def _batch_worker(output: Any, member: _BatchMember, feature: str) -> None:
+def _batch_worker(
+    output: Any, member: _BatchMember, key: tuple[str, str, str], feature: str
+) -> None:
     """Execute one immutable member in an isolated process and return its outcome."""
     try:
         if hasattr(os, "setsid"):
@@ -742,139 +796,170 @@ def _batch_worker(output: Any, member: _BatchMember, feature: str) -> None:
             iteration=member.attempt,
             max_iterations=member.policy.max_attempts,
         )
-        output.put(("outcome", member.parsed.gate, outcome))
+        output.put(("outcome", key, outcome))
     except BaseException as error:  # noqa: BLE001 - cross-process error carrier
-        output.put(
-            (
-                "error",
-                member.parsed.gate,
-                f"{type(error).__name__}: {error}",
-            )
-        )
+        output.put(("error", key, f"{type(error).__name__}: {error}"))
     finally:
         output.close()
         output.join_thread()
 
 
 def _execute_batch_workers(
-    resolved: ResolvedSnapshotContext, members: list[_BatchMember]
+    resolved: ResolvedSnapshotContext,
+    members: list[_BatchMember],
+    publication: _Publication,
 ) -> HeddleResult | None:
+    """Call every member that needs a provider and record results in order.
+
+    Recovered output is recorded in its turn without a call, so a set with
+    nothing to call still records inside the locks.
+    """
+    _publish_ready(resolved, members, publication)
     pending = [member for member in members if member.reuse == "none"]
     if not pending:
+        _stop_publication(members, publication)
         return None
+    by_key = {member.key: member for member in pending}
     context = multiprocessing.get_context("fork")
     output = context.Queue()
-    processes = [
-        context.Process(
-            target=_batch_worker,
-            args=(output, member, resolved.feature),
-            name=f"heddle-{member.parsed.gate}",
-        )
-        for member in pending
-    ]
-    received: dict[str, GateOutcome] = {}
-    worker_errors: dict[str, str] = {}
-    expected_revision = resolved.snapshot.state.revision
-    next_publication = 0
-    publication_failure: tuple[_BatchMember, HeddleError] | None = None
+    processes: dict[tuple[str, str, str], Any] = {}
     try:
         for member in pending:
             _present_preparation_diagnostics(member.preparation_diagnostics)
-        for process in processes:
-            process.start()
-        while len(received) + len(worker_errors) < len(processes):
-            try:
-                kind, gate, value = output.get(timeout=0.2)
-            except queue.Empty:
-                if all(not process.is_alive() for process in processes):
-                    break
-                continue
-            if kind == "outcome":
-                received[gate] = value
-                member = next(row for row in members if row.parsed.gate == gate)
-                _accept_batch_outcome(resolved, member, value)
-                while next_publication < len(members):
-                    candidate = members[next_publication]
-                    if candidate.completion is None:
-                        break
-                    if candidate.reuse == "exact":
-                        next_publication += 1
-                        continue
-                    if publication_failure is None:
-                        recorded = _record_batch_member(
-                            resolved, candidate, expected_revision
-                        )
-                        if isinstance(recorded, HeddleError):
-                            publication_failure = (candidate, recorded)
-                        else:
-                            expected_revision = recorded
-                    else:
-                        candidate.publication = "recoverable"
-                    next_publication += 1
-            else:
-                worker_errors[gate] = value
-        for process in processes:
-            process.join(timeout=5)
         for member in pending:
-            outcome = received.get(member.parsed.gate)
-            if outcome is None:
-                worker_errors.setdefault(
-                    member.parsed.gate, "worker exited without a completion"
-                )
+            process = context.Process(
+                target=_batch_worker,
+                args=(output, member, member.key, resolved.feature),
+                name=f"heddle-{member.parsed.gate}-{member.prepared.reviewer_slot}",
+            )
+            try:
+                process.start()
+            except Exception as error:  # noqa: BLE001 - this member alone fails
+                _member_failed(member, f"its worker could not start: {error}")
                 continue
-        if worker_errors:
-            selected = next(
-                member for member in members if member.parsed.gate in worker_errors
-            )
-            selected.error = HeddleError(
-                "internal",
-                f"the {selected.parsed.gate} batch worker failed",
-                worker_errors[selected.parsed.gate],
-            )
-            selected.execution = "failed"
-            return _batch_failure(
-                members,
-                selected,
-                selected.error,
-                ExitCode.INTERNAL,
-            )
-        if publication_failure is not None:
-            selected, publication_error = publication_failure
-            return _batch_failure(members, selected, publication_error, ExitCode.FATAL)
+            processes[member.key] = process
+        waiting = set(processes)
+        drained = False
+        while waiting:
+            try:
+                kind, key, value = output.get(timeout=0.2)
+            except queue.Empty:
+                if any(processes[key].is_alive() for key in waiting):
+                    continue
+                # A worker that exited may still have a result in the pipe.
+                if drained:
+                    break
+                drained = True
+                continue
+            waiting.discard(key)
+            member = by_key[key]
+            if kind != "outcome":
+                _member_failed(member, value)
+                continue
+            member.completion = value
+            member.execution = _execution_name(value)
+            _publish_ready(resolved, members, publication)
+        for key in waiting:
+            _member_failed(by_key[key], "its worker exited without a result")
+        _stop_publication(members, publication)
     except KeyboardInterrupt:
-        _terminate_batch_processes(processes)
-        for member in members:
-            if member.reuse != "none":
-                continue
+        _terminate_batch_processes(list(processes.values()))
+        return _interrupted_batch(resolved, members)
+    finally:
+        _terminate_batch_processes(list(processes.values()))
+        output.close()
+        output.join_thread()
+    return None
+
+
+def _member_failed(member: _BatchMember, detail: str) -> None:
+    member.execution = "failed"
+    member.error = HeddleError(
+        "internal",
+        f"{member.label} did not return a result: {detail}",
+        f"rerun {member.label} with its own run-gate",
+    )
+    member.error_exit = ExitCode.INTERNAL
+
+
+def _publish_ready(
+    resolved: ResolvedSnapshotContext,
+    members: list[_BatchMember],
+    publication: _Publication,
+) -> None:
+    """Record each next member in publication order as soon as it has a result."""
+    while not publication.stopped and publication.cursor < len(members):
+        member = members[publication.cursor]
+        if member.reuse == "exact":
+            publication.cursor += 1
+            continue
+        if member.completion is None:
+            return
+        _accept_batch_outcome(resolved, member, cast(GateOutcome, member.completion))
+        recorded = _record_batch_member(resolved, member, publication.expected_revision)
+        if isinstance(recorded, HeddleError):
+            publication.stopped = True
+            return
+        publication.expected_revision = recorded
+        publication.cursor += 1
+
+
+def _stop_publication(members: list[_BatchMember], publication: _Publication) -> None:
+    """Report what recording left behind once it stopped at a member."""
+    for member in members[publication.cursor :]:
+        if member.publication != "pending":
+            continue
+        outcome = member.completion
+        if outcome is None:
+            member.publication = "not-produced"
+        elif not isinstance(outcome, ReuseResult) and (
+            outcome.gate_exit == 0 or outcome.retained_review is not None
+        ):
+            member.publication = "recoverable"
+        else:
+            member.publication = "not-recorded"
+
+
+def _interrupted_batch(
+    resolved: ResolvedSnapshotContext, members: list[_BatchMember]
+) -> HeddleResult:
+    """Keep finished output recoverable after the workers are stopped."""
+    for member in members:
+        if member.publication != "pending":
+            continue
+        recovered: GateOutcome | None = (
+            cast(GateOutcome, member.completion)
+            if member.reuse == "recovered"
+            else None
+        )
+        if member.reuse == "none":
             try:
                 recovered = _unrecorded_completion(
                     resolved, member.parsed, member.prepared
                 )
             except (OSError, ValueError, KernelError):
                 recovered = None
-            if recovered is not None:
-                member.completion = recovered
-                member.execution = _execution_name(recovered)
-                member.publication = "recoverable"
-            else:
-                member.execution = "interrupted"
-                member.publication = "not-produced"
-        selected = next(
-            (member for member in members if member.execution == "interrupted"),
+        if recovered is not None:
+            member.completion = recovered
+            member.execution = _execution_name(recovered)
+            member.publication = "recoverable"
+        else:
+            member.execution = "interrupted"
+            member.publication = "not-produced"
+    selected = next(
+        (member for member in members if member.execution == "interrupted"),
+        next(
+            (member for member in members if member.publication == "recoverable"),
             members[0],
-        )
-        error = HeddleError(
-            "internal",
-            "the gate batch was interrupted",
-            "restart run-gates to recover completed output and retry unfinished work",
-        )
-        selected.error = error
-        return _batch_failure(members, selected, error, ExitCode.INTERNAL)
-    finally:
-        _terminate_batch_processes(processes)
-        output.close()
-        output.join_thread()
-    return None
+        ),
+    )
+    selected.error = HeddleError(
+        "internal",
+        "run-gates was interrupted",
+        "restart run-gates to recover completed output and retry unfinished work",
+    )
+    selected.error_exit = ExitCode.INTERNAL
+    return _batch_result(resolved, members)
 
 
 def _accept_batch_outcome(
@@ -922,27 +1007,10 @@ def _terminate_batch_processes(processes: list[Any]) -> None:
             process.join(timeout=5)
 
 
-def _publish_batch(
+def _batch_result(
     resolved: ResolvedSnapshotContext, members: list[_BatchMember]
 ) -> HeddleResult:
-    expected_revision = resolved.snapshot.state.revision
-    publication_failure: tuple[_BatchMember, HeddleError] | None = None
-    for index, member in enumerate(members):
-        if member.reuse == "exact" or member.publication != "pending":
-            continue
-        recorded = _record_batch_member(resolved, member, expected_revision)
-        if isinstance(recorded, HeddleError):
-            for remaining in members[index + 1 :]:
-                if remaining.reuse != "exact":
-                    remaining.publication = "recoverable"
-            publication_failure = (member, recorded)
-            break
-        expected_revision = recorded
-
-    if publication_failure is not None:
-        selected, publication_error = publication_failure
-        return _batch_failure(members, selected, publication_error, ExitCode.FATAL)
-
+    """Succeed when every member completed and was recorded, whatever its verdict."""
     refreshed = resolve_snapshot_from_cwd(resolved.feature, writable=True)
     if isinstance(refreshed, ResolveFeatureFailure):
         return kernel_error_result(
@@ -952,47 +1020,44 @@ def _publish_batch(
             include_feature_switch_action=False,
         )
     member_actions = {
-        member.parsed.gate: _batch_member_actions(refreshed, member)
-        for member in members
+        member.key: _batch_member_actions(refreshed, member) for member in members
     }
     failing = [
         member
         for member in members
-        if member.execution in {"failed", "interrupted"}
-        or (member.decision is not None and member.decision.exit_code == ExitCode.FATAL)
+        if member.error is not None or member.execution in {"failed", "interrupted"}
     ]
     if failing:
         selected = failing[0]
-        aggregate_error = selected.error or HeddleError(
+        error = selected.error or HeddleError(
             "gate-not-converged",
-            f"the {selected.parsed.gate} batch member requires repair",
-            "follow every member remedy, then restart run-gates",
+            f"{selected.label} did not complete its review",
+            "follow every member remedy, then reassess",
         )
         return _batch_failure(
             members,
             selected,
-            aggregate_error,
-            ExitCode.FATAL,
+            error,
+            selected.error_exit,
             actions=member_actions,
         )
-    summaries = [
-        _batch_member_summary(member, member_actions[member.parsed.gate])
-        for member in members
-    ]
-    exit_code = (
-        ExitCode.ADVISORY
-        if any(
-            member.decision is not None
-            and member.decision.exit_code == ExitCode.ADVISORY
+    exit_code = max(
+        (
+            member.decision.exit_code
             for member in members
-        )
-        else ExitCode.OK
+            if member.decision is not None
+        ),
+        key=_EXIT_SEVERITY.index,
+        default=ExitCode.OK,
     )
     return HeddleResult.success(
         {
             "feature": resolved.feature,
-            "gates": list(_DISTINCT_GATE_GROUP),
-            "members": summaries,
+            "gates": list(dict.fromkeys(member.parsed.gate for member in members)),
+            "members": [
+                _batch_member_summary(member, member_actions[member.key])
+                for member in members
+            ],
             "revision": refreshed.snapshot.state.revision,
         },
         diagnostics=resolved.diagnostics,
@@ -1061,10 +1126,15 @@ def _record_batch_member(
 def _batch_member_actions(
     resolved: ResolvedSnapshotContext, member: _BatchMember
 ) -> tuple[NextAction, ...]:
+    """The member's own remedy: interpret, retry or recover its slot alone."""
     outcome = member.completion
     if isinstance(outcome, ReuseResult):
         return ()
-    if outcome is not None and outcome.retained_review is not None and member.run_id:
+    if (
+        outcome is not None
+        and outcome.retained_review is not None
+        and member.publication == "retained"
+    ):
         from heddle.kernel.review_assignments import pending_retained
         from heddle.runtime.review_assignments import retained_response_result
 
@@ -1079,16 +1149,14 @@ def _batch_member_actions(
             retained,
             cached=member.reuse == "recovered",
         ).next_actions
-    if outcome is not None and outcome.gate_exit != 0:
-        return (
-            NextAction(
-                ops.CommandAction(
-                    RunGate(member.parsed.gate, feature=resolved.feature)
-                ),
-                f"retry the failed {member.parsed.gate} member",
-            ),
-        )
-    return ()
+    if member.publication == "recorded":
+        return ()
+    reason = (
+        f"record the durable {member.label} output without a provider call"
+        if member.publication == "recoverable"
+        else f"retry {member.label}"
+    )
+    return (NextAction(ops.CommandAction(member.parsed), reason),)
 
 
 def _batch_member_summary(
@@ -1140,27 +1208,26 @@ def _batch_failure(
     error: HeddleError,
     exit_code: ExitCode,
     *,
-    actions: Mapping[str, tuple[NextAction, ...]] | None = None,
+    actions: Mapping[tuple[str, str, str], tuple[NextAction, ...]],
 ) -> HeddleResult:
-    per_member = actions or {}
-    summaries = [
-        _batch_member_summary(member, per_member.get(member.parsed.gate, ()))
-        for member in members
-    ]
-    flattened = tuple(
-        action
-        for member in members
-        for action in per_member.get(member.parsed.gate, ())
-    )
+    assert selected.launch is not None
     return HeddleResult.failure(
         HeddleError(
             error.code,
             error.message,
             error.hint,
-            {"members": summaries, "selected_member": selected.parsed.gate},
+            {
+                "members": [
+                    _batch_member_summary(member, actions[member.key])
+                    for member in members
+                ],
+                "selected_member": _member_identity(selected.launch),
+            },
         ),
         exit_code=exit_code,
-        next_actions=flattened,
+        next_actions=tuple(
+            action for member in members for action in actions[member.key]
+        ),
     )
 
 
@@ -1170,37 +1237,31 @@ def _execution_name(outcome: GateOutcome) -> str:
     return "failed" if outcome.gate_exit != 0 else "completed"
 
 
-def _batch_readiness(
-    resolved: ResolvedSnapshotContext,
-) -> tuple[bool, tuple[NextAction, ...]]:
-    assessment = assess_current_readiness(
-        resolved.config, resolved.snapshot, purpose="boundary"
-    )
-    eligible = any(
-        isinstance(next_action.action, ops.CommandAction)
-        and isinstance(next_action.action.operation, RunGates)
-        and next_action.action.operation.feature == resolved.feature
-        for next_action in assessment.next_actions
-    )
-    actions = tuple(
-        next_action
-        for next_action in assessment.next_actions
-        if not (
-            isinstance(next_action.action, ops.CommandAction)
-            and isinstance(next_action.action.operation, RunGates)
-        )
-    )
-    return eligible, actions
-
-
 def _batch_ineligible(
+    resolved: ResolvedSnapshotContext, actions: tuple[NextAction, ...]
+) -> HeddleResult:
+    sequential = resolved.config.review_launch != REVIEW_LAUNCH_MODES[0]
+    return HeddleResult.failure(
+        HeddleError(
+            "gate-not-converged",
+            "no review slots launch together now"
+            + (" (reviews.launch is sequential)" if sequential else ""),
+            "follow the current actions; each slot's run-gate runs it alone",
+        ),
+        exit_code=ExitCode.FATAL,
+        diagnostics=resolved.diagnostics,
+        next_actions=actions,
+    )
+
+
+def _batch_changed(
     resolved: ResolvedSnapshotContext, actions: tuple[NextAction, ...]
 ) -> HeddleResult:
     return HeddleResult.failure(
         HeddleError(
             "gate-not-converged",
-            "the declared gate batch is not currently eligible",
-            "follow the current single-gate action and reassess",
+            "the launch set changed while run-gates waited for its locks",
+            "follow the current actions and reassess",
         ),
         exit_code=ExitCode.FATAL,
         diagnostics=resolved.diagnostics,

@@ -34,6 +34,7 @@ from heddle.contracts.review_assignments import (
     AssignmentRound,
     BoundaryAcceptance,
     CanonicalReview,
+    EngineFailure,
     RetainedReview,
     ReviewAssignment,
     ReviewScopeChange,
@@ -46,6 +47,7 @@ from heddle.gate.cli import resolve_gate_execution
 from heddle.gate.preparation import declared_scaffold_paths, input_contract_for
 from heddle.gate.registry import GATES
 from heddle.gate.types import (
+    FailureReason,
     GateInvocationOverrides,
     GateType,
     ResolvedGateInvocation,
@@ -182,6 +184,22 @@ def resolve_invocation(
         gate_type, GateInvocationOverrides(**asdict(slot.reviewer))
     )
     return invocation
+
+
+def changed_source_attempt_is_pending(
+    state: StateFile, assignment: ReviewAssignment
+) -> bool:
+    """True while completed output bound to changed source awaits repair."""
+    return any(
+        attempt.assignment_id == assignment.id
+        and isinstance(attempt.outcome, EngineFailure)
+        and attempt.outcome.reason
+        in {
+            FailureReason.REVIEWED_SOURCE_CHANGED.value,
+            FailureReason.REVIEWED_SOURCE_UNAVAILABLE.value,
+        }
+        for attempt in state.review_assignments.attempts
+    )
 
 
 def source_projection(

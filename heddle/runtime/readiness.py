@@ -7,7 +7,6 @@ from pathlib import Path
 from typing import Any, cast
 
 from heddle.contracts import operations as ops
-from heddle.contracts.gates import INDEPENDENT_GATE_GROUPS
 from heddle.contracts.result import (
     Diagnostic,
     ExitCode,
@@ -16,6 +15,7 @@ from heddle.contracts.result import (
     NextAction,
 )
 from heddle.gate import entry
+from heddle.gate.registry import GATES
 from heddle.kernel.model import (
     FeatureSnapshot,
     derive_next_actions,
@@ -39,6 +39,7 @@ from heddle.kernel.witness_waiver import (
     waivable_witness_rerun,
 )
 from heddle.runtime.flow_changes import phase_exit_grant_blockers
+from heddle.runtime.review_launch import LaunchMember, launch_set
 from heddle.runtime.verification import (
     assess_current_verifications,
     required_verification_scopes,
@@ -53,8 +54,13 @@ def assess_current_readiness(
     source_observations: dict[str, ObservedPath] | None = None,
     assignment_projection: dict[str, Any] | None = None,
     purpose: str = "boundary",
+    project_launch: bool = True,
 ) -> BoundaryAssessment:
-    """Observe canonical authority and current source in an invocation-local frame."""
+    """Observe canonical authority and current source in an invocation-local frame.
+
+    ``project_launch=False`` keeps each review slot's own ``RunGate`` action
+    instead of the ``RunGates`` action that joins a launch set.
+    """
     boundary = boundary or Boundary(
         snapshot.stage,
         snapshot.current_milestone.id
@@ -71,6 +77,7 @@ def assess_current_readiness(
         captures,
         assignment_projection,
         purpose=purpose,
+        project_launch=project_launch,
     )
 
 
@@ -82,6 +89,7 @@ def _assignment_readiness(
     observed: dict[str, Any] | None,
     *,
     purpose: str,
+    project_launch: bool,
 ) -> BoundaryAssessment:
     from heddle.contracts.review_assignments import ROLE_STAGES
     from heddle.contracts.schemas import STAGES
@@ -202,7 +210,12 @@ def _assignment_readiness(
             *(item for item in actions if item.action not in reruns),
             *(item for item in actions[:proof_actions] if item.action in reruns),
         ]
-    actions = _group_independent_gate_actions(snapshot, observed, actions)
+    if project_launch:
+        actions = project_launch_actions(
+            snapshot.feature,
+            actions,
+            _launch_members(config, snapshot, observed, actions, captures),
+        )
     derived = derive_next_actions(snapshot)
     off_robustness_exit = _qualified_fresh_off_robustness_exit(
         snapshot,
@@ -351,52 +364,85 @@ def _current_robustness_policy_is_off(
     return len(entries) == 1 and entries[0].get("mode") == "off"
 
 
-def _group_independent_gate_actions(
+def _launch_members(
+    config: ProjectConfig,
     snapshot: FeatureSnapshot,
     observed: dict[str, Any],
-    actions: list[NextAction],
-) -> list[NextAction]:
-    """Replace one fully eligible declared group with its typed batch action."""
-    if snapshot.stage != "peer-review":
-        return actions
-    rows = {row["role"]: row for row in observed["review_closure"]["assignments"]}
-    for group in INDEPENDENT_GATE_GROUPS:
-        if not all(
-            (row := rows.get(gate)) is not None
-            and row["scope"] == "feature"
-            and not row["closed"]
-            and row["next_step"] == "run"
-            and row["rounds_used"] == 0
-            and row["calls_completed"] == 0
-            and not row["open_refs"]
-            and not row["retained_responses"]
-            for gate in group
-        ):
-            continue
-        member_indexes = [
-            index
-            for index, action in enumerate(actions)
+    actions: list[NextAction] | tuple[NextAction, ...],
+    captures: dict[str, ObservedPath],
+) -> tuple[LaunchMember, ...]:
+    """Resolve the launch set, selecting the milestone a milestone gate reviews."""
+    milestone_gate = next(
+        (
+            action.action.operation.gate
+            for action in actions
             if isinstance(action.action, ops.CommandAction)
             and isinstance(action.action.operation, ops.RunGate)
-            and action.action.operation.gate in group
-        ]
-        if len(member_indexes) != len(group):
-            continue
-        insertion = min(member_indexes)
-        remaining = [
-            action
-            for index, action in enumerate(actions)
-            if index not in member_indexes
-        ]
-        remaining.insert(
-            insertion,
-            NextAction(
-                ops.CommandAction(ops.RunGates(feature=snapshot.feature)),
-                "run the independent initial review group",
-            ),
+            and (gate_type := GATES.get(action.action.operation.gate)) is not None
+            and gate_type.requires_milestone
+        ),
+        None,
+    )
+    milestone_scope = (
+        select_review_milestone(
+            config, snapshot, milestone_gate, source_observations=captures
         )
-        return remaining
-    return actions
+        if milestone_gate is not None
+        else None
+    )
+    return launch_set(
+        config, snapshot, observed, actions, milestone_scope=milestone_scope
+    )
+
+
+def project_launch_actions(
+    feature: str,
+    actions: list[NextAction] | tuple[NextAction, ...],
+    members: tuple[LaunchMember, ...],
+) -> list[NextAction]:
+    """Replace a launch set's own actions with one batch action in the first's place."""
+    if len(members) < 2:
+        return list(actions)
+    gates = {member.role for member in members}
+    replaced = {
+        index
+        for index, action in enumerate(actions)
+        if isinstance(action.action, ops.CommandAction)
+        and isinstance(action.action.operation, ops.RunGate)
+        and action.action.operation.gate in gates
+    }
+    projected = [
+        action for index, action in enumerate(actions) if index not in replaced
+    ]
+    projected.insert(
+        min(replaced),
+        NextAction(
+            ops.CommandAction(ops.RunGates(feature=feature)),
+            "run "
+            + ", ".join(member.label for member in members)
+            + " together; no member reads another's findings",
+        ),
+    )
+    return projected
+
+
+def current_launch_set(
+    config: ProjectConfig, snapshot: FeatureSnapshot
+) -> tuple[tuple[LaunchMember, ...], tuple[NextAction, ...]]:
+    """Return the launch set run-gates may execute and readiness's current actions."""
+    from heddle.runtime.review_assignments import projection
+
+    captures: dict[str, ObservedPath] = {}
+    observed = projection(config, snapshot, source_observations=captures)
+    actions = assess_current_readiness(
+        config,
+        snapshot,
+        source_observations=captures,
+        assignment_projection=observed,
+        project_launch=False,
+    ).next_actions
+    members = _launch_members(config, snapshot, observed, actions, captures)
+    return members, tuple(project_launch_actions(snapshot.feature, actions, members))
 
 
 def select_review_milestone(

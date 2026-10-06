@@ -311,9 +311,14 @@ def test_ac2_resolver_joins_an_earlier_stage_duty_beside_the_current_review(
     )
     current = status_actions()
     assert commands(current)[0].startswith("heddle kickoff ")
-    assert commands(current)[1] == slot_command("spec-review", PRIMARY)
+    # The current review is itself a launch set, so status already joins it.
+    assert commands(current)[1] == batch_command(V7_FEATURE)
     actions = [
-        *current[:2],
+        current[0],
+        NextAction(
+            ops.CommandAction(ops.RunGate("spec-review", feature=V7_FEATURE)),
+            "complete spec-review feature slot primary",
+        ),
         NextAction(
             ops.CommandAction(ops.RunGate("plan-review", feature=V7_FEATURE)),
             "complete plan-review feature slot primary",
@@ -397,13 +402,16 @@ def test_ac3_unauthorized_stage_keeps_the_single_gate_refusal(
     from tests.concurrent_review_helpers import edit_state
 
     _host, state_path = same_gate_host(tmp_path, monkeypatch)
-    edit_state(
-        state_path,
-        lambda value: value.__setitem__(
-            "authorizations",
-            [{"through": "specify", "source": "user", "at": value["updated"]}],
-        ),
-    )
+
+    def narrow(value: dict) -> None:
+        # Admission reads the authorized_through scalar; the grant list alone
+        # leaves the stage authorized.
+        value["authorized_through"] = "specify"
+        value["authorizations"] = [
+            {"through": "specify", "source": "user", "at": value["updated"]}
+        ]
+
+    edit_state(state_path, narrow)
     actions = status_actions()
     assert batch_command() not in commands(actions)
     assert run_gate_commands(actions, "spec-review") == [

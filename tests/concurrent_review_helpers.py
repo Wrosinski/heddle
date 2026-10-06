@@ -253,6 +253,7 @@ def canonical_outcome(gate_type, context, feature: str, *, findings=()):
     payload = review_content(gate_type.name, findings=findings)
     complete_fixture_coverage(payload, prepared.ac_ids, prepared.active_rules)
     complete_fixture_rerun(payload, prepared.prior_reviews, prepared.review_decisions)
+    _cover_verification_targets(payload, prepared)
     complete_fixture_verdict(payload, bool(prepared.prior_reviews))
     result = bind_review_result(
         decode_review_content(json.dumps(payload).encode(), prepared.output_contract),
@@ -279,6 +280,43 @@ def canonical_outcome(gate_type, context, feature: str, *, findings=()):
         ),
         structure_warnings=tuple(projection["structure_warnings"]),
     )
+
+
+def _cover_verification_targets(payload, prepared) -> None:
+    """Account for every target a verification round opened with.
+
+    The real engine validates this before it writes a canonical review, and
+    recovery replays that validation, so the double must satisfy it too.
+    """
+    from tests.structured_review_helpers import evidence
+
+    covered = {
+        (row["source"]["run_id"], row["source"]["finding_id"])
+        for row in payload["prior_dispositions"]
+    }
+    classes = {
+        (prior.run_id, item.id): item.classification
+        for prior in prepared.prior_reviews
+        if prior.result is not None
+        for item in prior.result.content.findings
+    }
+    for run_id, finding_id in prepared.required_prior_references or ():
+        if (run_id, finding_id) in covered:
+            continue
+        classification = classes.get((run_id, finding_id), "implement")
+        payload["prior_dispositions"].append(
+            {
+                "source": {"run_id": run_id, "finding_id": finding_id},
+                "output_finding_id": None,
+                "decision_id": None,
+                "decision_origin": None,
+                "evidence": evidence(),
+                "reason": "Scripted verification of the round's target.",
+                "disposition": (
+                    "addressed" if classification == "implement" else "settled"
+                ),
+            }
+        )
 
 
 def typed_failure(context, key: tuple[str, str]):

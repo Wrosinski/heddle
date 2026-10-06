@@ -593,8 +593,14 @@ def _gate_verdict_problem(result: HeddleResult) -> ValidationProblem:
                 if isinstance(findings, dict)
                 else {}
             )
+            # Two slots of one gate stay distinguishable by their slot name.
+            label = " ".join(
+                str(part)
+                for part in (member.get("gate", "gate"), member.get("reviewer_slot"))
+                if part
+            )
             rows.append(
-                f"{member.get('gate', 'gate')}: "
+                f"{label}: "
                 f"run {member.get('run_id') or 'unrecorded'}, "
                 f"execution {member.get('execution', 'unknown')}, "
                 f"publication {member.get('publication', 'unknown')}, "

@@ -364,6 +364,45 @@ def test_ac6_a_set_that_changes_while_waiting_refuses_before_any_call(
     assert slot_command(*S) in [action.command for action in result.next_actions]
 
 
+def test_ac6_a_set_that_shrinks_to_another_batch_routes_back_to_run_gates(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A changed set of two or more keeps its own batch action in the refusal."""
+    from contextlib import contextmanager
+
+    from heddle.gate import entry
+
+    _host, state_path = full_peer_host(tmp_path, monkeypatch)
+    behavior = ("behavior-review", PRIMARY)
+    original_lock = entry.gate_lock_for_runtime
+    raced = False
+
+    @contextmanager
+    def racing_lock(context, invocation):
+        nonlocal raced
+        if not raced:
+            raced = True
+            standalone = run_slot(*behavior)
+            assert standalone.ok, standalone.to_envelope()
+        with original_lock(context, invocation) as path:
+            yield path
+
+    monkeypatch.setattr(entry, "gate_lock_for_runtime", racing_lock)
+    with multiprocessing.Manager() as manager:
+        calls = install_counting_engine(monkeypatch, manager)
+        result = execute_batch()
+        recorded = list(calls)
+    assert raced, "fixture precondition: the race ran before the lock"
+    assert recorded == [behavior]
+    assert not result.ok
+    assert [(run["gate"], run["reviewer_slot"]) for run in gate_runs(state_path)] == [
+        behavior
+    ]
+    assert batch_command() in [action.command for action in result.next_actions], (
+        "FAIL AC-6: the refusal dropped the remaining launch set"
+    )
+
+
 def test_ac6_ac9_rerun_with_no_new_set_is_a_refused_no_op(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -584,14 +623,15 @@ def test_ac8_interruption_keeps_finished_output_recoverable(
         def interrupted(gate_type, context, *, feature, **_kwargs):
             slot = context.prepared_run.reviewer_slot
             barrier.wait(timeout=10)
-            outcome = canonical_outcome(gate_type, context, feature)
             if slot == SECONDARY:
+                outcome = canonical_outcome(gate_type, context, feature)
                 secondary_done.set()
                 return outcome
             assert secondary_done.wait(timeout=10)
             os.kill(os.getppid(), signal.SIGINT)
+            # The primary is unfinished: it never reaches its output.
             barrier.wait(timeout=30)  # never released: the parent stops us
-            return outcome
+            return canonical_outcome(gate_type, context, feature)
 
         monkeypatch.setattr(entry, "run_gate_for_runtime", interrupted)
         result = execute_batch()

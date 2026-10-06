@@ -39,7 +39,3 @@ FINDING_PRODUCING_GATES = frozenset(GATE_CATALOG)
 VERDICT_PRODUCING_GATES = frozenset(
     gate.name for gate in GATE_CATALOG.values() if gate.produces_verdict
 )
-
-# Closed, product-approved independent groups. Callers select a group as one
-# typed operation; role lists and worker counts are intentionally not inputs.
-INDEPENDENT_GATE_GROUPS = (("behavior-review", "complexity-review"),)
