@@ -604,13 +604,137 @@ def test_ac8_interruption_keeps_finished_output_recoverable(
     assert list((host / f"plans/{V7_FEATURE}/reviews").glob("*.review.json"))
 
 
+def test_ac8_launch_failure_reports_the_member_and_leaves_no_worker(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A worker that fails to start makes no call; its sibling's output stays.
+
+    The second worker start raises once the first member's call has finished,
+    so the outcome does not depend on scheduling. Either start order is legal;
+    the assertions follow which member actually ran.
+    """
+    from multiprocessing import process
+
+    from heddle.gate import entry
+
+    _host, state_path = same_gate_host(tmp_path, monkeypatch)
+    prior = len(gate_runs(state_path))
+    original_start = process.BaseProcess.start
+    launched = 0
+    with multiprocessing.Manager() as manager:
+        starts, _finishes, _seen = install_slot_engine(monkeypatch, manager, parties=1)
+        engine = entry.run_gate_for_runtime
+        ran_done = manager.Event()
+
+        def signalling(gate_type, context, **kwargs):
+            try:
+                return engine(gate_type, context, **kwargs)
+            finally:
+                ran_done.set()
+
+        def start(self):
+            nonlocal launched
+            target = getattr(self._target, "func", self._target)
+            if not getattr(target, "__module__", "").startswith("heddle."):
+                return original_start(self)
+            launched += 1
+            if launched == 2:
+                assert ran_done.wait(timeout=10), "the first member did not finish"
+                raise OSError(11, "Resource temporarily unavailable")
+            return original_start(self)
+
+        monkeypatch.setattr(entry, "run_gate_for_runtime", signalling)
+        monkeypatch.setattr(process.BaseProcess, "start", start)
+        try:
+            result = execute_batch()
+        finally:
+            monkeypatch.setattr(process.BaseProcess, "start", original_start)
+        called = [(row["gate"], row["reviewer_slot"]) for row in starts]
+    assert launched == 2, "FAIL AC-8: run-gates did not launch both members"
+    assert not multiprocessing.active_children(), (
+        "FAIL AC-8: a sibling worker was left running"
+    )
+    assert len(called) == 1, f"FAIL AC-8: the unlaunched member made a call: {called}"
+    ran = called[0]
+    failed = next(key for key in SLOTS if key != ran)
+    assert not result.ok
+    members = {member_key(row): row for row in result.error.details["members"]}
+    assert members[failed]["execution"] == "failed"
+    assert _selected(result) == {
+        "gate": SPEC,
+        "scope": "feature",
+        "reviewer_slot": failed[1],
+    }
+    assert _remedies(members[failed]) == [slot_command(*failed)]
+    runs = gate_runs(state_path)[prior:]
+    if ran == P:
+        assert members[P]["publication"] == "recorded"
+        assert _remedies(members[P]) == []
+        assert [(run["gate"], run["reviewer_slot"]) for run in runs] == [P]
+    else:
+        assert members[S]["publication"] == "recoverable"
+        assert _remedies(members[S]) == [slot_command(*S)]
+        assert runs == []
+
+
+def test_ac6_a_member_preparation_refusal_refuses_the_batch_naming_that_member(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Decision D4: the batch returns that member's own standalone refusal."""
+    from dataclasses import replace
+
+    from heddle.gate import entry
+
+    _host, state_path = same_gate_host(tmp_path, monkeypatch)
+    original = entry.prepare_gate_run
+
+    def refusing(*args, **kwargs):
+        prepared = original(*args, **kwargs)
+        if prepared.reviewer_slot == SECONDARY:
+            return replace(prepared, scope="different-boundary")
+        return prepared
+
+    monkeypatch.setattr(entry, "prepare_gate_run", refusing)
+    before = state_path.read_bytes()
+    standalone = run_slot(*S)
+    assert not standalone.ok and state_path.read_bytes() == before, (
+        "fixture precondition: the secondary's preparation refuses on its own"
+    )
+    with multiprocessing.Manager() as manager:
+        calls = install_counting_engine(monkeypatch, manager)
+        refused = execute_batch()
+        call_count = len(calls)
+    assert not refused.ok
+    assert call_count == 0, "FAIL AC-6: a member launched beside a refused one"
+    assert state_path.read_bytes() == before
+    assert refused.error.details.get("selected_member") == {
+        "gate": SPEC,
+        "scope": "feature",
+        "reviewer_slot": SECONDARY,
+    }, f"FAIL AC-6: the refusal does not name its member: {refused.error}"
+    assert (
+        refused.error.code,
+        refused.error.message,
+        refused.error.hint,
+        refused.exit_code,
+    ) == (
+        standalone.error.code,
+        standalone.error.message,
+        standalone.error.hint,
+        standalone.exit_code,
+    )
+    assert [action.command for action in refused.next_actions] == [
+        action.command for action in standalone.next_actions
+    ]
+
+
 def test_ac8_source_drift_keeps_outputs_without_review_credit(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Survivor pin for the pair, now for two slots of one gate."""
     host, state_path = same_gate_host(tmp_path, monkeypatch)
     from heddle.gate import entry
 
+    prior = len(gate_runs(state_path))
     with multiprocessing.Manager() as manager:
         install_slot_engine(monkeypatch, manager)
         engine = entry.run_gate_for_runtime
@@ -625,8 +749,32 @@ def test_ac8_source_drift_keeps_outputs_without_review_credit(
         monkeypatch.setattr(entry, "run_gate_for_runtime", drift_after_primary)
         result = execute_batch()
     assert not result.ok
-    assert not any(run.get("accepted", False) for run in gate_runs(state_path))
-    assert list((host / f"plans/{V7_FEATURE}/reviews").glob("*.review.json"))
+    assert "members" in result.error.details, (
+        "FAIL AC-8: run-gates did not run the two slots"
+    )
+    members = result.error.details["members"]
+    assert [member_key(row) for row in members] == list(SLOTS)
+    assert all(
+        row["publication"] in {"recorded-error", "recoverable"} for row in members
+    ), f"FAIL AC-8: output of changed source was credited: {members}"
+    assert all(run.get("failure_reason") for run in gate_runs(state_path)[prior:]), (
+        "FAIL AC-8: a review of changed source was recorded as completed"
+    )
+    artifact_dir = host / f"plans/{V7_FEATURE}/reviews"
+    artifacts = {
+        path.name: path.read_bytes() for path in artifact_dir.glob("*.review.json")
+    }
+    assert artifacts
+
+    with multiprocessing.Manager() as manager:
+        calls = install_counting_engine(monkeypatch, manager)
+        retry = execute_batch()
+        call_count = len(calls)
+    assert not retry.ok
+    assert call_count == 0, "FAIL AC-8: changed source launched a provider"
+    assert {
+        path.name: path.read_bytes() for path in artifact_dir.glob("*.review.json")
+    } == artifacts
 
 
 def _normalized(state_path: Path) -> dict:

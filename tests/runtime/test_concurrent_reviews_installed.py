@@ -337,6 +337,10 @@ def test_concurrent_reviews_installed_journey(installed, tmp_path):
     refused = case.run("run-gates", expected=(1, 2, 3, 4, 5))
     assert not refused["ok"], "FAIL AC-11: run-gates ran in sequential mode"
     assert case.state.read_bytes() == before and len(providers.calls()) == calls
+    assert any(
+        command.startswith("heddle run-gate plan-review ")
+        for command in _commands(refused)
+    ), "FAIL AC-11: the refusal does not return the current single-gate action"
 
     providers.respond("codex", review_content("plan-review"))
     providers.respond("claude", review_content("plan-review"))

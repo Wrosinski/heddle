@@ -575,9 +575,13 @@ def test_distinct_gate_batch_driver_accounts_all_members_then_reassesses_once(
             (action,),
         )
 
+    # concurrent-reviews-v1: members are keyed by gate, scope and slot, and a
+    # failed member's remedy re-runs exactly its own reviewer.
     members = [
         {
             "gate": "behavior-review",
+            "scope": "feature",
+            "reviewer_slot": "primary",
             "execution": "completed",
             "publication": "recorded",
             "next_actions": [
@@ -586,10 +590,16 @@ def test_distinct_gate_batch_driver_accounts_all_members_then_reassesses_once(
         },
         {
             "gate": "complexity-review",
+            "scope": "feature",
+            "reviewer_slot": "primary",
             "execution": "failed",
             "publication": "recorded-error",
             "next_actions": [
-                {"command": f"heddle run-gate complexity-review --feature {SLUG}"}
+                {
+                    "command": "heddle run-gate complexity-review --cli codex "
+                    "--model gpt-6-sol --reasoning-effort high "
+                    f"--feature {SLUG}"
+                }
             ],
         },
     ]
@@ -602,7 +612,14 @@ def test_distinct_gate_batch_driver_accounts_all_members_then_reassesses_once(
             "gate-not-converged",
             "one batch member failed",
             "follow each member remedy",
-            {"members": members, "selected_member": "complexity-review"},
+            {
+                "members": members,
+                "selected_member": {
+                    "gate": "complexity-review",
+                    "scope": "feature",
+                    "reviewer_slot": "primary",
+                },
+            },
         ),
         next_actions=member_actions,
         exit_code=ExitCode.FATAL,

@@ -230,6 +230,63 @@ def test_ac2_milestone_review_takes_only_the_scope_readiness_selects(
     assert [m.action_index for m in members] == [0, 0]
 
 
+def test_ac2_milestone_batch_runs_only_the_scope_readiness_selects(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """run-gates passes readiness's milestone to the resolver; m2 never joins."""
+    _host, state_path = same_gate_host(tmp_path, monkeypatch, role="milestone-review")
+    with multiprocessing.Manager() as manager:
+        starts, _finishes, _seen = install_slot_engine(monkeypatch, manager)
+        result = execute_batch()
+        started = sorted((row["scope"], row["reviewer_slot"]) for row in starts)
+    assert result.ok, result.to_envelope()
+    assert [
+        (row["gate"], row["scope"], row["reviewer_slot"])
+        for row in result.data["members"]
+    ] == [
+        ("milestone-review", "m1", PRIMARY),
+        ("milestone-review", "m1", SECONDARY),
+    ], "FAIL AC-2: the batch took a scope readiness did not select"
+    assert started == [("m1", PRIMARY), ("m1", SECONDARY)]
+    value = yaml.safe_load(state_path.read_text())
+    recorded = sorted(
+        (gate["scope"], run["reviewer_slot"])
+        for gate in value["gates"]
+        if gate["gate"] == "milestone-review"
+        for run in gate["runs"]
+    )
+    assert recorded == [("m1", PRIMARY), ("m1", SECONDARY)]
+
+
+def test_ac2_the_batch_keeps_a_later_non_call_action_after_it(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The batch replaces the first member's action; later actions keep order."""
+    from tests.structured_review_helpers import finding
+    from tests.tiering_review_helpers import provider_transport, review_content
+
+    host, _state_path = full_peer_host(tmp_path, monkeypatch, launch="sequential")
+    provider_transport(
+        monkeypatch,
+        lambda _cli, _prompt: review_content(findings=[finding("CX-I1")]),
+    )
+    assert run_slot("complexity-review", PRIMARY).ok
+    sequential = commands(status_actions())
+    assert sequential[2].startswith("heddle run-gate behavior-review ") and sequential[
+        3
+    ].startswith("heddle review interpret "), (
+        f"fixture precondition: a non-call action follows the member: {sequential}"
+    )
+    set_launch(host, "concurrent")
+    actions = status_actions()
+    assert commands(actions) == [*sequential[:2], batch_command(), *sequential[3:]], (
+        f"FAIL AC-2: the batch is not in the first member's place: {commands(actions)}"
+    )
+    reason = _batch_action(actions).reason
+    _names(reason, [("behavior-review", PRIMARY), ("behavior-review", SECONDARY)])
+    assert "complexity-review" not in reason
+
+
 def test_ac2_resolver_joins_an_earlier_stage_duty_beside_the_current_review(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -363,6 +420,8 @@ def test_ac3_unauthorized_stage_keeps_the_single_gate_refusal(
 def test_ac3_sealed_review_never_joins_a_later_batch(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """Structural pin: a review is sealed only after it closes, so it keeps no
+    missing slot; the later batch and its run-gates never touch it."""
     from heddle.contracts import operations as ops
     from heddle.runtime.application import execute
     from tests.tiering_review_helpers import (
@@ -386,6 +445,15 @@ def test_ac3_sealed_review_never_joins_a_later_batch(
     action = _batch_action(status_actions())
     _names(action.reason, [("plan-review", PRIMARY), ("plan-review", SECONDARY)])
     assert "spec-review" not in action.reason
+    spec_runs = [run for run in gate_runs(state_path) if run["gate"] == "spec-review"]
+    with multiprocessing.Manager() as manager:
+        calls = install_counting_engine(monkeypatch, manager)
+        assert execute_batch().ok
+        called = sorted(calls)
+    assert called == [("plan-review", PRIMARY), ("plan-review", SECONDARY)]
+    assert [
+        run for run in gate_runs(state_path) if run["gate"] == "spec-review"
+    ] == spec_runs
 
 
 def test_ac3_accepted_slot_with_changed_input_is_never_called_again(
@@ -484,6 +552,8 @@ def test_ac11_sequential_mode_routes_one_run_gate_per_slot(
 def test_ac11_run_gates_refuses_in_sequential_mode_without_writing(
     shape: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """The same-gate case is a survivor pin (today's batch refuses every
+    same-gate set); the behavior-and-complexity case is the discriminator."""
     if shape == "same-gate":
         _host, state_path = same_gate_host(tmp_path, monkeypatch, launch="sequential")
     else:

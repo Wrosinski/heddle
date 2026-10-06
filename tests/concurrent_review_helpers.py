@@ -341,6 +341,7 @@ def install_slot_engine(
             {
                 "gate": key[0],
                 "reviewer_slot": key[1],
+                "scope": prepared.scope,
                 "input_hash": prepared.input_hash,
                 "review_basis_hash": prepared.review_basis_hash,
                 "prompt_version": prepared.prompt_version,

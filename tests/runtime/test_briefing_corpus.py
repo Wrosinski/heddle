@@ -1080,6 +1080,10 @@ RETIRED_LAUNCH_TEXT = (
     "launch the confirmed initial assignments concurrently",
     "runs at most those two primary assignments",
     "declared independent review-gate group",
+    "readiness replaces the independent `behavior-review` and "
+    "`complexity-review` actions",
+    "admits the pair from one snapshot",
+    "eligible initial `behavior-review` and `complexity-review`",
 )
 
 
