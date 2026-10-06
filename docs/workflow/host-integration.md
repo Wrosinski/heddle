@@ -133,7 +133,9 @@ repository unchanged.
 - Review slots that read none of each other's findings launch together through
   `heddle run-gates`, at any stage. Set `reviews.launch` to `sequential` to
   launch one slot at a time; readiness then emits each slot's
-  `heddle run-gate`.
+  `heddle run-gate`. The switch changes no feature state. Committing it during a
+  feature changes a file outside the feature, so record it with
+  `heddle feature sources attribute` before `heddle validate`.
 
 Host tooling owns `.heddle.yaml`'s `autopilot.test_command`, which configures
 the additional close suite run by `heddle feature complete`. It does not replace

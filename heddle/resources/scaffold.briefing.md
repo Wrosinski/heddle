@@ -268,11 +268,11 @@ target contract makes the relevant test fail.
 
 Follow the confirmed `review-test-scaffolding` assignment and emitted native
 next actions. Run selected calls through the emitted `heddle run-gate`, or
-through the one `run-gates` action that starts both slots when the host's
-`reviews.launch` is concurrent; preserve independent initial contexts and read
-all required initial reports before remediation. Off means intentionally not
-run, not passed. Native evidence-bound lead dispositions own closure; there is
-no synthesis gate. Preserve exact original finding/decision references, coverage
+through the one `run-gates` action that starts independent slots together
+when the host's `reviews.launch` is concurrent; preserve independent initial
+contexts and read all required initial reports before remediation. Off means
+intentionally not run, not passed. Native evidence-bound lead dispositions own
+closure; there is no synthesis gate. Preserve exact original finding/decision references, coverage
 gaps, and originating inspection duties. Use the remaining round allowance and
 explicit stop/budget decisions, not a hardcoded tier sequence or a new lower
 cap. At a reached confirmed cap, `heddle review allowance` can raise an
