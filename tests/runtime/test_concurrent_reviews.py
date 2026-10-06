@@ -468,6 +468,19 @@ def test_ac7_the_driver_folds_the_real_batch_result_naming_both_slots(
     )
     detail = loop._gate_verdict_problem(result).detail
     assert "spec-review primary" in detail and "spec-review secondary" in detail
+    # Each member's row carries what a standalone fold would: its verdict,
+    # its finding counts and the artifact to read.
+    rows = {line.split(":", 1)[0]: line for line in detail.splitlines()}
+    for member in result.data["members"]:
+        row = rows[f"spec-review {member['reviewer_slot']}"]
+        assert member.get("status") in {"fail", "pass_with_conditions"}, member
+        assert f"verdict {member['status']}" in row, row
+        assert "0 IMPLEMENT, 0 REPORT" not in row, (
+            f"FAIL AC-7: the fold drops findings: {row}"
+        )
+        assert f"{member['artifact']}" in row, row
+    assert result.data["members"][0]["status"] == "fail"
+    assert "1 IMPLEMENT" in rows["spec-review primary"]
 
 
 @pytest.mark.parametrize("round_number", (1, 2))
@@ -543,6 +556,66 @@ def test_ac8_worker_crash_stops_recording_and_later_output_recovers_without_a_ca
         retried = execute_batch()
     assert retried.ok, retried.to_envelope()
     assert [row["reuse"] for row in retried.data["members"]] == ["none", "recovered"]
+    runs = gate_runs(state_path)[prior:]
+    assert [(run["gate"], run["reviewer_slot"]) for run in runs] == list(SLOTS)
+
+
+def test_ac8_a_worker_that_dies_mid_result_fails_alone_and_its_output_recovers(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A torn result frame fails its member; run-gates returns and releases."""
+    import os
+    import signal
+    import struct
+    from multiprocessing import connection
+
+    from tests.concurrent_review_helpers import canonical_outcome
+
+    _host, state_path = _round_host(tmp_path, monkeypatch, 1)
+    prior = len(gate_runs(state_path))
+    torn = f"heddle-{S[0]}-{S[1]}"
+    send = connection.Connection._send_bytes
+
+    def tear(self, buf):
+        # The secondary's worker sends half its result frame, then dies.
+        if multiprocessing.current_process().name != torn:
+            return send(self, buf)
+        body = bytes(buf)
+        os.write(self.fileno(), struct.pack("!i", len(body)) + body[: len(body) // 2])
+        os._exit(1)
+
+    def hung(_signum, _frame):
+        pytest.fail("FAIL AC-8: run-gates still waits for a torn result")
+
+    previous = signal.signal(signal.SIGALRM, hung)
+    signal.alarm(30)
+    try:
+        with monkeypatch.context() as patch:
+            patch.setattr(
+                "heddle.gate.entry.run_gate_for_runtime",
+                lambda gate_type, context, *, feature, **_kwargs: canonical_outcome(
+                    gate_type, context, feature
+                ),
+            )
+            patch.setattr(connection.Connection, "_send_bytes", tear)
+            result = execute_batch()
+    finally:
+        signal.alarm(0)
+        signal.signal(signal.SIGALRM, previous)
+    assert not result.ok
+    members = result.error.details["members"]
+    assert [member_key(row) for row in members] == list(SLOTS)
+    assert members[0]["publication"] == "recorded"
+    assert members[1]["execution"] == "failed"
+    assert "did not return a result" in members[1]["error"]["message"]
+    assert _selected(result)["reviewer_slot"] == SECONDARY
+    assert _remedies(members[1]) == [slot_command(*S)]
+
+    with multiprocessing.Manager() as manager:
+        calls = install_counting_engine(monkeypatch, manager)
+        recovered = run_slot(*S)
+        assert list(calls) == [], "FAIL AC-8: recovery spent a provider call"
+    assert recovered.ok, recovered.to_envelope()
     runs = gate_runs(state_path)[prior:]
     assert [(run["gate"], run["reviewer_slot"]) for run in runs] == list(SLOTS)
 

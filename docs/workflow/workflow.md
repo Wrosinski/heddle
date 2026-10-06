@@ -105,10 +105,11 @@ recorded unconverged verdict is a completed review; the command fails only when
 a member fails, is interrupted, cannot launch or cannot be recorded. Set
 `reviews.launch: sequential` in `.heddle.yaml` to launch one slot at a time.
 
-Off roles, unauthorized stages, sealed reviews, slots that already have an
-accepted review, and reviews whose completed output awaits repair after a
-source change never join a set; a lone remaining slot keeps its
-`heddle run-gate` action. Do not construct a role list or worker count: no such
+Off roles, unauthorized stages, slots the host's `gates` or `agents` settings
+refuse, sealed reviews, slots that already have an accepted review, and reviews
+whose completed output awaits repair after a source change never join a set. A
+refused slot, or a lone remaining one, keeps its `heddle run-gate` action and
+its place. Do not construct a role list or worker count: no such
 public inputs exist. On a provider failure, interruption, or CAS conflict, inspect
 every returned member summary; each carries its own remedy naming its role,
 scope and reviewer. Completed artifacts remain available for restart, and

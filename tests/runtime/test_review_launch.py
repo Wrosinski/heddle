@@ -395,6 +395,37 @@ def test_ac3_host_gate_selection_excludes_its_slots(
     assert started == [("behavior-review", PRIMARY), ("behavior-review", SECONDARY)]
 
 
+def test_ac3_a_host_refused_slot_keeps_its_own_action_beside_the_batch(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A slot the host refuses keeps its run-gate; its admitted sibling batches."""
+    host, _state_path = full_peer_host(tmp_path, monkeypatch)
+    path = host / ".heddle.yaml"
+    value = yaml.safe_load(path.read_text())
+    value["agents"] = {"claude": False}
+    path.write_text(yaml.safe_dump(value, sort_keys=False))
+    actions = status_actions()
+    refused = slot_command("behavior-review", PRIMARY)
+    assert run_gate_commands(actions, "behavior-review") == [refused], (
+        "FAIL AC-3: the refused slot lost its own run-gate action"
+    )
+    action = _batch_action(actions)
+    _names(
+        action.reason,
+        [("behavior-review", SECONDARY), ("complexity-review", PRIMARY)],
+    )
+    assert "behavior-review primary" not in action.reason
+    assert commands(actions).index(refused) < commands(actions).index(
+        batch_command()
+    ), "FAIL AC-3: the refused slot's action moved behind the batch"
+    with multiprocessing.Manager() as manager:
+        starts, _finishes, _seen = install_slot_engine(monkeypatch, manager)
+        result = execute_batch()
+        started = sorted((row["gate"], row["reviewer_slot"]) for row in starts)
+    assert result.ok, result.to_envelope()
+    assert started == [("behavior-review", SECONDARY), ("complexity-review", PRIMARY)]
+
+
 def test_ac3_unauthorized_stage_keeps_the_single_gate_refusal(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

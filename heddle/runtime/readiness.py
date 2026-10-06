@@ -400,22 +400,31 @@ def project_launch_actions(
     actions: list[NextAction] | tuple[NextAction, ...],
     members: tuple[LaunchMember, ...],
 ) -> list[NextAction]:
-    """Replace a launch set's own actions with one batch action in the first's place."""
+    """Replace a launch set's own actions with one batch action in the first's place.
+
+    A routed run-gate whose slot is not a member, such as one the host
+    refuses, keeps its place ahead of the batch so its refusal stays visible.
+    """
     if len(members) < 2:
         return list(actions)
     gates = {member.role for member in members}
-    replaced = {
-        index
+    routed = {
+        index: action.action.operation
         for index, action in enumerate(actions)
         if isinstance(action.action, ops.CommandAction)
         and isinstance(action.action.operation, ops.RunGate)
         and action.action.operation.gate in gates
     }
+    replaced = {
+        index
+        for index, operation in routed.items()
+        if any(_runs_member_slot(operation, member) for member in members)
+    }
     projected = [
         action for index, action in enumerate(actions) if index not in replaced
     ]
     projected.insert(
-        min(replaced),
+        min(replaced) if replaced else max(routed) + 1,
         NextAction(
             ops.CommandAction(ops.RunGates(feature=feature)),
             "run "
@@ -424,6 +433,15 @@ def project_launch_actions(
         ),
     )
     return projected
+
+
+def _runs_member_slot(operation: ops.RunGate, member: LaunchMember) -> bool:
+    """True when this run-gate selects the member's slot, as run-gate selects it."""
+    return operation.gate == member.role and (
+        operation.cli == member.reviewer.cli
+        if operation.cli is not None
+        else member.slot == "primary"
+    )
 
 
 def current_launch_set(

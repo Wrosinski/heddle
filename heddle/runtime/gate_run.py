@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import json
 import multiprocessing
+import multiprocessing.connection
 import os
-import queue
 import signal
 import sys
 from collections.abc import Callable, Mapping
@@ -781,10 +781,9 @@ def _unrecorded_completion(
     return None
 
 
-def _batch_worker(
-    output: Any, member: _BatchMember, key: tuple[str, str, str], feature: str
-) -> None:
+def _batch_worker(sender: Any, member: _BatchMember, feature: str) -> None:
     """Execute one immutable member in an isolated process and return its outcome."""
+    message: tuple[str, Any]
     try:
         if hasattr(os, "setsid"):
             os.setsid()
@@ -796,12 +795,15 @@ def _batch_worker(
             iteration=member.attempt,
             max_iterations=member.policy.max_attempts,
         )
-        output.put(("outcome", key, outcome))
+        message = ("outcome", outcome)
     except BaseException as error:  # noqa: BLE001 - cross-process error carrier
-        output.put(("error", key, f"{type(error).__name__}: {error}"))
+        message = ("error", f"{type(error).__name__}: {error}")
+    try:
+        sender.send(message)
+    except Exception as error:  # noqa: BLE001 - pickling fails before any byte
+        sender.send(("error", f"its result could not be sent: {error}"))
     finally:
-        output.close()
-        output.join_thread()
+        sender.close()
 
 
 def _execute_batch_workers(
@@ -819,56 +821,59 @@ def _execute_batch_workers(
     if not pending:
         _stop_publication(members, publication)
         return None
-    by_key = {member.key: member for member in pending}
     context = multiprocessing.get_context("fork")
-    output = context.Queue()
-    processes: dict[tuple[str, str, str], Any] = {}
+    processes: list[Any] = []
+    # Each worker alone holds its pipe's sending end, so a worker that dies,
+    # even partway through a result, leaves its pipe at end of file.
+    receivers: dict[multiprocessing.connection.Connection, _BatchMember] = {}
     try:
         for member in pending:
             _present_preparation_diagnostics(member.preparation_diagnostics)
         for member in pending:
+            receiver, sender = context.Pipe(duplex=False)
             process = context.Process(
                 target=_batch_worker,
-                args=(output, member, member.key, resolved.feature),
+                args=(sender, member, resolved.feature),
                 name=f"heddle-{member.parsed.gate}-{member.prepared.reviewer_slot}",
             )
             try:
                 process.start()
             except Exception as error:  # noqa: BLE001 - this member alone fails
+                receiver.close()
                 _member_failed(member, f"its worker could not start: {error}")
                 continue
-            processes[member.key] = process
-        waiting = set(processes)
-        drained = False
-        while waiting:
-            try:
-                kind, key, value = output.get(timeout=0.2)
-            except queue.Empty:
-                if any(processes[key].is_alive() for key in waiting):
+            finally:
+                sender.close()
+            processes.append(process)
+            receivers[receiver] = member
+        while receivers:
+            for ready in multiprocessing.connection.wait(list(receivers)):
+                receiver = cast(multiprocessing.connection.Connection, ready)
+                member = receivers.pop(receiver)
+                try:
+                    kind, value = receiver.recv()
+                except EOFError:
+                    _member_failed(member, "its worker exited without a result")
                     continue
-                # A worker that exited may still have a result in the pipe.
-                if drained:
-                    break
-                drained = True
-                continue
-            waiting.discard(key)
-            member = by_key[key]
-            if kind != "outcome":
-                _member_failed(member, value)
-                continue
-            member.completion = value
-            member.execution = _execution_name(value)
-            _publish_ready(resolved, members, publication)
-        for key in waiting:
-            _member_failed(by_key[key], "its worker exited without a result")
+                except Exception as error:  # noqa: BLE001 - a torn result
+                    _member_failed(member, f"its result could not be read: {error}")
+                    continue
+                finally:
+                    receiver.close()
+                if kind != "outcome":
+                    _member_failed(member, value)
+                    continue
+                member.completion = value
+                member.execution = _execution_name(value)
+                _publish_ready(resolved, members, publication)
         _stop_publication(members, publication)
     except KeyboardInterrupt:
-        _terminate_batch_processes(list(processes.values()))
+        _terminate_batch_processes(processes)
         return _interrupted_batch(resolved, members)
     finally:
-        _terminate_batch_processes(list(processes.values()))
-        output.close()
-        output.join_thread()
+        _terminate_batch_processes(processes)
+        for receiver in receivers:
+            receiver.close()
     return None
 
 
@@ -1053,6 +1058,7 @@ def _batch_result(
     return HeddleResult.success(
         {
             "feature": resolved.feature,
+            "workspace": refreshed.snapshot.workspace,
             "gates": list(dict.fromkeys(member.parsed.gate for member in members)),
             "members": [
                 _batch_member_summary(member, member_actions[member.key])
@@ -1163,13 +1169,16 @@ def _batch_member_summary(
     member: _BatchMember, actions: tuple[NextAction, ...] = ()
 ) -> dict[str, Any]:
     outcome = member.completion
-    artifact = (
-        str(outcome.run.artifact)
-        if isinstance(outcome, ReuseResult)
-        else outcome.artifact_relpath
-        if outcome is not None
-        else ""
-    )
+    status: str | None = None
+    findings: Mapping[str, Any] = {}
+    artifact = ""
+    if isinstance(outcome, ReuseResult):
+        projection = entry.machine_projection_from_result(outcome.result)
+        status, findings = projection["status"], projection["findings"]
+        artifact = str(outcome.run.artifact)
+    elif outcome is not None:
+        status, findings = outcome.status, outcome.findings
+        artifact = outcome.artifact_relpath
     return {
         "gate": member.parsed.gate,
         "scope": member.scope,
@@ -1180,6 +1189,10 @@ def _batch_member_summary(
         "execution": member.execution,
         "publication": member.publication,
         "reuse": member.reuse,
+        # The verdict and finding counts a standalone run reports, so the
+        # driver's fold can name them for every member.
+        "status": status,
+        "findings": dict(findings),
         "artifact": artifact,
         "run_id": member.run_id,
         "error": (

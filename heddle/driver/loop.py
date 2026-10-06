@@ -573,6 +573,7 @@ def _gate_verdict_problem(result: HeddleResult) -> ValidationProblem:
     data = result.data or {}
     members = data.get("members")
     if isinstance(members, list):
+        workspace = str(data.get("workspace") or "")
         rows = []
         for member in members:
             if not isinstance(member, dict):
@@ -588,11 +589,14 @@ def _gate_verdict_problem(result: HeddleResult) -> ValidationProblem:
                 else []
             )
             findings = member.get("findings")
-            classifications = (
-                findings.get("by_classification", {})
+            counts = (
+                findings.get("by_classification") or {}
                 if isinstance(findings, dict)
                 else {}
             )
+            artifact = str(member.get("artifact") or "")
+            if artifact and workspace:
+                artifact = f"{workspace.rstrip('/')}/{artifact}"
             # Two slots of one gate stay distinguishable by their slot name.
             label = " ".join(
                 str(part)
@@ -604,13 +608,18 @@ def _gate_verdict_problem(result: HeddleResult) -> ValidationProblem:
                 f"run {member.get('run_id') or 'unrecorded'}, "
                 f"execution {member.get('execution', 'unknown')}, "
                 f"publication {member.get('publication', 'unknown')}, "
-                f"findings {classifications}, "
+                f"verdict {member.get('status') or 'unknown'}, "
+                f"findings: {counts.get('implement', 0)} IMPLEMENT, "
+                f"{counts.get('report', 0)} REPORT, "
+                f"artifact {artifact or 'none'}, "
                 f"remedies {commands or ['reassess native readiness']}"
             )
         return ValidationProblem(
             detail=(
-                "Completed gate batch requires convergence. Account for every "
-                "member before reassessing readiness:\n" + "\n".join(rows)
+                "Completed gate batch requires convergence. Read each member's "
+                "review artifact, apply every Critical/Important IMPLEMENT "
+                "finding, and account for every member before reassessing "
+                "readiness:\n" + "\n".join(rows)
             )
         )
     if data.get("interpretation_required"):
