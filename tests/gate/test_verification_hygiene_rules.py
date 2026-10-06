@@ -124,7 +124,11 @@ class TestBoundaryAndProofPartial:
 class TestReviewEvidenceKindsPartial:
     # Spec and plan review state their own document-level evidence kinds; the
     # prompts below review tests or code and are validated against this rule.
+    # A reviewer that never saw it claimed full AC coverage on absent evidence.
     SPLICING_PROMPTS = (
+        "behavior-review.md",
+        "complexity-review.md",
+        "milestone-review.md",
         "peer-review-sequential.md",
         "review-test-scaffolding.md",
         "robustness-analysis.md",

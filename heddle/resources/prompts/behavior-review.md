@@ -71,6 +71,8 @@ representation. Cover every supplied AC exactly once in both ac_status and
 ac_coverage, and every assigned dimension exactly once. Explain what evidence
 establishes each conclusion and any material limit. Keep the summary standalone.
 
+[partial-review-evidence-kinds]
+
 Report supported contract violations according to the supplied round purpose.
 On a first review, report them as findings; prior_dispositions and regressions
 are empty. On a verification rerun, findings contain unresolved originals,

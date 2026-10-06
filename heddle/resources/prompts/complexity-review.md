@@ -62,6 +62,8 @@ representation. Cover every supplied AC exactly once in both ac_status and
 ac_coverage, and every assigned dimension exactly once. Explain what evidence
 establishes each conclusion and any material limit. Keep the summary standalone.
 
+[partial-review-evidence-kinds]
+
 An actual contract violation is a finding; a possible improvement is not one
 without its consequential gap. Keep severity, classification and confidence
 independent. Critical concerns threaten required behavior or structural
