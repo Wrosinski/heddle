@@ -696,12 +696,12 @@ def test_ac6_a_member_preparation_refusal_refuses_the_batch_naming_that_member(
 
     monkeypatch.setattr(entry, "prepare_gate_run", refusing)
     before = state_path.read_bytes()
-    standalone = run_slot(*S)
-    assert not standalone.ok and state_path.read_bytes() == before, (
-        "fixture precondition: the secondary's preparation refuses on its own"
-    )
     with multiprocessing.Manager() as manager:
         calls = install_counting_engine(monkeypatch, manager)
+        standalone = run_slot(*S)
+        assert not standalone.ok and not calls and state_path.read_bytes() == before, (
+            "fixture precondition: the secondary's preparation refuses on its own"
+        )
         refused = execute_batch()
         call_count = len(calls)
     assert not refused.ok
