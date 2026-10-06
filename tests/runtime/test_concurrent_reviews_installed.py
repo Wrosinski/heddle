@@ -1,4 +1,4 @@
-"""concurrent-reviews-v1 installed journey: explicit e2e grant required (D1).
+"""Installed concurrent review journey: needs an explicit e2e grant.
 
 Collection is safe. Execution builds one offline wheel and drives a temporary
 Git host through the installed CLI. Only the claude and codex executables are

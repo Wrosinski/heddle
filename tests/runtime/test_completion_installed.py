@@ -1096,7 +1096,7 @@ def test_distinct_gate_concurrency_installed_partial_publication_recovery(
     for cli in ("claude", "codex"):
         write_executable(bin_dir / cli, sentinel)
     before_calls = calls.read_text().splitlines()
-    # concurrent-reviews-v1 AC-8 (decision D4): with behavior recorded, the
+    # Concurrent review AC-8: with behavior recorded, the
     # one-member remainder is refused by run-gates and routed to its own
     # standalone run-gate, which records the durable output without a call.
     complexity = (

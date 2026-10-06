@@ -720,7 +720,7 @@ def test_ac8_launch_failure_reports_the_member_and_leaves_no_worker(
 def test_ac6_a_member_preparation_refusal_refuses_the_batch_naming_that_member(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Decision D4: the batch returns that member's own standalone refusal."""
+    """The batch returns the refused member's own standalone refusal."""
     from dataclasses import replace
 
     from heddle.gate import entry
