@@ -38,6 +38,7 @@ docs/patterns/cas-guarded-state-write-seam.md
 docs/patterns/conjunctive-safety-decision-matrix.md
 docs/patterns/content-bound-verification-authority.md
 docs/patterns/contract-value-citation-lock.md
+docs/patterns/crash-isolated-worker-result-pipes.md
 docs/patterns/derived-state-cache-on-fact-ledger.md
 docs/patterns/event-anchored-fake-clock.md
 docs/patterns/fatal-advisory-by-reliance-test.md

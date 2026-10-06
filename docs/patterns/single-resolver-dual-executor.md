@@ -60,3 +60,16 @@ detached-cloud flow mode reuses `derive_next_actions` + the same write seams as 
 *third* executor (alongside HITL and `heddle drive`) rather than a new
 orchestrator; the only additions are the mode value and any mode-conditional
 blocking derivations.
+
+**Second scenario: projection and execution of one derived set.** A resolver
+can also decide *which* steps run together, not just the next one. Heddle's
+review launch set is decided by one pure resolver. Readiness projects the set
+as a single batch action, and the batch command calls the same resolver again
+under its locks. If the second derivation differs from the first in any
+member or lock location, the command refuses before doing any work and
+returns the current actions. It never runs the re-derived set, which no one
+was shown. The executor keeps no record of the set: a restart derives it
+again from state, so steps already recorded drop out. When projecting such a
+set, replace only the actions the set's members would run, matched by the
+executor's own selection rule. A neighbouring action the set does not cover,
+such as one the host refuses, keeps its place and stays visible.
