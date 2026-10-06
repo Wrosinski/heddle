@@ -1367,21 +1367,7 @@ def _run_locked(
         ValueError,
         MemoryError,
     ) as error:
-        typed_error = (
-            error
-            if isinstance(error, KernelError)
-            else KernelError(
-                code="workspace-invalid",
-                message=f"gate inputs could not be prepared: {error}",
-                hint="restore every declared readable gate input, then rerun the gate",
-            )
-        )
-        return kernel_error_result(
-            typed_error,
-            exit_codes=_RESOLUTION_EXITS,
-            diagnostics=resolved.diagnostics,
-            include_feature_switch_action=False,
-        )
+        return _preparation_failure(resolved, error)
     if isinstance(prepared_member, HeddleResult):
         return prepared_member
     member = prepared_member
