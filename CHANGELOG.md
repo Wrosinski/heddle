@@ -29,6 +29,15 @@ authority for the installed version.
   the default at the final boundary, and readiness says the owner may waive it.
   While review work at that boundary is still open, readiness lists that rerun
   after the review actions, so automated flow reruns once the reviews settle.
+- Review slots that read none of each other's findings now launch together at
+  every stage, not only the initial Full peer-review pair. When readiness would
+  route two or more such slots, such as a review's primary and secondary or
+  distinct reviews due together, it emits one `heddle run-gates` action that
+  runs them concurrently and records each result in order. A recorded `fail`
+  or `pass_with_conditions` verdict completes its member, and every member
+  keeps its own remedy. The new `.heddle.yaml` setting `reviews.launch`
+  defaults to `concurrent`; set it to `sequential` to launch one slot at a
+  time.
 
 ### Added
 

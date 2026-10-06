@@ -31,16 +31,16 @@ owner, review point and any substitute evidence; a budget exception must be
 measured and scoped.
 
 Read native status/orientation for the effective matrix and legal next actions.
-The available whole-feature roles are `peer-review-sequential`, `behavior-review`,
-and `complexity-review`; run only the confirmed assignments through `heddle
-run-gate`. Reviewer sequencing follows the runtime's independence rule: launch
-the confirmed initial assignments concurrently when they are independent,
-meaning distinct roles or milestone scopes whose initial reviews do not read
-each other's findings, with no pending fix or decision between them. Keep one
-run per assignment slot at a time and preserve independent initial contexts,
-including required secondary slots. Commands that carry `--expect-revision`
-run one at a time with a fresh revision. Read all required initial reports
-before remediation.
+The available whole-feature roles are `peer-review-sequential`,
+`behavior-review`, and `complexity-review`; run only the confirmed assignments.
+Reviewer sequencing follows the emitted review action: readiness joins slots
+whose reviews read none of each other's findings, with no pending fix or
+decision between them, into one `run-gates` action that launches them
+concurrently; with `reviews.launch: sequential` it emits each slot's
+`heddle run-gate` instead. Keep one run per assignment slot at a time and
+preserve independent initial contexts, including required secondary slots.
+Commands that carry `--expect-revision` run one at a time with a fresh revision.
+Read all required initial reports before remediation.
 
 There is no synthesis authority or manual merged verdict. The lead accounts
 for every original finding and coverage duty through native evidence-bound

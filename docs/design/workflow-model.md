@@ -312,10 +312,12 @@ and location before evidence binding. Native dispositions remain the closure
 authority. Product assessments remain owned product artifacts outside the
 protected workflow workspace, and Kickoff guidance creates or moves neither kind.
 
-The one declared concurrent group is eligible initial `behavior-review` and
-`complexity-review`. `heddle run-gates` admits the pair from one snapshot,
-runs isolated workers and serializes result publication. Other states follow
-single-role actions; callers cannot supply arbitrary role groups or worker counts.
+Review slots launch together by one derived rule at every stage: readiness
+joins the routed slots whose reviews read none of each other's findings into
+one `heddle run-gates` action. It re-derives them under their gate locks, runs
+isolated workers and records results one at a time in catalog role and slot
+order. `reviews.launch: sequential` keeps one slot per action; callers cannot
+supply role groups or worker counts.
 
 Successful duty-bearing spec, plan, scaffold and milestone transitions seal their
 accepted assignments in append-only boundary receipts. Those receipts preserve

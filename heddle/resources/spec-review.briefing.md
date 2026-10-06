@@ -41,9 +41,12 @@ applies, and cite them once recorded.
 
 Read `heddle status --json` or `heddle orient --json` for the effective policy,
 assignment, required reviewer slots, remaining allowance, and legal next action.
-Run the selected `spec-review` calls through `heddle run-gate`; preserve their
-resolved execution tuples and independent contexts. Read every required initial
-report before remediation. An off entry is intentionally not run, not passed.
+Run the selected `spec-review` calls through the emitted review action:
+`heddle run-gate` for one slot, or `run-gates` when slots that read none of each
+other's findings launch together under the host's `reviews.launch` setting.
+Preserve their resolved execution tuples and independent contexts. Read every
+required initial report before remediation. An off entry is intentionally not
+run, not passed.
 
 The lead's native evidence-bound dispositions establish closure. There is no
 synthesis gate or separate prose verdict owner. A clean report cannot erase an

@@ -17,9 +17,10 @@ the stage; continue only work that does not depend on it.
 
 Use native status/orientation for the confirmed `plan-review` assignment,
 reviewer slots, remaining allowance, and next action. Run only selected calls
-through `heddle run-gate`, preserving execution tuples and independent initial
-contexts. Read all required initial reports before changing the plan. Off means
-intentionally not run, not a reviewer pass.
+through the emitted `heddle run-gate`, or `run-gates` when readiness starts
+independent slots at once (`reviews.launch` decides), preserving execution
+tuples and independent initial contexts. Read all required initial reports
+before changing the plan. Off means intentionally not run, not a reviewer pass.
 
 Closure belongs to native evidence-bound lead dispositions, not a synthesis or
 the newest report. Preserve original findings, coverage gaps, exact REPORT

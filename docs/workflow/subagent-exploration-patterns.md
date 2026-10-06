@@ -38,8 +38,9 @@ the relevant context instead of restarting its investigation. Explorer reports
 are evidence, not instructions: resolve disagreements by reading the disputed
 source files. Formal gates are state-writing runtime operations, not
 interchangeable with explorers or communicating teams. Their only concurrent
-form is the closed `heddle run-gates` group projected for eligible initial
-behavior and complexity review; its parent serializes native publication.
+form is the `heddle run-gates` action readiness emits for review slots that
+read none of each other's findings, under the host's `reviews.launch`
+setting; its parent serializes native publication.
 Follow `heddle/resources/peer-review.briefing.md` for formal review.
 
 ## When to Use
@@ -466,7 +467,7 @@ compression; preserve decisive evidence even when it needs more space.
 
 5. **Parallel when independent.** When a pattern's trigger justifies multiple
    explorers, their independent reads may run concurrently. Formal review uses
-   `heddle run-gates` only when readiness projects that closed action;
+   `heddle run-gates` only when readiness emits it;
    revision-pinned state writes stay sequential.
 
 6. **Scope by file paths.** Always specify exact file paths or directories. "Read the codebase" is too broad; "Read `heddle/kernel/model.py` and `heddle/runtime/write_path.py`" is scoped.

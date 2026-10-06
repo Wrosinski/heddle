@@ -144,7 +144,9 @@ formal gate artifacts retain their required structure and non-narration rules.
    artifacts or commented-out code, `Verified-by:` routes current,
    `[PROPAGATE]` tags applied or explicitly deferred, message naming the
    milestone.
-5. Follow the confirmed `milestone-review` assignment through `heddle run-gate`.
+5. Follow the confirmed `milestone-review` assignment through its emitted
+   action: `heddle run-gate` per slot, or `run-gates` for slots that
+   `reviews.launch` lets start together.
    Off means intentionally not run, not passed. Read all required initial
    reports before remediation; Minor findings are audit-only. Apply supported
    Critical/Important IMPLEMENT fixes, rerun affected milestone/consumer proof,
@@ -243,7 +245,7 @@ with this payload. Round opening remains boundary-owned:
 }
 ```
 
-Use the actual role and scope, then launch that confirmed `heddle run-gate`.
+Use the actual role and scope, then follow the round's emitted review action.
 Verification can follow lead closure while the assignment remains unsealed
 and allowance is available. Required targets include the preceding completed
 round's concerns across slots and still-open originals, including `@coverage`.

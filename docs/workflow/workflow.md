@@ -92,23 +92,28 @@ rewriting a reviewer result into a new combined authority.
 Use [exploration patterns](subagent-exploration-patterns.md) only when independent
 read-only work is available, authorized and useful beside local work. Explorer
 reports are evidence, not formal reviews, decisions or state-writing authority.
-Heddle exposes concurrent formal review only through a declared typed group.
-At the initial Full peer-review boundary, readiness replaces the independent
-`behavior-review` and `complexity-review` actions with one `heddle run-gates`
-action. The command accepts only `--feature` and runs at most those two primary
-assignments. It acquires their gate-type locks in declared order, prepares both
-from one state snapshot, admits both calls before launch, and runs isolated
-workers. Workers write gate artifacts; as each next declared-order result becomes
-available, the parent alone records it while any unfinished sibling continues.
-Publication remains behavior-then-complexity and one state write at a time.
+Formal review slots launch concurrently by one rule at every stage. When
+readiness would route two or more review slots whose reviews read none of each
+other's findings, such as the primary and secondary of one review or distinct
+reviews due together, it emits one `heddle run-gates` action in place of their
+`heddle run-gate` actions. The command accepts only `--feature`. It re-derives
+the set under one lock per gate, prepares every member from one state snapshot
+exactly as that slot's own `run-gate` would, and runs isolated workers. Workers
+write gate artifacts; the parent alone records each result, in catalog role
+order and primary before secondary, as soon as the next one is available. A
+recorded unconverged verdict is a completed review; the command fails only when
+a member fails, is interrupted, cannot launch or cannot be recorded. Set
+`reviews.launch: sequential` in `.heddle.yaml` to launch one slot at a time.
 
-If either member is disabled, already completed outside the batch, awaiting a
-decision or disposition, using a later round or slot, or otherwise dependent,
-readiness keeps the current `heddle run-gate` action. Do not construct a role
-list or worker count: no such public inputs exist. On a provider failure,
-interruption, or CAS conflict, inspect every returned member summary. Completed
-artifacts remain available for restart, and `heddle run-gates` resolves exact or
-recoverable output before admitting another provider call. Commands carrying
+Off roles, unauthorized stages, sealed reviews, slots that already have an
+accepted review, and reviews whose completed output awaits repair after a
+source change never join a set; a lone remaining slot keeps its
+`heddle run-gate` action. Do not construct a role list or worker count: no such
+public inputs exist. On a provider failure, interruption, or CAS conflict, inspect
+every returned member summary; each carries its own remedy naming its role,
+scope and reviewer. Completed artifacts remain available for restart, and
+`heddle run-gates` or the slot's own `run-gate` records recoverable output
+before admitting another provider call. Commands carrying
 `--expect-revision` remain sequential and must reread the revision before each
 write. This reference grants neither delegation nor external execution.
 
@@ -469,8 +474,9 @@ projection; it does not create another progress owner.
 
 ## Phase 7: Automated Peer Review (CLI Gate)
 
-Execute the projected `heddle run-gates` action when the declared initial pair
-is eligible; otherwise execute the projected single-gate action. Then follow
+Execute the emitted review action: `heddle run-gates` when independent slots
+launch together under `reviews.launch`, otherwise each slot's
+`heddle run-gate`. Then follow
 native routing for dispositions and any verification round.
 Judge implementation against the spec's commitments, plan architecture and
 actual consumer behavior within each role's allowed inputs. Preserve original

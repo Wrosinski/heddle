@@ -130,6 +130,10 @@ repository unchanged.
   Off drops the owner's confirmation of conforming work and review refinements
   inside approved parts; scope changes, concept deltas and execution grants
   still go to the owner.
+- Review slots that read none of each other's findings launch together through
+  `heddle run-gates`, at any stage. Set `reviews.launch` to `sequential` to
+  launch one slot at a time; readiness then emits each slot's
+  `heddle run-gate`.
 
 Host tooling owns `.heddle.yaml`'s `autopilot.test_command`, which configures
 the additional close suite run by `heddle feature complete`. It does not replace

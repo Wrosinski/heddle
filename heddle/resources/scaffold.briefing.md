@@ -267,16 +267,18 @@ target contract makes the relevant test fail.
 ## Gate and completion evidence
 
 Follow the confirmed `review-test-scaffolding` assignment and emitted native
-next actions. Run selected calls through `heddle run-gate`; preserve independent
-initial contexts and read all required initial reports before remediation.
-Off means intentionally not run, not passed. Native evidence-bound lead
-dispositions own closure; there is no synthesis gate. Preserve exact original
-finding/decision references, coverage gaps, and originating inspection duties.
-Use the remaining round allowance and explicit stop/budget decisions, not a
-hardcoded tier sequence or a new lower cap.
-At a reached confirmed cap, `heddle review allowance` can raise an owner-approved
-absolute quality round limit. It invokes no provider and does not resolve a stop
-or open a round; follow the separate native actions in their emitted order.
+next actions. Run selected calls through the emitted `heddle run-gate`, or
+through the one `run-gates` action that starts both slots when the host's
+`reviews.launch` is concurrent; preserve independent initial contexts and read
+all required initial reports before remediation. Off means intentionally not
+run, not passed. Native evidence-bound lead dispositions own closure; there is
+no synthesis gate. Preserve exact original finding/decision references, coverage
+gaps, and originating inspection duties. Use the remaining round allowance and
+explicit stop/budget decisions, not a hardcoded tier sequence or a new lower
+cap. At a reached confirmed cap, `heddle review allowance` can raise an
+owner-approved absolute quality round limit. It invokes no provider and does not
+resolve a stop or open a round; follow the separate native actions in their
+emitted order.
 
 The stage is ready for **implement** when the AC coverage matrix is complete,
 the confirmed e2e and declared live commands are bound within their grants,

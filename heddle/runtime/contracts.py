@@ -1226,7 +1226,7 @@ COMMAND_SURFACE: tuple[CommandContract, ...] = (
     CommandContract(
         name=ops.operation_type_name(ops.RunGates),
         cli_binding=("gate_run", "run_gates"),
-        summary="run the declared independent review-gate group",
+        summary="run review slots that read none of each other's findings together",
         mutating=True,
         dry_run=False,
         args=(),

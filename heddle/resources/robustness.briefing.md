@@ -9,9 +9,11 @@ harden within the authorized contract.
 
 Use native status/orientation for the confirmed `robustness-analysis`
 assignment, reviewer slots, allowance, and next action. Run only selected calls
-through `heddle run-gate`, with independent initial contexts and all required
-initial reports read before remediation. The runtime records canonical results
-and decisions; the lead records evidence-bound dispositions, not a synthesis.
+through the emitted action, a slot's `heddle run-gate` or, for slots the host's
+`reviews.launch` default starts together, `run-gates`, with independent initial
+contexts and all required initial reports read before remediation. The runtime
+records canonical results and decisions; the lead records evidence-bound
+dispositions, not a synthesis.
 
 When Overlay R is off, there is no substitute inline review obligation. Follow
 the native route: peer review owns the final proof boundary. Off is intentionally
