@@ -29,6 +29,8 @@ from heddle.contracts.schemas import (
     GATES_KEYS,
     HOST_COMMAND_KEYS,
     LAYOUT_KEYS,
+    REVIEW_LAUNCH_MODES,
+    REVIEWS_KEYS,
     WORKSPACE_STATE,
 )
 
@@ -119,6 +121,8 @@ class ProjectConfig:
     checkpoints: Mapping[str, bool] = field(
         default_factory=lambda: dict.fromkeys(CHECKPOINTS_KEYS, True)
     )
+    # How independent review slots launch: one of REVIEW_LAUNCH_MODES.
+    review_launch: str = REVIEW_LAUNCH_MODES[0]
 
 
 def feature_state_path(config: ProjectConfig, slug: str) -> Path:
@@ -246,6 +250,7 @@ def load_project_config(root: Path) -> ProjectConfig:
     }
     autopilot_section_present = False
     checkpoints = dict.fromkeys(CHECKPOINTS_KEYS, True)
+    review_launch = REVIEW_LAUNCH_MODES[0]
     diagnostics: list[ConfigDiagnostic] = []
 
     # One pass in file order so diagnostics follow document order.
@@ -349,6 +354,19 @@ def load_project_config(root: Path) -> ProjectConfig:
                         f"checkpoints.{key}", "a bool", value, config_path
                     )
                 checkpoints[key] = value
+        elif section == "reviews":
+            for key, value in _section_items(section, raw_value, config_path):
+                if key not in REVIEWS_KEYS:
+                    diagnostics.append(_unknown_key_diagnostic(section, key))
+                    continue
+                if value not in REVIEW_LAUNCH_MODES:
+                    raise _wrong_type(
+                        f"reviews.{key}",
+                        "`concurrent` or `sequential`",
+                        value,
+                        config_path,
+                    )
+                review_launch = value
         else:
             diagnostics.append(
                 ConfigDiagnostic(
@@ -373,6 +391,7 @@ def load_project_config(root: Path) -> ProjectConfig:
         ),
         diagnostics=tuple(diagnostics),
         checkpoints=checkpoints,
+        review_launch=review_launch,
     )
 
 

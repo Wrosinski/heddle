@@ -40,3 +40,8 @@
 # checkpoints:
 #   specification: true
 #   review_changes: true
+#
+# Review slots that do not read each other's findings launch together through
+# `heddle run-gates`. Set `sequential` to launch one slot at a time instead.
+# reviews:
+#   launch: concurrent

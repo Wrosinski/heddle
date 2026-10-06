@@ -380,6 +380,7 @@ HEDDLE_YAML_SECTIONS = (
     "gates",
     "autopilot",
     "checkpoints",
+    "reviews",
 )
 LAYOUT_KEYS = ("specs", "plans", "prompts", "schemas", "tests", "source")
 HOST_COMMAND_KEYS = ("test", "lint", "typecheck")
@@ -387,6 +388,9 @@ AGENTS_KEYS = ("claude", "codex")
 GATES_KEYS = ("enabled",)
 # Owner checkpoints a host may turn off; each defaults to on.
 CHECKPOINTS_KEYS = ("specification", "review_changes")
+# How independent review slots launch; concurrent unless the host says otherwise.
+REVIEWS_KEYS = ("launch",)
+REVIEW_LAUNCH_MODES = ("concurrent", "sequential")
 AUTOPILOT_KEYS = (
     "flow",
     "notify_command",
