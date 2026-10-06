@@ -400,10 +400,13 @@ def project_launch_actions(
     actions: list[NextAction] | tuple[NextAction, ...],
     members: tuple[LaunchMember, ...],
 ) -> list[NextAction]:
-    """Replace a launch set's own actions with one batch action in the first's place.
+    """Replace a launch set's own actions with one batch action.
 
-    A routed run-gate whose slot is not a member, such as one the host
-    refuses, keeps its place ahead of the batch so its refusal stays visible.
+    Only routed run-gates that select a member slot, by run-gate's own CLI
+    rule, are replaced. The batch takes the first replaced position, or
+    follows the last routed run-gate of a member gate when none is replaced.
+    A run-gate whose slot is not a member, such as one the host refuses,
+    keeps its own position so its refusal stays visible.
     """
     if len(members) < 2:
         return list(actions)
