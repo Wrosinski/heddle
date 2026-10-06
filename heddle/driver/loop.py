@@ -597,6 +597,13 @@ def _gate_verdict_problem(result: HeddleResult) -> ValidationProblem:
             artifact = str(member.get("artifact") or "")
             if artifact and workspace:
                 artifact = f"{workspace.rstrip('/')}/{artifact}"
+            # A retained capture has no findings until it is interpreted.
+            found = (
+                "findings unavailable until interpreted, not zero"
+                if member.get("status") == "retained"
+                else f"findings: {counts.get('implement', 0)} IMPLEMENT, "
+                f"{counts.get('report', 0)} REPORT"
+            )
             # Two slots of one gate stay distinguishable by their slot name.
             label = " ".join(
                 str(part)
@@ -609,8 +616,7 @@ def _gate_verdict_problem(result: HeddleResult) -> ValidationProblem:
                 f"execution {member.get('execution', 'unknown')}, "
                 f"publication {member.get('publication', 'unknown')}, "
                 f"verdict {member.get('status') or 'unknown'}, "
-                f"findings: {counts.get('implement', 0)} IMPLEMENT, "
-                f"{counts.get('report', 0)} REPORT, "
+                f"{found}, "
                 f"artifact {artifact or 'none'}, "
                 f"remedies {commands or ['reassess native readiness']}"
             )

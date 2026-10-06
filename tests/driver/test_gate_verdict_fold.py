@@ -520,6 +520,54 @@ def test_unconverged_gate_verdict_predicate_truth_table():
     assert loop_mod._is_unconverged_gate_verdict(batch_action, ok3)
 
 
+def test_gate_verdict_problem_names_member_findings_and_unread_retained_output():
+    """concurrent-reviews-v1 AC-7: member rows fold like standalone results."""
+    members = [
+        {
+            "gate": "spec-review",
+            "reviewer_slot": "primary",
+            "run_id": "run-primary",
+            "execution": "retained",
+            "publication": "retained",
+            "status": "retained",
+            "findings": {},
+            "artifact": "reviews/spec-review.capture.json",
+            "next_actions": [],
+        },
+        {
+            "gate": "spec-review",
+            "reviewer_slot": "secondary",
+            "run_id": "run-secondary",
+            "execution": "completed",
+            "publication": "recorded",
+            "status": "fail",
+            "findings": {"by_classification": {"implement": 2, "report": 1}},
+            "artifact": "reviews/spec-review.review.json",
+            "next_actions": [],
+        },
+    ]
+    result = HeddleResult.success(
+        {
+            "feature": "demo",
+            "workspace": "plans/demo/",
+            "gates": ["spec-review"],
+            "members": members,
+        },
+        exit_code=ExitCode.FATAL,
+    )
+    rows = {
+        line.split(":", 1)[0]: line
+        for line in loop_mod._gate_verdict_problem(result).detail.splitlines()
+    }
+    retained = rows["spec-review primary"]
+    assert "findings unavailable until interpreted, not zero" in retained, retained
+    assert "IMPLEMENT" not in retained, retained
+    assert "plans/demo/reviews/spec-review.capture.json" in retained, retained
+    recorded = rows["spec-review secondary"]
+    assert "verdict fail, findings: 2 IMPLEMENT, 1 REPORT" in recorded, recorded
+    assert "plans/demo/reviews/spec-review.review.json" in recorded, recorded
+
+
 def test_gate_verdict_problem_labels_batch_members_by_gate_and_slot():
     """concurrent-reviews-v1 AC-7: two slots of one gate stay distinguishable."""
     members = [
