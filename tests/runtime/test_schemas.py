@@ -324,6 +324,7 @@ class TestAC10HeddleYamlVocabulary:
             "gates",
             "autopilot",
             "checkpoints",
+            "reviews",
         )
 
     def test_layout_keys(self):
@@ -347,6 +348,14 @@ class TestAC10HeddleYamlVocabulary:
 
     def test_checkpoints_keys(self):
         assert schemas.CHECKPOINTS_KEYS == ("specification", "review_changes")
+
+    def test_reviews_keys(self):
+        # concurrent-reviews-v1 AC-10: one closed host launch setting.
+        assert getattr(schemas, "REVIEWS_KEYS", None) == ("launch",)
+        assert getattr(schemas, "REVIEW_LAUNCH_MODES", None) == (
+            "concurrent",
+            "sequential",
+        )
 
     def test_autopilot_keys(self):
         assert schemas.AUTOPILOT_KEYS == (

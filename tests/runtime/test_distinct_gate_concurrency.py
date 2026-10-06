@@ -26,6 +26,15 @@ from tests.tiering_helpers import OPUS, SOL, entry
 from tests.tiering_review_helpers import V7_FEATURE, current_host
 
 GROUP = ("behavior-review", "complexity-review")
+# Member remedies re-run exactly their own frozen reviewer (concurrent-reviews-v1).
+COMPLEXITY_RETRY = (
+    "heddle run-gate complexity-review --cli codex --model gpt-6-sol "
+    f"--reasoning-effort high --feature {V7_FEATURE}"
+)
+
+
+def _member(gate: str) -> dict:
+    return {"gate": gate, "scope": "feature", "reviewer_slot": "primary"}
 
 
 def _batch_host(
@@ -419,6 +428,7 @@ def test_ac4_exact_replay_adds_no_provider_call_credit_or_revision(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """concurrent-reviews-v1 AC-9: with no slot missing, a replay is refused."""
     _host, state_path = _batch_host(tmp_path, monkeypatch)
     with multiprocessing.Manager() as manager:
         starts, _finishes = _install_ordered_engine(monkeypatch, manager)
@@ -427,13 +437,9 @@ def test_ac4_exact_replay_adds_no_provider_call_credit_or_revision(
         before = state_path.read_bytes()
         call_count = len(starts)
         replay = _execute_batch()
-        assert replay.ok, replay.to_envelope()
         assert len(starts) == call_count == 2
+    assert not replay.ok, "FAIL AC-9: an exact replay with no new set succeeded"
     assert state_path.read_bytes() == before
-    assert [member["reuse"] for member in replay.data["members"]] == [
-        "exact",
-        "exact",
-    ]
 
 
 @pytest.mark.parametrize("conflict_at", ("before-first", "between-members"))
@@ -486,17 +492,33 @@ def test_ac5_unrelated_write_refuses_stale_publication_without_latest_merge(
         monkeypatch.setattr(gate_run, "_record", original)
         provider_calls = len(starts)
         revision = yaml.safe_load(state_path.read_text())["revision"]
-        recovered = _execute_batch()
-        assert recovered.ok, recovered.to_envelope()
+        if conflict_at == "before-first":
+            recovered = _execute_batch()
+            assert recovered.ok, recovered.to_envelope()
+            assert [member["reuse"] for member in recovered.data["members"]] == [
+                "recovered",
+                "recovered",
+            ]
+        else:
+            # concurrent-reviews-v1 AC-8: a one-member remainder routes to its
+            # own standalone run-gate, which records the durable output.
+            before = state_path.read_bytes()
+            refused = _execute_batch()
+            assert not refused.ok and state_path.read_bytes() == before
+            assert COMPLEXITY_RETRY in [
+                action.command for action in refused.next_actions
+            ], "FAIL AC-8: the one-member remainder is not routed to its run-gate"
+            standalone = application.execute(
+                ops.RunGate(
+                    "complexity-review",
+                    feature=V7_FEATURE,
+                    cli="codex",
+                    model="gpt-6-sol",
+                    reasoning_effort="high",
+                )
+            )
+            assert standalone.ok, standalone.to_envelope()
         assert len(starts) == provider_calls == 2
-        expected_reuse = (
-            ["recovered", "recovered"]
-            if conflict_at == "before-first"
-            else ["exact", "recovered"]
-        )
-        assert [member["reuse"] for member in recovered.data["members"]] == (
-            expected_reuse
-        )
         after_recovery = yaml.safe_load(state_path.read_text())["revision"]
         assert after_recovery == revision + (2 - expected_recorded)
         assert len(_gate_runs(state_path)) == 2
@@ -525,9 +547,9 @@ def test_ac6_mixed_engine_failure_keeps_completed_sibling_and_all_remedies(
     assert members[1]["publication"] == "recorded-error"
     assert members[0]["next_actions"] == []
     assert [action["command"] for action in members[1]["next_actions"]] == [
-        f"heddle run-gate complexity-review --feature {V7_FEATURE}"
+        COMPLEXITY_RETRY
     ]
-    assert result.error.details["selected_member"] == "complexity-review"
+    assert result.error.details["selected_member"] == _member("complexity-review")
     assert len(_gate_runs(state_path)) == 2
 
 
@@ -544,7 +566,7 @@ def test_ac6_aggregate_failure_ties_select_declared_gate_order(
         )
         result = _execute_batch()
     assert not result.ok
-    assert result.error.details["selected_member"] == "behavior-review"
+    assert result.error.details["selected_member"] == _member("behavior-review")
     assert [row["execution"] for row in result.error.details["members"]] == [
         "failed",
         "failed",
@@ -588,7 +610,7 @@ def test_ac6_publication_error_precedes_later_engine_failure(
 
     assert not result.ok
     assert result.error.code == "workspace-invalid"
-    assert result.error.details["selected_member"] == "behavior-review"
+    assert result.error.details["selected_member"] == _member("behavior-review")
     assert [row["execution"] for row in result.error.details["members"]] == [
         "completed",
         "failed",
@@ -781,7 +803,11 @@ def test_ac4_ac6_source_drift_retains_outputs_without_review_credit(
     monkeypatch.setattr(entry, "run_gate_for_runtime", unexpected)
     retry = _execute_batch()
     assert not retry.ok and calls == 0
-    assert "changed" in repr(retry.to_envelope()).lower()
+    # concurrent-reviews-v1 AC-3: completed output bound to changed source keeps
+    # each review out of the batch; its own single-gate action remains.
+    assert any(
+        action.command.startswith("heddle run-gate ") for action in retry.next_actions
+    )
     assert {
         path.name: path.read_bytes() for path in artifact_dir.glob("*.review.json")
     } == artifacts

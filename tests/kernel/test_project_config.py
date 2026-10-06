@@ -325,3 +325,82 @@ class TestOwnerCheckpointSwitches:
             "review_changes": True,
         }
         assert [d.code for d in config.diagnostics] == ["config-unknown-key"]
+
+
+class TestReviewLaunchSetting:
+    """concurrent-reviews-v1 AC-10: `reviews.launch` is a closed host value,
+    concurrent unless the host sets sequential; a wrong value or type fails
+    loud naming the key, and unknown keys stay advisory (spec AC-10)."""
+
+    def _config(self, tmp_path: Path, body: str):
+        (tmp_path / ".heddle.yaml").write_text(body, encoding="utf-8")
+        return load_project_config(tmp_path)
+
+    def _launch(self, config) -> str:
+        assert hasattr(config, "review_launch"), (
+            "FAIL AC-10: ProjectConfig has no typed review_launch field"
+        )
+        return config.review_launch
+
+    @pytest.mark.parametrize(
+        "body",
+        (
+            pytest.param("", id="absent"),
+            pytest.param("reviews:\n", id="bare-heading"),
+            pytest.param("reviews:\n  launch: concurrent\n", id="concurrent"),
+        ),
+    )
+    def test_concurrent_is_the_default(self, tmp_path, body):
+        config = self._config(tmp_path, body)
+        assert self._launch(config) == "concurrent"
+        assert config.diagnostics == ()
+
+    def test_a_host_selects_sequential(self, tmp_path):
+        config = self._config(tmp_path, "reviews:\n  launch: sequential\n")
+        assert self._launch(config) == "sequential"
+        assert config.diagnostics == ()
+
+    @pytest.mark.parametrize(
+        "value",
+        (
+            pytest.param("parallel", id="unknown-value"),
+            pytest.param("Concurrent", id="wrong-case"),
+            pytest.param("true", id="bool"),
+            pytest.param("2", id="int"),
+            pytest.param("[concurrent]", id="list"),
+        ),
+    )
+    def test_an_invalid_value_or_type_fails_naming_the_key(self, tmp_path, value):
+        with pytest.raises(KernelError) as excinfo:
+            self._config(tmp_path, f"reviews:\n  launch: {value}\n")
+        assert excinfo.value.code == "workspace-invalid"
+        assert "reviews.launch" in excinfo.value.message, (
+            f"FAIL AC-10: error does not name reviews.launch: {excinfo.value.message}"
+        )
+
+    @pytest.mark.parametrize(
+        "body",
+        (
+            pytest.param("reviews: sequential\n", id="scalar"),
+            pytest.param("reviews:\n  - launch\n", id="list"),
+        ),
+    )
+    def test_a_non_mapping_section_fails_naming_the_section(self, tmp_path, body):
+        with pytest.raises(KernelError) as excinfo:
+            self._config(tmp_path, body)
+        assert excinfo.value.code == "workspace-invalid"
+        assert "section 'reviews'" in excinfo.value.message, (
+            f"FAIL AC-10: error does not name the section: {excinfo.value.message}"
+        )
+
+    def test_an_unknown_key_is_advisory(self, tmp_path):
+        config = self._config(tmp_path, "reviews:\n  workers: 2\n")
+        assert self._launch(config) == "concurrent"
+        assert [d.code for d in config.diagnostics] == ["config-unknown-key"]
+        assert "workers" in config.diagnostics[0].message
+
+    def test_a_mis_indented_launch_key_is_an_advisory_unknown_section(self, tmp_path):
+        config = self._config(tmp_path, "reviews:\nlaunch: sequential\n")
+        assert self._launch(config) == "concurrent"
+        assert [d.code for d in config.diagnostics] == ["config-unknown-key"]
+        assert "'launch'" in config.diagnostics[0].message

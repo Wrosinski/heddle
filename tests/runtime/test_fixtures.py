@@ -138,6 +138,7 @@ class TestAC10FixtureConfigs:
             "autopilot",
             "sync",
             "checkpoints",
+            "reviews",
         }
         assert set(config["layout"].keys()) == set(schemas.LAYOUT_KEYS)
         assert set(config["commands"].keys()) == set(schemas.HOST_COMMAND_KEYS)

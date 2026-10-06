@@ -515,6 +515,32 @@ def test_unconverged_gate_verdict_predicate_truth_table():
     )
     assert not loop_mod._is_unconverged_gate_verdict(other_action, ok4)
     assert loop_mod._is_unconverged_gate_verdict(batch_action, ok4)
+    # concurrent-reviews-v1 AC-7: a completed batch whose most severe member
+    # verdict is `fail` folds like a standalone run (survivor pin).
+    assert loop_mod._is_unconverged_gate_verdict(batch_action, ok3)
+
+
+def test_gate_verdict_problem_labels_batch_members_by_gate_and_slot():
+    """concurrent-reviews-v1 AC-7: two slots of one gate stay distinguishable."""
+    members = [
+        {
+            "gate": "spec-review",
+            "scope": "feature",
+            "reviewer_slot": slot,
+            "run_id": f"run-{slot}",
+            "execution": "completed",
+            "publication": "recorded",
+            "next_actions": [],
+        }
+        for slot in ("primary", "secondary")
+    ]
+    result = HeddleResult.success(
+        {"feature": "demo", "gates": ["spec-review"], "members": members},
+        exit_code=ExitCode.FATAL,
+    )
+    detail = loop_mod._gate_verdict_problem(result).detail
+    assert "spec-review primary: run run-primary" in detail, detail
+    assert "spec-review secondary: run run-secondary" in detail, detail
 
 
 def test_distinct_gate_batch_driver_accounts_all_members_then_reassesses_once(

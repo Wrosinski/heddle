@@ -431,6 +431,8 @@ def assert_heddle_yaml_conforms(config_path: Path) -> None:
         assert set(config["agents"].keys()) <= set(schemas.AGENTS_KEYS)
     if "gates" in config:
         assert set(config["gates"].keys()) <= set(schemas.GATES_KEYS)
+    if config.get("reviews"):
+        assert set(config["reviews"].keys()) <= set(schemas.REVIEWS_KEYS)
 
 
 # With --import-mode=importlib and no __init__.py, test modules cannot import

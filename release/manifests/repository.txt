@@ -255,6 +255,7 @@ scripts/pre-push
 scripts/qualify-public-repository.sh
 scripts/run-complete-test-band.py
 tests/completion_helpers.py
+tests/concurrent_review_helpers.py
 tests/conftest.py
 tests/content_identity_helpers.py
 tests/driver/conftest.py
@@ -532,6 +533,8 @@ tests/runtime/test_completion_feedback_installed.py
 tests/runtime/test_completion_installed.py
 tests/runtime/test_completion_repairs.py
 tests/runtime/test_completion_repairs_installed.py
+tests/runtime/test_concurrent_reviews.py
+tests/runtime/test_concurrent_reviews_installed.py
 tests/runtime/test_content_identity.py
 tests/runtime/test_contracts.py
 tests/runtime/test_coverage_observation.py
@@ -584,6 +587,7 @@ tests/runtime/test_review_allowance_integration.py
 tests/runtime/test_review_attempt_authority.py
 tests/runtime/test_review_coverage.py
 tests/runtime/test_review_freshness.py
+tests/runtime/test_review_launch.py
 tests/runtime/test_review_recommendations.py
 tests/runtime/test_review_retention.py
 tests/runtime/test_revision_guards.py

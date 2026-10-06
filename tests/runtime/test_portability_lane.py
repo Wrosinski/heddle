@@ -1814,6 +1814,7 @@ def test_ac16_red_config_scaffold_rail_matches_parser_vocabulary() -> None:
         HEDDLE_YAML_SECTIONS,
         HOST_COMMAND_KEYS,
         LAYOUT_KEYS,
+        REVIEWS_KEYS,
     )
 
     expected = {
@@ -1823,6 +1824,7 @@ def test_ac16_red_config_scaffold_rail_matches_parser_vocabulary() -> None:
         "gates": set(GATES_KEYS),
         "autopilot": set(AUTOPILOT_KEYS),
         "checkpoints": set(CHECKPOINTS_KEYS),
+        "reviews": set(REVIEWS_KEYS),
     }
     observed: dict[str, set[str]] = {}
     section_order: list[str] = []

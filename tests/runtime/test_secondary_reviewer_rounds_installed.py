@@ -12,6 +12,7 @@ import json
 import pytest
 import yaml
 
+from tests.content_identity_helpers import git
 from tests.runtime.wheel_harness import (
     build_installed_wheel,
     parse_envelope,
@@ -159,6 +160,12 @@ def _row(run_id, finding_id, **kw):
 
 def test_secondary_rounds_installed_host_a_journey(installed, tmp_path):
     case = journey(installed, tmp_path)
+    # concurrent-reviews-v1 AC-11 sequential control: this journey pins one
+    # routed run-gate per slot, so its host launches reviews sequentially.
+    config = case.root / ".heddle.yaml"
+    config.write_text(config.read_text() + "reviews:\n  launch: sequential\n")
+    git(case.root, "add", ".heddle.yaml")
+    git(case.root, "commit", "-qm", "launch reviews sequentially")
     prepared = case.payload("prepare.json", prepare_input())
     recommendation = case.run(
         "feature",

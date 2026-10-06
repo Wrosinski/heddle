@@ -1096,8 +1096,37 @@ def test_distinct_gate_concurrency_installed_partial_publication_recovery(
     for cli in ("claude", "codex"):
         write_executable(bin_dir / cli, sentinel)
     before_calls = calls.read_text().splitlines()
-    recovered = installed.run(
+    # concurrent-reviews-v1 AC-8 (decision D4): with behavior recorded, the
+    # one-member remainder is refused by run-gates and routed to its own
+    # standalone run-gate, which records the durable output without a call.
+    complexity = (
+        "run-gate",
+        "complexity-review",
+        "--cli",
+        "codex",
+        "--model",
+        "gpt-6-sol",
+        "--reasoning-effort",
+        "high",
+    )
+    before_state = state_path.read_bytes()
+    refused = installed.run(
         "run-gates",
+        "--feature",
+        V7_FEATURE,
+        "--json",
+        cwd=host,
+        env=env,
+    )
+    refusal = parse_envelope(refused)
+    assert not refusal["ok"], "FAIL AC-8: run-gates ran a one-member remainder"
+    assert [row["command"] for row in refusal["next_actions"]].count(
+        "heddle " + " ".join(complexity) + f" --feature {V7_FEATURE}"
+    ) == 1, f"FAIL AC-8: the remainder is not routed: {refusal['next_actions']}"
+    assert state_path.read_bytes() == before_state
+    assert calls.read_text().splitlines() == before_calls
+    recovered = installed.run(
+        *complexity,
         "--feature",
         V7_FEATURE,
         "--json",
@@ -1111,19 +1140,14 @@ def test_distinct_gate_concurrency_installed_partial_publication_recovery(
     recorded = [
         {"gate": gate["gate"], **run} for gate in value["gates"] for run in gate["runs"]
     ]
-    assert len(recorded) == 2
-    assert tuple(member["reuse"] for member in envelope["data"]["members"]) == (
-        "exact",
-        "recovered",
+    assert [run["gate"] for run in recorded] == list(GROUP), (
+        "FAIL AC-8: expected exactly one recorded run per slot"
     )
     artifact_evidence = {}
-    for member in envelope["data"]["members"]:
-        relative = member["artifact"]
-        artifact = state_path.parent / relative
-        raw = artifact.read_bytes()
+    for run in recorded:
+        relative = run["artifact"]
+        raw = (state_path.parent / relative).read_bytes()
         digest = sha256(raw).hexdigest()
-        run = next(row for row in recorded if row["gate"] == member["gate"])
-        assert run["artifact"] == relative
         assert run["artifact_sha256"] == digest
         artifact_evidence[relative] = (raw, digest)
     assert len(artifact_evidence) == 2

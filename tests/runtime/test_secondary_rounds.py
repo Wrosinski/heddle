@@ -14,6 +14,7 @@ from heddle.contracts import operations as ops
 from heddle.kernel.project_config import KernelError
 from heddle.kernel.state import parse_state_document
 from heddle.runtime.application import execute
+from tests.concurrent_review_helpers import set_launch
 from tests.secondary_rounds_helpers import (
     ASTRA_HIGH,
     FABLE_HIGH,
@@ -40,7 +41,6 @@ from tests.tiering_helpers import (
 )
 from tests.tiering_review_helpers import (
     V7_FEATURE,
-    current_host,
     dispose,
     disposition,
     gate_command,
@@ -53,6 +53,16 @@ from tests.tiering_review_helpers import (
 
 BOTH = ["primary", "secondary"]
 PRIMARY = ["primary"]
+
+
+def current_host(tmp_path, monkeypatch, **kwargs):
+    """These journeys pin one-at-a-time routing: the host launches sequentially
+    (concurrent-reviews-v1 AC-11); the shared fixture keeps the default."""
+    from tests.tiering_review_helpers import current_host as shared_host
+
+    host, path = shared_host(tmp_path, monkeypatch, **kwargs)
+    set_launch(host, "sequential")
+    return host, path
 
 
 def _state(path):

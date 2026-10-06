@@ -28,6 +28,7 @@ longer false-greens.)
 from __future__ import annotations
 
 import functools
+import json
 import re
 import shutil
 from pathlib import Path
@@ -1050,3 +1051,68 @@ def test_secondary_window_guidance_names_the_window(path, names_window) -> None:
         "spec and plan in the first round",
     ):
         assert retired not in text, f"FAIL AC-10: {path.name} keeps {retired!r}"
+
+
+# concurrent-reviews-v1 AC-12: guidance that tells a lead how reviews launch.
+LAUNCH_RULE_GUIDANCE = (
+    *(
+        RESOURCES / f"{stage}.briefing.md"
+        for stage in (
+            "spec-review",
+            "plan-review",
+            "scaffold",
+            "implement",
+            "peer-review",
+            "robustness",
+        )
+    ),
+    REPO_ROOT / "docs/workflow/workflow.md",
+    REPO_ROOT / "docs/design/workflow-model.md",
+    REPO_ROOT / "docs/workflow/host-integration.md",
+    REPO_ROOT / "docs/workflow/subagent-exploration-patterns.md",
+)
+RETIRED_LAUNCH_TEXT = (
+    "only through a declared typed group",
+    "declared initial pair",
+    "one declared concurrent group",
+    "closed `heddle run-gates` group",
+    "projects that closed action",
+    "launch the confirmed initial assignments concurrently",
+    "runs at most those two primary assignments",
+    "declared independent review-gate group",
+)
+
+
+@pytest.mark.parametrize(
+    "path", LAUNCH_RULE_GUIDANCE, ids=[path.name for path in LAUNCH_RULE_GUIDANCE]
+)
+def test_launch_guidance_describes_one_rule(path) -> None:
+    """AC-12: follow the emitted review action; `reviews.launch` picks the mode."""
+    text = " ".join(path.read_text(encoding="utf-8").split())
+    assert "run-gates" in text, f"FAIL AC-12: {path.name} never names run-gates"
+    assert "reviews.launch" in text, (
+        f"FAIL AC-12: {path.name} does not name the reviews.launch setting"
+    )
+    for retired in RETIRED_LAUNCH_TEXT:
+        assert retired not in text, f"FAIL AC-12: {path.name} keeps {retired!r}"
+
+
+def test_run_gates_help_and_changelog_describe_the_launch_rule(run_cli) -> None:
+    """AC-12: the help summary and the changelog carry the same rule."""
+    code, stdout, _stderr = run_cli(["help", "--json"])
+    assert code == 0
+    command = next(
+        row
+        for row in json.loads(stdout)["data"]["commands"]
+        if row["name"] == "run-gates"
+    )
+    summary = command["summary"]
+    assert "declared" not in summary and "group" not in summary, (
+        f"FAIL AC-12: run-gates help still describes a closed group: {summary!r}"
+    )
+    assert "slot" in summary, f"FAIL AC-12: run-gates help names no slots: {summary!r}"
+    changelog = (REPO_ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
+    unreleased = changelog.split("## [Unreleased]", 1)[1].split("\n## [", 1)[0]
+    assert "reviews.launch" in unreleased and "run-gates" in unreleased, (
+        "FAIL AC-12: the [Unreleased] changelog does not announce the launch rule"
+    )

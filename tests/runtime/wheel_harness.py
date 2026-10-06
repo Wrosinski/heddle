@@ -480,12 +480,24 @@ def _install_forbidden_source_audit_hook(site_packages: Path) -> None:
     )
 
 
-def write_review_shims(bin_dir: Path, responses: Path, log_path: Path) -> Path:
+def write_review_shims(
+    bin_dir: Path,
+    responses: Path,
+    log_path: Path,
+    *,
+    control: Path | None = None,
+) -> Path:
     """Doubled claude and codex CLIs that return ``responses/<cli>.json``.
 
     Each call logs argv, the controlled environment and stdin like
     ``write_claude_shim``; the test writes the canonical review content each
     CLI returns before running the gate.
+
+    With ``control``, each call first reads ``{"label": ..., "mode": ...}``
+    from that file. ``rendezvous`` writes ``started-<label>-<cli>`` beside it
+    and waits up to 60 s for the other CLI's start marker (missing: exit 3);
+    codex then also waits for ``finished-<label>-claude``, so the secondary
+    always finishes first. ``solo`` neither waits nor requires a sibling.
     """
     for cli in ("claude", "codex"):
         write_executable(
@@ -522,6 +534,29 @@ def write_review_shims(bin_dir: Path, responses: Path, log_path: Path) -> Path:
                         )
                     )
                     stream.write("\\n")
+                CONTROL = {str(control) if control else None!r}
+                label = mode = None
+                if CONTROL is not None:
+                    import time
+
+                    setting = json.loads(Path(CONTROL).read_text())
+                    label, mode = setting["label"], setting["mode"]
+                    markers = Path(CONTROL).parent
+
+                    def wait_for(name):
+                        deadline = time.monotonic() + 60
+                        while not (markers / name).exists():
+                            if time.monotonic() > deadline:
+                                sys.stderr.write("rendezvous timed out: " + name)
+                                sys.exit(3)
+                            time.sleep(0.05)
+
+                    if mode == "rendezvous":
+                        other = "codex" if CLI == "claude" else "claude"
+                        (markers / f"started-{{label}}-{{CLI}}").write_text("")
+                        wait_for(f"started-{{label}}-{{other}}")
+                        if CLI == "codex":
+                            wait_for(f"finished-{{label}}-claude")
                 content = Path({str(responses)!r}, CLI + ".json").read_text()
                 if CLI == "claude":
                     event = {{
@@ -543,6 +578,9 @@ def write_review_shims(bin_dir: Path, responses: Path, log_path: Path) -> Path:
                     )
                     for item in events:
                         sys.stdout.write(json.dumps(item) + "\\n")
+                if mode == "rendezvous":
+                    sys.stdout.flush()
+                    (markers / f"finished-{{label}}-{{CLI}}").write_text("")
                 """
             ),
         )

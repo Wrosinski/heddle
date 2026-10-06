@@ -198,6 +198,7 @@ class TestFeatureAcceptance:
             "gates",
             "autopilot",
             "checkpoints",
+            "reviews",
         )
         corpus.assert_heddle_yaml_conforms(corpus.tiny / ".heddle.yaml")
         corpus.assert_heddle_yaml_conforms(corpus.golden / ".heddle.yaml")
