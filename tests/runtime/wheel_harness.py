@@ -505,6 +505,7 @@ def write_review_shims(
             textwrap.dedent(
                 f"""\
                 #!/usr/bin/env python3
+                import fcntl
                 import json
                 import os
                 import sys
@@ -522,18 +523,19 @@ def write_review_shims(
                         "BASH_MAX_TIMEOUT_MS",
                     )
                 }}
+                record = json.dumps(
+                    {{
+                        "cli": CLI,
+                        "argv": sys.argv[1:],
+                        "environment": environment,
+                        "stdin": stdin,
+                    }}
+                )
+                # Concurrent slots share the log: append each record under a lock.
                 with Path({str(log_path)!r}).open("a", encoding="utf-8") as stream:
-                    stream.write(
-                        json.dumps(
-                            {{
-                                "cli": CLI,
-                                "argv": sys.argv[1:],
-                                "environment": environment,
-                                "stdin": stdin,
-                            }}
-                        )
-                    )
-                    stream.write("\\n")
+                    fcntl.flock(stream, fcntl.LOCK_EX)
+                    stream.write(record + "\\n")
+                    stream.flush()
                 CONTROL = {str(control) if control else None!r}
                 label = mode = None
                 if CONTROL is not None:

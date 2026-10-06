@@ -361,6 +361,21 @@ def test_concurrent_reviews_installed_journey(installed, tmp_path):
         case, [_row(run_id, "@coverage", status="settled") for run_id in plan_runs]
     )
     assert closed["data"]["closure"]["closed"], "FAIL AC-11: plan review did not close"
+    # The launch switch is host configuration, not feature work.
+    attribution = case.payload(
+        "attribution.json",
+        {
+            "schema": "heddle.source-attribution-input/v1",
+            "attributions": [
+                {
+                    "paths": [".heddle.yaml"],
+                    "references": [".heddle.yaml"],
+                    "reason": "The host switched reviews.launch to sequential.",
+                }
+            ],
+        },
+    )
+    case.run("feature", "sources", "attribute", "--from-file", attribution)
     case.run("validate")
 
     selections = [_selection(call) for call in providers.calls()]
