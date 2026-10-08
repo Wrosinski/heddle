@@ -236,6 +236,14 @@ requirement changes still follow Impact Assessment and Re-Plan. Explicit
 citations have separate evidence identity even when their files are unowned;
 coverage exemptions and ignore rules never filter those checks.
 
+When a milestone reuses or rebinds an inherited boundary, such as a shared
+read, a matching rule or a validator, name the boundary in its Work and propose
+at the specification checkpoint a feature policy amendment adding a
+milestone-review secondary: a second model on the other CLI, which can probe
+the real component with reduced limits, non-canonical input order and unusable
+inputs. The policy's one milestone-review entry covers every milestone, so that
+secondary joins each milestone's review within its `secondary_rounds` window.
+
 ## Validate and hand off
 
 Run `heddle validate`. Resolve document/schema failures before reporting readiness:
