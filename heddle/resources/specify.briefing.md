@@ -8,10 +8,10 @@ code or treat the confirmed policy as permission to expand scope.
 
 ## Authority
 
-This session owns the Feature Spec, its `_descriptions.yaml` entry, the
-feature's `brief.md` and `plan.md`, and milestone authoring through
-`heddle milestone add` / `heddle milestone edit`. Use `heddle decisions add`
-for an unresolved user-owned question. Never hand-edit `state.yaml` or intake
+This session owns the Feature Spec, its entries in `_descriptions.yaml` and any
+other feature index the host keeps, the feature's `brief.md` and `plan.md`, and
+milestone authoring through `heddle milestone add` / `heddle milestone edit`.
+Use `heddle decisions add` for an unresolved user-owned question. Never hand-edit `state.yaml` or intake
 history. Phase exit remains caller- or driver-owned. The stage ends at the
 specification checkpoint: unless it is off, no review starts until the owner
 rules on it.
@@ -171,7 +171,8 @@ Do not create a parallel EARS requirement inventory or prescribe private file
 layouts to make the spec appear concrete. Cite the ratified principles by name
 where they settle an ownership, dependency, or extension decision.
 
-Add the one-line knowledge-index entry in `docs/features/_descriptions.yaml`.
+Add the one-line knowledge-index entry in `docs/features/_descriptions.yaml`,
+and add the feature to every other feature index the host keeps.
 Ancillary tooling needs a named authorized consumer and need; the taxonomy is
 in the `necessity-anchor.md` prompt partial.
 Reviewers apply the two principles in the `boundary-and-proof.md` prompt
