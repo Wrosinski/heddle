@@ -681,6 +681,7 @@ def test_ac_coverage_standalone_validates_verified_by_targets(
     ],
     ids=["retired-ac", "later-section"],
 )
+@pytest.mark.toolchain
 def test_ac_coverage_block_ends_before_a_retired_ac_or_later_section(
     tmp_path: Path, follower: str
 ) -> None:
@@ -716,6 +717,7 @@ def test_ac_coverage_block_ends_before_a_retired_ac_or_later_section(
     ],
     ids=["broken-later-line", "empty-first-line"],
 )
+@pytest.mark.toolchain
 def test_ac_coverage_resolves_every_declaration_line(
     tmp_path: Path, declarations: str, broken: str | None
 ) -> None:
