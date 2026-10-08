@@ -1,9 +1,9 @@
 # Implementation Plan: {{slug}}
 
 Judgment prose for the {{slug}} workspace; operational facts live in
-`state.yaml`. Milestone prose sections join this document as level-3
-`Milestone <id>:` headings when `milestone add` records the first
-skeleton entry (validate enforces the id-join).
+`state.yaml`. `milestone add` records only the skeleton entry; the lead
+authors its level-3 `Milestone <id>:` section here (validate enforces the
+id-join).
 
 ## Quick Orientation
 

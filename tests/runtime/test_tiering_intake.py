@@ -326,7 +326,9 @@ def test_ac12_milestone_cli_accepts_current_complexity_without_hours(
             "--json",
         ]
     )
-    assert code != 0 and "complexity" in json.loads(out)["error"]["message"]
+    error = json.loads(out)["error"]
+    assert code == 2 and error["code"] == "usage", error
+    assert "complexity" in error["message"] and "low" in error["message"]
     assert formal(host).read_bytes() == before
 
 

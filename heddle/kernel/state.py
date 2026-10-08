@@ -151,7 +151,7 @@ class Milestone:  # §4.1/§10.1; MILESTONE_KEYS
     satisfies: tuple[str, ...]  # AC ids
     depends_on: tuple[str, ...]  # milestone ids
     owns: tuple[str, ...]  # repo-relative paths
-    complexity: str  # ∈ ("low", "medium", "high")
+    complexity: str  # ∈ COMPLEXITIES ("low", "high")
     estimated_hours: tuple[int, int] | None  # [lo, hi]; optional v7 metadata
     verification: Mapping[str, str]  # {command, expected}
     status: str  # ∈ MILESTONE_STATUSES

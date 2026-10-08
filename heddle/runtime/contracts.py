@@ -141,8 +141,7 @@ MILESTONE_PATCH_INPUT_SCHEMA: dict[str, Any] = {
             "type": "string",
             "required": False,
             "one_of": [
-                {"value": value, "summary": value}
-                for value in ("low", "medium", "high")
+                {"value": value, "summary": value} for value in sorted(COMPLEXITIES)
             ],
             "summary": "replacement milestone complexity",
         },
@@ -189,6 +188,72 @@ MILESTONE_PATCH_INPUT_SCHEMA: dict[str, Any] = {
         "owns and owns_append are mutually exclusive",
         "owns replaces ownership; owns_append unions unique normalized paths",
         "done milestones retain append-only ownership and verification repair rules",
+    ],
+}
+
+MILESTONE_INPUT_SCHEMA: dict[str, Any] = {
+    "id": "heddle.milestone-input/v1",
+    "media_type": "application/yaml",
+    "delivered_by": "--from-file <path|->",
+    "summary": "one new milestone skeleton appended to state",
+    "fields": {
+        "title": {
+            "type": "string",
+            "required": True,
+            "non_empty": True,
+            "summary": "milestone title",
+        },
+        "complexity": {
+            "type": "string",
+            "required": True,
+            "one_of": [
+                {"value": value, "summary": value} for value in sorted(COMPLEXITIES)
+            ],
+            "summary": "milestone complexity",
+        },
+        "verification": {
+            "type": "object",
+            "required": True,
+            "summary": "verification declaration",
+            "fields": {
+                "command": {
+                    "type": "string",
+                    "required": True,
+                    "summary": "verification shell command",
+                },
+                "expected": {
+                    "type": "string",
+                    "required": True,
+                    "summary": "expected verification outcome",
+                },
+            },
+        },
+        **{
+            name: {
+                "type": "list",
+                "required": False,
+                "summary": summary,
+                "items": {"type": "string"},
+            }
+            for name, summary in {
+                "satisfies": "acceptance-criterion references",
+                "depends_on": "existing milestone ids this milestone follows",
+                "owns": "normalized source ownership",
+            }.items()
+        },
+        "estimated_hours": {
+            "type": "list",
+            "required": False,
+            "summary": "two-integer [low, high] estimate; not required",
+            "items": {"type": "integer"},
+        },
+    },
+    "notes": [
+        "Heddle assigns id m<max+1> and status todo; a payload carrying id or "
+        "status is refused, and tasks come later from task expansion",
+        "unknown fields are refused",
+        "the command records the state skeleton only; author the matching "
+        "'### Milestone <id>:' section in the plan yourself",
     ],
 }
 
@@ -1448,6 +1513,7 @@ COMMAND_SURFACE: tuple[CommandContract, ...] = (
         ),
         exit_codes=_EXIT_CAS,
         output_schema="heddle.milestone-add/v0",
+        input_schema=MILESTONE_INPUT_SCHEMA,
     ),
     CommandContract(
         name=ops.operation_type_name(ops.MilestoneEdit),

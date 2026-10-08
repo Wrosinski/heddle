@@ -14,6 +14,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass
 
+from heddle.contracts.feature_policy import COMPLEXITIES
 from heddle.contracts.operations import VERIFICATION_SCOPE_GUIDANCE
 from heddle.contracts.result import ExitCode, HeddleError, HeddleResult
 from heddle.contracts.schemas import COMMAND_KEYS, FLOW_MODES
@@ -35,8 +36,9 @@ _COMMANDS_SET_USAGE = (
 )
 
 # The payload contract uses the existing MILESTONE_KEYS/kernel-
-# Milestone shape exactly — nothing here is new vocabulary.
-_MILESTONE_COMPLEXITIES = ("low", "medium", "high")
+# Milestone shape exactly — nothing here is new vocabulary. Complexity is the
+# state reader's own vocabulary, so a value it would refuse fails here as usage.
+_MILESTONE_COMPLEXITIES = tuple(sorted(COMPLEXITIES))
 _MILESTONE_REQUIRED_FIELDS = (
     "title",
     "complexity",

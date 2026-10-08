@@ -23,7 +23,7 @@ TINY = REPO_ROOT / "tests" / "fixtures" / "workspaces" / "tiny"
 
 ADD_PAYLOAD = """\
 title: Wire the portfolio scan
-complexity: medium
+complexity: low
 estimated_hours: [2, 4]
 verification:
   command: "pytest tests/runtime/test_portfolio_status.py -q"
@@ -132,7 +132,7 @@ class TestAC11MilestoneAdd:
             ("wrong-type", ADD_PAYLOAD.replace("[2, 4]", '"soon"')),
             (
                 "missing-required",
-                "complexity: medium\nestimated_hours: [2, 4]\n"
+                "complexity: low\nestimated_hours: [2, 4]\n"
                 "verification: {command: x, expected: y}\n",
             ),
             # review: the state reader enforces exactly {command, expected};
@@ -143,10 +143,13 @@ class TestAC11MilestoneAdd:
             # real-world payload defects beyond the AC's literal cases.
             ("wrong-arity", ADD_PAYLOAD.replace("[2, 4]", "[1, 2, 3]")),
             ("non-int-hours", ADD_PAYLOAD.replace("[2, 4]", '["a", "b"]')),
-            ("bad-complexity", ADD_PAYLOAD.replace("medium", "extreme")),
+            (
+                "bad-complexity",
+                ADD_PAYLOAD.replace("complexity: low", "complexity: extreme"),
+            ),
             (
                 "verification-missing-command",
-                "title: t\ncomplexity: medium\nestimated_hours: [2, 4]\n"
+                "title: t\ncomplexity: low\nestimated_hours: [2, 4]\n"
                 "verification: {expected: y}\n",
             ),
         ],
@@ -168,6 +171,49 @@ class TestAC11MilestoneAdd:
             f"{envelope.get('error')!r}"
         )
         assert _state_path(host).read_bytes() == before
+
+    def test_add_refuses_medium_complexity_naming_the_accepted_values(
+        self, run_cli, envelope_tools, tmp_path: Path, monkeypatch
+    ) -> None:
+        # The state reader accepts only low and high; the CLI must refuse
+        # anything else as usage before it reaches a misleading
+        # workspace-invalid from the reader.
+        host = _tiny_host(tmp_path, monkeypatch)
+        payload = _payload_file(
+            tmp_path, ADD_PAYLOAD.replace("complexity: low", "complexity: medium")
+        )
+        before = _state_path(host).read_bytes()
+
+        code, envelope = _run(
+            run_cli,
+            envelope_tools,
+            ["milestone", "add", "--from-file", payload, "--json"],
+        )
+        error = envelope["error"]
+        assert code == 2 and error["code"] == "usage", error
+        assert "low" in error["message"] and "high" in error["message"]
+        assert "medium" in error["hint"]
+        assert _state_path(host).read_bytes() == before
+
+    def test_add_help_publishes_the_payload_schema(
+        self, run_cli, envelope_tools
+    ) -> None:
+        code, out, _err = run_cli(["milestone", "add", "--help"])
+        assert code == 0
+        assert "input payload (heddle.milestone-input/v1" in out
+        assert "medium" not in out
+        assert "id or status is refused" in out
+        assert "### Milestone <id>:" in out
+
+        code, out, _err = run_cli(["help", "--json"])
+        commands = {
+            row["name"]: row for row in envelope_tools.parse(out)["data"]["commands"]
+        }
+        for name in ("milestone add", "milestone edit"):
+            options = commands[name]["input_schema"]["fields"]["complexity"]["one_of"]
+            assert {option["value"] for option in options} == {"low", "high"}, name
+        add_fields = commands["milestone add"]["input_schema"]["fields"]
+        assert "id" not in add_fields and "status" not in add_fields
 
     @pytest.mark.parametrize(
         ("label", "argv_payload"),
