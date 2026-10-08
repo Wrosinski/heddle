@@ -130,6 +130,27 @@ def test_every_declaration_line_in_an_ac_block_binds() -> None:
     assert later_only.issues == ()
 
 
+def test_fenced_example_declarations_never_bind() -> None:
+    example = "```markdown\nVerified-by: tests/test_example.py::test_example\n```\n"
+
+    after = parse_primary_test_bindings(
+        "AC-1", f"Verified-by: tests/test_x.py::test_unit\n\n{example}"
+    )
+    before = parse_primary_test_bindings(
+        "AC-2", f"{example}\nVerified-by: tests/test_x.py::test_unit"
+    )
+    only = parse_primary_test_bindings("AC-3", example)
+
+    assert [binding.target for binding in after.bindings] == [
+        "tests/test_x.py::test_unit"
+    ]
+    assert [binding.target for binding in before.bindings] == [
+        "tests/test_x.py::test_unit"
+    ]
+    assert only.bindings == ()
+    assert [issue.reason for issue in only.issues] == ["missing primary binding"]
+
+
 def test_missing_and_unsupported_declarations_have_stable_issues() -> None:
     missing = parse_primary_test_bindings("AC-2", "No declaration here.")
     assert missing.bindings == ()

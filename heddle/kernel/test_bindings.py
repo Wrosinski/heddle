@@ -75,12 +75,13 @@ def parse_primary_test_bindings(ac_id: str, ac_block: str) -> ParsedTestBindings
     """Parse every ``Verified-by`` line's comma-separated targets, in order.
 
     Each line adds its targets to the AC's binding; a repeated target binds
-    once, at its first occurrence.
+    once, at its first occurrence. Fenced code is example text and never binds.
     """
     targets = tuple(
         dict.fromkeys(
             target
-            for match in VERIFIED_BY.finditer(ac_block)
+            for _number, line in _unfenced_lines(ac_block)
+            if (match := VERIFIED_BY.match(line)) is not None
             for target in _declared_targets(match.group(1))
         )
     )
