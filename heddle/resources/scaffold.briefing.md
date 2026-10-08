@@ -167,8 +167,11 @@ When installed lifecycle behavior changes, include the minimum close skeleton
 needed by the fixture: state birth, required milestone and final proof,
 frontmatter, close result, and retained evidence. When cancellation behavior
 changes, make the double preserve the real worker, monitor, provider-session,
-and parent-publication topology. These conditional duties do not authorize an
-installed, full-workflow, or provider run; keep required unrun proof pending.
+and parent-publication topology. When new code must still read records written
+before the change, its proof uses a fixture recorded by the pre-change code at
+the base commit, never one made by editing current state. These conditional
+duties do not authorize an installed, full-workflow, or provider run; keep
+required unrun proof pending.
 
 For each command, record its AC/contract selection, direct consumers, related
 slow cases, expected setup/execution cost and execution stage. Distinguish
