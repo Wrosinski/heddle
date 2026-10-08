@@ -320,9 +320,10 @@ def normalize_decision_route(route: str) -> str | None:
     return normalized
 
 
-# workflow-model §2.2 / authorization facts.
-AUTHORIZATION_KEYS = ("through", "source", "at")
-AUTHORIZATION_OPTIONAL_KEYS = ("source", "at")
+# workflow-model §2.2 / authorization facts. ``statement`` records where and
+# what the owner said when a grant was stated at feature start.
+AUTHORIZATION_KEYS = ("through", "source", "at", "statement")
+AUTHORIZATION_OPTIONAL_KEYS = ("source", "at", "statement")
 
 # workflow-model §8 — session facts.
 SESSION_PROGRESS_FIELD_TYPES = {

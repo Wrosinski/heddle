@@ -270,6 +270,7 @@ class AuthorizationFact:  # §2.2 authorization fact
     through: str
     source: str | None
     at: str | None
+    statement: str | None = None
 
 
 @dataclass(frozen=True)
@@ -1483,8 +1484,10 @@ def _authorization(path: Path, entry: Mapping[str, Any]) -> AuthorizationFact:
     )
     source = _optional_str(path, "authorization.source", entry.get("source"))
     at = _optional_str(path, "authorization.at", entry.get("at"))
+    statement = _optional_str(path, "authorization.statement", entry.get("statement"))
     return AuthorizationFact(
         through=_str_value(path, "authorization.through", entry["through"]),
         source=source,
         at=at,
+        statement=statement,
     )

@@ -22,7 +22,7 @@ from heddle.contracts.result import (
     NextAction,
     Severity,
 )
-from heddle.contracts.schemas import FLOW_MODES
+from heddle.contracts.schemas import FLOW_MODES, STAGES
 from heddle.io.git import capture_head_commit
 from heddle.kernel.model import resolve_snapshot
 from heddle.kernel.project_config import (
@@ -56,7 +56,8 @@ _SCAFFOLD_ASSETS = (
 
 _USAGE_HINT = (
     "usage: heddle feature start <slug> [--area <confirmed-area>] "
-    "[--flow hitl|auto] [--expect-revision <n>] [--dry-run]"
+    "[--flow hitl|auto] [--through <stage> --statement <text>] "
+    "[--expect-revision <n>] [--dry-run]"
 )
 
 _EXITS = {
@@ -80,6 +81,8 @@ class _StartArgs:
     flow: str | None
     expect_revision: int | None
     dry_run: bool
+    through: str | None
+    statement: str | None
 
 
 @dataclass(frozen=True)
@@ -131,6 +134,8 @@ def run_feature_start(args: list[str], json_mode: bool) -> int:
         flow=parsed.flow,
         expect_revision=parsed.expect_revision,
         dry_run=parsed.dry_run,
+        through=parsed.through,
+        statement=parsed.statement,
     )
     return _emit(execute(operation), json_mode)
 
@@ -147,6 +152,8 @@ def _parse_args(args: list[str]) -> _StartArgs | HeddleResult:
     flow: str | None = None
     expect_revision: int | None = None
     dry_run = False
+    through: str | None = None
+    statement: str | None = None
     index = 0
     while index < len(args):
         token = args[index]
@@ -156,6 +163,14 @@ def _parse_args(args: list[str]) -> _StartArgs | HeddleResult:
             continue
         if token == "--flow" and index + 1 < len(args):
             flow = args[index + 1]
+            index += 2
+            continue
+        if token == "--through" and index + 1 < len(args):
+            through = args[index + 1]
+            index += 2
+            continue
+        if token == "--statement" and index + 1 < len(args):
+            statement = args[index + 1]
             index += 2
             continue
         if token == "--expect-revision" and index + 1 < len(args):
@@ -210,6 +225,8 @@ def _parse_args(args: list[str]) -> _StartArgs | HeddleResult:
         )
     if flow is not None and flow not in FLOW_MODES:
         return _usage(f"flow is {flow!r}, not one of {list(FLOW_MODES)}")
+    if problem := _grant_problem(through, statement):
+        return _usage(problem)
 
     return _StartArgs(
         slug=slug,
@@ -217,7 +234,22 @@ def _parse_args(args: list[str]) -> _StartArgs | HeddleResult:
         flow=flow,
         expect_revision=expect_revision,
         dry_run=dry_run,
+        through=through,
+        statement=statement,
     )
+
+
+def _grant_problem(through: str | None, statement: str | None) -> str | None:
+    """The usage fault in an owner ceiling stated at admission, if any."""
+    if through is None:
+        if statement is None:
+            return None
+        return "--statement records the source of --through; pass both"
+    if through not in STAGES:
+        return f"--through is {through!r}, not one of {list(STAGES)}"
+    if not isinstance(statement, str) or not statement.strip():
+        return "--through requires --statement naming where and what the owner said"
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -234,6 +266,9 @@ def feature_start(parsed: ops.FeatureStart) -> HeddleResult:
     from heddle.runtime.locking import state_recording_lock
     from heddle.runtime.state_store import read_state_document, replace_file_text
 
+    if problem := _grant_problem(parsed.through, parsed.statement):
+        return _usage(problem)
+    statement = parsed.statement.strip() if parsed.statement is not None else None
     try:
         intake.validate_identity(parsed.slug, parsed.area)
         config = load_project_config_from_cwd()
@@ -258,6 +293,24 @@ def feature_start(parsed: ops.FeatureStart) -> HeddleResult:
                 if state.get("intake") != binding or state["feature"] != parsed.slug:
                     raise intake.invalid(
                         "existing state is not owned by this intake admission"
+                    )
+                admission_grant = (state.get("authorizations") or [{}])[0]
+                if parsed.through is not None and (
+                    admission_grant.get("through"),
+                    admission_grant.get("statement"),
+                ) != (parsed.through, statement):
+                    raise KernelError(
+                        code="workspace-exists",
+                        message=(
+                            f"feature {parsed.slug} is already admitted; its "
+                            "admission grant runs through "
+                            f"{admission_grant.get('through')!r}"
+                        ),
+                        hint=(
+                            "feature start records the owner's ceiling only when "
+                            "it creates the workspace; record a later owner grant "
+                            "with `heddle phase-exit --through <stage>`"
+                        ),
                     )
                 return _self_validate(
                     config,
@@ -436,9 +489,10 @@ def feature_start(parsed: ops.FeatureStart) -> HeddleResult:
                 spec=paths.spec_rel,
                 feature_policy=document["feature_policy"],
                 flow=flow,
-                authorized_through="specify",
+                authorized_through=parsed.through or "specify",
                 at=document["updated"],
                 source_baseline=source_baseline,
+                statement=statement,
             )
             seed["intake"] = {
                 "path": intake_file.relative_to(config.root).as_posix(),

@@ -10,6 +10,7 @@ from dataclasses import asdict
 import pytest
 import yaml
 
+from heddle.contracts.schemas import STAGES
 from tests.tiering_helpers import (
     ASTRA,
     FABLE,
@@ -698,6 +699,118 @@ def test_ac1_cli_start_consumes_confirmed_intake_without_legacy_flags(host, run_
     code, out, err = run_cli(["feature", "start", FEATURE, "--json"])
     assert code == 0, (out, err)
     assert yaml.safe_load(formal(host).read_text())["schema"] == "heddle.state/v10"
+
+
+OWNER_STATEMENT = "Owner in the kickoff chat on 2026-10-07: run it through completion"
+
+
+@pytest.mark.parametrize("through", [None, "complete"])
+def test_start_records_the_owner_ceiling_with_its_statement(host, through):
+    """Without --through the admission grant stays at specify, unchanged."""
+    confirmed(host)
+    started = invoke(
+        "FeatureStart",
+        slug=FEATURE,
+        through=through,
+        statement=OWNER_STATEMENT if through else None,
+    )
+    assert started.ok, started.to_envelope()
+    state = yaml.safe_load(formal(host).read_text())
+    grant = {"through": through or "specify", "source": "user", "at": state["created"]}
+    if through:
+        grant["statement"] = OWNER_STATEMENT
+    assert state["authorized_through"] == grant["through"]
+    assert state["authorizations"] == [grant]
+    status = invoke("Status", FEATURE)
+    assert status.ok, status.to_envelope()
+    assert status.data["authorizations"] == [grant]
+
+
+def test_stated_ceiling_keeps_the_specification_checkpoint_stop(host):
+    """A higher ceiling drops boundary-grant stops, never a pending owner question."""
+    from heddle.contracts.decisions import DecisionInput
+    from heddle.kernel.model import first_actionable_blocker, resolve_snapshot
+    from heddle.kernel.project_config import load_project_config_from_cwd
+
+    confirmed(host)
+    started = invoke(
+        "FeatureStart",
+        slug=FEATURE,
+        flow="hitl",
+        through="complete",
+        statement=OWNER_STATEMENT,
+    )
+    assert started.ok, started.to_envelope()
+    config = load_project_config_from_cwd()
+    current = resolve_snapshot(config, FEATURE)
+    assert "awaiting-human-authorization" not in current.blocking_conditions
+    asked = invoke(
+        "DecisionsAdd",
+        decisions=(
+            DecisionInput(
+                kind="question",
+                escalation_class=8,
+                source="session",
+                title=f"Specification checkpoint: {FEATURE}",
+                question="Approve the specification and plan as drafted?",
+                options=("approve as drafted",),
+                routes_to=(started.data["spec"],),
+            ),
+        ),
+        feature=FEATURE,
+    )
+    assert asked.ok, asked.to_envelope()
+    assert first_actionable_blocker(resolve_snapshot(config, FEATURE)) == (
+        "pending-decisions"
+    )
+
+
+@pytest.mark.parametrize(
+    ("extra", "named"),
+    [
+        pytest.param(
+            ["--through", "release", "--statement", OWNER_STATEMENT],
+            STAGES,
+            id="unknown-stage",
+        ),
+        pytest.param(["--through", "complete"], ("--statement",), id="no-statement"),
+        pytest.param(
+            ["--through", "complete", "--statement", "  "],
+            ("--statement",),
+            id="blank-statement",
+        ),
+        pytest.param(
+            ["--statement", OWNER_STATEMENT], ("--through",), id="statement-alone"
+        ),
+    ],
+)
+def test_start_refuses_an_unknown_or_unsourced_ceiling_without_writes(
+    host, run_cli, extra, named
+):
+    confirmed(host)
+    before = snapshot(host)
+    code, out, _err = run_cli(["feature", "start", FEATURE, *extra, "--json"])
+    error = json.loads(out)["error"]
+    assert code == 2 and error["code"] == "usage", error
+    assert all(name in error["message"] for name in named), error
+    assert snapshot(host) == before
+
+
+def test_start_replay_refuses_a_different_ceiling_after_admission(host):
+    confirmed(host)
+    stated = {"through": "complete", "statement": OWNER_STATEMENT}
+    assert invoke("FeatureStart", slug=FEATURE, **stated).ok
+    before = snapshot(host)
+    replay = invoke("FeatureStart", slug=FEATURE, **stated)
+    assert replay.ok and replay.data["reused"] is True, replay.to_envelope()
+    assert invoke("FeatureStart", slug=FEATURE).ok
+    refused = invoke(
+        "FeatureStart", slug=FEATURE, through="implement", statement=OWNER_STATEMENT
+    )
+    assert not refused.ok and refused.error.code == "workspace-exists"
+    assert "'complete'" in refused.error.message
+    assert "phase-exit --through" in refused.error.hint
+    assert snapshot(host) == before
 
 
 @pytest.mark.parametrize("fault", ["empty-history", "duplicate-revision", "area"])

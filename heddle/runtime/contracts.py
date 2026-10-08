@@ -1240,6 +1240,15 @@ COMMAND_SURFACE: tuple[CommandContract, ...] = (
             _JSON,
             FlagSpec("--area", "optional check against the confirmed intake area"),
             FlagSpec("--flow", "per-feature flow mode (hitl|auto)"),
+            FlagSpec(
+                "--through",
+                "record the owner's stated permission ceiling (a stage); "
+                "default specify",
+            ),
+            FlagSpec(
+                "--statement",
+                "where and what the owner said granting --through; required with it",
+            ),
             _EXPECT_REVISION,
             _DRY_RUN,
         ),

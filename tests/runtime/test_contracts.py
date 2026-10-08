@@ -231,7 +231,15 @@ EXPECTED_SURFACE = [
         True,
         [0, 1, 2, 3, 5],
         [("slug", True)],
-        {"--area", "--json", "--flow", "--expect-revision", "--dry-run"},
+        {
+            "--area",
+            "--json",
+            "--flow",
+            "--through",
+            "--statement",
+            "--expect-revision",
+            "--dry-run",
+        },
     ),
     ("feature switch", True, False, [0, 1, 2], [("slug", True)], {"--json"}),
     (

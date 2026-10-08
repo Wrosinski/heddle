@@ -66,8 +66,11 @@ the recommendation and confirm the user's **Direct** or **Heddle** choice.
 Direct work creates no formal workspace, spec, plan or review schedule. For
 Heddle, present the complete resolved per-role matrix and record the user's
 actual confirmation through `heddle feature policy`; then use `heddle feature
-start` and follow its emitted actions. Host exclusions remain constraints, not
-silent substitutions. Native help owns argument and payload spellings.
+start` and follow its emitted actions. When the owner states how far the
+feature may run, record that ceiling and where they said it at start with
+`--through`; without it the grant ends at `specify`. Host exclusions remain
+constraints, not silent substitutions. Native help owns argument and payload
+spellings.
 
 The confirmed policy records `off`, `upper-limit` or `convergence` per role,
 reviewer tuples, each secondary's `secondary_rounds` window, required contexts

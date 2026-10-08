@@ -56,8 +56,16 @@ def seed_state(
     at: str,
     feature_policy: dict[str, Any],
     source_baseline: SourceBaseline,
+    statement: str | None = None,
 ) -> dict[str, Any]:
-    """Build the current state mapping from confirmed policy and intake."""
+    """Build the current state mapping from confirmed policy and intake.
+
+    ``statement`` records where and what the owner said when the caller states
+    the owner's ceiling at admission; the seeded grant omits it otherwise.
+    """
+    grant = {"through": authorized_through, "source": "user", "at": at}
+    if statement is not None:
+        grant["statement"] = statement
     return {
         "schema": CURRENT_STATE_SCHEMA,
         "feature": slug,
@@ -69,7 +77,7 @@ def seed_state(
         "authorized_through": authorized_through,
         "source_baseline": asdict(source_baseline),
         "flow": flow,
-        "authorizations": [{"through": authorized_through, "source": "user", "at": at}],
+        "authorizations": [grant],
         "feature_inputs": [],
         "commands": {key: "" for key in COMMAND_KEYS},
         "milestones": [],

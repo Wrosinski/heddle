@@ -120,6 +120,8 @@ class FeatureStart:
     flow: str | None = None
     expect_revision: int | None = None
     dry_run: bool = False
+    through: str | None = None
+    statement: str | None = None
 
 
 @dataclass(frozen=True)
@@ -524,6 +526,8 @@ def operation_command(operation: Operation) -> str:
             for flag, value in (
                 ("--area", operation.area),
                 ("--flow", operation.flow),
+                ("--through", operation.through),
+                ("--statement", operation.statement),
             ):
                 if value is not None:
                     arguments.extend((flag, value))

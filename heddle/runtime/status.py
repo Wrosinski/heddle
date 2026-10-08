@@ -540,6 +540,8 @@ def _authorization_payload(snapshot: FeatureSnapshot) -> list[dict[str, Any]]:
             entry["source"] = grant.source
         if grant.at is not None:
             entry["at"] = grant.at
+        if grant.statement is not None:
+            entry["statement"] = grant.statement
         grants.append(entry)
     return grants
 
