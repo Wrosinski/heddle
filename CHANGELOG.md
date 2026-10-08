@@ -10,6 +10,17 @@ authority for the installed version.
 
 ### Changed
 
+- Scaffold review admission and the repository AC-coverage hook resolve every
+  `Verified-by:` line of an acceptance criterion, not only the first. A broken
+  target on a later line refuses before the reviewer is called, and a test file
+  named only on a later line becomes a reviewed input, so a scaffold review of
+  such a feature needs a refresh. An empty `Verified-by:` line no longer hides
+  targets on the lines after it, a repeated target binds once, and a
+  `Verified-by:` example inside fenced code never binds. In the hook, an AC's
+  block ends at the next AC or section heading, so Decision Log lines no
+  longer bind to the last AC. Changing any `Verified-by:` line of a
+  historical spec's AC now re-checks every line of that AC; previously only
+  its first line was checked, even when a later line was the one edited.
 - Direct concept-review guidance now checks the read-only Codex sandbox before
   a provider call, preserves launch failures and supplied-text coverage limits,
   and requires authorization for wider access. Full-access change checks compare
