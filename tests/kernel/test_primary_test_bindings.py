@@ -14,6 +14,7 @@ from heddle.kernel.test_bindings import (
     resolve_primary_test_binding,
     selector_rebind_pairs,
     unread_verified_by_lines,
+    unselected_test_targets,
 )
 
 
@@ -223,3 +224,35 @@ def test_lookalike_declarations_are_unread_by_every_reader_and_reported(
     )
     assert bulleted_only.bindings == ()
     assert bulleted_only.issues[0].reason == "missing primary binding"
+
+
+def test_target_selection_is_judged_from_command_tokens_alone() -> None:
+    targets = (
+        "tests/test_a.py::test_exact",
+        "tests/test_b.py::test_file",
+        "tests/unit/test_c.py::test_parent",
+        "tests/test_d.py::TestD::test_prefix",
+        "tests/test_e.py::TestE::test_narrowed",
+        "./tests/test_f.py::test_filtered",
+        "tests/test_g.py::test_unselected",
+    )
+    commands = (
+        "pytest tests/test_a.py::test_exact ./tests/test_b.py -q",
+        "python -m pytest tests/unit/ 'tests/test_d.py::TestD' "
+        "&& pytest 'tests/test_e.py::TestE::test_narrowed[case]' "
+        "tests/test_f.py -k 'not slow' -m fast --deselect tests/test_f.py::other",
+    )
+
+    assert unselected_test_targets(targets, commands, tests_root="tests") == (
+        "tests/test_g.py::test_unselected",
+    )
+    for unjudged in (
+        "make acceptance",
+        "pytest -k flow",
+        "pytest tests/test_a.py && scripts/run-all.sh",
+        "pytest 'tests/test_g.py",
+    ):
+        assert (
+            unselected_test_targets(targets, (*commands, unjudged), tests_root="tests")
+            == ()
+        )

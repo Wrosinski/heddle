@@ -19,7 +19,11 @@ import yaml
 from yaml.nodes import MappingNode, Node, SequenceNode
 
 from heddle.kernel.project_config import KernelError
-from heddle.kernel.test_bindings import VERIFIED_BY, unread_verified_by_lines
+from heddle.kernel.test_bindings import (
+    VERIFIED_BY,
+    unread_verified_by_lines,
+    verified_by_targets,
+)
 
 AC_HEADING = re.compile(r"^###\s+(AC-\d+)\b", re.MULTILINE)
 MILESTONE_HEADING = re.compile(r"^###\s+Milestone\s+([^:\s]+):", re.MULTILINE)
@@ -52,6 +56,7 @@ class SpecVerificationFacts:
 class SpecVerifiedByLines:
     path: str
     unread_lines: tuple[int, ...]  # 1-based file lines VERIFIED_BY skips
+    targets: tuple[tuple[int, str], ...]  # (1-based file line, declared target)
 
 
 @dataclass(frozen=True)
@@ -146,6 +151,10 @@ def read_spec_verified_by_lines(spec_path: Path) -> SpecVerifiedByLines:
         path=document.path,
         unread_lines=tuple(
             offset + line for line in unread_verified_by_lines(document.body)
+        ),
+        targets=tuple(
+            (offset + line, target)
+            for line, target in verified_by_targets(document.body)
         ),
     )
 

@@ -39,6 +39,8 @@ from heddle.kernel.project_config import (
 )
 from heddle.kernel.review_assignments import selected_policy
 from heddle.kernel.source_manifest import normalize_milestone_source_paths
+from heddle.kernel.test_bindings import unselected_test_targets
+from heddle.kernel.verification import verification_command_for_scope
 from heddle.runtime.cli_args import parse_feature_flag
 from heddle.runtime.completion import absent_optional_evidence
 from heddle.runtime.diagnostics import (
@@ -300,6 +302,53 @@ def _check_verified_by_lines(context: ValidationContext) -> list[Diagnostic]:
     ]
 
 
+def _check_verified_by_selection(context: ValidationContext) -> list[Diagnostic]:
+    state = context.snapshot.state
+    spec_path = repo_relative_path(context.root, state.spec)
+    if spec_path is None or not spec_path.is_file():
+        return []  # The AC reference check already reports spec-missing.
+    try:
+        facts = read_spec_verified_by_lines(spec_path)
+    except KernelError:
+        return []  # The AC reference check already reports knowledge-invalid.
+    # AC proof runs in milestone, acceptance or live verification. While a
+    # milestone or acceptance command is unset it could still select any
+    # target, so selection cannot be judged; undeclared smoke and live
+    # commands select nothing.
+    commands: list[str] = []
+    milestone_scopes = tuple(milestone.id for milestone in state.milestones)
+    for scope in (*milestone_scopes, "acceptance", "smoke", "live"):
+        try:
+            commands.append(verification_command_for_scope(state, scope))
+        except KernelError:
+            if scope not in {"smoke", "live"}:
+                return []
+    unselected = set(
+        unselected_test_targets(
+            tuple(target for _line, target in facts.targets),
+            tuple(commands),
+            tests_root=load_project_config(context.root).layout.tests,
+        )
+    )
+    return [
+        _drift_diagnostic(
+            Severity.ADVISORY,
+            "verified-by-unselected",
+            (
+                f"{state.feature}: {state.spec}:{line} Verified-by target "
+                f"{target} is not selected by any milestone, acceptance, smoke "
+                "or live verification command"
+            ),
+            (
+                "add the target or its file to the verification command that "
+                "should prove it, or correct the Verified-by target."
+            ),
+        )
+        for line, target in facts.targets
+        if target in unselected
+    ]
+
+
 def _check_owned_paths(context: ValidationContext) -> list[Diagnostic]:
     diagnostics: list[Diagnostic] = []
     root = context.root
@@ -554,6 +603,7 @@ _CHECKS: tuple[Check, ...] = (
     _check_verification_evidence,
     _check_spec_ac_references,
     _check_verified_by_lines,
+    _check_verified_by_selection,
     _check_owned_paths,
     _check_scaffold_test_paths,
     _check_gate_artifacts,

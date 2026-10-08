@@ -22,6 +22,7 @@ _VERIFIED_BY_LOOKALIKE = re.compile(
     re.IGNORECASE,
 )
 _FENCE = re.compile(r"^[ \t]{0,3}(`{3,}|~{3,})")
+_CONTROL_OPERATORS = frozenset({"&&", "||", ";", ";;", "|", "|&", "&", "(", ")"})
 
 
 @dataclass(frozen=True)
@@ -80,7 +81,7 @@ def parse_primary_test_bindings(ac_id: str, ac_block: str) -> ParsedTestBindings
                 ),
             ),
         )
-    targets = tuple(part.strip() for part in match.group(1).split(",") if part.strip())
+    targets = _declared_targets(match.group(1))
     if not targets:
         return ParsedTestBindings(
             (),
@@ -100,6 +101,19 @@ def parse_primary_test_target(ac_id: str, target: str) -> PrimaryTestBinding:
         target=target,
         path=path.strip(),
         selector=selector.strip() if separator else "",
+    )
+
+
+def _declared_targets(value: str) -> tuple[str, ...]:
+    return tuple(part.strip() for part in value.split(",") if part.strip())
+
+
+def verified_by_targets(markdown: str) -> tuple[tuple[int, str], ...]:
+    """Return every target VERIFIED_BY reads, paired with its 1-based line."""
+    return tuple(
+        (markdown.count("\n", 0, match.start()) + 1, target)
+        for match in VERIFIED_BY.finditer(markdown)
+        for target in _declared_targets(match.group(1))
     )
 
 
@@ -252,3 +266,53 @@ def selector_rebind_pairs(
             return None
         pairs.append((old, new))
     return tuple(pairs) or None
+
+
+def unselected_test_targets(
+    targets: tuple[str, ...], commands: tuple[str, ...], *, tests_root: str
+) -> tuple[str, ...]:
+    """Return the targets no command can select, judged from shell tokens only.
+
+    A token selects a target it equals, the target's file, a parent directory
+    of that file, a node prefix of it, or a narrower node inside it. Filters such
+    as ``-k``, ``-m`` and ``--deselect`` only narrow a selection, so a covered
+    target stays possibly selected. A command segment with no token under
+    ``tests_root`` (a make target, a script) could select anything, and an
+    unparseable command cannot be judged; either way nothing is returned.
+    """
+    tokens: list[str] = []
+    for command in commands:
+        lexer = shlex.shlex(command, posix=True, punctuation_chars=True)
+        lexer.whitespace_split = True
+        lexer.commenters = ""
+        try:
+            words = list(lexer)
+        except ValueError:
+            return ()
+        segment: list[str] = []
+        for word in [*words, ";"]:
+            if word not in _CONTROL_OPERATORS:
+                segment.append(word.removeprefix("./").rstrip("/"))
+                continue
+            if segment and not any(
+                token == tests_root or token.startswith(f"{tests_root}/")
+                for token in segment
+            ):
+                return ()
+            tokens.extend(segment)
+            segment = []
+    return tuple(
+        target
+        for target in targets
+        if not any(_token_selects(token, target.removeprefix("./")) for token in tokens)
+    )
+
+
+def _token_selects(token: str, target: str) -> bool:
+    path = target.partition("::")[0]
+    return bool(token) and (
+        token in {target, path}
+        or path.startswith(f"{token}/")
+        or target.startswith(f"{token}::")
+        or token.startswith((f"{target}::", f"{target}["))
+    )

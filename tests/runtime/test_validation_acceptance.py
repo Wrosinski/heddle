@@ -577,3 +577,48 @@ class TestVerifiedByAdvisories:
         ):
             assert f"{spec}:{_spec_line(host, text)} " in diagnostic["message"]
             assert "`Verified-by: <path>::<test>, ...`" in diagnostic["message"]
+
+    @pytest.mark.parametrize(
+        ("acceptance", "unselected"),
+        [
+            ("pytest tests/test_cli.py -q", ["tests/test_acceptance.py::test_flow"]),
+            ("pytest tests/test_acceptance.py::test_flow -q", []),
+            ("pytest tests/test_acceptance.py -k flow -m fast", []),
+            ("make acceptance", []),
+            (None, []),
+        ],
+        ids=["unselected", "selected", "filtered", "no-test-path", "unset"],
+    )
+    def test_targets_no_verification_command_selects_are_advised(
+        self,
+        run_cli,
+        envelope_tools,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        acceptance: str | None,
+        unselected: list[str],
+    ) -> None:
+        host = _clean_host(tmp_path, "selection")
+        declaration = (
+            "Verified-by: tests/test_parser.py::test_parse, "
+            "tests/test_acceptance.py::test_flow"
+        )
+        _append_spec_lines(
+            host, declaration, "Verified-by: tests/test_cli.py::TestCount::test_count"
+        )
+        if acceptance is not None:
+            state = read_yaml(_state_path(host))
+            state["commands"]["acceptance_test"] = acceptance
+            write_yaml(_state_path(host), state)
+
+        code, envelope = _run_validate(run_cli, envelope_tools, host, monkeypatch)
+
+        advised = _coded(envelope, "verified-by-unselected")
+        assert envelope["ok"] is True and code == (4 if unselected else 0)
+        assert [d["severity"] for d in advised] == ["advisory"] * len(unselected)
+        line = _spec_line(host, declaration)
+        for diagnostic, target in zip(advised, unselected, strict=True):
+            assert (
+                f"docs/features/example/sample-feature.md:{line} Verified-by "
+                f"target {target} is not selected"
+            ) in diagnostic["message"]
