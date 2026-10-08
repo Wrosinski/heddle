@@ -45,7 +45,8 @@ research for an uncertainty that could change the outcome, not a reading quota.
 Resolve observable behavior and consequential commitments, including ownership
 and dependency direction. Explicitly delegate reversible internals when the
 alternatives meet the same contract. Explain the decisive trade-off and separate
-observed facts, inference, and unresolved owner intent.
+observed facts, inference, and unresolved owner intent: a statement about
+current behavior cites its source (`file:line`) or is labeled an assumption.
 
 Find existing AC witnesses and the host's test-selection map when available.
 Trace fixtures and direct consumers before proposing exact verification targets;
@@ -180,7 +181,9 @@ in the `necessity-anchor.md` prompt partial.
 Reviewers apply the two principles in the `boundary-and-proof.md` prompt
 partial, so author against them: give each state that can cross a boundary the
 contract depends on a defined outcome, and plan witnesses that can fail for the
-real defect.
+real defect. Decide each rule's outcomes over its whole input domain, keeping
+"no data" an outcome of its own, distinct from every negative answer the rule
+gives.
 
 ## Author the Implementation Plan
 
@@ -218,7 +221,9 @@ Populate `plans/<feature>/plan.md` with:
   progress and handoffs; the plan is not a duplicate operational ledger.
 
 Record milestone skeletons through `heddle milestone add`. Bind `satisfies` to
-AC IDs and `owns` to expected writes; record dependencies, Low/High complexity,
+AC IDs and `owns` to expected writes, traced from what the milestone's Work
+changes and affects, including model-facing text the code renders and fixtures
+it retargets, not from a name search; record dependencies, Low/High complexity,
 and a verification command with its expected result. Hours and task-count bands
 are not required. Keep the canonical ACs and enforcement rules at their owners
 instead of copying them into a Design Context or mandatory recovery section.
@@ -227,6 +232,9 @@ missing paths as informational while their milestone is unfinished through
 implementation; review those declarations for typos. They must exist or be
 corrected before milestone completion or final review. Do not create empty
 production files or grant broader parent directories just to satisfy validation.
+Check the test files the plan edits against the host's commit guards, so a
+mechanical change a guard would force, such as moving a helper, is planned as
+its own step.
 
 Choose ownership as a proof dependency declaration. Product source and tests
 belong in `owns`; bookkeeping records already accounted for by coverage need
