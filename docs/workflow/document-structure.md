@@ -94,6 +94,8 @@ Keep `## Acceptance Criteria`, `### AC-<n>:`, `Priority:` and `Verified-by:`.
 IDs remain stable through reordering; retire removed IDs rather than reuse them.
 Sub-IDs may preserve identity when splitting a criterion. `Priority:` is MUST,
 SHOULD or MAY; `Verified-by:` links to actual test targets when scaffolding lands.
+An AC may carry several `Verified-by:` lines; every target on every line is
+part of its binding and must resolve.
 
 A concrete AC identifies observable conditions, outcomes and consequential
 failure classes, each checkable deterministically or by inspection against

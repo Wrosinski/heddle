@@ -133,9 +133,10 @@ Create and record all applicable lanes:
    cell requires a reason.
 
 Before requesting scaffold review, ensure every AC has a primary `Verified-by:`
-binding to a module function or qualified class method. Native review preparation
-resolves these references against the captured test files and refuses missing or
-broken bindings before calling the reviewer. This structural check does not prove
+binding: every target on every `Verified-by:` line of the AC names a module
+function or qualified class method. Native review preparation resolves each of
+these references against the captured test files and refuses missing or broken
+bindings before calling the reviewer. This structural check does not prove
 that the tests contain the required cases or meaningful assertions; complete the
 coverage and red-phase checks above before requesting review.
 
