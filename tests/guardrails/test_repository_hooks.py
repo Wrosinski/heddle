@@ -677,7 +677,7 @@ def test_ac_coverage_standalone_validates_verified_by_targets(
     "follower",
     [
         "### AC-2: [removed] Retired behavior\n",
-        "## Decision Log\n\n### D1 - Later decision\n",
+        "## Decision Log\n\n### Later decision\n",
     ],
     ids=["retired-ac", "later-section"],
 )
