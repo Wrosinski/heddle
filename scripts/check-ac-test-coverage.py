@@ -27,6 +27,7 @@ from pathlib import Path
 import yaml
 
 from heddle.kernel.test_bindings import (
+    VERIFIED_BY,
     PythonSymbolInspection,
     inspect_python_test_source,
     parse_primary_test_bindings,
@@ -286,7 +287,11 @@ def _native_workspace_metadata() -> list[tuple[Path, dict[str, str]]]:
 
 def _changed_verified_by_lines(path: str) -> set[str]:
     diff = _git("diff", "--cached", "--unified=0", "--no-ext-diff", "--", path)
-    return {line[1:] for line in diff.splitlines() if line.startswith("+Verified-by:")}
+    return {
+        line[1:]
+        for line in diff.splitlines()
+        if line.startswith("+") and VERIFIED_BY.match(line[1:])
+    }
 
 
 def _infer_test_dirs(metadata: dict[str, str]) -> list[str]:
