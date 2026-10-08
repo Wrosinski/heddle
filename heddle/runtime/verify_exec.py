@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 from contextlib import chdir
 from math import isfinite
 from pathlib import Path
@@ -35,6 +36,30 @@ _DEFAULT_VERIFY_POLL_S = 0.1
 # Exit code recorded when the stored verify command fails to launch
 # (shell "command not found" convention).
 VERIFY_LAUNCH_FAILURE_EXIT = 127
+
+# Pytest's closing summary line, bordered (`==== 3 passed in 0.12s ====`) or
+# bare under -q, with pytest's own duration format (`65.00s (0:01:05)`).
+_PYTEST_SUMMARY_LINE = re.compile(
+    r"(?:=+ )?(?P<body>.+?) in \d+(?:\.\d+)?s(?: \(\d+:\d{2}:\d{2}\))?(?: =+)?"
+)
+_PYTEST_OUTCOME = re.compile(r"(?P<count>\d+) (?P<outcome>[a-z]+(?: [a-z]+)?)")
+_PYTEST_OUTCOMES = {
+    **{
+        name: name
+        for name in ("passed", "failed", "skipped", "deselected", "xfailed")
+        + ("xpassed", "rerun", "errors", "warnings")
+    },
+    "error": "errors",
+    "warning": "warnings",
+    **{
+        f"subtests {name}": f"subtests_{name}"
+        for name in ("passed", "failed", "skipped", "xfailed", "xpassed")
+    },
+}
+_ANSI_SGR = re.compile(r"\x1b\[[0-9;]*m")
+# The summary is the last thing pytest prints; a later chained command rarely
+# pushes it further back than this.
+_SUMMARY_TAIL_BYTES = 64 * 1024
 
 
 def verification_command(document: dict[str, Any], scope: str) -> str | None:
@@ -133,6 +158,44 @@ def run_verification_command(root: Path, command: str, log_path: Path) -> int:
             ),
             hint="check that the verification directory is writable and retry",
         ) from error
+
+
+def pytest_summary_counts(text: str) -> dict[str, int] | None:
+    """Outcome counts from the last pytest summary line in ``text``.
+
+    ``None`` when no line reads as a pytest summary (another runner, or a run
+    that ended before pytest summarised). ``{}`` when pytest ran no tests.
+    Keys are pytest's outcome words, with ``errors``/``warnings`` always plural
+    and subtest outcomes as ``subtests_<outcome>``."""
+    for line in reversed(_ANSI_SGR.sub("", text).splitlines()):
+        match = _PYTEST_SUMMARY_LINE.fullmatch(line.strip())
+        if match is None:
+            continue
+        body = match.group("body")
+        if body == "no tests ran":
+            return {}
+        counts: dict[str, int] = {}
+        for part in body.split(", "):
+            outcome = _PYTEST_OUTCOME.fullmatch(part)
+            key = _PYTEST_OUTCOMES.get(outcome.group("outcome")) if outcome else None
+            if outcome is None or key is None or key in counts:
+                break
+            counts[key] = int(outcome.group("count"))
+        else:
+            return counts
+    return None
+
+
+def verification_log_counts(log_path: Path) -> dict[str, int] | None:
+    """Pytest outcome counts from the tail of a completed verification log.
+    Envelope information only: no recorded fact carries them."""
+    try:
+        with log_path.open("rb") as log:
+            log.seek(max(0, log.seek(0, os.SEEK_END) - _SUMMARY_TAIL_BYTES))
+            tail = log.read().decode("utf-8", errors="replace")
+    except OSError:
+        return None
+    return pytest_summary_counts(tail)
 
 
 def verification_fact(

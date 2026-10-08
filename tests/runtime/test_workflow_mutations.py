@@ -193,6 +193,64 @@ def test_ac07_verify_runs_stored_command_and_appends_unique_log_facts(
     assert calls, "FAIL AC-7: verify must call the monitored subprocess seam"
 
 
+def test_verify_reports_pytest_counts_without_recording_them(
+    run_cli, envelope_tools, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    host = _copy_host(tmp_path, GOLDEN)
+    monkeypatch.chdir(host)
+    state_path = host / "plans" / "nl-screening" / "state.yaml"
+
+    def fake_run_monitored(_command, raw_out, _cfg, **_kwargs):
+        raw_out.parent.mkdir(parents=True, exist_ok=True)
+        raw_out.write_text(
+            "tests/test_sample.py ..s\n"
+            "========== 2 passed, 1 skipped, 1 warning in 0.42s ==========\n"
+            "lint: all checks passed\n",
+            encoding="utf-8",
+        )
+        return SimpleNamespace(exit_code=0)
+
+    monkeypatch.setattr("heddle.io.process.run_monitored", fake_run_monitored)
+    argv = ["verify", "--scope", "m2", "--feature", "nl-screening"]
+    code, out, _err = run_cli([*argv, "--json"])
+    data = envelope_tools.parse(out)["data"]
+    assert code == 0
+    assert data["counts"] == {"passed": 2, "skipped": 1, "warnings": 1}
+    assert "counts" not in data["verification"]
+    state_text = state_path.read_text(encoding="utf-8")
+    assert "counts" not in state_text and "skipped" not in state_text
+
+    code, out, _err = run_cli(argv)
+    assert code == 0
+    assert "  pytest: 2 passed, 1 skipped, 1 warning\n" in out
+
+
+def test_failed_verify_reports_pytest_counts_in_details(
+    run_cli, envelope_tools, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    host = _copy_host(tmp_path, TINY)
+    monkeypatch.chdir(host)
+    state_path = host / "plans" / "sample-feature" / "state.yaml"
+    state = _read_yaml(state_path)
+    summary = "1 failed, 3 passed in 0.10s"
+    state["milestones"][0]["verification"]["command"] = (
+        f"{sys.executable} -c \"import sys; print('{summary}'); sys.exit(1)\""
+    )
+    _write_yaml(state_path, state)
+
+    argv = ["verify", "--scope", "m1", "--feature", "sample-feature"]
+    code, out, _err = run_cli([*argv, "--json"])
+    error = envelope_tools.parse(out)["error"]
+    assert code == 3 and error["code"] == "verification-failed", error
+    assert error["details"]["counts"] == {"failed": 1, "passed": 3}
+    fact = _read_yaml(state_path)["verifications"][-1]
+    assert "counts" not in fact
+
+    code, _out, err = run_cli(argv)
+    assert code == 3
+    assert "  pytest: 1 failed, 3 passed\n" in err
+
+
 def test_ac07_ac18_verify_records_nonzero_exit_code(
     run_cli, envelope_tools, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -220,6 +278,7 @@ def test_ac07_ac18_verify_records_nonzero_exit_code(
         "child_exit_code": 17,
         "log": envelope["error"]["details"]["log"],
         "recorded": True,
+        "counts": None,
         "revision": state["revision"] + 1,
         "fact_index": len(state["verifications"]),
         "status": "failed",

@@ -21,12 +21,67 @@ import pytest
 from heddle.kernel.project_config import KernelError
 from heddle.runtime.verify_exec import (
     VERIFY_LAUNCH_FAILURE_EXIT,
+    pytest_summary_counts,
     run_verification_command,
+    verification_log_counts,
 )
 
 
 def _run(tmp_path: Path, command: str) -> int:
     return run_verification_command(tmp_path, command, tmp_path / "verify.log")
+
+
+@pytest.mark.parametrize(
+    ("text", "counts"),
+    [
+        pytest.param(
+            "==== 3 passed, 1 skipped in 0.12s ====",
+            {"passed": 3, "skipped": 1},
+            id="bordered",
+        ),
+        pytest.param("3 passed in 0.12s", {"passed": 3}, id="quiet"),
+        pytest.param(
+            "== 1 failed, 2 passed, 1 error, 3 warnings in 65.00s (0:01:05) ==",
+            {"failed": 1, "passed": 2, "errors": 1, "warnings": 3},
+            id="long-run",
+        ),
+        pytest.param(
+            "2 failed, 1 passed, 1 warning, 1 subtests passed in 1.19s",
+            {"failed": 2, "passed": 1, "warnings": 1, "subtests_passed": 1},
+            id="subtests",
+        ),
+        pytest.param(
+            "\x1b[32m=== \x1b[1m2 passed\x1b[0m\x1b[32m in 0.05s ===\x1b[0m",
+            {"passed": 2},
+            id="coloured",
+        ),
+        pytest.param("=== no tests ran in 0.01s ===", {}, id="no-tests"),
+        pytest.param(
+            "=== 4 passed in 1.00s ===\n...\n=== 1 failed, 1 passed in 0.50s ===\n"
+            "Ran 3 tests in 0.002s\n\nOK\n",
+            {"failed": 1, "passed": 1},
+            id="chain-reports-the-last-pytest-summary",
+        ),
+        pytest.param("Ran 3 tests in 0.002s\n\nOK\n", None, id="unittest"),
+        pytest.param("2 files changed in 0.01s", None, id="unknown-outcome"),
+        pytest.param("tests/test_x.py ..F\n", None, id="no-summary"),
+        pytest.param("", None, id="empty"),
+    ],
+)
+def test_pytest_summary_counts_reads_the_last_summary_line(text, counts) -> None:
+    assert pytest_summary_counts(text) == counts
+
+
+def test_log_counts_read_only_the_tail_and_tolerate_a_missing_log(
+    tmp_path: Path,
+) -> None:
+    log = tmp_path / "verify.log"
+    assert verification_log_counts(log) is None
+    log.write_text("=== 9 passed in 0.10s ===\n" + "x" * (64 * 1024) + "\n")
+    assert verification_log_counts(log) is None
+    with log.open("a") as handle:
+        handle.write("5 passed in 0.20s\n")
+    assert verification_log_counts(log) == {"passed": 5}
 
 
 def test_and_chain_executes_as_a_shell_chain(tmp_path: Path) -> None:

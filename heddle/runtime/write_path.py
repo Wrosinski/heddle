@@ -106,6 +106,7 @@ from heddle.runtime.verification import (
 from heddle.runtime.verify_exec import (
     run_verification_command,
     verification_fact,
+    verification_log_counts,
     verification_log_relpath,
 )
 from heddle.runtime.write_args import (
@@ -599,6 +600,7 @@ def verify(operation: ops.Verify) -> HeddleResult:
             context.state_path.parent, before_evidence
         )
         exit_code = run_verification_command(context.config.root, command, log_path)
+        counts = verification_log_counts(log_path)
         _after_definition, after_evidence, _after_git = observe_current_source(
             context.config.root,
             declaration,
@@ -675,6 +677,7 @@ def verify(operation: ops.Verify) -> HeddleResult:
                             exit_code,
                             log_relpath,
                             recorded=True,
+                            counts=counts,
                             revision=commit.revision,
                             fact_index=fact_index,
                         ),
@@ -693,7 +696,7 @@ def verify(operation: ops.Verify) -> HeddleResult:
                     command_name="verify",
                     revision=commit.revision,
                     wrote=commit.wrote,
-                    extra={"verification": verification},
+                    extra={"verification": verification, "counts": counts},
                 )
             else:
                 result = HeddleResult.failure(
@@ -714,6 +717,7 @@ def verify(operation: ops.Verify) -> HeddleResult:
                             exit_code,
                             log_relpath,
                             recorded=True,
+                            counts=counts,
                             revision=commit.revision,
                             fact_index=fact_index,
                             status=assessment.status,
@@ -747,6 +751,7 @@ def verify(operation: ops.Verify) -> HeddleResult:
                         exit_code,
                         log_relpath,
                         recorded=False,
+                        counts=counts,
                         evidence=fact["evidence"],
                     ),
                 },
@@ -775,6 +780,7 @@ def _verification_attempt_details(
     log: str,
     *,
     recorded: bool,
+    counts: dict[str, int] | None,
     revision: int | None = None,
     fact_index: int | None = None,
     status: str | None = None,
@@ -787,6 +793,7 @@ def _verification_attempt_details(
         "child_exit_code": child_exit_code,
         "log": log,
         "recorded": recorded,
+        "counts": counts,
     }
     if revision is not None:
         details["revision"] = revision
@@ -1588,6 +1595,8 @@ def _render_human(result: HeddleResult) -> None:
         else:
             print(f"heddle: error[{error.code}]: {error.message}", file=sys.stderr)
             print(f"  hint: {error.hint}", file=sys.stderr)
+        if isinstance(counts := error.details.get("counts"), dict):
+            print(f"  pytest: {_counts_text(counts)}", file=sys.stderr)
         for action in result.next_actions:
             print(f"  next: {action.command} - {action.reason}", file=sys.stderr)
     else:
@@ -1632,10 +1641,21 @@ def _render_human(result: HeddleResult) -> None:
             print(f"{prefix}: {effect}; {suffix}")
         else:
             print(f"{command} [{feature}] revision {data.get('revision')}")
+        if isinstance(counts := data.get("counts"), dict):
+            print(f"  pytest: {_counts_text(counts)}")
         for action in result.next_actions:
             print(f"  next: {action.command} - {action.reason}")
     for diagnostic in result.diagnostics:
         print(f"note: {diagnostic.code}: {diagnostic.message}", file=sys.stderr)
+
+
+def _counts_text(counts: dict[str, Any]) -> str:
+    """Pytest's own wording: ``1 warning``, ``2 errors``, ``1 subtests passed``."""
+    parts = []
+    for key, count in counts.items():
+        noun = key[:-1] if count == 1 and key in {"errors", "warnings"} else key
+        parts.append(f"{count} {noun.replace('_', ' ')}")
+    return ", ".join(parts) or "no tests ran"
 
 
 # External adapters parse once and render the original application result.
