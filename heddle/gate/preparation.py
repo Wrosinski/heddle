@@ -1009,6 +1009,20 @@ def declared_scaffold_paths(
     return tuple(sorted(declared, key=lambda value: value.encode("utf-8")))
 
 
+def missing_scaffold_paths(context: GateContext) -> tuple[str, ...]:
+    """Return every declared scaffold path that is missing or nonregular.
+
+    Scaffold admission refuses on these one at a time; a read-only caller
+    can report them together. Unsupported declarations raise as they do there.
+    """
+    observations = context.source_observations
+    return tuple(
+        path
+        for path in declared_scaffold_paths(context, require_existing=False)
+        if capture_source_path(context.repo_root, path, observations).kind != "file"
+    )
+
+
 def _local_test_dependencies(
     repo_root: Path, path: Path, tests_root: str
 ) -> tuple[str, ...]:

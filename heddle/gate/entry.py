@@ -382,6 +382,23 @@ def build_gate_lock_context(
     )
 
 
+def missing_scaffold_test_paths(
+    snapshot: FeatureSnapshot, config: ProjectConfig
+) -> tuple[str, ...]:
+    """Return the declared test paths review-test-scaffolding refuses as missing.
+
+    The gate's own declaration rule decides the set, so a read-only report and
+    admission cannot disagree; a declaration the gate refuses outright raises.
+    """
+    from heddle.gate.preparation import missing_scaffold_paths
+    from heddle.gate.registry import GATES
+
+    context = build_gate_context(
+        snapshot, config, GATES["review-test-scaffolding"], basis_only=True
+    )
+    return missing_scaffold_paths(context)
+
+
 def featureless_gate_context(gate_type: GateType, repo_root: Path) -> GateContext:
     """Build the fact-free context used only for guidelines preview."""
     from heddle.gate.types import GateContext

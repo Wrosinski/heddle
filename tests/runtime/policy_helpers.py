@@ -197,7 +197,7 @@ RUNTIME_IMPORT_EDGES = {
     "peer_approval.py": {"heddle.gate.entry", "heddle.io.source"},
     "robustness_approval.py": {"heddle.gate.entry", "heddle.io.source"},
     "guardrails.py": {"heddle.gate.entry", "heddle.gate.prompt"},
-    "validate.py": {"heddle.io.git"},
+    "validate.py": {"heddle.gate.entry", "heddle.io.git"},
     "verification.py": {"heddle.io.git", "heddle.io.source"},
     "source_attribution.py": {"heddle.io.source"},
     "completion.py": {"heddle.io.git"},

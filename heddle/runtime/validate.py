@@ -17,6 +17,7 @@ from heddle.contracts.result import (
     Severity,
 )
 from heddle.contracts.schemas import STAGES
+from heddle.gate.entry import missing_scaffold_test_paths
 from heddle.io.git import GitError, path_has_git_history
 from heddle.kernel.knowledge import (
     read_plan_facts,
@@ -36,6 +37,7 @@ from heddle.kernel.project_config import (
     load_project_config,
     load_project_config_from_cwd,
 )
+from heddle.kernel.review_assignments import selected_policy
 from heddle.kernel.source_manifest import normalize_milestone_source_paths
 from heddle.runtime.cli_args import parse_feature_flag
 from heddle.runtime.completion import absent_optional_evidence
@@ -356,6 +358,44 @@ def _check_owned_paths(context: ValidationContext) -> list[Diagnostic]:
     return diagnostics
 
 
+def _check_scaffold_test_paths(context: ValidationContext) -> list[Diagnostic]:
+    state = context.snapshot.state
+    gate = "review-test-scaffolding"
+    if (
+        STAGES.index(state.stage) > STAGES.index("scaffold")
+        or selected_policy(state, gate).mode == "off"
+    ):
+        return []
+    try:
+        missing = missing_scaffold_test_paths(
+            context.snapshot, load_project_config(context.root)
+        )
+    except KernelError as error:
+        return [
+            _drift_diagnostic(
+                Severity.ADVISORY,
+                "scaffold-test-path-missing",
+                f"{state.feature}: {gate} will refuse to start: {error.message}",
+                error.hint,
+            )
+        ]
+    return [
+        _drift_diagnostic(
+            Severity.ADVISORY,
+            "scaffold-test-path-missing",
+            (
+                f"{state.feature}: {gate} will refuse to start: declared test "
+                f"path {path} is missing or not a regular file"
+            ),
+            (
+                f"create {path} before the scaffold review, or stop naming it in "
+                "plan code spans and stored verification commands."
+            ),
+        )
+        for path in missing
+    ]
+
+
 def _tracked_deletion(root: Path, relpath: str) -> bool:
     """A missing owned path that Git ever tracked is a deletion, not a typo.
 
@@ -515,6 +555,7 @@ _CHECKS: tuple[Check, ...] = (
     _check_spec_ac_references,
     _check_verified_by_lines,
     _check_owned_paths,
+    _check_scaffold_test_paths,
     _check_gate_artifacts,
     _check_plan_sections,
 )

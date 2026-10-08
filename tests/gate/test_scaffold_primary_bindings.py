@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 import pytest
 
 from heddle.kernel.project_config import KernelError
 from tests.content_identity_helpers import capture_context, git
-from tests.operational_model_helpers import SPEC, read, write
+from tests.operational_model_helpers import FEATURE, SPEC, read, write
 from tests.tiering_review_helpers import current_host
 
 
@@ -275,3 +276,59 @@ def test_invalid_binding_source_is_captured_before_refusal(
             context, gate_type=context.gate_type, invocation=invocation
         )
     assert reason in raised.value.message
+
+
+def _validate_refusals(host: Path) -> list[str]:
+    from heddle.contracts import operations as ops
+    from heddle.runtime.validate import validate
+
+    prefix = "review-test-scaffolding will refuse to start: declared test path "
+    return [
+        diagnostic.message.split(prefix, 1)[1].split(" ", 1)[0]
+        for diagnostic in validate(ops.Validate(FEATURE)).diagnostics
+        if diagnostic.code == "scaffold-test-path-missing"
+    ]
+
+
+def test_validate_reports_exactly_the_paths_scaffold_admission_refuses(
+    tmp_path: Path, monkeypatch
+) -> None:
+    from heddle.gate import entry
+
+    host, state_path = current_host(tmp_path, monkeypatch, stage="scaffold")
+    (host / f"plans/{FEATURE}/plan.md").write_text(
+        "# Plan\n\n### Milestone m1: Declared value\n\n"
+        "Tests: `tests/test_first_declared.py`.\n\n"
+        "### Milestone m2: Verify the value\n\n"
+        "Later tests: `tests/later/test_second_declared.py`.\n",
+        encoding="utf-8",
+    )
+    state = read(state_path)
+    state["commands"] = {"acceptance_test": "pytest tests/test_commanded.py -q"}
+    write(state_path, state)
+
+    reported = _validate_refusals(host)
+    assert sorted(reported) == [
+        "tests/later/test_second_declared.py",
+        "tests/test_commanded.py",
+        "tests/test_first_declared.py",
+    ]
+    refused: list[str] = []
+    for _attempt in range(len(reported) + 1):
+        context = _scaffold_context(host)
+        try:
+            entry.prepare_current_review_basis(context, _invocation(context))
+        except KernelError as error:
+            match = re.search(
+                r"required reviewed test artifact (\S+) is missing", error.message
+            )
+            assert match is not None, error.message
+            refused.append(match.group(1))
+            created = host / match.group(1)
+            created.parent.mkdir(parents=True, exist_ok=True)
+            created.write_text("def test_created():\n    assert True\n")
+            continue
+        break
+
+    assert sorted(refused) == sorted(reported)
+    assert _validate_refusals(host) == []

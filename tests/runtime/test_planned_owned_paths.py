@@ -139,3 +139,77 @@ def test_planned_ownership_does_not_excuse_unsafe_or_broken_symlink(
 
     assert not result.ok
     assert any(d.severity == Severity.FATAL for d in result.diagnostics)
+
+
+SCAFFOLD_PLANNED = "tests/test_planned_scaffold.py"
+SCAFFOLD_COMMANDED = "tests/test_commanded_scaffold.py"
+
+
+def _declare_scaffold_tests(host: Path, *, enabled: bool, span: str) -> None:
+    path = state_path(host)
+    state = read_yaml(path)
+    for row in state["feature_policy"]["entries"]:
+        if enabled and row["role"] == "review-test-scaffolding":
+            row.update(mode="upper-limit", limit=2, minimum_rounds=1)
+    state["milestones"][1]["owns"].append(SCAFFOLD_PLANNED)
+    state["commands"]["acceptance_test"] = f"pytest {SCAFFOLD_COMMANDED} -q"
+    write_yaml(path, state)
+    plan = host / "plans/sample-feature/plan.md"
+    plan.write_text(
+        plan.read_text(encoding="utf-8") + f"\nLater tests: `{span}`.\n",
+        encoding="utf-8",
+    )
+
+
+@pytest.mark.parametrize(
+    ("stage", "status", "enabled", "advised"),
+    [
+        ("specify", "todo", True, True),
+        ("scaffold", "todo", True, True),
+        ("scaffold", "todo", False, False),
+        ("implement", "current", True, False),
+    ],
+)
+def test_paths_the_scaffold_gate_refuses_are_advised_through_scaffold(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    stage: str,
+    status: str,
+    enabled: bool,
+    advised: bool,
+) -> None:
+    host = _host(tmp_path, stage, status)
+    _declare_scaffold_tests(host, enabled=enabled, span=SCAFFOLD_PLANNED)
+    monkeypatch.chdir(host)
+
+    result = validate(ops.Validate("sample-feature"))
+
+    assert result.ok
+    planned = [d for d in result.diagnostics if d.code == "owned-path-planned"]
+    assert [d.severity for d in planned] == [Severity.INFO, Severity.INFO]
+    refused = [d for d in result.diagnostics if d.code == "scaffold-test-path-missing"]
+    if not advised:
+        assert result.exit_code == 0 and refused == []
+        return
+    assert result.exit_code == 4
+    assert [d.severity for d in refused] == [Severity.ADVISORY, Severity.ADVISORY]
+    for diagnostic, path in zip(
+        refused, (SCAFFOLD_COMMANDED, SCAFFOLD_PLANNED), strict=True
+    ):
+        assert "review-test-scaffolding will refuse to start" in diagnostic.message
+        assert f"declared test path {path} is missing" in diagnostic.message
+
+
+def test_declarations_the_scaffold_gate_rejects_are_advised(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    host = _host(tmp_path, "scaffold", "todo")
+    _declare_scaffold_tests(host, enabled=True, span="tests/test_*.py")
+    monkeypatch.chdir(host)
+
+    result = validate(ops.Validate("sample-feature"))
+
+    refused = [d for d in result.diagnostics if d.code == "scaffold-test-path-missing"]
+    assert result.ok and result.exit_code == 4
+    assert len(refused) == 1
+    assert "unsupported plan test declaration 'tests/test_*.py'" in (refused[0].message)
