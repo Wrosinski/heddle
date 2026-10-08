@@ -266,7 +266,9 @@ changes to an assignment's subject or cited evidence can invalidate its current
 closure. Repairing evidence does not automatically require another provider call;
 follow the returned action. When every open concern is an addressed or settled
 disposition whose cited evidence changed, that action is a fresh disposition, not
-a mandatory stop, even at the round limit. Completed imperfect responses retain
+a mandatory stop, even at the round limit. The same holds at the round limit when
+every open concern is the latest round's own `@coverage` duty and none has a
+disposition yet. Completed imperfect responses retain
 their original captures, and a capture-bound lead interpretation can preserve
 independent-slot credit without a formatting-only retry.
 

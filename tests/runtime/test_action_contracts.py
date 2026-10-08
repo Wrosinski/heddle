@@ -5,6 +5,7 @@ from __future__ import annotations
 import inspect
 from types import SimpleNamespace
 
+import pytest
 import yaml
 
 from heddle.contracts import operations as ops
@@ -498,6 +499,42 @@ def test_ac4_decision_action_pauses_and_continuation_is_single_use(
     next_action = application.execute(ops.Status(feature=V7_FEATURE)).next_actions[0]
     assert isinstance(next_action.action, ops.CommandAction)
     assert isinstance(next_action.action.operation, ops.ReviewRoundOpen)
+
+
+@pytest.mark.parametrize("open_finding", [False, True])
+def test_clean_round_at_its_limit_routes_its_coverage_duty_to_disposition(
+    tmp_path, monkeypatch, run_cli, open_finding
+):
+    """At the round limit only real open work routes to the mandatory stop."""
+    host, path = current_host(
+        tmp_path,
+        monkeypatch,
+        overrides={"spec-review": entry("spec-review", limit=1)},
+    )
+    findings = [finding("SP-I1", classification="implement")] if open_finding else []
+    calls = provider_transport(monkeypatch, review_content(findings=findings))
+    code, result = gate_command(run_cli, "run-gate", "spec-review")
+    assert code in (0, 4) and result["ok"], result
+    origin = runs(path)[0]["run_id"]
+    before = snapshot(host)
+    row = review_status(path)
+    routed = application.execute(ops.Orient(feature=V7_FEATURE)).next_actions[0]
+    assert row["stop_reason"] == "round-limit" and not row["closed"]
+    assert snapshot(host) == before
+    if open_finding:
+        assert row["next_step"] == "decision"
+        assert isinstance(routed.action, ops.CommandAction)
+        assert isinstance(routed.action.operation, ops.ReviewRoundOpen)
+        return
+    assert row["open_refs"] == [[origin, "@coverage"]]
+    assert row["next_step"] == "disposition" and row["decision_id"] is None
+    assert isinstance(routed.action, ops.AuthoringAction)
+    assert routed.action.work == "review-disposition"
+    assert routed.action.references == (f"{origin}#@coverage",)
+    assert "review disposition" in routed.reason
+    closed = dispose(path, [disposition(origin, "@coverage", status="settled")])
+    assert closed.ok and closed.data["closure"]["closed"], closed.to_envelope()
+    assert yaml.safe_load(path.read_text())["decisions"] == [] and len(calls) == 1
 
 
 def test_ac11_driver_consumes_action_variants_without_class_repair():

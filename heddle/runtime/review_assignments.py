@@ -936,6 +936,26 @@ class _Qualification:
             for reference in open_refs
         )
 
+    def only_latest_coverage_duties(
+        self,
+        assignment: ReviewAssignment,
+        open_refs: tuple[tuple[str, str], ...],
+    ) -> bool:
+        """Every open reference is the latest round's coverage, not yet disposed."""
+        latest_round = {
+            source.run_id
+            for source in core.authoritative_sources(self.snapshot.state)
+            if source.assignment_id == assignment.id
+            and source.round_number == len(assignment.rounds)
+        }
+        latest = self._latest_dispositions(assignment)
+        return bool(open_refs) and all(
+            finding_id == "@coverage"
+            and run_id in latest_round
+            and (run_id, finding_id) not in latest
+            for run_id, finding_id in open_refs
+        )
+
     def _latest_dispositions(
         self, assignment: ReviewAssignment
     ) -> dict[tuple[str, str], AssignmentDisposition]:
@@ -1276,6 +1296,13 @@ def projection(
                 and receipt is None
                 and basis_applies
                 and frame.only_changed_evidence(assignment, closed.open_refs)
+            ):
+                row["next_step"] = "disposition"
+            elif (
+                closed.stop_reason == "round-limit"
+                and receipt is None
+                and basis_applies
+                and frame.only_latest_coverage_duties(assignment, closed.open_refs)
             ):
                 row["next_step"] = "disposition"
             elif closed.stop_reason == "round-limit" and core.continuation_authorized(
