@@ -136,7 +136,7 @@ def test_consecutive_verify_failures_raise_attempt_cap_batch(
     assert not settled["sessions"]
     before = path.read_bytes()
     code, retry, *_ = run_json([*arguments, "--kind", "disposition"])
-    assert code == 0 and retry["data"]["mutation_summary"]["would_write"] is False
+    assert code == 0 and retry["data"]["mutation_summary"]["wrote"] is False
     assert path.read_bytes() == before
 
 

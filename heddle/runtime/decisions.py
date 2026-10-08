@@ -513,8 +513,8 @@ def record_policy(operation: ops.RecordPolicy) -> HeddleResult:
                     raise conflict
                 after = transform(deepcopy(before))
                 parse_state_document(after, source=target.state_path)
-                wrote = after != before
-                revision = before["revision"] + int(wrote)
+                revision = before["revision"] + int(after != before)
+                wrote = after != before or publication is not None
         else:
             commit = state_store._commit_state(
                 target.state_path,
@@ -522,7 +522,7 @@ def record_policy(operation: ops.RecordPolicy) -> HeddleResult:
                 transform=transform,
                 before_publish=publish_journal,
             )
-            revision, wrote = commit.revision, commit.wrote
+            revision, wrote = commit.revision, commit.wrote or journal_published
     except Conflict as error:
         return _conflict_failure(error)
     except KernelError as error:
@@ -541,12 +541,8 @@ def record_policy(operation: ops.RecordPolicy) -> HeddleResult:
         {
             "feature": target.feature,
             "revision": revision,
-            "mutation_summary": {
-                "command": "decisions record-policy",
-                "would_write": wrote or publication is not None,
-            },
+            **_mutation_fields("decisions record-policy", wrote, operation.dry_run),
             "decision_ids": [item.id for item in operation.resolutions],
-            **({"dry_run": True} if operation.dry_run else {}),
         }
     )
 
@@ -724,11 +720,22 @@ def _mutate(
         {
             "feature": target.feature,
             "revision": revision,
-            "mutation_summary": {"command": command, "would_write": wrote},
+            **_mutation_fields(command, wrote, dry_run),
             **affected,
-            **({"dry_run": True} if dry_run else {}),
         }
     )
+
+
+def _mutation_fields(command: str, wrote: bool, dry_run: bool) -> dict[str, Any]:
+    """The write-path envelope convention: a real write reports ``wrote``; a
+    preview writes nothing and reports what it ``would_write``."""
+    if dry_run:
+        return {
+            "dry_run": True,
+            "wrote": False,
+            "mutation_summary": {"command": command, "would_write": wrote},
+        }
+    return {"wrote": wrote, "mutation_summary": {"command": command, "wrote": wrote}}
 
 
 def _decision_payload(

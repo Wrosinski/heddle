@@ -113,6 +113,11 @@ def test_complete_conflict_fact_retry_is_exact_and_readable(tmp_path, monkeypatc
     before = (state.read_bytes(), journal.read_bytes())
     result = execute(ops.RecordPolicy((item,), feature=V7_FEATURE))
     assert result.ok, result
+    assert result.data["wrote"] is False
+    assert result.data["mutation_summary"] == {
+        "command": "decisions record-policy",
+        "wrote": False,
+    }
     assert (state.read_bytes(), journal.read_bytes()) == before
     changed = execute(
         ops.RecordPolicy((replace(item, rationale="different"),), feature=V7_FEATURE)
@@ -184,6 +189,8 @@ def test_nonconflict_journal_first_failure_recovers(tmp_path, monkeypatch):
     monkeypatch.setattr(decisions.state_store.os, "replace", original)
     result = execute(ops.RecordPolicy((policy(),), feature=V7_FEATURE))
     assert result.ok, result
+    assert result.data["wrote"] is True
+    assert "would_write" not in result.data["mutation_summary"]
     assert journal.read_bytes() == published
     assert len(yaml.safe_load(state.read_text())["decisions"]) == 1
 

@@ -520,8 +520,14 @@ def test_ac13_decisions_add_validates_decision_batch_payload(
             "--json",
         ]
     )
-    envelope_tools.assert_shape(envelope_tools.parse(out))
+    envelope = envelope_tools.parse(out)
+    envelope_tools.assert_shape(envelope)
     assert code == 0, f"FAIL AC-13: valid heddle.decision-batch/v1 must add, got {code}"
+    assert envelope["data"]["wrote"] is True
+    assert envelope["data"]["mutation_summary"] == {
+        "command": "decisions add",
+        "wrote": True,
+    }, "a real add reports wrote, not the dry-run would_write"
     state = driver_corpus.read_yaml(state_path)
     decision = state["decisions"][-1]
     assert decision["id"] == "D1" and decision["status"] == "pending", (

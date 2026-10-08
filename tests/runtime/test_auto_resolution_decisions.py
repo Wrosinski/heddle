@@ -63,6 +63,11 @@ def test_ac11_resolution_retry_is_idempotent_and_amendment_fails_closed(
         run_cli, resolution="Use event invalidation", route="  docs/cache.md  "
     )
     assert code == 0 and first["ok"] is True
+    assert first["data"]["wrote"] is True
+    assert first["data"]["mutation_summary"] == {
+        "command": "decisions resolve",
+        "wrote": True,
+    }, "a real write reports wrote, not the dry-run would_write"
     after_first = yaml.safe_load(state_path.read_text(encoding="utf-8"))
     first_revision = after_first["revision"]
     first_decision = next(d for d in after_first["decisions"] if d["id"] == "D1")
@@ -75,7 +80,8 @@ def test_ac11_resolution_retry_is_idempotent_and_amendment_fails_closed(
         run_cli, resolution="Use event invalidation", route="docs/cache.md"
     )
     assert code == 0 and retry["ok"] is True
-    assert retry["data"]["mutation_summary"]["would_write"] is False
+    assert retry["data"]["wrote"] is False
+    assert retry["data"]["mutation_summary"]["wrote"] is False
     after_retry = yaml.safe_load(state_path.read_text(encoding="utf-8"))
     retry_decision = next(d for d in after_retry["decisions"] if d["id"] == "D1")
     assert after_retry["revision"] == first_revision
@@ -143,7 +149,7 @@ def test_ac11_current_normalized_route_retry_is_a_byte_stable_noop(
         resolution="Use event invalidation",
         route=requested_route,
     )
-    assert code == 0 and retry["data"]["mutation_summary"]["would_write"] is False
+    assert code == 0 and retry["data"]["mutation_summary"]["wrote"] is False
     assert state_path.read_bytes() == before, (
         "FAIL AC-11: an equivalent normalized current route retry must not "
         "canonicalize or otherwise rewrite immutable resolution history"
@@ -210,6 +216,7 @@ def test_ac11_dry_run_has_resolution_validation_parity(
     )
     assert code == 0
     assert retry["data"]["mutation_summary"]["would_write"] is False
+    assert retry["data"]["dry_run"] is True and retry["data"]["wrote"] is False
     assert state_path.read_bytes() == resolved
 
     code, amendment = _resolve(
