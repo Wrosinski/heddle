@@ -304,6 +304,10 @@ class TestAC3NoLegacyMechanics:
         prompt = _source_text(prompt_mod.packaged_prompt_path(gate.prompt_template))
         for field in ("ac_tests", "infrastructure", "dimensions"):
             assert field in prompt, f"Prompt omits structured assessment field {field}"
+        # The validator refuses `covered` without a milestone test reference.
+        assert "`covered` requires a milestone test reference" in " ".join(
+            prompt.split()
+        )
 
     def test_scaffold_review_prompt_honors_labelled_survivor_pins(self) -> None:
         """The review gate and scaffold briefing share the dual-phase rule."""

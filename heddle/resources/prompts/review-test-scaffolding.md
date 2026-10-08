@@ -381,9 +381,12 @@ findings do not. Source references prove accounting, not causal truth.
 `details.dimensions` covers all six schema dimension IDs once.
 `details.ac_tests` covers every supplied AC ID once with its
 covered/partial/gap/conflict/unverifiable assessment, concrete milestone test,
-acceptance test and live test references, and checked evidence. Explain missing,
-lane-excluded or N-A-by-design coverage with its concrete fallback in evidence
-rather than inventing a test. Execution deferral leaves required proof pending.
+acceptance test and live test references, and checked evidence. An AC proven
+only by an acceptance or live test, with no milestone test, is `partial`: name
+that test in `acceptance_tests` or `live_tests`, since `covered` requires a
+milestone test reference. Explain missing, lane-excluded or N-A-by-design
+coverage with its concrete fallback in evidence rather than inventing a test.
+Execution deferral leaves required proof pending.
 `details.infrastructure` contains exactly three assessments, each with
 its exact ID, checked status and evidence: `commands` covers smoke_test,
 test_command, acceptance_test and live_e2e_test; `prerequisites` covers
