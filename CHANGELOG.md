@@ -81,8 +81,12 @@ authority for the installed version.
 
 - `heddle feature start --through <stage> --statement <text>` records the
   owner's stated authority ceiling and where it was given. Without
-  `--through` the ceiling stays at specify. The specification checkpoint and
-  the review change confirmation still stop the feature whatever the ceiling.
+  `--through` the ceiling stays at specify. While the specification
+  checkpoint is on, specify exit still waits until a resolved
+  `Specification checkpoint` decision exists, or until an owner
+  `phase-exit` when the owner skipped that checkpoint for the feature. The
+  review change confirmation stays the lead's question, as under any raised
+  ceiling.
 - `heddle review round-open --help` publishes its payload schema,
   `heddle.review-round-input/v1`, and `heddle milestone add --help` publishes
   `heddle.milestone-input/v1`. Disposition help now explains each evidence

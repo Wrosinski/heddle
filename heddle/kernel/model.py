@@ -28,6 +28,7 @@ from heddle.contracts.result import NextAction, Severity
 from heddle.contracts.schemas import (
     FLOW_AUTO,
     FLOW_HITL,
+    SPECIFICATION_CHECKPOINT_TITLE,
     STAGES,
     WORKSPACE_PLAN,
     WORKSPACE_STATE,
@@ -413,6 +414,7 @@ def resolve_snapshot(config: ProjectConfig, slug: str) -> FeatureSnapshot:
             flow=flow,
             autopilot_section_present=config.autopilot.section_present,
             principles_precondition_passed=principles_precondition_passed,
+            specification_checkpoint=config.checkpoints["specification"],
         ),
         entry=_session_entry(state, required_gates),
         next_steps=state.sessions[-1].next_steps if state.sessions else None,
@@ -790,6 +792,7 @@ def _blocking_conditions(
     flow: str,
     autopilot_section_present: bool,
     principles_precondition_passed: bool,
+    specification_checkpoint: bool,
 ) -> tuple[str, ...]:
     """The payload blocking codes per the §12.1 trigger table, emitted in
     trigger-table ROW order. Family A fires whenever the fact
@@ -832,7 +835,12 @@ def _blocking_conditions(
     if exit_ready and _first_unconverged_gate(state, required_gates) is not None:
         fired.append("gate-not-converged")
 
-    if _requires_human_authorization_gate(state, flow, autopilot_section_present):
+    if _requires_human_authorization_gate(
+        state,
+        flow,
+        autopilot_section_present,
+        specification_checkpoint=specification_checkpoint,
+    ):
         fired.append("awaiting-human-authorization")
 
     # `complete` is the human-owned Phase 9 stage — the handoff
@@ -860,20 +868,46 @@ def _blocking_conditions(
 
 
 def _requires_human_authorization_gate(
-    state: StateFile, flow: str, autopilot_section_present: bool
+    state: StateFile,
+    flow: str,
+    autopilot_section_present: bool,
+    *,
+    specification_checkpoint: bool,
 ) -> bool:
     hitl_flow_active = flow == FLOW_HITL
     m4a_hitl_gate_enabled = state.flow == FLOW_HITL or (
         state.flow is None and autopilot_section_present
     )
-    awaiting_boundary_grant = (
-        state.stage != "complete" and not _authorized_past_current_boundary(state)
+    awaiting_boundary_grant = state.stage != "complete" and (
+        not _authorized_past_current_boundary(state)
+        or (specification_checkpoint and _stated_ceiling_awaits_checkpoint(state))
     )
     return hitl_flow_active and m4a_hitl_gate_enabled and awaiting_boundary_grant
 
 
 def _authorized_past_current_boundary(state: StateFile) -> bool:
     return STAGES.index(state.authorized_through) > STAGES.index(state.stage)
+
+
+def _stated_ceiling_awaits_checkpoint(state: StateFile) -> bool:
+    """A ceiling stated at admission passes specify only after the checkpoint.
+
+    The owner's statement at ``feature start`` replaces the default stop at
+    specify exit, but not the owner's approval of the specification. Until a
+    ``Specification checkpoint`` decision is resolved, the boundary still awaits
+    the owner, as it would have under the default ceiling. A later owner grant
+    from ``phase-exit --through`` carries no statement and ends this wait.
+    """
+    return (
+        state.stage == "specify"
+        and bool(state.authorizations)
+        and state.authorizations[-1].statement is not None
+        and not any(
+            decision.status == "resolved"
+            and decision.title.startswith(SPECIFICATION_CHECKPOINT_TITLE)
+            for decision in state.decisions
+        )
+    )
 
 
 def _principles_ratified(root: Path) -> bool:

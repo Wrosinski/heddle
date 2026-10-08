@@ -1308,7 +1308,8 @@ COMMAND_SURFACE: tuple[CommandContract, ...] = (
             FlagSpec(
                 "--through",
                 "record the owner's stated permission ceiling (a stage); "
-                "default specify",
+                "default specify. While the specification checkpoint is on, "
+                "specify exit still waits until that checkpoint is resolved",
             ),
             FlagSpec(
                 "--statement",

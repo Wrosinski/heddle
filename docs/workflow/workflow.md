@@ -68,9 +68,10 @@ Heddle, present the complete resolved per-role matrix and record the user's
 actual confirmation through `heddle feature policy`; then use `heddle feature
 start` and follow its emitted actions. When the owner states how far the
 feature may run, record that ceiling and where they said it at start with
-`--through`; without it the grant ends at `specify`. Host exclusions remain
-constraints, not silent substitutions. Native help owns argument and payload
-spellings.
+`--through`; without it the grant ends at `specify`. While the specification
+checkpoint is on, the feature still waits at specify exit until the owner
+resolves that checkpoint. Host exclusions remain constraints, not silent
+substitutions. Native help owns argument and payload spellings.
 
 The confirmed policy records `off`, `upper-limit` or `convergence` per role,
 reviewer tuples, each secondary's `secondary_rounds` window, required contexts

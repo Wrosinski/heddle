@@ -729,10 +729,12 @@ def test_start_records_the_owner_ceiling_with_its_statement(host, through):
 
 
 def test_stated_ceiling_keeps_the_specification_checkpoint_stop(host):
-    """A higher ceiling drops boundary-grant stops, never a pending owner question."""
+    """A stated ceiling never carries specify exit past the owner's approval."""
+    from heddle.contracts import operations as ops
     from heddle.contracts.decisions import DecisionInput
     from heddle.kernel.model import first_actionable_blocker, resolve_snapshot
     from heddle.kernel.project_config import load_project_config_from_cwd
+    from heddle.runtime.application import execute
 
     confirmed(host)
     started = invoke(
@@ -744,8 +746,8 @@ def test_stated_ceiling_keeps_the_specification_checkpoint_stop(host):
     )
     assert started.ok, started.to_envelope()
     config = load_project_config_from_cwd()
-    current = resolve_snapshot(config, FEATURE)
-    assert "awaiting-human-authorization" not in current.blocking_conditions
+    awaiting = "awaiting-human-authorization"
+    assert awaiting in resolve_snapshot(config, FEATURE).blocking_conditions
     asked = invoke(
         "DecisionsAdd",
         decisions=(
@@ -762,9 +764,42 @@ def test_stated_ceiling_keeps_the_specification_checkpoint_stop(host):
         feature=FEATURE,
     )
     assert asked.ok, asked.to_envelope()
-    assert first_actionable_blocker(resolve_snapshot(config, FEATURE)) == (
-        "pending-decisions"
+    current = resolve_snapshot(config, FEATURE)
+    assert first_actionable_blocker(current) == "pending-decisions"
+    assert awaiting in current.blocking_conditions
+    (decision,) = current.state.decisions
+    resolved = execute(
+        ops.ResolveDecision(
+            decision_id=decision.id,
+            kind="disposition",
+            rationale="Owner approves the specification as drafted",
+            routes_to=started.data["spec"],
+            feature=FEATURE,
+        )
     )
+    assert resolved.ok, resolved.to_envelope()
+    assert awaiting not in resolve_snapshot(config, FEATURE).blocking_conditions
+
+
+def test_stated_ceiling_passes_specify_when_the_host_turns_the_checkpoint_off(host):
+    from heddle.kernel.model import resolve_snapshot
+    from heddle.kernel.project_config import load_project_config_from_cwd
+
+    config_path = host / ".heddle.yaml"
+    config_path.write_text(
+        config_path.read_text() + "checkpoints:\n  specification: false\n"
+    )
+    confirmed(host)
+    started = invoke(
+        "FeatureStart",
+        slug=FEATURE,
+        flow="hitl",
+        through="complete",
+        statement=OWNER_STATEMENT,
+    )
+    assert started.ok, started.to_envelope()
+    current = resolve_snapshot(load_project_config_from_cwd(), FEATURE)
+    assert "awaiting-human-authorization" not in current.blocking_conditions
 
 
 @pytest.mark.parametrize(

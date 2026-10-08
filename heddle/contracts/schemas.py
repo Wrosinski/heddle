@@ -389,6 +389,8 @@ AGENTS_KEYS = ("claude", "codex")
 GATES_KEYS = ("enabled",)
 # Owner checkpoints a host may turn off; each defaults to on.
 CHECKPOINTS_KEYS = ("specification", "review_changes")
+# Title prefix of the specification checkpoint question the specify lead records.
+SPECIFICATION_CHECKPOINT_TITLE = "Specification checkpoint"
 # How independent review slots launch; concurrent unless the host says otherwise.
 REVIEWS_KEYS = ("launch",)
 REVIEW_LAUNCH_MODES = ("concurrent", "sequential")
