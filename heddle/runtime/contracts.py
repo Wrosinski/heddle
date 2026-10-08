@@ -781,6 +781,25 @@ FEATURE_POLICY_INPUT_SCHEMA: dict[str, Any] = {
     ],
 }
 
+_EVIDENCE_KIND_SUMMARIES = {
+    "inspection": "the lead inspected the cited files; counts while they are unchanged",
+    "contract": (
+        "a cited contract or specification file settles the concern; counts "
+        "while it is unchanged"
+    ),
+    "verification": "a current, passing heddle verify record for verification_scope",
+    "review": (
+        "a later round of this assignment by the same reviewer selection that "
+        "affirmatively dispositions this origin; needs review_run_id"
+    ),
+    "decision": (
+        "the user-resolved owner decision of this REPORT finding; needs decision_id"
+    ),
+    "unavailable": (
+        "no affirmative evidence; only retained or awaiting-decision rows accept it"
+    ),
+}
+
 REVIEW_DISPOSITION_INPUT_SCHEMA: dict[str, Any] = {
     "id": "heddle.review-disposition-input/v1",
     "media_type": "application/json",
@@ -809,14 +828,17 @@ REVIEW_DISPOSITION_INPUT_SCHEMA: dict[str, Any] = {
                     },
                     "evidence_kind": {
                         **_text_field("qualification route for the cited evidence"),
-                        "one_of": _closed_options(EVIDENCE_KINDS),
+                        "one_of": [
+                            {"value": kind, "summary": _EVIDENCE_KIND_SUMMARIES[kind]}
+                            for kind in EVIDENCE_KINDS
+                        ],
                     },
                     "references": {
                         "type": "list",
                         "required": True,
                         "min_items": 1,
                         "items": {"type": "string", "non_empty": True},
-                        "summary": "exact evidence paths or native references",
+                        "summary": "repository paths of the regular files cited",
                     },
                     "reason": _text_field("how the evidence resolves the obligation"),
                     "requires_inspection": {
@@ -856,8 +878,18 @@ REVIEW_DISPOSITION_INPUT_SCHEMA: dict[str, Any] = {
         "requires_inspection preserves that duty.",
         "A clean later report alone does not settle an originating duty: review "
         "evidence needs review_run_id and its qualifying binding.",
-        "Verification evidence needs verification_scope; inspection and contract "
-        "evidence retain exact references.",
+        "Cite a test or command run as verification evidence: record it with "
+        "heddle verify and give its verification_scope; it counts only while that "
+        "verification is current and passing. Inspection and contract evidence "
+        "retain exact references.",
+        "references must be regular files in the repository; a later change to a "
+        "cited file stops the row counting (reference-changed). The feature's own "
+        "state.yaml cannot be cited (self-mutating-reference).",
+        "A REPORT finding closes only through its owner decision: once that "
+        "decision is resolved, record status settled, evidence_kind decision and "
+        "its decision_id; until then record awaiting-decision. Other addressed or "
+        "settled rows on a critical or important REPORT finding are refused "
+        "(decision-routed).",
         "Unknown fields, unsupported values and unqualified evidence fail the "
         "complete batch before it writes.",
     ],

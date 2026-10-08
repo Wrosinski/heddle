@@ -28,6 +28,7 @@ import pytest
 import heddle.runtime.contracts as contracts_module
 import heddle.runtime.dispatch as dispatch_module
 from heddle.contracts.result import ERROR_CODES
+from heddle.contracts.review_assignments import EVIDENCE_KINDS
 from heddle.runtime.contracts import COMMAND_SURFACE
 
 TINY = Path(__file__).resolve().parent.parent / "fixtures" / "workspaces" / "tiny"
@@ -420,6 +421,16 @@ class TestPerCommandHelp:
         assert "scope_change  object or null, optional" in out
         assert "sealed acceptance" in out and "stop decision" in out
         assert '"purpose": "verification"' in out
+
+    def test_review_disposition_help_explains_evidence_kinds(self, run_cli):
+        code, out, _err = run_cli(["review", "disposition", "--help"])
+        assert code == 0
+        lines = [line.strip() for line in out.splitlines()]
+        for kind in EVIDENCE_KINDS:
+            option = next(line for line in lines if line.startswith(f"{kind}  "))
+            assert option != f"{kind}  {kind}", option
+        assert "heddle verify" in out and "self-mutating-reference" in out
+        assert "decision-routed" in out
 
     def test_help_without_input_schema_omits_payload_section(self, run_cli):
         code, out, _err = run_cli(["status", "--help"])

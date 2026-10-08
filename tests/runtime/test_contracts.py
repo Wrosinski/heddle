@@ -20,6 +20,7 @@ from typing import get_args
 
 import pytest
 
+from heddle.contracts.review_assignments import EVIDENCE_KINDS
 from heddle.contracts.schemas import (
     DECISION_BATCH_CLASSES,
     DECISION_BATCH_SOURCES,
@@ -31,6 +32,7 @@ from heddle.runtime.contracts import (
     MANIFEST_SCHEMA_VERSION,
     PERF_CI_CEILING_S,
     PERF_WARM_TARGET_MS,
+    REVIEW_DISPOSITION_INPUT_SCHEMA,
     build_manifest,
 )
 
@@ -677,6 +679,27 @@ class TestInputSchemaBody:
         assert entry["input_schema"] is not DECISION_BATCH_INPUT_SCHEMA
         entry["input_schema"]["fields"].clear()
         assert DECISION_BATCH_INPUT_SCHEMA["fields"]
+
+
+def test_disposition_help_explains_each_evidence_kind_and_its_limits():
+    fields = REVIEW_DISPOSITION_INPUT_SCHEMA["fields"]["dispositions"]["items"]
+    options = fields["fields"]["evidence_kind"]["one_of"]
+    assert [option["value"] for option in options] == list(EVIDENCE_KINDS)
+    for option in options:
+        assert option["summary"].strip()
+        assert option["summary"] != option["value"].replace("-", " ")
+    notes = " ".join(REVIEW_DISPOSITION_INPUT_SCHEMA["notes"])
+    for token in (
+        "heddle verify",
+        "verification_scope",
+        "regular files",
+        "state.yaml",
+        "self-mutating-reference",
+        "decision_id",
+        "awaiting-decision",
+        "decision-routed",
+    ):
+        assert token in notes, token
 
 
 class TestSchemaValidatorConformance:
