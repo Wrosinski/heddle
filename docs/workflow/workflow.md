@@ -77,9 +77,11 @@ The confirmed policy records `off`, `upper-limit` or `convergence` per role,
 reviewer tuples, each secondary's `secondary_rounds` window, required contexts
 and any maximum. Change it only through its
 explicit amendment operation. One such amendment is a second-model
-milestone-review secondary, which the specify session proposes at the
-specification checkpoint when a milestone reuses or rebinds an inherited
-boundary; it serves every milestone's review. Runtime-owned closure accounts
+milestone-review secondary. When a milestone reuses or rebinds an inherited
+boundary, the specify session asks the owner about it in a question of its own,
+apart from the specification checkpoint, and the owner applies an approved
+amendment before implement starts; it serves every milestone's review.
+Runtime-owned closure accounts
 for required passes, current evidence, dispositions and decisions. No document introduces a hidden
 round cap, waives a selected role or schedules a retired synthesis gate.
 

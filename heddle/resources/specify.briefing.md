@@ -246,12 +246,15 @@ citations have separate evidence identity even when their files are unowned;
 coverage exemptions and ignore rules never filter those checks.
 
 When a milestone reuses or rebinds an inherited boundary, such as a shared
-read, a matching rule or a validator, name the boundary in its Work and propose
-at the specification checkpoint a feature policy amendment adding a
+read, a matching rule or a validator, name the boundary in its Work and record a
+separate owner `question` on a feature policy amendment adding a
 milestone-review secondary: a second model on the other CLI, which can probe
 the real component with reduced limits, non-canonical input order and unusable
-inputs. The policy's one milestone-review entry covers every milestone, so that
-secondary joins each milestone's review within its `secondary_rounds` window.
+inputs. Offer adding it or keeping one reviewer, so the owner can decline the
+cost without holding the specification checkpoint; the owner applies an
+approved amendment before implement starts. The policy's one milestone-review
+entry covers every milestone, so that secondary joins each milestone's review
+within its `secondary_rounds` window.
 
 ## Validate and hand off
 
