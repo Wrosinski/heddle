@@ -158,6 +158,11 @@ class TestReviewEvidenceKindsPartial:
             "Unavailable, speculative or absent evidence cannot establish AC `pass`, "
             "full test coverage"
         ) in expanded
+        # A carried-over claim once cited absence to mean "unchanged".
+        assert (
+            "A coverage claim carried over from an earlier round cites a `trace` or "
+            '`test`; `absence` never means "unchanged since the last round"'
+        ) in expanded
 
 
 class TestVerificationSweepGrafts:
