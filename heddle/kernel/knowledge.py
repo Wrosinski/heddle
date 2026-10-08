@@ -19,10 +19,10 @@ import yaml
 from yaml.nodes import MappingNode, Node, SequenceNode
 
 from heddle.kernel.project_config import KernelError
+from heddle.kernel.test_bindings import VERIFIED_BY, unread_verified_by_lines
 
 AC_HEADING = re.compile(r"^###\s+(AC-\d+)\b", re.MULTILINE)
 MILESTONE_HEADING = re.compile(r"^###\s+Milestone\s+([^:\s]+):", re.MULTILINE)
-VERIFIED_BY = re.compile(r"^Verified-by:\s*(.+?)\s*$", re.MULTILINE)
 MARKDOWN_SUFFIX = "." + "md"
 PATTERNS_ROOT = Path("docs") / "patterns"
 
@@ -32,6 +32,7 @@ class MarkdownDocument:
     path: str
     frontmatter: dict[str, Any]
     body: str
+    body_line: int = 1  # 1-based file line where ``body`` starts
 
 
 @dataclass(frozen=True)
@@ -45,6 +46,12 @@ class SpecVerificationFacts:
     path: str
     status: str | None
     verified_by: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class SpecVerifiedByLines:
+    path: str
+    unread_lines: tuple[int, ...]  # 1-based file lines VERIFIED_BY skips
 
 
 @dataclass(frozen=True)
@@ -82,6 +89,7 @@ def read_markdown(
     text = text.replace("\r\n", "\n")
     frontmatter: dict[str, Any] = {}
     body = text
+    body_line = 1
     lines = text.splitlines(keepends=True)
     if lines and lines[0] == "---\n":
         closing_index = next(
@@ -110,7 +118,8 @@ def read_markdown(
         if isinstance(loaded, dict):
             frontmatter = loaded
         body = "".join(lines[closing_index + 1 :])
-    return MarkdownDocument(str(path), frontmatter, body)
+        body_line = closing_index + 2
+    return MarkdownDocument(str(path), frontmatter, body, body_line)
 
 
 def heading_anchor(heading: str) -> str:
@@ -128,6 +137,17 @@ def read_spec_facts(spec_path: Path) -> SpecFacts:
 
 def read_spec_verification_facts(spec_path: Path) -> SpecVerificationFacts:
     return _spec_verification_facts(read_markdown(spec_path))
+
+
+def read_spec_verified_by_lines(spec_path: Path) -> SpecVerifiedByLines:
+    document = read_markdown(spec_path)
+    offset = document.body_line - 1
+    return SpecVerifiedByLines(
+        path=document.path,
+        unread_lines=tuple(
+            offset + line for line in unread_verified_by_lines(document.body)
+        ),
+    )
 
 
 def read_plan_facts(plan_path: Path) -> PlanFacts:

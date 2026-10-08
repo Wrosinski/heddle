@@ -517,3 +517,63 @@ class TestValidationAcceptance:
         assert by_name["validate"]["dry_run"] is False
         assert by_name["validate"]["exit_codes"] == [0, 1, 2, 3, 4]
         assert by_name["validate"]["output_schema"] == "heddle.validate/v0"
+
+
+def _sample_spec(host: Path) -> Path:
+    return host / "docs" / "features" / "example" / "sample-feature.md"
+
+
+def _append_spec_lines(host: Path, *lines: str) -> None:
+    spec = _sample_spec(host)
+    spec.write_text(
+        spec.read_text(encoding="utf-8") + "\n" + "\n".join(lines) + "\n",
+        encoding="utf-8",
+    )
+
+
+def _spec_line(host: Path, text: str) -> int:
+    return _sample_spec(host).read_text(encoding="utf-8").splitlines().index(text) + 1
+
+
+def _coded(envelope: dict[str, Any], code: str) -> list[dict[str, Any]]:
+    return [d for d in _diagnostics(envelope) if d["code"] == code]
+
+
+@pytest.mark.acceptance
+class TestVerifiedByAdvisories:
+    """Validate advises on spec Verified-by declarations without failing."""
+
+    def test_unread_declaration_forms_are_advised_with_file_and_line(
+        self,
+        run_cli,
+        envelope_tools,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        host = _clean_host(tmp_path, "unread-forms")
+        _append_spec_lines(
+            host,
+            "Verified-by: tests/test_parser.py::test_parse",
+            "- Verified-by: tests/test_cli.py::test_count",
+            "  verified by: tests/test_cli.py::test_usage",
+            "```text",
+            "- Verified-by: tests/test_cli.py::test_example",
+            "```",
+        )
+
+        code, envelope = _run_validate(run_cli, envelope_tools, host, monkeypatch)
+
+        assert code == 4 and envelope["ok"] is True
+        unread = _coded(envelope, "verified-by-unread")
+        assert [d["severity"] for d in unread] == ["advisory", "advisory"]
+        spec = "docs/features/example/sample-feature.md"
+        for diagnostic, text in zip(
+            unread,
+            (
+                "- Verified-by: tests/test_cli.py::test_count",
+                "  verified by: tests/test_cli.py::test_usage",
+            ),
+            strict=True,
+        ):
+            assert f"{spec}:{_spec_line(host, text)} " in diagnostic["message"]
+            assert "`Verified-by: <path>::<test>, ...`" in diagnostic["message"]

@@ -2,11 +2,18 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
+from heddle.kernel.knowledge import (
+    read_spec_verification_facts,
+    read_spec_verified_by_lines,
+)
 from heddle.kernel.test_bindings import (
     inspect_python_test_source,
     parse_primary_test_bindings,
     resolve_primary_test_binding,
     selector_rebind_pairs,
+    unread_verified_by_lines,
 )
 
 
@@ -180,3 +187,39 @@ def test_selector_rebind_pairs_only_same_file_selector_changes() -> None:
         is None
     )
     assert selector_rebind_pairs(current, "runner 'unterminated") is None
+
+
+def test_lookalike_declarations_are_unread_by_every_reader_and_reported(
+    tmp_path: Path,
+) -> None:
+    body = (
+        "### AC-1: Read\n"
+        "\n"
+        "Verified-by: tests/test_read.py::test_read\n"
+        "- Verified-by: tests/test_list.py::test_list\n"
+        "  Verified-by: tests/test_indent.py::test_indent\n"
+        "verified-by: tests/test_case.py::test_case\n"
+        "Verified by: tests/test_space.py::test_space\n"
+        "1. **Verified-by:** tests/test_bold.py::test_bold\n"
+        "> Verified-by : tests/test_quote.py::test_quote\n"
+        "```text\n"
+        "- Verified-by: tests/test_fenced.py::test_fenced\n"
+        "```\n"
+        "Prose may name the `Verified-by:` line.\n"
+        "Verified by running the suite.\n"
+    )
+    spec = tmp_path / "spec.md"
+    spec.write_text("---\nlifecycle: active\n---\n" + body, encoding="utf-8")
+
+    assert unread_verified_by_lines(body) == (4, 5, 6, 7, 8, 9)
+    assert read_spec_verified_by_lines(spec).unread_lines == (7, 8, 9, 10, 11, 12)
+    assert read_spec_verification_facts(spec).verified_by == ("tests/test_read.py",)
+    parsed = parse_primary_test_bindings("AC-1", body)
+    assert [binding.target for binding in parsed.bindings] == [
+        "tests/test_read.py::test_read"
+    ]
+    bulleted_only = parse_primary_test_bindings(
+        "AC-2", "- Verified-by: tests/test_list.py::test_list"
+    )
+    assert bulleted_only.bindings == ()
+    assert bulleted_only.issues[0].reason == "missing primary binding"

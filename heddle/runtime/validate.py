@@ -18,7 +18,11 @@ from heddle.contracts.result import (
 )
 from heddle.contracts.schemas import STAGES
 from heddle.io.git import GitError, path_has_git_history
-from heddle.kernel.knowledge import read_plan_facts, read_spec_facts
+from heddle.kernel.knowledge import (
+    read_plan_facts,
+    read_spec_facts,
+    read_spec_verified_by_lines,
+)
 from heddle.kernel.model import (
     FeatureSnapshot,
     is_terminal,
@@ -267,6 +271,33 @@ def _check_spec_ac_references(context: ValidationContext) -> list[Diagnostic]:
     return diagnostics
 
 
+def _check_verified_by_lines(context: ValidationContext) -> list[Diagnostic]:
+    state = context.snapshot.state
+    spec_path = repo_relative_path(context.root, state.spec)
+    if spec_path is None or not spec_path.is_file():
+        return []  # The AC reference check already reports spec-missing.
+    try:
+        facts = read_spec_verified_by_lines(spec_path)
+    except KernelError:
+        return []  # The AC reference check already reports knowledge-invalid.
+    return [
+        _drift_diagnostic(
+            Severity.ADVISORY,
+            "verified-by-unread",
+            (
+                f"{state.feature}: {state.spec}:{line} looks like a Verified-by "
+                "declaration that Heddle does not read"
+            ),
+            (
+                "write it as an unindented `Verified-by: <path>::<test>, ...` "
+                "line with exactly that spelling, outside any list, quote or "
+                "code fence."
+            ),
+        )
+        for line in facts.unread_lines
+    ]
+
+
 def _check_owned_paths(context: ValidationContext) -> list[Diagnostic]:
     diagnostics: list[Diagnostic] = []
     root = context.root
@@ -482,6 +513,7 @@ _CHECKS: tuple[Check, ...] = (
     _check_source_coverage,
     _check_verification_evidence,
     _check_spec_ac_references,
+    _check_verified_by_lines,
     _check_owned_paths,
     _check_gate_artifacts,
     _check_plan_sections,

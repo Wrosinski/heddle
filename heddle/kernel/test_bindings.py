@@ -11,7 +11,17 @@ from typing import Literal
 BindingPolicy = Literal["native", "repository"]
 SelectorKind = Literal["module-function", "class", "qualified-method", "bare-method"]
 
-_VERIFIED_BY = re.compile(r"^Verified-by:[ \t]*(.*)$", re.MULTILINE)
+# The one canonical declaration every Verified-by reader uses: an unindented
+# line with this exact spelling and comma-separated targets.
+VERIFIED_BY = re.compile(r"^Verified-by:[ \t]*(.*)$", re.MULTILINE)
+# Line-start text that reads as a declaration in another casing, spacing,
+# indentation, quote or list form. VERIFIED_BY silently skips these lines.
+_VERIFIED_BY_LOOKALIKE = re.compile(
+    r"^[ \t]*(?:>[ \t]*)*(?:(?:[-*+]|\d+[.)])[ \t]+)?[*_]*"
+    r"verified[ \t_-]*by[*_]*[ \t]*:",
+    re.IGNORECASE,
+)
+_FENCE = re.compile(r"^[ \t]{0,3}(`{3,}|~{3,})")
 
 
 @dataclass(frozen=True)
@@ -58,7 +68,7 @@ class TestBindingResolution:
 
 def parse_primary_test_bindings(ac_id: str, ac_block: str) -> ParsedTestBindings:
     """Parse the established comma-separated ``Verified-by`` declaration."""
-    match = _VERIFIED_BY.search(ac_block)
+    match = VERIFIED_BY.search(ac_block)
     if match is None or not match.group(1).strip():
         return ParsedTestBindings(
             (),
@@ -91,6 +101,33 @@ def parse_primary_test_target(ac_id: str, target: str) -> PrimaryTestBinding:
         path=path.strip(),
         selector=selector.strip() if separator else "",
     )
+
+
+def unread_verified_by_lines(markdown: str) -> tuple[int, ...]:
+    """Return 1-based lines that look like declarations VERIFIED_BY skips.
+
+    Fenced code is example text, so its lines are never reported.
+    """
+    unread: list[int] = []
+    fence_marker: str | None = None
+    fence_size = 0
+    for number, line in enumerate(markdown.splitlines(), start=1):
+        delimiter = _FENCE.match(line)
+        if fence_marker is not None:
+            if (
+                delimiter is not None
+                and delimiter.group(1)[0] == fence_marker
+                and len(delimiter.group(1)) >= fence_size
+            ):
+                fence_marker = None
+            continue
+        if delimiter is not None:
+            fence_marker = delimiter.group(1)[0]
+            fence_size = len(delimiter.group(1))
+            continue
+        if _VERIFIED_BY_LOOKALIKE.match(line) and not VERIFIED_BY.match(line):
+            unread.append(number)
+    return tuple(unread)
 
 
 def inspect_python_test_source(source: bytes) -> PythonSymbolInspection:
