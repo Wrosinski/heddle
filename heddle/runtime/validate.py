@@ -302,6 +302,18 @@ def _check_verified_by_lines(context: ValidationContext) -> list[Diagnostic]:
     ]
 
 
+def verified_by_selection_advisories(
+    root: Path, snapshot: FeatureSnapshot
+) -> tuple[Diagnostic, ...]:
+    """The ``verified-by-unselected`` advisories for one workspace snapshot."""
+    context = ValidationContext(
+        root=root,
+        workspace_root=root / snapshot.workspace,
+        snapshot=snapshot,
+    )
+    return tuple(_check_verified_by_selection(context))
+
+
 def _check_verified_by_selection(context: ValidationContext) -> list[Diagnostic]:
     state = context.snapshot.state
     spec_path = repo_relative_path(context.root, state.spec)

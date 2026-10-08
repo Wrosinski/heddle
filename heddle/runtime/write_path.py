@@ -329,7 +329,7 @@ def _advance_readiness_precheck(
 def commands_set(operation: ops.CommandsSet) -> HeddleResult:
     parsed = operation
     key, shell_command = operation.key, operation.command
-    return _run_state_mutation(
+    result = _run_state_mutation(
         parsed,
         command_name="commands set",
         render=lambda document: set_command(
@@ -337,6 +337,29 @@ def commands_set(operation: ops.CommandsSet) -> HeddleResult:
         ),
         extra={"command_key": key, "shell_command": shell_command},
     )
+    return _with_selection_advisories(operation, result)
+
+
+def _with_selection_advisories(
+    operation: ops.CommandsSet | ops.MilestoneEdit, result: HeddleResult
+) -> HeddleResult:
+    """Show Verified-by targets the stored commands leave unselected.
+
+    The scaffold session sets verification commands; this puts the advisory
+    `heddle validate` would report where that session acts.
+    """
+    if not result.ok or operation.dry_run:
+        return result
+    # Imported here: validate depends on completion, which imports this module.
+    from heddle.runtime.validate import verified_by_selection_advisories
+
+    context = resolve_write_context(operation.feature)
+    if isinstance(context, HeddleResult):
+        return result
+    advisories = verified_by_selection_advisories(context.config.root, context.snapshot)
+    if not advisories:
+        return result
+    return replace(result, diagnostics=(*result.diagnostics, *advisories))
 
 
 def commands_unset(operation: ops.CommandsUnset) -> HeddleResult:
@@ -399,7 +422,9 @@ def milestone_edit(operation: ops.MilestoneEdit) -> HeddleResult:
         )
         return new_document
 
-    return _emit_milestone_mutation(parsed, render=render, affected=affected)
+    return _with_selection_advisories(
+        operation, _emit_milestone_mutation(parsed, render=render, affected=affected)
+    )
 
 
 def _proven_rebinds(

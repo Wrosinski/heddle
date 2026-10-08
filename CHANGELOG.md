@@ -89,15 +89,17 @@ authority for the installed version.
   ceiling.
 - `heddle review round-open --help` publishes its payload schema,
   `heddle.review-round-input/v1`, and `heddle milestone add --help` publishes
-  `heddle.milestone-input/v1`. Disposition help now explains each evidence
-  kind and which references can be cited.
+  `heddle.milestone-input/v1`. Disposition help now explains each status and
+  evidence kind and which references can be cited.
 - `heddle verify` reports pytest outcome counts as `counts` in its result and
   human output. The counts are not recorded in state.
 - `heddle validate` adds three advisories: `verified-by-unread` for
   Verified-by text the parser does not read, `scaffold-test-path-missing` for
   test paths the scaffolding review will refuse to start on, and
   `verified-by-unselected` for Verified-by targets no verification command
-  selects.
+  selects. `heddle commands set` and `heddle milestone edit` report
+  `verified-by-unselected` after a write, so the scaffold session sees it
+  where it sets the commands.
 - A Codex model-capacity refusal is classified as `codex-at-capacity`, with
   diagnosis `capacity`, instead of a generic exit or a tool loop. The gate
   failure guide says to retry the same model once capacity returns.

@@ -622,3 +622,32 @@ class TestVerifiedByAdvisories:
                 f"docs/features/example/sample-feature.md:{line} Verified-by "
                 f"target {target} is not selected"
             ) in diagnostic["message"]
+
+    def test_commands_set_reports_the_targets_its_commands_leave_unselected(
+        self,
+        run_cli,
+        envelope_tools,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        host = _clean_host(tmp_path, "commands-set")
+        _append_spec_lines(host, "Verified-by: tests/test_acceptance.py::test_flow")
+        monkeypatch.chdir(host)
+
+        def set_acceptance(command: str, *flags: str):
+            code, out, _err = run_cli(
+                ["commands", "set", "acceptance_test", "--command", command]
+                + [*flags, "--json"]
+            )
+            envelope = envelope_tools.parse(out)
+            assert code == 0 and envelope["ok"] is True, envelope
+            return _coded(envelope, "verified-by-unselected")
+
+        assert set_acceptance("pytest tests/test_cli.py -q", "--dry-run") == []
+        (advised,) = set_acceptance("pytest tests/test_cli.py -q")
+        assert advised["severity"] == "advisory"
+        assert (
+            "tests/test_acceptance.py::test_flow is not selected"
+            in (advised["message"])
+        )
+        assert set_acceptance("pytest tests/test_acceptance.py -q") == []
