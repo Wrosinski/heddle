@@ -278,7 +278,9 @@ explicit stop/budget decisions, not a hardcoded tier sequence or a new lower
 cap. At a reached confirmed cap, `heddle review allowance` can raise an
 owner-approved absolute quality round limit. It invokes no provider and does not
 resolve a stop or open a round; follow the separate native actions in their
-emitted order.
+emitted order. To check structural scaffold fixes in a round no native action
+requires, request the boundary-owned `review round-open` with purpose
+`verification` while allowance remains; its `--help` lists the payload fields.
 
 The stage is ready for **implement** when the AC coverage matrix is complete,
 the confirmed e2e and declared live commands are bound within their grants,

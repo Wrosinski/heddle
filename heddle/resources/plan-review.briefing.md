@@ -113,5 +113,8 @@ reference observes it; future formatting is never invisible to evidence.
 
 Run `heddle validate` after changes. Follow native next actions for targeted
 review, stops, and explicit budget decisions; do not invent another fixed pass
-count or restart usage after an amendment. Exit toward **scaffold** only when
-native readiness and the caller's phase-exit authority permit it.
+count or restart usage after an amendment. An optional validating round after
+structural plan fixes is the boundary owner's to open, within the remaining
+allowance, with `review round-open` and purpose `verification`;
+`review round-open --help` describes its payload. Exit toward **scaffold** only
+when native readiness and the caller's phase-exit authority permit it.
