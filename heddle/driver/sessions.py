@@ -378,15 +378,11 @@ def allowed_tools_for_stage(
             )
         )
     if stage == "specify":
-        files.append(
+        files.extend(
             _edit_rule(
-                _permission_path(
-                    root,
-                    config.layout.specs,
-                    "layout.specs",
-                    child="_descriptions.yaml",
-                )
+                _permission_path(root, config.layout.specs, "layout.specs", child=index)
             )
+            for index in ("_descriptions.yaml", "_index.md")
         )
     if stage == "scaffold":
         tests = _permission_path(

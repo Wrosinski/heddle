@@ -111,7 +111,10 @@ def expected_allow_by_stage(host: Path) -> dict[str, frozenset[str]]:
     files_by_stage = {
         "specify": spec
         + documents
-        + (f"Edit({root}/docs/features/_descriptions.yaml)",),
+        + (
+            f"Edit({root}/docs/features/_descriptions.yaml)",
+            f"Edit({root}/docs/features/_index.md)",
+        ),
         "spec-review": spec + documents,
         "plan-review": documents,
         "scaffold": spec + documents + (f"Edit({root}/tests/**)",),
