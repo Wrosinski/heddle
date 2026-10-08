@@ -37,6 +37,7 @@ from heddle.contracts.gate_execution import VALID_GATE_CLIS, VALID_REASONING_EFF
 from heddle.contracts.review_assignments import (
     DISPOSITION_STATUSES,
     EVIDENCE_KINDS,
+    ROLE_STAGES,
 )
 from heddle.contracts.schemas import (
     DECISION_BATCH_CLASSES,
@@ -862,6 +863,84 @@ REVIEW_DISPOSITION_INPUT_SCHEMA: dict[str, Any] = {
     ],
 }
 
+_ROUND_PURPOSE_SUMMARIES = {
+    "discovery": "open-ended review of the assignment scope, as in the first round",
+    "verification": (
+        "re-inspects frozen targets: the preceding round's required concerns "
+        "plus still-open originals"
+    ),
+    "independent-pass": (
+        "another independent pass, as readiness requests below the confirmed "
+        "minimum rounds or after an authorized continuation"
+    ),
+}
+
+REVIEW_ROUND_INPUT_SCHEMA: dict[str, Any] = {
+    "id": "heddle.review-round-input/v1",
+    "media_type": "application/json",
+    "delivered_by": "--input-json <path|->",
+    "summary": "a later round of one confirmed review assignment",
+    "fields": {
+        "schema": {
+            "type": "string",
+            "required": True,
+            "const": "heddle.review-round-input/v1",
+            "summary": "payload schema id, exact match",
+        },
+        "role": {
+            **_text_field("review role of the assignment"),
+            "one_of": [
+                {"value": role, "summary": f"opens from the {stage} stage onward"}
+                for role, stage in ROLE_STAGES.items()
+            ],
+        },
+        "scope": _text_field("feature for a feature-scoped role, else a milestone ID"),
+        "purpose": {
+            **_text_field("what the round inspects"),
+            "one_of": [
+                {"value": purpose, "summary": summary}
+                for purpose, summary in _ROUND_PURPOSE_SUMMARIES.items()
+            ],
+        },
+        "reason": _text_field("concrete reason recorded on the round"),
+        "scope_change": {
+            "type": "object or null",
+            "required": False,
+            "summary": "material contract change that gives the round a new scope",
+            "fields": {
+                "reason": _text_field("what changed in the reviewed contract"),
+                "references": {
+                    "type": "list",
+                    "required": True,
+                    "min_items": 1,
+                    "items": {"type": "string", "non_empty": True},
+                    "summary": "repository paths of the changed contract files",
+                },
+            },
+        },
+    },
+    "example": {
+        "schema": "heddle.review-round-input/v1",
+        "role": "spec-review",
+        "scope": "feature",
+        "purpose": "verification",
+        "reason": "Re-inspect the original SP-I1 concern after the repair",
+    },
+    "notes": [
+        "run-gate opens the first round; round-open opens later rounds once "
+        "every slot of the latest round is filled.",
+        "A closed assignment accepts only purpose verification, and only while "
+        "original targets remain; a sealed acceptance or an off role refuses "
+        "another round.",
+        "At a round-limit, no-progress or no-decrease stop the command records a "
+        "pending stop decision instead of a round and exits nonzero; resolve it "
+        "with decisions resolve, and raise a reached limit with review allowance.",
+        "scope_change references must be regular files; a change cannot repeat "
+        "the exact captured references of an earlier scope change.",
+        "Unknown fields are refused.",
+    ],
+}
+
 # workflow-model §15. Summaries transcribe the public command surface
 # (noun-group lines split per verb — adaptation, not invention). Exit-code
 # sets follow the pinned rules: universal floor {0,1,2}; fatal-capable
@@ -962,6 +1041,7 @@ COMMAND_SURFACE: tuple[CommandContract, ...] = (
         ),
         exit_codes=_EXIT_CAS,
         output_schema=None,
+        input_schema=REVIEW_ROUND_INPUT_SCHEMA,
     ),
     CommandContract(
         name=ops.operation_type_name(ops.ReaffirmReview),

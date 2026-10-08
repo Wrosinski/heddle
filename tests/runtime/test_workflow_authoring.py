@@ -22,6 +22,7 @@ from heddle.contracts.feature_policy import (
     REVIEWER_FIELDS,
     TRIGGER_FIELDS,
 )
+from heddle.contracts.review_assignments import ROLE_STAGES
 from heddle.runtime import application
 from heddle.runtime.contracts import build_manifest
 from tests.structured_review_helpers import finding
@@ -290,6 +291,61 @@ def test_ac1_ac3_disposition_contract_names_conditional_qualification(
         )
     )
     assert accepted.ok, accepted.to_envelope()
+
+
+def test_round_open_contract_example_reaches_the_round_decoder(
+    tmp_path, monkeypatch, run_cli
+) -> None:
+    """The published round payload names the fields the round decoder reads."""
+    host, state_path = current_host(tmp_path, monkeypatch)
+    provider_transport(
+        monkeypatch,
+        review_content(findings=[finding("SP-I1", classification="implement")]),
+    )
+    code, result = gate_command(run_cli, "run-gate", "spec-review")
+    assert code in {0, 4} and result["ok"], result
+
+    schema = _command("review round-open")["input_schema"]
+    assert schema is not None and schema["id"] == "heddle.review-round-input/v1"
+    fields = schema["fields"]
+    assert set(fields) == {
+        "schema",
+        "role",
+        "scope",
+        "purpose",
+        "reason",
+        "scope_change",
+    }
+    for name in fields:
+        _assert_closed_field(fields, name, required=name != "scope_change")
+    _assert_closed_field(fields, "role", required=True, values=set(ROLE_STAGES))
+    _assert_closed_field(
+        fields,
+        "purpose",
+        required=True,
+        values={"discovery", "verification", "independent-pass"},
+    )
+    revision = yaml.safe_load(state_path.read_text())["revision"]
+    before = snapshot(host)
+    preview = application.execute(
+        ops.ReviewRoundOpen(
+            feature=V7_FEATURE,
+            payload=schema["example"],
+            expect_revision=revision,
+            dry_run=True,
+        )
+    )
+    assert preview.ok, preview.to_envelope()
+    assert preview.data["round_number"] == 2
+    unknown = application.execute(
+        ops.ReviewRoundOpen(
+            feature=V7_FEATURE,
+            payload={**schema["example"], "note": "not a published field"},
+            expect_revision=revision,
+            dry_run=True,
+        )
+    )
+    assert not unknown.ok and snapshot(host) == before
 
 
 def test_ac3_help_and_briefings_explain_approval_revision_and_evidence_qualification(

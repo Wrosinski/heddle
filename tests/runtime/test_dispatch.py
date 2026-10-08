@@ -411,6 +411,16 @@ class TestPerCommandHelp:
         assert "ratified-contract conflict" in out
         assert "class 4 is recorded by run-gate" in out
 
+    def test_review_round_open_help_renders_payload_contract(self, run_cli):
+        code, out, _err = run_cli(["review", "round-open", "--help"])
+        assert code == 0
+        assert "input payload (heddle.review-round-input/v1" in out
+        for purpose in ("discovery", "verification", "independent-pass"):
+            assert f"\n      {purpose}  " in out
+        assert "scope_change  object or null, optional" in out
+        assert "sealed acceptance" in out and "stop decision" in out
+        assert '"purpose": "verification"' in out
+
     def test_help_without_input_schema_omits_payload_section(self, run_cli):
         code, out, _err = run_cli(["status", "--help"])
         assert code == 0

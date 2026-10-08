@@ -540,6 +540,7 @@ class TestAC2PerCommandPayloadLock:
         expected_input = {
             "feature sources attribute": "heddle.source-attribution-input/v1",
             "review disposition": "heddle.review-disposition-input/v1",
+            "review round-open": "heddle.review-round-input/v1",
             "review interpret": "heddle.review-interpretation-input/v1",
             "feature prepare": "heddle.intake-input/v1",
             "feature policy": "heddle.feature-policy/v1",
