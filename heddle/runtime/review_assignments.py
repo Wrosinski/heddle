@@ -2263,11 +2263,23 @@ def _operate(
                 if row["role"] == cast(dict[str, Any], operation.payload)["role"]
                 and row["scope"] == cast(dict[str, Any], operation.payload)["scope"]
             )
+            recorded = "would record" if operation.dry_run else "recorded"
             return HeddleResult.failure(
                 HeddleError(
                     code="workspace-invalid",
-                    message=f"review stopped: {response['stop_reason']}",
+                    message=(
+                        f"review stopped: {response['stop_reason']}; "
+                        f"{recorded} stop decision {owner}"
+                    ),
                     hint=f"resolve decision {owner}; no original work is waived",
+                    details={
+                        "feature": snapshot.feature,
+                        "dry_run": operation.dry_run,
+                        "wrote": wrote and not operation.dry_run,
+                        "revision": revision,
+                        "decision_id": owner,
+                        "stop_reason": response["stop_reason"],
+                    },
                 ),
                 exit_code=ExitCode.FATAL,
                 next_actions=(

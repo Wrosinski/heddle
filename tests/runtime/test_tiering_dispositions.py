@@ -1658,6 +1658,61 @@ def test_ac4_native_stops_record_one_decision_and_preserve_original_refs(
     assert len(calls) == len(accepted) + 1
 
 
+def test_round_open_stop_refusal_reports_the_decision_it_records(
+    tmp_path, monkeypatch, run_cli
+):
+    from heddle.contracts.result import ExitCode
+
+    _host, path = current_host(
+        tmp_path, monkeypatch, overrides={"spec-review": entry("spec-review", limit=1)}
+    )
+    calls = provider_transport(monkeypatch, review_content())
+    assert gate_command(run_cli, "run-gate", "spec-review")[0] == 0
+    revision = yaml.safe_load(path.read_text())["revision"]
+    before = path.read_bytes()
+    preview = invoke(
+        "ReviewRoundOpen",
+        feature=V7_FEATURE,
+        payload={
+            "schema": "heddle.review-round-input/v1",
+            "role": "spec-review",
+            "scope": "feature",
+            "purpose": "verification",
+            "reason": "Inspect the remaining original concern",
+        },
+        expect_revision=revision,
+        dry_run=True,
+    )
+    assert not preview.ok and path.read_bytes() == before
+    projected = preview.error.details["decision_id"]
+    assert preview.error.details == {
+        "feature": V7_FEATURE,
+        "dry_run": True,
+        "wrote": False,
+        "revision": revision,
+        "decision_id": projected,
+        "stop_reason": "round-limit",
+    }
+    assert f"would record stop decision {projected}" in preview.error.message
+
+    stopped = open_round(path)
+
+    assert not stopped.ok and stopped.exit_code == ExitCode.FATAL
+    owner = review_status(path)["decision_id"]
+    assert owner == projected
+    assert stopped.to_envelope()["error"]["details"] == {
+        "feature": V7_FEATURE,
+        "dry_run": False,
+        "wrote": True,
+        "revision": revision + 1,
+        "decision_id": owner,
+        "stop_reason": "round-limit",
+    }
+    assert yaml.safe_load(path.read_text())["revision"] == revision + 1
+    assert f"recorded stop decision {owner}" in stopped.error.message
+    assert owner in stopped.error.hint and len(calls) == 1
+
+
 def test_policy_amendment_cannot_move_a_pending_stop_to_another_round(
     tmp_path, monkeypatch, run_cli
 ):
