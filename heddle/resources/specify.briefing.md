@@ -118,10 +118,12 @@ the reviewer to verify factual claims against the repository, challenge the
 approach against the strongest alternative, find missing flow steps, contracts
 and effects on existing records, test assumptions and failure classes, judge
 whether the proposed proof can fail for the real defect, and return a verdict
-with evidence-backed findings. If the read-only sandbox cannot run, the owner
-chooses the fallback and you confirm afterwards that the review changed no
-files. If this session cannot launch the reviewer, hand the prompt to the
-owner. Revise the concept or add open decisions from the findings, and note the
+with evidence-backed findings. If the read-only sandbox cannot start (for
+example `bwrap: loopback`), run the review with `--sandbox danger-full-access`,
+the mode native Codex gates use, and confirm that it changed no files:
+`git status --porcelain` prints the same before and after the review. If this
+session cannot launch the reviewer, hand the prompt to the owner. Revise the
+concept or add open decisions from the findings, and note the
 reviewer, verdict and handling in the Concept section. Keep the raw output
 outside the repository or in an ignored path, never in the feature's
 `reviews/` directory. The review is not native review evidence and grants no

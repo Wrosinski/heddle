@@ -205,8 +205,9 @@ class TestL3ConceptNote:
             "rather than as a native gate",
             "Without Codex, use the reviewer the owner names",
             "challenge the approach against the strongest alternative",
-            "the owner chooses the fallback and you confirm afterwards that the "
-            "review changed no files",
+            "run the review with `--sandbox danger-full-access`, the mode native "
+            "Codex gates use, and confirm that it changed no files",
+            "`git status --porcelain` prints the same before and after the review",
             "hand the prompt to the owner",
             "never in the feature's `reviews/` directory",
             "not native review evidence and grants no approval",
@@ -257,7 +258,8 @@ class TestL3ConceptNote:
             "codex exec --ephemeral --sandbox read-only -m gpt-6-astra",
             'model_reasoning_effort="xhigh"',
             "rather than as a native gate",
-            "the lead confirms afterwards that the review changed no files",
+            "the lead runs the review with `--sandbox danger-full-access`",
+            "checks that `git status --porcelain` prints the same before and after",
             "before `heddle feature prepare` binds the research digest",
         ):
             assert anchor in guidelines, anchor

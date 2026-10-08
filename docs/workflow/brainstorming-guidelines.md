@@ -171,8 +171,10 @@ challenge the approach against the strongest alternative, find missing flow
 steps, contracts and effects on existing records, test the assumptions and
 failure classes, and judge whether the proposed proof can fail for the real
 defect. It asks for a verdict followed by evidence-backed findings. If the host
-cannot run the read-only sandbox, the owner chooses the fallback and the lead
-confirms afterwards that the review changed no files. Without Codex, or when
+cannot start the read-only sandbox (for example `bwrap: loopback`), the lead
+runs the review with `--sandbox danger-full-access`, the mode native Codex
+gates use, and checks that `git status --porcelain` prints the same before and
+after it, so the review changed no files. Without Codex, or when
 the owner prefers, use the reviewer the owner names. Revise the concept or add
 open decisions from the findings before approval, and note the reviewer,
 verdict and handling in the Concept section. Keep the raw output outside the
