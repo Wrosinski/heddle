@@ -44,7 +44,9 @@ Choose the question type that matches the gap:
   checking accessible evidence. Explain which dependent work it changes.
 - **Owner decision:** give the context and evidence, materially distinct options
   with practical trade-offs, a recommended choice and rationale, the impact of
-  deferring, and the permanent record where the ruling belongs.
+  deferring, and the permanent record where the ruling belongs. For a data,
+  time or state rule, show what each option produces on one representative
+  case on each side of the boundary the rule draws.
 - **Execution permission:** name the concrete action and scope, why permission
   is required and its governing instruction, and the prepared result or exact
   command the owner can assess. Do authorized preparation first.
