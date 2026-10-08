@@ -23,6 +23,9 @@ _VERIFIED_BY_LOOKALIKE = re.compile(
 )
 _FENCE = re.compile(r"^[ \t]{0,3}(`{3,}|~{3,})")
 _CONTROL_OPERATORS = frozenset({"&&", "||", ";", ";;", "|", "|&", "&", "(", ")"})
+# Options whose value names tests to leave out; that value never selects.
+_EXCLUDING_OPTIONS = ("--deselect", "--ignore", "--ignore-glob")
+_GLOB_CHARACTERS = frozenset("*?[")
 
 
 @dataclass(frozen=True)
@@ -274,12 +277,15 @@ def unselected_test_targets(
     """Return the targets no command can select, judged from shell tokens only.
 
     A token selects a target it equals, the target's file, a parent directory
-    of that file, a node prefix of it, or a narrower node inside it. Filters such
-    as ``-k``, ``-m`` and ``--deselect`` only narrow a selection, so a covered
-    target stays possibly selected. A command segment with no token under
-    ``tests_root`` (a make target, a script) could select anything, and an
-    unparseable command cannot be judged; either way nothing is returned.
+    of that file, a node prefix of it, or a narrower node inside it; ``.``
+    selects every target. Filters such as ``-k`` and ``-m`` only narrow a
+    selection, so a covered target stays possibly selected, and the values of
+    ``--deselect``, ``--ignore`` and ``--ignore-glob`` never select. A command
+    segment with no token under ``tests_root`` (a make target, a script) could
+    select anything, and an unparseable command or a path the shell would
+    expand as a glob cannot be judged; either way nothing is returned.
     """
+    root = _shell_path(tests_root)
     tokens: list[str] = []
     for command in commands:
         lexer = shlex.shlex(command, posix=True, punctuation_chars=True)
@@ -290,13 +296,27 @@ def unselected_test_targets(
         except ValueError:
             return ()
         segment: list[str] = []
+        excluded_value = False
         for word in [*words, ";"]:
             if word not in _CONTROL_OPERATORS:
-                segment.append(word.removeprefix("./").rstrip("/"))
+                if excluded_value or word.startswith(
+                    tuple(f"{option}=" for option in _EXCLUDING_OPTIONS)
+                ):
+                    excluded_value = False
+                    continue
+                excluded_value = word in _EXCLUDING_OPTIONS
+                if excluded_value:
+                    continue
+                path = word.partition("::")[0]
+                if ("/" in path or path.endswith(".py")) and (
+                    _GLOB_CHARACTERS & set(path)
+                ):
+                    return ()
+                segment.append(_shell_path(word))
                 continue
+            excluded_value = False
             if segment and not any(
-                token == tests_root or token.startswith(f"{tests_root}/")
-                for token in segment
+                token == root or token.startswith(f"{root}/") for token in segment
             ):
                 return ()
             tokens.extend(segment)
@@ -308,10 +328,17 @@ def unselected_test_targets(
     )
 
 
+def _shell_path(word: str) -> str:
+    stripped = word.removeprefix("./").rstrip("/")
+    if not stripped and word.startswith("."):
+        return "."
+    return stripped
+
+
 def _token_selects(token: str, target: str) -> bool:
     path = target.partition("::")[0]
     return bool(token) and (
-        token in {target, path}
+        token in {".", target, path}
         or path.startswith(f"{token}/")
         or target.startswith(f"{token}::")
         or token.startswith((f"{target}::", f"{target}["))

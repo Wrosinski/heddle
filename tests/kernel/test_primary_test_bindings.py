@@ -251,8 +251,18 @@ def test_target_selection_is_judged_from_command_tokens_alone() -> None:
         "pytest -k flow",
         "pytest tests/test_a.py && scripts/run-all.sh",
         "pytest 'tests/test_g.py",
+        "pytest tests/test_*.py",
+        "pytest . tests/test_a.py",
     ):
         assert (
             unselected_test_targets(targets, (*commands, unjudged), tests_root="tests")
             == ()
+        )
+    excluding = (
+        "pytest tests/test_z.py --deselect tests/test_g.py::test_unselected "
+        "--ignore=tests/test_g.py --ignore-glob 'tests/test_g*.py'",
+    )
+    for root in ("tests", "tests/", "./tests"):
+        assert unselected_test_targets(targets[-1:], excluding, tests_root=root) == (
+            "tests/test_g.py::test_unselected",
         )
