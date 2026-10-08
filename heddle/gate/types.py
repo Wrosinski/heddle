@@ -35,6 +35,7 @@ class FailureReason(StrEnum):
     TIMEOUT = "timeout"
     INACTIVITY_TIMEOUT = "inactivity-timeout"
     OVERLOADED = "claude-overloaded"
+    CODEX_CAPACITY = "codex-at-capacity"
     BUDGET_EXHAUSTED = "budget-exhausted"
     MAX_TURNS = "max-turns"
     EXECUTION_FAILURE = "execution-failure"
@@ -586,6 +587,7 @@ class CodexEventInfo:
     message_event_count: int
     turn_completed_count: int
     transport_error_count: int
+    capacity_error_count: int = 0
     parse_errors: int = 0
     non_json_lines: int = 0
     timeline: CodexEventTimeline | None = None

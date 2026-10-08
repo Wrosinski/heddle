@@ -350,6 +350,69 @@ class TestCodexDiagnosis:
         assert d.inspect_artifacts == []
         assert d.recommended_action == ""
 
+    def test_capacity_precedes_the_tool_loop_branch(self) -> None:
+        from heddle.gate.runners.codex_diagnostics import diagnose
+
+        d = diagnose(
+            inactive=True,
+            tool_events=50,
+            message_events=0,
+            raw_bytes=50000,
+            parse_errors=0,
+            transport_errors=0,
+            sources_agree=True,
+            gap_s=900,
+            failed=True,
+            capacity_errors=1,
+        )
+        assert d.category == "capacity"
+        assert "tool churn" in d.likely_cause
+        assert "same authorized model" in d.recommended_action
+
+    def test_build_bundle_counts_capacity_refusals_and_keeps_the_events(
+        self, tmp_path: Path
+    ) -> None:
+        import json
+
+        from heddle.gate.runners.codex_diagnostics import build_bundle
+
+        refusal = "Selected model is at capacity. Please try a different model."
+        events = [
+            {"type": "thread.started", "thread_id": "t1"},
+            {"type": "item.completed", "item": {"type": "command_execution"}},
+            {
+                "type": "item.completed",
+                "item": {"type": "agent_message", "text": f"Quoting: {refusal}"},
+            },
+            {"type": "error", "message": refusal},
+            {"type": "turn.failed", "error": {"message": refusal}},
+        ]
+        raw = tmp_path / "raw.out"
+        raw.write_text(
+            "".join(json.dumps(event) + "\n" for event in events)
+            + f"ERROR: {refusal}\n"
+        )
+        filtered = tmp_path / "events.jsonl"
+        msg_out = tmp_path / "last-message.txt"
+
+        bundle = build_bundle(
+            raw_out=raw,
+            msg_out=msg_out,
+            filtered_jsonl=filtered,
+            checkpoints=[],
+            launch_time=5.0,
+            termination_time=30.0,
+            failed=True,
+        )
+
+        # The error event, the turn.failed event and the raw line count; the
+        # agent message quoting the refusal does not.
+        assert bundle.event_info.capacity_error_count == 3
+        assert bundle.diagnosis.category == "capacity"
+        kept = [json.loads(line) for line in filtered.read_text().splitlines()]
+        assert events[3] in kept and events[4] in kept
+        assert refusal in raw.read_text()
+
     @REQUIRES_IMPL
     def test_build_bundle_classifies_message_then_stall_as_timeout_stall(
         self, tmp_path: Path, clean_codex_jsonl: str

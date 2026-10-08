@@ -30,6 +30,7 @@ def _make_facts(**overrides):
         json_message_nonempty=True,
         model_unsupported=False,
         transport_error=False,
+        capacity_error=False,
     )
     return replace(base, **overrides)
 
@@ -130,6 +131,28 @@ class TestCodexClassification:
             FailureReason.INACTIVITY_NO_FINAL,
             FailureReason.INACTIVITY_TIMEOUT,
         )
+
+    @pytest.mark.parametrize(
+        "ending",
+        [
+            {"cli_exit": 1},
+            {"cli_exit": 1, "transport_error": True},
+            {"inactive": True, "has_message_events": False},
+            {"timed_out": True},
+        ],
+        ids=["nonzero-exit", "with-transport-noise", "tool-loop-idle", "timeout"],
+    )
+    def test_capacity_refusal_precedes_every_failed_ending(self, ending) -> None:
+        from heddle.gate.runners.codex import classify_codex
+        from heddle.gate.types import FailureReason
+
+        facts = _make_facts(capacity_error=True, **ending)
+        assert classify_codex(facts) is FailureReason.CODEX_CAPACITY
+
+    def test_capacity_text_in_a_successful_run_is_not_a_failure(self) -> None:
+        from heddle.gate.runners.codex import classify_codex
+
+        assert classify_codex(_make_facts(capacity_error=True)) is None
 
     @REQUIRES_IMPL
     def test_priority_model_unsupported_over_transport(self) -> None:

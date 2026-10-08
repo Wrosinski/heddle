@@ -19,6 +19,9 @@ TRANSPORT_PATTERN = re.compile(
     r"stream disconnected before completion|"
     r"Transport error: network error|Reconnecting\.\.\."
 )
+# Codex's terminal refusal: "Selected model is at capacity. Please try a
+# different model."
+CAPACITY_PATTERN = re.compile(r"model is at capacity", re.IGNORECASE)
 
 
 def parse_jsonl(raw_path: Path) -> JsonlParseResult:
@@ -158,7 +161,18 @@ def diagnose(
     sources_agree: bool,
     gap_s: float,
     failed: bool = False,
+    capacity_errors: int = 0,
 ) -> CodexDiagnosis:
+    if capacity_errors > 0 and failed:
+        return _diagnosis(
+            "capacity",
+            "Codex reported that the selected model is at capacity.",
+            ["raw_out", "events_jsonl"],
+            "The provider had no capacity for the selected model; this is not "
+            "reviewer tool churn.",
+            "Retry the same authorized model after capacity returns; do not "
+            "switch models without an explicit policy change.",
+        )
     if inactive and gap_s > 0 and tool_events > 0 and message_events == 0:
         return _diagnosis(
             "timeout-tool-loop",
@@ -245,6 +259,7 @@ def build_bundle(
         termination_time or 0.0,
     )
     extraction = reconcile_messages(msg_out, parse)
+    capacity_errors = count_capacity_errors(parse)
     diagnosis = diagnose(
         inactive=bool(
             failed
@@ -259,12 +274,14 @@ def build_bundle(
         sources_agree=extraction.sources_agree,
         gap_s=timeline.gap_before_termination_s or 0.0,
         failed=failed,
+        capacity_errors=capacity_errors,
     )
     event_info = CodexEventInfo(
         tool_event_count=count_tool_events(parse),
         message_event_count=count_message_events(parse),
         turn_completed_count=count_turn_completed(parse),
         transport_error_count=count_transport_errors(raw_out, parse),
+        capacity_error_count=capacity_errors,
         parse_errors=parse.parse_errors,
         non_json_lines=parse.non_json_lines,
         timeline=timeline,
@@ -307,6 +324,21 @@ def count_transport_errors(raw_out: Path, parse: JsonlParseResult) -> int:
     if from_raw:
         return from_raw
     return sum(1 for line in parse.diagnostic_lines if TRANSPORT_PATTERN.search(line))
+
+
+def count_capacity_errors(parse: JsonlParseResult) -> int:
+    """Capacity refusals in Codex ``error``/``turn.failed`` events and in raw
+    non-JSON output lines. Messages and tool output are not read, so a review
+    that quotes the refusal is not one."""
+    from_events = sum(
+        1
+        for event in parse.events
+        if event.get("type") in {"error", "turn.failed"}
+        and CAPACITY_PATTERN.search(json.dumps(event))
+    )
+    return from_events + sum(
+        1 for line in parse.diagnostic_lines if CAPACITY_PATTERN.search(line)
+    )
 
 
 def _message_texts(parse: JsonlParseResult) -> list[str]:

@@ -92,9 +92,16 @@ class CodexFacts:
     json_message_nonempty: bool
     model_unsupported: bool
     transport_error: bool
+    capacity_error: bool
 
 
 def classify_codex(facts: CodexFacts) -> FailureReason | None:
+    # A capacity refusal explains the failure however the run then ended;
+    # otherwise it reads as a generic exit or a tool-loop timeout.
+    if facts.capacity_error and (
+        facts.inactive or facts.timed_out or facts.cli_exit != 0
+    ):
+        return FailureReason.CODEX_CAPACITY
     if facts.inactive and facts.has_tool_events and not facts.has_message_events:
         return FailureReason.INACTIVITY_NO_FINAL
     if facts.inactive:
@@ -231,6 +238,7 @@ def execute_codex(
         and paths.json_message.stat().st_size > 0,
         model_unsupported=_raw_model_unsupported(paths.raw_out),
         transport_error=bundle.event_info.transport_error_count > 0,
+        capacity_error=bundle.event_info.capacity_error_count > 0,
     )
     failure_reason = classify_codex(facts)
     response_warning = None

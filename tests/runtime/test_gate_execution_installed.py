@@ -17,6 +17,7 @@ EMITTED_FAILURE_FAMILIES = (
     ("preflight", FailureReason.EMPTY_DIFF),
     ("preflight", FailureReason.CHANGED_FILES_EMPTY),
     ("provider", FailureReason.OVERLOADED),
+    ("provider", FailureReason.CODEX_CAPACITY),
     ("transport", FailureReason.TRANSPORT_ERROR),
     ("budget", FailureReason.BUDGET_EXHAUSTED),
     ("turn", FailureReason.MAX_TURNS),

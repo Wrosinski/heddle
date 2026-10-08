@@ -191,6 +191,14 @@ and indexed before a later source edit.
 
 **Remedy:** Wait for provider capacity and retry the same invocation without changing its configured model.
 
+## `codex-at-capacity`
+
+**Status:** emitted
+
+**Evidence:** A Codex `error` or `turn.failed` event, or the raw process output, reports that the selected model is at capacity; the summary diagnosis category is `capacity`, and the raw output and event stream keep the refusal.
+
+**Remedy:** Wait for provider capacity and retry the same authorized model. The refusal is not reviewer tool churn, so do not trim the prompt, and do not switch to another model as the message suggests without an explicit policy change.
+
 ## `budget-exhausted`
 
 **Status:** emitted

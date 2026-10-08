@@ -155,6 +155,41 @@ class TestGateDoctorJsonMode:
         data = json.loads(result.stdout)
         assert data["category"] == "timeout-tool-loop"
 
+    def test_capacity_diagnosis_from_summary(self, tmp_path: Path) -> None:
+        import subprocess
+        import sys
+
+        summary_path = tmp_path / "gate-summary.json"
+        summary_path.write_text(
+            json.dumps(
+                _make_summary(
+                    reason="codex-at-capacity",
+                    codex_events={
+                        "tool_event_count": 50,
+                        "message_event_count": 0,
+                        "turn_completed_count": 0,
+                        "transport_error_count": 0,
+                        "capacity_error_count": 1,
+                    },
+                )
+            )
+        )
+
+        result = subprocess.run(
+            [
+                sys.executable,
+                "scripts/gate_doctor.py",
+                "--summary",
+                str(summary_path),
+                "--json",
+            ],
+            capture_output=True,
+            text=True,
+        )
+        data = json.loads(result.stdout)
+        assert data["category"] == "capacity"
+        assert "same authorized model" in data["recommended_action"]
+
     @REQUIRES_IMPL
     def test_success_diagnosis(self, tmp_path: Path) -> None:
         import subprocess

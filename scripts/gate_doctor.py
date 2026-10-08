@@ -81,6 +81,7 @@ def _diagnose_from_summary(data: dict) -> dict:
         raw_bytes=int(io.get("raw_bytes", 0)),
         parse_errors=int(codex_events.get("parse_errors", 0)),
         transport_errors=int(codex_events.get("transport_error_count", 0)),
+        capacity_errors=int(codex_events.get("capacity_error_count", 0)),
         sources_agree=bool(
             (codex_events.get("message_extraction") or {}).get(
                 "sources_agree",
