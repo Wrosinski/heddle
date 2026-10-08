@@ -1658,16 +1658,25 @@ def test_ac4_native_stops_record_one_decision_and_preserve_original_refs(
     assert len(calls) == len(accepted) + 1
 
 
+@pytest.mark.parametrize(
+    "findings",
+    [(), (finding("SP-I1"),)],
+    ids=["no-findings", "pending-report-decision"],
+)
 def test_round_open_stop_refusal_reports_the_decision_it_records(
-    tmp_path, monkeypatch, run_cli
+    tmp_path, monkeypatch, run_cli, findings
 ):
     from heddle.contracts.result import ExitCode
 
     _host, path = current_host(
         tmp_path, monkeypatch, overrides={"spec-review": entry("spec-review", limit=1)}
     )
-    calls = provider_transport(monkeypatch, review_content())
-    assert gate_command(run_cli, "run-gate", "spec-review")[0] == 0
+    calls = provider_transport(monkeypatch, review_content(findings=list(findings)))
+    assert gate_command(run_cli, "run-gate", "spec-review")[0] == (4 if findings else 0)
+    report_decisions = {
+        decision["id"] for decision in yaml.safe_load(path.read_text())["decisions"]
+    }
+    assert len(report_decisions) == len(findings)
     revision = yaml.safe_load(path.read_text())["revision"]
     before = path.read_bytes()
     preview = invoke(
@@ -1698,8 +1707,14 @@ def test_round_open_stop_refusal_reports_the_decision_it_records(
     stopped = open_round(path)
 
     assert not stopped.ok and stopped.exit_code == ExitCode.FATAL
-    owner = review_status(path)["decision_id"]
-    assert owner == projected
+    (owner,) = {
+        assignment["stop_decision_id"]
+        for assignment in yaml.safe_load(path.read_text())["review_assignments"][
+            "assignments"
+        ]
+        if assignment["role"] == "spec-review"
+    }
+    assert owner == projected and owner not in report_decisions
     assert stopped.to_envelope()["error"]["details"] == {
         "feature": V7_FEATURE,
         "dry_run": False,

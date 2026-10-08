@@ -2134,7 +2134,14 @@ def _apply_round_open(
             )
             stored = next(a for a in ledger["assignments"] if a["id"] == assignment.id)
             stored["stop_decision_id"] = identifier
-        response = {"stop_reason": closed.stop_reason}
+        response = {
+            "stop_reason": closed.stop_reason,
+            "stop_decision_id": next(
+                a["stop_decision_id"]
+                for a in ledger["assignments"]
+                if a["id"] == assignment.id
+            ),
+        }
     else:
         if core.selected_policy(current.state, assignment.role).mode == "off":
             raise core.invalid("review role is explicitly off")
@@ -2257,12 +2264,7 @@ def _operate(
         response.update(revision=revision, wrote=wrote, dry_run=operation.dry_run)
         if stopped:
             assert not isinstance(operation, ops.ReaffirmReview)
-            owner = next(
-                row["decision_id"]
-                for row in response["review_closure"]["assignments"]
-                if row["role"] == cast(dict[str, Any], operation.payload)["role"]
-                and row["scope"] == cast(dict[str, Any], operation.payload)["scope"]
-            )
+            owner = response["stop_decision_id"]
             recorded = "would record" if operation.dry_run else "recorded"
             return HeddleResult.failure(
                 HeddleError(
