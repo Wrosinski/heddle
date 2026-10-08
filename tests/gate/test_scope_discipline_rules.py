@@ -198,6 +198,9 @@ class TestL3ConceptNote:
 
     def test_packaged_concept_review_is_opt_in_and_self_contained(self) -> None:
         specify = _folded(RESOURCES / "specify.briefing.md")
+        assert specify.index("codex sandbox -P :read-only") < specify.index(
+            "codex exec"
+        )
         for anchor in (
             "Run it only when the owner opts in; in a driven session, only when "
             "a recorded owner resolution asks for it",
@@ -205,9 +208,12 @@ class TestL3ConceptNote:
             "rather than as a native gate",
             "Without Codex, use the reviewer the owner names",
             "challenge the approach against the strongest alternative",
-            "run the review with `--sandbox danger-full-access`, the mode native "
-            "Codex gates use, and confirm that it changed no files",
-            "`git status --porcelain` prints the same before and after the review",
+            "codex sandbox -P :read-only -C <repo> -- git status --porcelain",
+            "A failed preflight leaves repository inspection pending",
+            "does not authorize widening this review's access",
+            "before-and-after content fingerprints for the declared review scope",
+            "unchanged `git status --porcelain` alone cannot prove unchanged contents",
+            "A review of supplied text must name its limited coverage",
             "hand the prompt to the owner",
             "never in the feature's `reviews/` directory",
             "not native review evidence and grants no approval",
@@ -253,13 +259,18 @@ class TestL3ConceptNote:
 
     def test_guidelines_and_skills_describe_the_concept_review(self) -> None:
         guidelines = _folded(DOCS / "brainstorming-guidelines.md")
+        assert guidelines.index("codex sandbox -P :read-only") < guidelines.index(
+            "codex exec"
+        )
         for anchor in (
             "run it only when the owner opts in",
             "codex exec --ephemeral --sandbox read-only -m gpt-6-astra",
             'model_reasoning_effort="xhigh"',
             "rather than as a native gate",
-            "the lead runs the review with `--sandbox danger-full-access`",
-            "checks that `git status --porcelain` prints the same before and after",
+            "This local preflight makes no provider call",
+            "Continue only when it succeeds",
+            "not an automatic retry for this review",
+            "including relevant untracked files",
             "before `heddle feature prepare` binds the research digest",
         ):
             assert anchor in guidelines, anchor

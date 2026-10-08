@@ -111,7 +111,15 @@ research and documents; do not demand a retroactive concept.
 Before approval, offer a concept review. Run it only when the owner opts in; in
 a driven session, only when a recorded owner resolution asks for it. By default
 the reviewer is GPT-6 Astra at `xhigh`, run directly through the Codex CLI
-rather than as a native gate:
+rather than as a native gate.
+Before the provider call, check command execution and repository access with
+`codex sandbox -P :read-only -C <repo> -- git status --porcelain`.
+Use the installed CLI's `codex sandbox --help` for version-specific syntax,
+preserving the read-only policy. A failed preflight leaves repository inspection
+pending: retain its exit status and stderr, and arrange host repair or an
+owner-authorized alternative. On Linux, `bwrap: loopback` can indicate an
+AppArmor denial during sandbox setup; an administrator should inspect the
+kernel log before changing host policy. After a successful preflight, launch:
 `codex exec --ephemeral --sandbox read-only -m gpt-6-astra -c 'model_reasoning_effort="xhigh"' -C <repo> -o <output> - < <prompt>`.
 Without Codex, use the reviewer the owner names. Write the prompt for this
 feature: supply the brief and concept, name the related specs and code, and ask
@@ -119,13 +127,16 @@ the reviewer to verify factual claims against the repository, challenge the
 approach against the strongest alternative, find missing flow steps, contracts
 and effects on existing records, test assumptions and failure classes, judge
 whether the proposed proof can fail for the real defect, and return a verdict
-with evidence-backed findings. If the read-only sandbox cannot start (for
-example `bwrap: loopback`), run the review with `--sandbox danger-full-access`,
-the mode native Codex gates use, and confirm that it changed no files:
-`git status --porcelain` prints the same before and after the review. If this
-session cannot launch the reviewer, hand the prompt to the owner. Revise the
-concept or add open decisions from the findings, and note the
-reviewer, verdict and handling in the Concept section. Keep the raw output
+with evidence-backed findings. Native Codex gates use `--sandbox danger-full-access`;
+that setting does not authorize widening this review's access or override a
+parent session's permission denial. If full access is authorized, compare
+before-and-after content fingerprints for the declared review scope, including
+relevant untracked files; unchanged `git status --porcelain` alone cannot prove
+unchanged contents. If this session cannot launch the reviewer, hand the prompt
+to the owner. A review of supplied text must name its limited coverage and leave
+unperformed repository checks pending. Revise the concept or add open decisions
+from the findings, and note the reviewer, verdict and handling in the Concept
+section. Keep the raw output
 outside the repository or in an ignored path, never in the feature's
 `reviews/` directory. The review is not native review evidence and grants no
 approval.

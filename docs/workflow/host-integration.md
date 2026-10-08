@@ -154,6 +154,49 @@ Select a workflow only through the CLI. For an existing feature, use
 and revision requirements. Do not edit the flow or review matrix in operational
 state.
 
+### Codex read-only sandbox
+
+Before a direct concept review, qualify command execution and repository reads
+without a provider call:
+
+```bash
+codex sandbox -P :read-only -C <repo> -- git status --porcelain
+```
+
+This syntax applies to Codex CLIs exposing the `:read-only` permission profile.
+Consult the installed `codex sandbox --help` for other versions and keep the same
+read-only policy. A version check alone does not exercise the sandbox.
+
+On Linux, `bwrap: loopback: Failed RTM_NEWADDR: Operation not permitted` means
+Bubblewrap could not configure its network namespace. Inspect the kernel log
+for the actual denial. Ubuntu's AppArmor user-namespace restriction can place
+Bubblewrap under `unprivileged_userns`, denying the `net_admin` capability needed
+for setup. This happens before the requested repository command runs.
+
+With host-administrator authorization, use an appropriate, version-compatible
+Bubblewrap AppArmor profile. Ubuntu's
+[user-namespace guidance](https://discourse.ubuntu.com/t/understanding-apparmor-user-namespace-restriction/58007)
+links the upstream `bwrap-userns-restrict` profile, which permits setup and
+restricts capabilities in its children. Review the profile, compile it without
+loading, preserve any existing configuration, and prepare rollback before
+installing it. This affects all callers of the matched Bubblewrap executable;
+check other relevant local consumers. Keep the global user-namespace restriction
+enabled. A Heddle installation does not authorize changes to host security policy.
+
+After repair, verify successful commands and repository reads, denied writes to
+disposable fixtures, restricted command networking, and the absence of the
+original setup denial. A nested Claude Auto to Codex launch is a separate,
+explicitly authorized provider check: working OS sandboxing does not prove that
+the parent session permits the launch.
+
+Native Heddle Codex gates currently use `danger-full-access`. That does not
+authorize a direct review to widen access or bypass a parent permission denial.
+If an authorized fallback uses full access, compare content fingerprints across
+the declared scope, including relevant untracked files. Unchanged Git status
+cannot detect further edits to an already modified file, and content comparison
+detects changes rather than preventing them. A supplied-text review must disclose
+its coverage and keep unperformed repository inspection pending.
+
 ## Verify the integration
 
 Start with diagnostics, then validate repository state, then ask for the next

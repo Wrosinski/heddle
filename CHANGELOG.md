@@ -10,6 +10,11 @@ authority for the installed version.
 
 ### Changed
 
+- Direct concept-review guidance now checks the read-only Codex sandbox before
+  a provider call, preserves launch failures and supplied-text coverage limits,
+  and requires authorization for wider access. Full-access change checks compare
+  contents rather than treating unchanged Git status as proof. The host guide
+  explains AppArmor diagnosis and qualification of a scoped Bubblewrap repair.
 - Heddle describes itself as a harness for LLM coding workflows: you define
   what a feature must do and how it will be proven, and the agent builds it
   through a formalized, verifiable process. The README leads with that split
