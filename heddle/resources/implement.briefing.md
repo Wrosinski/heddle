@@ -397,7 +397,11 @@ Then act by level:
   Stop dependent implementation. Write the invalidation evidence and proposed
   amendments to spec contracts, Decision Log, milestones and reading pointers.
   Record the owner question with `heddle decisions add`; apply the amendment as
-  governing only after the authorized ruling. Independent work follows the
+  governing only after the authorized ruling. When the amendment widens scope
+  or changes a contract the confirmed review policy was sized for, the question
+  also re-presents the milestone-review settings the affected milestones will
+  run under: reviewer and effort, a second-model lane, and a targeted round
+  over the amendment and its repair. Independent work follows the
   delivered Decision routing policy and current native legal actions.
 
 Do not continue from contradictory spec, plan, and code. The spec owns design
