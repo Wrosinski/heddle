@@ -819,6 +819,11 @@ def test_stated_ceiling_passes_specify_when_the_host_turns_the_checkpoint_off(ho
         pytest.param(
             ["--statement", OWNER_STATEMENT], ("--through",), id="statement-alone"
         ),
+        pytest.param(
+            ["--through", "complete", "--statement", "--dry-run"],
+            ("--statement", "'--dry-run'"),
+            id="statement-swallows-a-flag",
+        ),
     ],
 )
 def test_start_refuses_an_unknown_or_unsourced_ceiling_without_writes(

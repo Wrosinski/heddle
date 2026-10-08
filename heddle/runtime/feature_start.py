@@ -225,6 +225,13 @@ def _parse_args(args: list[str]) -> _StartArgs | HeddleResult:
         )
     if flow is not None and flow not in FLOW_MODES:
         return _usage(f"flow is {flow!r}, not one of {list(FLOW_MODES)}")
+    if statement is not None and statement.startswith("-"):
+        # A value that reads as a flag is most likely the next option, such as
+        # `--statement --dry-run`; taking it would turn a preview into a write.
+        return _usage(
+            f"--statement value {statement!r} reads as a flag; "
+            "pass the owner's words as one quoted argument"
+        )
     if problem := _grant_problem(through, statement):
         return _usage(problem)
 
