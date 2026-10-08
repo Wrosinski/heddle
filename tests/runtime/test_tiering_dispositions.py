@@ -180,6 +180,85 @@ def test_disposition_batch_exposes_existing_verification_status_only_on_bad_row(
     assert snapshot(host) == before and len(calls) == 1
 
 
+@pytest.mark.parametrize("resolved", [False, True])
+def test_report_finding_refuses_rows_its_owner_decision_cannot_close(
+    tmp_path, monkeypatch, run_cli, resolved
+):
+    """A REPORT finding closes only through its owner decision, so other rows fail."""
+    from heddle.contracts import operations as ops
+    from heddle.runtime.application import execute
+    from tests.operational_model_helpers import SPEC
+
+    host, path, calls, _result = completed_report(
+        tmp_path,
+        monkeypatch,
+        run_cli,
+        findings=[finding("SP-I1", classification="report")],
+    )
+    origin = runs(path)[0]["run_id"]
+    owner = yaml.safe_load(path.read_text())["decisions"][0]["id"]
+    code, verified = gate_command(run_cli, "verify", "--scope", "m1")
+    assert code == 0 and verified["ok"], verified
+
+    def resolve():
+        result = execute(
+            ops.ResolveDecision(
+                owner,
+                "disposition",
+                "Synthetic owner selects the module.",
+                SPEC,
+                feature=V7_FEATURE,
+            )
+        )
+        assert result.ok, result.to_envelope()
+
+    if resolved:
+        resolve()
+    coverage = disposition(origin, "@coverage", status="settled")
+    rows = [
+        disposition(origin, evidence_kind="verification", verification_scope="m1"),
+        coverage,
+    ]
+    before = snapshot(host)
+
+    preview = dispose(path, rows, dry_run=True)
+    applied = dispose(path, rows)
+
+    assert not preview.ok and not applied.ok
+    assert preview.error.details | {"dry_run": False} == applied.error.details
+    assert applied.error.details["rejected_count"] == 1
+    row = applied.error.details["rows"][0]
+    assert (row["row_index"], row["predicate"]) == (0, "decision-routed")
+    assert (row["field"], row["reference"]) == ("decision_id", owner)
+    assert all(
+        token in row["remedy"]
+        for token in ("settled", "evidence_kind decision", owner, "awaiting-decision")
+    )
+    assert snapshot(host) == before and len(calls) == 1
+
+    if not resolved:
+        waiting = disposition(
+            origin,
+            status="awaiting-decision",
+            evidence_kind="decision",
+            decision_id=owner,
+        )
+        recorded = dispose(path, [waiting, coverage])
+        assert recorded.ok and not recorded.data["closure"]["closed"]
+        resolve()
+    settled = dispose(
+        path,
+        [
+            disposition(
+                origin, status="settled", evidence_kind="decision", decision_id=owner
+            ),
+            coverage,
+        ],
+    )
+    assert settled.ok and settled.data["closure"]["closed"], settled.to_envelope()
+    assert len(calls) == 1
+
+
 def test_disposition_batch_human_output_uses_one_based_rows(
     tmp_path, monkeypatch, run_cli
 ):

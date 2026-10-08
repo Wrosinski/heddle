@@ -354,3 +354,57 @@ def test_changed_citation_at_round_limit_routes_to_resubmission_not_stop(
     assert set(action.references) == {f"{origin}#SP-I1", f"{origin}#@coverage"}
     assert dispose(path, rows).ok
     assert review_status(path)["closed"] and len(calls) == 1
+
+
+def test_recorded_report_row_outside_its_decision_route_is_explained(
+    tmp_path, monkeypatch, run_cli
+):
+    from tests.operational_model_helpers import SPEC, read, write
+    from tests.tiering_review_helpers import (
+        dispose,
+        disposition,
+        review_status,
+        runs,
+    )
+
+    host, path = current_host(tmp_path, monkeypatch)
+    provider_transport(
+        monkeypatch,
+        review_content(findings=[finding("SP-I1", classification="report")]),
+    )
+    code, result = gate_command(run_cli, "run-gate", "spec-review")
+    assert code == 4 and result["ok"], result
+    origin = runs(path)[0]["run_id"]
+    owner = read(path)["decisions"][0]["id"]
+    resolved = application.execute(
+        ops.ResolveDecision(
+            owner,
+            "disposition",
+            "Synthetic owner selects the module.",
+            SPEC,
+            feature=V7_FEATURE,
+        )
+    )
+    assert resolved.ok, resolved.to_envelope()
+    code, verified = gate_command(run_cli, "verify", "--scope", "m1")
+    assert code == 0 and verified["ok"], verified
+    waiting = disposition(
+        origin,
+        status="awaiting-decision",
+        evidence_kind="verification",
+        verification_scope="m1",
+    )
+    coverage = disposition(origin, "@coverage", status="settled")
+    assert dispose(path, [waiting, coverage]).ok
+    # Authored history: a row recorded before input refused this shape.
+    value = read(path)
+    value["review_assignments"]["dispositions"][0]["status"] = "addressed"
+    write(path, value)
+
+    row = review_status(path)
+    assert row["open_refs"] == [[origin, "SP-I1"]]
+    assert row["evidence_state"] == "invalid"
+    [explanation] = row["evidence_explanations"]
+    assert explanation["subject"] == f"{origin}#SP-I1"
+    assert "resolved owner decision" in explanation["cause"]
+    assert explanation["remedy"]["kind"] == "authoring"

@@ -12,7 +12,7 @@ from typing import Any, cast
 
 from heddle.contracts import operations as ops
 from heddle.contracts.decisions import Disposition
-from heddle.contracts.feature_policy import ReviewClosure
+from heddle.contracts.feature_policy import ReviewClosure, ReviewResolution
 from heddle.contracts.result import (
     Conflict,
     Diagnostic,
@@ -66,7 +66,11 @@ from heddle.kernel.managed_regions import authored_plan_observation
 from heddle.kernel.model import FeatureSnapshot
 from heddle.kernel.project_config import KernelError, ProjectConfig, feature_state_path
 from heddle.kernel.readiness import EvidenceExplanation
-from heddle.kernel.review_closure import assess_review_closure
+from heddle.kernel.review_closure import (
+    assess_review_closure,
+    required_obligation,
+    settles_decision_route,
+)
 from heddle.kernel.source_manifest import ObservedPath, normalize_paths
 from heddle.kernel.state import StateFile, parse_state_document
 from heddle.kernel.verification import VerificationFreshness
@@ -813,6 +817,68 @@ def _qualify_resolution(
     return qualification
 
 
+def _decision_route(
+    state: StateFile,
+    reference: tuple[str, str],
+    status: str,
+    decision_id: str | None,
+) -> _EvidenceQualification:
+    """Refuse an affirmative row the closure rule never counts for a REPORT."""
+    origin = next(
+        (s for s in core.authoritative_sources(state) if s.run_id == reference[0]),
+        None,
+    )
+    if status not in {"addressed", "settled"} or origin is None:
+        return _EvidenceQualification()
+    assignment = next(
+        row
+        for row in state.review_assignments.assignments
+        if row.id == origin.assignment_id
+    )
+    facts = core.closure_facts(
+        state, assignment, current_basis="", valid_dispositions=()
+    )
+    source = next(
+        (row for row in facts.obligations if (row.run_id, row.finding_id) == reference),
+        None,
+    )
+    if (
+        source is None
+        or source.classification != "report"
+        or not required_obligation(source)
+        or settles_decision_route(
+            source,
+            ReviewResolution(*reference, status, (), None, "", decision_id=decision_id),
+            facts.decisions,
+        )
+    ):
+        return _EvidenceQualification()
+    return _rejected_evidence(
+        "decision-routed",
+        "a REPORT finding closes only through its resolved owner decision",
+        f"once decision {source.decision_id} is resolved, record status settled "
+        f"with evidence_kind decision and decision_id {source.decision_id}; "
+        "until then record awaiting-decision",
+        field="decision_id",
+        reference=source.decision_id,
+    )
+
+
+def _closing_qualification(
+    frame: _Qualification, disposition: AssignmentDisposition, basis: str
+) -> _EvidenceQualification:
+    """Judge a recorded row by the evidence and route checks applied at input."""
+    result = _qualify_evidence(frame, disposition, basis)
+    if not result.qualifies:
+        return result
+    return _decision_route(
+        frame.snapshot.state,
+        (disposition.run_id, disposition.finding_id),
+        disposition.status,
+        disposition.decision_id,
+    )
+
+
 def _evidence_explanation(
     frame: _Qualification,
     disposition: AssignmentDisposition,
@@ -820,7 +886,7 @@ def _evidence_explanation(
     remedy: ops.Action,
 ) -> EvidenceExplanation:
     """Project the shared qualification result into readiness explanation."""
-    result = _qualify_evidence(frame, disposition, basis)
+    result = _closing_qualification(frame, disposition, basis)
     subject = f"{disposition.run_id}#{disposition.finding_id}"
     return EvidenceExplanation(
         subject,
@@ -918,7 +984,7 @@ class _Qualification:
             _evidence_explanation(self, disposition, basis, remedy)
             for reference in open_refs
             if (disposition := latest.get(reference)) is not None
-            and not _qualify_evidence(self, disposition, basis).qualifies
+            and not _closing_qualification(self, disposition, basis).qualifies
         )
 
     def only_changed_evidence(
@@ -1778,6 +1844,17 @@ def _dispositions(
                 "complete missing reviewer slots before disposition: "
                 + ", ".join(current.missing_slots),
                 reference=assignment.id,
+            )
+            continue
+        route = _decision_route(state, ref, item.status, item.decision_id)
+        if not route.qualifies:
+            failures[item.row_index] = _row_failure(
+                item.row_index,
+                row,
+                cast(str, route.predicate),
+                cast(str, route.remedy),
+                field=route.field,
+                reference=route.reference,
             )
             continue
         previous = next(
