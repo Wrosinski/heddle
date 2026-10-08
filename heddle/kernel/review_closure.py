@@ -9,6 +9,7 @@ from heddle.contracts.feature_policy import (
     ITERATIVE_DOCUMENT_ROLES,
     ReviewClosure,
     ReviewClosureFacts,
+    ReviewDecision,
     ReviewObligation,
     ReviewResolution,
 )
@@ -137,6 +138,24 @@ def required_obligation(row: ReviewObligation) -> bool:
     )
 
 
+def settles_decision_route(
+    source: ReviewObligation,
+    resolution: ReviewResolution,
+    decisions: tuple[ReviewDecision, ...],
+) -> bool:
+    """A REPORT origin closes only when settled through its resolved owner."""
+    return (
+        resolution.status == "settled"
+        and source.decision_id is not None
+        and any(
+            decision.id == source.decision_id == resolution.decision_id
+            and (decision.run_id, decision.finding_id) == _ref(source)
+            and decision.status == "resolved"
+            for decision in decisions
+        )
+    )
+
+
 def _resolved(
     source: ReviewObligation,
     resolution: ReviewResolution | None,
@@ -154,16 +173,7 @@ def _resolved(
     if source.requires_inspection and resolution.reviewer != source.reviewer:
         return False
     if source.classification == "report":
-        return (
-            resolution.status == "settled"
-            and source.decision_id is not None
-            and any(
-                decision.id == source.decision_id == resolution.decision_id
-                and (decision.run_id, decision.finding_id) == _ref(source)
-                and decision.status == "resolved"
-                for decision in facts.decisions
-            )
-        )
+        return settles_decision_route(source, resolution, facts.decisions)
     return True
 
 
