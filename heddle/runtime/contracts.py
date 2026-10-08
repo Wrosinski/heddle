@@ -846,6 +846,27 @@ FEATURE_POLICY_INPUT_SCHEMA: dict[str, Any] = {
     ],
 }
 
+_DISPOSITION_STATUS_SUMMARIES = {
+    "retained": (
+        "not affirmative: the obligation stays open; with requires_inspection "
+        "and rounds remaining, readiness opens a verification pass by the "
+        "originating reviewer"
+    ),
+    "addressed": (
+        "affirmative: closes a required obligation once its cited evidence "
+        "qualifies, except a REPORT finding"
+    ),
+    "awaiting-decision": (
+        "not affirmative: the obligation stays open until its owner decision "
+        "is resolved"
+    ),
+    "settled": (
+        "affirmative: closes a required obligation once its cited evidence "
+        "qualifies; the only status that closes a REPORT finding, through its "
+        "resolved decision"
+    ),
+}
+
 _EVIDENCE_KIND_SUMMARIES = {
     "inspection": "the lead inspected the cited files; counts while they are unchanged",
     "contract": (
@@ -889,7 +910,13 @@ REVIEW_DISPOSITION_INPUT_SCHEMA: dict[str, Any] = {
                     "finding_id": _text_field("originating finding ID or @coverage"),
                     "status": {
                         **_text_field("lead disposition status"),
-                        "one_of": _closed_options(DISPOSITION_STATUSES),
+                        "one_of": [
+                            {
+                                "value": status,
+                                "summary": _DISPOSITION_STATUS_SUMMARIES[status],
+                            }
+                            for status in DISPOSITION_STATUSES
+                        ],
                     },
                     "evidence_kind": {
                         **_text_field("qualification route for the cited evidence"),

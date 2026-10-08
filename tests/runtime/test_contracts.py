@@ -20,7 +20,7 @@ from typing import get_args
 
 import pytest
 
-from heddle.contracts.review_assignments import EVIDENCE_KINDS
+from heddle.contracts.review_assignments import DISPOSITION_STATUSES, EVIDENCE_KINDS
 from heddle.contracts.schemas import (
     DECISION_BATCH_CLASSES,
     DECISION_BATCH_SOURCES,
@@ -709,6 +709,21 @@ def test_disposition_help_explains_each_evidence_kind_and_its_limits():
         "decision-routed",
     ):
         assert token in notes, token
+
+
+def test_disposition_help_says_which_statuses_close_an_obligation():
+    fields = REVIEW_DISPOSITION_INPUT_SCHEMA["fields"]["dispositions"]["items"]
+    options = {
+        option["value"]: option["summary"]
+        for option in fields["fields"]["status"]["one_of"]
+    }
+    assert list(options) == list(DISPOSITION_STATUSES)
+    for status in ("addressed", "settled"):
+        assert options[status].startswith("affirmative: closes")
+    for status in ("retained", "awaiting-decision"):
+        assert options[status].startswith("not affirmative:")
+    assert "requires_inspection" in options["retained"]
+    assert "REPORT" in options["settled"] and "REPORT" in options["addressed"]
 
 
 class TestSchemaValidatorConformance:
