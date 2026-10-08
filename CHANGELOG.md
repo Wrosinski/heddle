@@ -38,9 +38,65 @@ authority for the installed version.
   keeps its own remedy. The new `.heddle.yaml` setting `reviews.launch`
   defaults to `concurrent`; set it to `sequential` to launch one slot at a
   time.
+- A disposition row that cannot close a REPORT finding is refused with
+  `decision-routed` and a remedy naming the owner decision; such a finding
+  closes only through `settled` with that decision's `decision_id`. Rows
+  already recorded that way are explained in readiness instead of staying
+  open without a reason.
+- At a round limit, when the only open reference is the latest round's own
+  `@coverage` duty, readiness routes to `heddle review disposition` instead of
+  a round-limit stop.
+- A refused `heddle review round-open` that records a stop decision now says
+  so: its error details carry `wrote`, `revision`, `decision_id` and
+  `stop_reason`.
+- `heddle decisions add`, `resolve` and `record-policy` report `wrote` on a
+  real write; `would_write` appears only in dry runs.
+- `heddle milestone add` accepts complexity `low` or `high` only and refuses
+  any other value as a usage error naming both. The plan scaffold no longer
+  says the command appends a plan section; the lead writes it.
+- Stage briefings and gate prompts carry new guidance:
+  - spec, plan and scaffold review name the validating-round route;
+  - specify asks for sources on current-behaviour statements, ownership traced
+    from each milestone's effects, a commit-guard check of planned test edits,
+    "no data" as a rule outcome of its own, the host's specs `_index` table
+    when it has one, a second-model milestone-review secondary for milestones
+    that rebind an inherited boundary, and a fallback when the concept
+    review's read-only Codex sandbox cannot start;
+  - scaffold asks for history fixtures recorded by the pre-change code;
+  - implement re-presents milestone review settings when a contract amendment
+    widens scope;
+  - the shared decision policy asks owner questions on data, time or state
+    rules to show a case on each side of the boundary;
+  - scaffold review reports an acceptance criterion proven only by an
+    acceptance or live test as `partial`, and a coverage claim carried over
+    from an earlier round cites a trace or test.
+
+  Every gate's prompt version changes. Review evidence recorded under the
+  earlier prompts in features already in flight must be refreshed or
+  re-dispositioned.
+- A driven specify session may edit the specs directory's `_index` table
+  beside `_descriptions.yaml`.
 
 ### Added
 
+- `heddle feature start --through <stage> --statement <text>` records the
+  owner's stated authority ceiling and where it was given. Without
+  `--through` the ceiling stays at specify. The specification checkpoint and
+  the review change confirmation still stop the feature whatever the ceiling.
+- `heddle review round-open --help` publishes its payload schema,
+  `heddle.review-round-input/v1`, and `heddle milestone add --help` publishes
+  `heddle.milestone-input/v1`. Disposition help now explains each evidence
+  kind and which references can be cited.
+- `heddle verify` reports pytest outcome counts as `counts` in its result and
+  human output. The counts are not recorded in state.
+- `heddle validate` adds three advisories: `verified-by-unread` for
+  Verified-by text the parser does not read, `scaffold-test-path-missing` for
+  test paths the scaffolding review will refuse to start on, and
+  `verified-by-unselected` for Verified-by targets no verification command
+  selects.
+- A Codex model-capacity refusal is classified as `codex-at-capacity`, with
+  diagnosis `capacity`, instead of a generic exit or a tool loop. The gate
+  failure guide says to retry the same model once capacity returns.
 - A concept note precedes the Feature Spec. After research, the brief's new
   `## Concept` section answers three questions at the altitude of concepts and
   high-level contracts: what we are building, how (approach and the
