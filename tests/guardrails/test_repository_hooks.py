@@ -641,6 +641,34 @@ def test_ac_coverage_standalone_validates_verified_by_targets(
 
 
 @pytest.mark.parametrize(
+    "follower",
+    [
+        "### AC-2: [removed] Retired behavior\n",
+        "## Decision Log\n\n### D1 - Later decision\n",
+    ],
+    ids=["retired-ac", "later-section"],
+)
+def test_ac_coverage_block_ends_before_a_retired_ac_or_later_section(
+    tmp_path: Path, follower: str
+) -> None:
+    tests = tmp_path / "tests"
+    tests.mkdir()
+    (tests / "test_feature.py").write_text(
+        "def test_ac1_behavior():\n    assert True\n", encoding="utf-8"
+    )
+    (tmp_path / "spec.md").write_text(
+        "### AC-1: Behavior\nCovered by its AC marker.\n\n"
+        f"{follower}Verified-by: tests/test_feature.py::test_gone\n",
+        encoding="utf-8",
+    )
+
+    result = _run("check-ac-test-coverage.py", "spec.md", "tests", cwd=tmp_path)
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "AC-1: found via regex" in result.stdout
+
+
+@pytest.mark.parametrize(
     "selector",
     [
         "test_module_behavior",

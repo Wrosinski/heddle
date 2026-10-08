@@ -76,17 +76,24 @@ def _extract_ac_blocks(spec_path: str) -> list[tuple[str, str]]:
     content = Path(spec_path).read_text(encoding="utf-8")
     lines = content.splitlines()
     headings: list[tuple[str, int]] = []
+    # A block ends at the next AC heading, retired or not, or at the next
+    # section, so later sections' Verified-by lines never join the last AC.
+    boundaries: list[int] = []
     for idx, line in enumerate(lines):
+        if line.startswith("## "):
+            boundaries.append(idx)
+            continue
         match = re.match(r"^###\s+(AC-\d+[a-z]?):\s*(.*)$", line)
         if not match:
             continue
+        boundaries.append(idx)
         if match.group(2).strip().lower().startswith("[removed"):
             continue
         headings.append((match.group(1), idx))
 
     blocks: list[tuple[str, str]] = []
-    for idx, (ac_id, start_idx) in enumerate(headings):
-        end_idx = headings[idx + 1][1] if idx + 1 < len(headings) else len(lines)
+    for ac_id, start_idx in headings:
+        end_idx = next((idx for idx in boundaries if idx > start_idx), len(lines))
         blocks.append((ac_id, "\n".join(lines[start_idx + 1 : end_idx]).strip()))
     return blocks
 
