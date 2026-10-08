@@ -71,20 +71,18 @@ class TestBindingResolution:
 
 
 def parse_primary_test_bindings(ac_id: str, ac_block: str) -> ParsedTestBindings:
-    """Parse the established comma-separated ``Verified-by`` declaration."""
-    match = VERIFIED_BY.search(ac_block)
-    if match is None or not match.group(1).strip():
-        return ParsedTestBindings(
-            (),
-            (
-                TestBindingIssue(
-                    ac_id,
-                    "(missing)",
-                    "missing primary binding",
-                ),
-            ),
+    """Parse every ``Verified-by`` line's comma-separated targets, in order.
+
+    Each line adds its targets to the AC's binding; a repeated target binds
+    once, at its first occurrence.
+    """
+    targets = tuple(
+        dict.fromkeys(
+            target
+            for match in VERIFIED_BY.finditer(ac_block)
+            for target in _declared_targets(match.group(1))
         )
-    targets = _declared_targets(match.group(1))
+    )
     if not targets:
         return ParsedTestBindings(
             (),

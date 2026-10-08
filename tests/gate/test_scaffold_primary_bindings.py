@@ -107,6 +107,53 @@ def test_binding_diagnostics_follow_ac_and_target_declaration_order(
     )
 
 
+def test_later_declaration_lines_are_resolved_and_captured(
+    tmp_path: Path, monkeypatch
+) -> None:
+    from heddle.gate import entry
+
+    host, _state_path = current_host(tmp_path, monkeypatch, stage="scaffold")
+    (host / "tests/test_bindings.py").write_text(
+        "def test_valid():\n    assert True\n", encoding="utf-8"
+    )
+    lane_path = host / "quality/lane_witness.py"
+    lane_path.parent.mkdir()
+    lane_path.write_text("def test_lane():\n    assert True\n", encoding="utf-8")
+    git(host, "add", "quality/lane_witness.py")
+    git(host, "commit", "-qm", "unchanged lane witness")
+
+    def write_lane_target(selector: str) -> None:
+        (host / SPEC).write_text(
+            "# Product\n\n## Acceptance Criteria\n\n"
+            "### AC-1: Required behavior\n\n"
+            "Verified-by: tests/test_bindings.py::test_valid\n"
+            f"Verified-by: quality/lane_witness.py::{selector}\n",
+            encoding="utf-8",
+        )
+
+    write_lane_target("test_lane")
+    context = _scaffold_context(host)
+    prepared = entry.prepare_gate_run(
+        context, gate_type=context.gate_type, invocation=_invocation(context)
+    )
+    assert [
+        row.content
+        for row in prepared.reviewed_inputs
+        if row.name == "reviewed/test/quality/lane_witness.py"
+    ] == [lane_path.read_bytes()]
+
+    write_lane_target("test_missing")
+    broken_context = _scaffold_context(host)
+    with pytest.raises(KernelError) as raised:
+        entry.prepare_gate_run(
+            broken_context,
+            gate_type=broken_context.gate_type,
+            invocation=_invocation(broken_context),
+        )
+    assert "AC-1: quality/lane_witness.py::test_missing" in raised.value.message
+    assert "test_bindings.py::test_valid" not in raised.value.message
+
+
 def test_binding_only_inputs_share_capture_and_review_basis(
     tmp_path: Path, monkeypatch
 ) -> None:

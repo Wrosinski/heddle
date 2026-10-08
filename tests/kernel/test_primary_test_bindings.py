@@ -103,6 +103,33 @@ def test_every_declared_target_is_resolved_and_broken_targets_are_not_rescued() 
     )
 
 
+def test_every_declaration_line_in_an_ac_block_binds() -> None:
+    parsed, resolved = _resolutions(
+        "Verified-by: tests/test_x.py::test_unit\n"
+        "Prose between declarations.\n"
+        "Verified-by:\n"
+        "Verified-by: tests/test_x.py::test_lane, tests/test_x.py::test_unit\n",
+        b"def test_unit():\n    return True\n",
+    )
+
+    assert [binding.target for binding in parsed.bindings] == [
+        "tests/test_x.py::test_unit",
+        "tests/test_x.py::test_lane",
+    ]
+    assert parsed.issues == ()
+    assert resolved[0].issue is None
+    assert resolved[1].issue is not None
+    assert resolved[1].issue.target == "tests/test_x.py::test_lane"
+
+    later_only = parse_primary_test_bindings(
+        "AC-2", "Verified-by:\nVerified-by: tests/test_x.py::test_lane"
+    )
+    assert [binding.target for binding in later_only.bindings] == [
+        "tests/test_x.py::test_lane"
+    ]
+    assert later_only.issues == ()
+
+
 def test_missing_and_unsupported_declarations_have_stable_issues() -> None:
     missing = parse_primary_test_bindings("AC-2", "No declaration here.")
     assert missing.bindings == ()

@@ -349,6 +349,39 @@ def test_w5_ac9_only_explicitly_changed_historical_binding_is_checked(tmp_path):
     assert repaired.returncode == 0, repaired.stdout
 
 
+@pytest.mark.toolchain
+def test_changed_later_historical_declaration_line_is_resolved(tmp_path):
+    from tests.content_identity_helpers import git, git_host
+
+    root = git_host(tmp_path / "host")
+    (root / "tests").mkdir()
+    (root / "tests/test_valid.py").write_text(
+        "def test_valid():\n    assert True\n\ndef test_lane():\n    assert True\n"
+    )
+    spec = root / "docs/features/history.md"
+    spec.parent.mkdir(parents=True)
+    text = (
+        "---\ntype: feature-spec\nlifecycle: complete\n---\n\n# History\n\n"
+        "## Acceptance Criteria\n\n### AC-1: Historical result\n\n"
+        "Verified-by: tests/test_valid.py::test_valid\n"
+        "Verified-by: tests/test_valid.py::test_lane\n"
+    )
+    spec.write_text(text)
+    git(root, "add", ".")
+    git(root, "commit", "-qm", "historical fixture evidence")
+    spec.write_text(text.replace("test_lane", "test_lane_missing"))
+    git(root, "add", "docs/features/history.md")
+
+    changed = _run(
+        "check-ac-test-coverage.py",
+        cwd=root,
+        env={"ALLOW_MISSING_AC_TEST_COVERAGE": ""},
+    )
+
+    assert changed.returncode == 1, changed.stdout
+    assert "tests/test_valid.py::test_lane_missing" in changed.stdout
+
+
 def test_w5_ac9_obsolete_plan_proof_is_removed_without_losing_principles_guard():
     config = yaml.safe_load(PRECOMMIT_CONFIG.read_text())
     hooks = {hook["id"] for repo in config["repos"] for hook in repo["hooks"]}
@@ -666,6 +699,43 @@ def test_ac_coverage_block_ends_before_a_retired_ac_or_later_section(
 
     assert result.returncode == 0, result.stdout + result.stderr
     assert "AC-1: found via regex" in result.stdout
+
+
+@pytest.mark.parametrize(
+    ("declarations", "broken"),
+    [
+        (
+            "Verified-by: tests/test_feature.py::test_unit\n"
+            "Verified-by: tests/test_feature.py::test_gone\n",
+            "tests/test_feature.py::test_gone",
+        ),
+        (
+            "Verified-by:\nVerified-by: tests/test_feature.py::test_unit\n",
+            None,
+        ),
+    ],
+    ids=["broken-later-line", "empty-first-line"],
+)
+def test_ac_coverage_resolves_every_declaration_line(
+    tmp_path: Path, declarations: str, broken: str | None
+) -> None:
+    tests = tmp_path / "tests"
+    tests.mkdir()
+    (tests / "test_feature.py").write_text(
+        "def test_unit():\n    assert True\n", encoding="utf-8"
+    )
+    (tmp_path / "spec.md").write_text(
+        f"### AC-7: Behavior\n{declarations}", encoding="utf-8"
+    )
+
+    result = _run("check-ac-test-coverage.py", "spec.md", "tests", cwd=tmp_path)
+
+    if broken is None:
+        assert result.returncode == 0, result.stdout + result.stderr
+        assert "AC-7: linked via Verified-by" in result.stdout
+    else:
+        assert result.returncode == 1, result.stdout
+        assert f"AC-7: broken Verified-by target(s): {broken}" in result.stdout
 
 
 @pytest.mark.parametrize(
