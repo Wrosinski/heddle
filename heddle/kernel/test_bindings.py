@@ -5,6 +5,7 @@ from __future__ import annotations
 import ast
 import re
 import shlex
+from collections.abc import Iterator
 from dataclasses import dataclass
 from typing import Literal
 
@@ -123,7 +124,15 @@ def unread_verified_by_lines(markdown: str) -> tuple[int, ...]:
 
     Fenced code is example text, so its lines are never reported.
     """
-    unread: list[int] = []
+    return tuple(
+        number
+        for number, line in _unfenced_lines(markdown)
+        if _VERIFIED_BY_LOOKALIKE.match(line) and not VERIFIED_BY.match(line)
+    )
+
+
+def _unfenced_lines(markdown: str) -> Iterator[tuple[int, str]]:
+    """Yield 1-based numbered lines outside fenced code and its delimiters."""
     fence_marker: str | None = None
     fence_size = 0
     for number, line in enumerate(markdown.splitlines(), start=1):
@@ -140,9 +149,7 @@ def unread_verified_by_lines(markdown: str) -> tuple[int, ...]:
             fence_marker = delimiter.group(1)[0]
             fence_size = len(delimiter.group(1))
             continue
-        if _VERIFIED_BY_LOOKALIKE.match(line) and not VERIFIED_BY.match(line):
-            unread.append(number)
-    return tuple(unread)
+        yield number, line
 
 
 def inspect_python_test_source(source: bytes) -> PythonSymbolInspection:
