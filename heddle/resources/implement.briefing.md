@@ -107,7 +107,9 @@ formal gate artifacts retain their required structure and non-narration rules.
 1. Expand the milestone into cohesive, dependency-ordered tasks with
    `heddle task add`; set and maintain the current-task marker. Check the
    list against the milestone's work, scope, and `satisfies` ACs — add what
-   is missing, drop what falls outside scope.
+   is missing, drop what falls outside scope. When a ruling changes an open
+   task's work, correct its text with `heddle task edit`, so the list keeps
+   describing the remaining work.
 2. Implement in dependency order, writing tests alongside behavior. Independent
    work packages may proceed in supervised parallel under the Collaboration
    topology below; the lead-owned current-task marker remains the integration
