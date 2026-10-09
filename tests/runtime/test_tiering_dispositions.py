@@ -1726,6 +1726,10 @@ def test_round_open_stop_refusal_reports_the_decision_it_records(
     stopped = open_round(path)
 
     assert recorded_stop(stopped) and stopped.exit_code == ExitCode.ADVISORY
+    from heddle.runtime.contracts import COMMAND_SURFACE
+
+    (contract,) = (c for c in COMMAND_SURFACE if c.name == "review round-open")
+    assert int(stopped.exit_code) in contract.exit_codes, "advertised exit"
     (owner,) = {
         assignment["stop_decision_id"]
         for assignment in yaml.safe_load(path.read_text())["review_assignments"][

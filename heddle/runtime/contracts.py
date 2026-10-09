@@ -1231,7 +1231,8 @@ COMMAND_SURFACE: tuple[CommandContract, ...] = (
             FlagSpec("--input-json", "versioned round input file or - for stdin"),
             _EXPECT_REVISION,
         ),
-        exit_codes=_EXIT_CAS,
+        # A recorded review stop is routed success with an advisory exit.
+        exit_codes=_EXIT_TRANSITION,
         output_schema=None,
         input_schema=REVIEW_ROUND_INPUT_SCHEMA,
     ),

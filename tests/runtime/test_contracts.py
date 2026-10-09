@@ -166,7 +166,7 @@ EXPECTED_SURFACE = [
         "review round-open",
         True,
         True,
-        [0, 1, 2, 3, 5],
+        [0, 1, 2, 3, 4, 5],
         [],
         {"--json", "--input-json", "--dry-run", "--feature", "--expect-revision"},
     ),
