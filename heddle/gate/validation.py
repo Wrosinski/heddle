@@ -458,18 +458,21 @@ def _validate_prior_dispositions(
         )
     unexpected = actual - set(prior)
     unaccounted = set(prior) - actual if prepared.assignment_id is None else set()
+    targets = set(prepared.required_prior_references or ())
     if unexpected or unaccounted:
+        # Name missing verification targets too, so one repair fixes both.
         raise ValueError(
             "prior finding accounting must cover exactly the latest accepted "
-            "findings" + _accounting_mismatch(unexpected, unaccounted, set(prior))
-        )
-    if prepared.required_prior_references is not None:
-        targets = set(prepared.required_prior_references)
-        if not targets <= actual:
-            raise ValueError(
-                "prior finding accounting must cover every verification target"
-                + _accounting_mismatch(set(), targets - actual, targets)
+            "findings"
+            + _accounting_mismatch(
+                unexpected, unaccounted | (targets - actual), set(prior)
             )
+        )
+    if not targets <= actual:
+        raise ValueError(
+            "prior finding accounting must cover every verification target"
+            + _accounting_mismatch(set(), targets - actual, targets)
+        )
     findings = {item.id for item in content.findings}
     retained = set()
     decisions = {item.id: item for item in prepared.review_decisions}

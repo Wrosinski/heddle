@@ -274,3 +274,17 @@ def test_verification_target_refusal_names_each_missing_target() -> None:
         "prior finding accounting must cover every verification target; "
         f"missing: @coverage (run {accepted})"
     )
+
+    # A mistyped reference does not hide a missing target from the same reply.
+    mistyped = "4f6c2a10-8e3b-4c1d-9a7e-50f8c6d6e3"
+    content, prepared = _accounting_inputs(
+        [(mistyped, "SP-I1")],
+        assignment_id="a1",
+        required=((accepted, "SP-I1"), (accepted, "@coverage")),
+    )
+    with pytest.raises(ValueError) as refused:
+        _validate_prior_dispositions(content, prepared)
+    assert str(refused.value).endswith(
+        f"unmatched: SP-I1 (run {mistyped}), closest accepted run {accepted}; "
+        f"missing: @coverage (run {accepted}); SP-I1 (run {accepted})"
+    )
