@@ -110,9 +110,11 @@ the set under one lock per gate, prepares every member from one state snapshot
 exactly as that slot's own `run-gate` would, and runs isolated workers. Workers
 write gate artifacts; the parent alone records each result, in catalog role
 order and primary before secondary, as soon as the next one is available. A
-recorded unconverged verdict is a completed review; the command fails only when
-a member fails, is interrupted, cannot launch or cannot be recorded. Set
-`reviews.launch: sequential` in `.heddle.yaml` to launch one slot at a time.
+recorded unconverged verdict is a completed review: the command returns
+`ok: true` with exit 4, as `run-gate` does for one slot. It fails
+(`ok: false`) only when a member fails, is interrupted, cannot launch or cannot
+be recorded. Set `reviews.launch: sequential` in `.heddle.yaml` to launch one
+slot at a time.
 
 Off roles, unauthorized stages, slots the host's `gates` or `agents` settings
 refuse, sealed reviews, slots that already have an accepted review, and reviews

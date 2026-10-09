@@ -445,7 +445,7 @@ execution authority.
 | `1` | Internal error. |
 | `2` | Usage error. |
 | `3` | Fatal contract failure or blocked operation. |
-| `4` | Advisory findings or accepted completion with pending effects. |
+| `4` | Advisory findings, a recorded review whose verdict has not converged, or accepted completion with pending effects. |
 | `5` | Revision conflict. |
 
 Errors carry a stable code, message, hint and structured details. Diagnostics
