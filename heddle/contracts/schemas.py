@@ -334,6 +334,8 @@ SESSION_PROGRESS_FIELD_TYPES = {
 }
 SESSION_PROGRESS_KEYS = tuple(SESSION_PROGRESS_FIELD_TYPES)
 SESSION_OPTIONAL_KEYS = SESSION_PROGRESS_KEYS
+SESSION_REQUIRED_STRING_KEYS = ("started_at", "ended_at", "key_context", "next_steps")
+SESSION_REQUIRED_LIST_KEYS = ("completed", "started", "blockers")
 SESSION_KEYS = (
     "started_at",
     "ended_at",

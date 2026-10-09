@@ -30,6 +30,8 @@ from heddle.contracts.schemas import (
     FLOW_HITL,
     SESSION_PROGRESS_FIELD_TYPES,
     SESSION_PROGRESS_KEYS,
+    SESSION_REQUIRED_LIST_KEYS,
+    SESSION_REQUIRED_STRING_KEYS,
     STAGES,
 )
 from heddle.kernel.model import (
@@ -1531,15 +1533,13 @@ def _read_session_entry(from_file: str | None) -> dict[str, Any] | HeddleResult:
             "session payload must be a mapping",
             "shape the payload with the seven session fields",
         )
-    required_strings = ("started_at", "ended_at", "key_context", "next_steps")
-    required_lists = ("completed", "started", "blockers")
-    for field in required_strings:
+    for field in SESSION_REQUIRED_STRING_KEYS:
         if not isinstance(payload.get(field), str):
             return usage_failure(
                 f"session field {field!r} must be a string",
                 "provide all required session string fields",
             )
-    for field in required_lists:
+    for field in SESSION_REQUIRED_LIST_KEYS:
         value = payload.get(field)
         if not isinstance(value, list) or not all(
             isinstance(item, str) for item in value
