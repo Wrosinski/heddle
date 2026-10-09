@@ -37,7 +37,11 @@ from heddle.runtime.feature_context import (
 from heddle.runtime.locking import state_recording_lock
 from heddle.runtime.output import emit_envelope
 from heddle.runtime.recording import allocate_decision_ids
-from heddle.runtime.state_store import check_expect_revision, commit_state
+from heddle.runtime.state_store import (
+    check_expect_revision,
+    commit_state,
+    mutation_fields,
+)
 from heddle.runtime.verification import (
     prepare_smoke_disposition,
     prepare_witness_waiver,
@@ -541,7 +545,7 @@ def record_policy(operation: ops.RecordPolicy) -> HeddleResult:
         {
             "feature": target.feature,
             "revision": revision,
-            **_mutation_fields("decisions record-policy", wrote, operation.dry_run),
+            **mutation_fields("decisions record-policy", wrote, operation.dry_run),
             "decision_ids": [item.id for item in operation.resolutions],
         }
     )
@@ -720,22 +724,10 @@ def _mutate(
         {
             "feature": target.feature,
             "revision": revision,
-            **_mutation_fields(command, wrote, dry_run),
+            **mutation_fields(command, wrote, dry_run),
             **affected,
         }
     )
-
-
-def _mutation_fields(command: str, wrote: bool, dry_run: bool) -> dict[str, Any]:
-    """The write-path envelope convention: a real write reports ``wrote``; a
-    preview writes nothing and reports what it ``would_write``."""
-    if dry_run:
-        return {
-            "dry_run": True,
-            "wrote": False,
-            "mutation_summary": {"command": command, "would_write": wrote},
-        }
-    return {"wrote": wrote, "mutation_summary": {"command": command, "wrote": wrote}}
 
 
 def _decision_payload(

@@ -44,6 +44,18 @@ def check_expect_revision(
     return None
 
 
+def mutation_fields(command: str, wrote: bool, dry_run: bool) -> dict[str, Any]:
+    """The write-path envelope convention: a real write reports ``wrote``; a
+    preview writes nothing and reports what it ``would_write``."""
+    if dry_run:
+        return {
+            "dry_run": True,
+            "wrote": False,
+            "mutation_summary": {"command": command, "would_write": wrote},
+        }
+    return {"wrote": wrote, "mutation_summary": {"command": command, "wrote": wrote}}
+
+
 def read_state_document(state_path: Path) -> dict[str, Any]:
     """Read a validated current document; callers needing a transaction lock it."""
     document, _raw = read_state_source(state_path)
