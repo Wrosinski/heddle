@@ -117,6 +117,13 @@ def resolve_decision(operation: ops.ResolveDecision) -> HeddleResult:
             "--resolution requires nonempty rationale",
             "describe the ruling and its permanent record",
         )
+    if operation.kind == "policy" or operation.kind not in {
+        kind for values in DECISION_RESOLUTION_KINDS.values() for kind in values
+    }:
+        return usage_failure(
+            f"unsupported user resolution kind {operation.kind!r}",
+            "use an eligible user resolution; policy is recorded through record-policy",
+        )
     route = None
     if operation.routes_to is None:
         if operation.kind not in SPEC_ROUTED_RESOLUTION_KINDS:
@@ -135,13 +142,6 @@ def resolve_decision(operation: ops.ResolveDecision) -> HeddleResult:
                 ),
                 exit_code=ExitCode.USAGE,
             )
-    if operation.kind == "policy" or operation.kind not in {
-        kind for values in DECISION_RESOLUTION_KINDS.values() for kind in values
-    }:
-        return usage_failure(
-            f"unsupported user resolution kind {operation.kind!r}",
-            "use an eligible user resolution; policy is recorded through record-policy",
-        )
     target = _resolve_target(operation.feature, operation.expect_revision)
     if isinstance(target, HeddleResult):
         return target

@@ -341,3 +341,61 @@ def _settled_caps(path):
         for d in state["decisions"]
         if d["status"] == "resolved" and d["kind"] in {"stage-cap", "verdict-cap"}
     ]
+
+
+def test_continue_stage_passes_the_route_check_without_a_route(
+    run_cli, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import json
+
+    host = tmp_path / "host"
+    shutil.copytree(EDGE, host)
+    monkeypatch.chdir(host)
+    state_path = host / "plans" / "blocked-pending-decision" / "state.yaml"
+    before = state_path.read_bytes()
+    code, out, _err = run_cli(
+        [
+            "decisions",
+            "resolve",
+            "D1",
+            "--feature",
+            "blocked-pending-decision",
+            "--kind",
+            "continue-stage",
+            "--resolution",
+            "One more stage attempt",
+            "--json",
+        ]
+    )
+    error = json.loads(out)["error"]
+    # A continuation needs no route, so the refusal comes from the decision's
+    # own eligibility (a question cannot continue a stage), not a missing route.
+    assert code == 2 and "--routes-to" not in error["message"], error
+    assert "ineligible for decision kind question" in error["message"], error
+    assert state_path.read_bytes() == before
+
+
+def test_an_ineligible_kind_is_named_before_a_missing_route(
+    run_cli, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import json
+
+    host = tmp_path / "host"
+    shutil.copytree(EDGE, host)
+    monkeypatch.chdir(host)
+    code, out, _err = run_cli(
+        [
+            "decisions",
+            "resolve",
+            "D1",
+            "--feature",
+            "blocked-pending-decision",
+            "--kind",
+            "policy",
+            "--resolution",
+            "Record it",
+            "--json",
+        ]
+    )
+    error = json.loads(out)["error"]
+    assert code == 2 and "unsupported user resolution kind" in error["message"], error
