@@ -1077,8 +1077,12 @@ def _render_human(result: HeddleResult) -> None:
         print(f"  hint: {result.error.hint}", file=sys.stderr)
         return
     data = result.data or {}
+    preview = bool(data.get("dry_run"))
     for decision in data.get("decisions", []):
-        print(f"{decision['id']} — {decision['status']} — {decision['title']}")
+        print(
+            f"{'would add ' if preview else ''}"
+            f"{decision['id']} — {decision['status']} — {decision['title']}"
+        )
         if decision.get("rationale") is not None:
             print(f"  rationale: {decision['rationale']}")
         if decision.get("question"):
@@ -1092,8 +1096,9 @@ def _render_human(result: HeddleResult) -> None:
                 "  landed since raised: "
                 + ", ".join(decision["milestones_landed_since"])
             )
-    if "decisions" not in data:
+    if "decisions" not in data or "mutation_summary" in data:
         print(
-            f"{data.get('feature', '')}: decision operation recorded "
+            f"{data.get('feature', '')}: decision operation "
+            f"{'would be recorded' if preview else 'recorded'} "
             f"at revision {data.get('revision')}"
         )
