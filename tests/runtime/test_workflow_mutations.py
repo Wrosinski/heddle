@@ -1310,3 +1310,54 @@ def test_session_log_help_schema_matches_the_payload_reader(
         code, envelope = preview({**schema["example"], name: wrong})
         assert code == 2 and envelope["error"]["code"] == "usage", name
     assert state_path.read_bytes() == before
+
+
+def test_task_edit_replaces_open_task_text_and_keeps_done_tasks(
+    run_cli, envelope_tools, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    host = _copy_host(tmp_path, TINY)
+    monkeypatch.chdir(host)
+    state_path = host / "plans" / "sample-feature" / "state.yaml"
+    before = state_path.read_bytes()
+    revision = _read_yaml(state_path)["revision"]
+    edit = ["task", "edit", "t2", "--text", "Handle malformed lines per the ruling"]
+    scope = ["--feature", "sample-feature", "--json"]
+
+    code, out, _err = run_cli([*edit, *scope, "--dry-run"])
+    assert code == 0 and envelope_tools.parse(out)["ok"] is True
+    assert state_path.read_bytes() == before
+
+    code, out, _err = run_cli([*edit, *scope, "--expect-revision", str(revision)])
+    assert code == 0 and envelope_tools.parse(out)["ok"] is True
+    state = _read_yaml(state_path)
+    assert state["revision"] == revision + 1
+    tasks = {task["id"]: task for task in state["milestones"][0]["tasks"]}
+    assert tasks["t2"] == {
+        "id": "t2",
+        "text": "Handle malformed lines per the ruling",
+        "status": "current",
+    }
+    assert tasks["t1"]["text"] == "Parse the input format"
+    edited = state_path.read_bytes()
+
+    code, out, _err = run_cli([*edit, *scope])
+    assert code == 0 and envelope_tools.parse(out)["ok"] is True
+    assert state_path.read_bytes() == edited, "an unchanged text is a no-op"
+
+    for argv in (
+        ["t1", "--text", "Rewrite finished work"],
+        ["t2", "--text", "   "],
+        ["t2"],
+        ["t2", "t1", "--text", "Two references"],
+        ["missing", "--text", "Unknown task"],
+    ):
+        code, out, _err = run_cli(["task", "edit", *argv, *scope])
+        envelope = envelope_tools.parse(out)
+        assert code == 2 and envelope["error"]["code"] == "usage", argv
+    from heddle.contracts import operations as ops
+    from heddle.runtime import application
+
+    typed = application.execute(ops.TaskEdit("t2", " ", feature="sample-feature"))
+    assert not typed.ok and typed.error is not None
+    assert typed.error.code == "usage"
+    assert state_path.read_bytes() == edited

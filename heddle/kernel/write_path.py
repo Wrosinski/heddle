@@ -572,17 +572,23 @@ def mutate_task(
         tasks.append({"id": _next_task_id(tasks), "text": text, "status": "todo"})
         return new
 
-    if verb not in {"done", "current"}:
+    if verb not in {"done", "current", "edit"}:
         raise KernelError(
             code="usage",
             message=f"unknown task verb {verb!r}",
-            hint="supported task verbs: add, done, current",
+            hint="supported task verbs: add, done, current, edit",
         )
     if task_ref is None:
         raise KernelError(
             code="usage",
             message=f"task {verb} requires a task reference",
             hint=f"usage: heddle task {verb} <task-ref>",
+        )
+    if verb == "edit" and (text is None or not text.strip()):
+        raise KernelError(
+            code="usage",
+            message="task edit requires non-empty task text",
+            hint="usage: heddle task edit <task-ref> --text <text>",
         )
 
     tasks = milestone.get("tasks", [])
@@ -593,6 +599,23 @@ def mutate_task(
             message=f"unknown task reference {task_ref!r}",
             hint="choose a task id from the current milestone",
         )
+    if verb == "edit":
+        if target.get("status") == "done":
+            raise KernelError(
+                code="usage",
+                message=f"task {task_ref!r} is done; its text stays as recorded",
+                hint=(
+                    "record the change in the plan or a decision, or add the "
+                    "remaining work with heddle task add <text>"
+                ),
+            )
+        if target.get("text") == text:
+            return document
+        new = deepcopy(document)
+        _matching_task(new, _str_value(milestone.get("id"), "milestone id"), task_ref)[
+            "text"
+        ] = text
+        return new
     if verb == "done":
         if target.get("status") == "done":
             return document

@@ -29,6 +29,7 @@ EXPECTED_OUTPUT_SCHEMAS = {
     "task add": "heddle.task-add/v0",
     "task done": "heddle.task-done/v0",
     "task current": "heddle.task-current/v0",
+    "task edit": "heddle.task-edit/v0",
     "verify": "heddle.verify/v0",
     "session log": "heddle.session-log/v0",
     "sync": "heddle.sync/v0",

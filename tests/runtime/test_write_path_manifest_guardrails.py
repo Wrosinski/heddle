@@ -13,6 +13,7 @@ WRITE_PATH_LEAVES = {
     "task add",
     "task done",
     "task current",
+    "task edit",
     "verify",
     "session log",
 }

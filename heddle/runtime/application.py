@@ -49,6 +49,7 @@ _BINDINGS: dict[type, tuple[str, str]] = {
     ops.TaskAdd: ("write_path", "task"),
     ops.TaskCurrent: ("write_path", "task"),
     ops.TaskDone: ("write_path", "task"),
+    ops.TaskEdit: ("write_path", "task"),
     ops.PhaseExit: ("write_path", "phase_exit"),
     ops.FlowSet: ("write_path", "flow_set"),
 }

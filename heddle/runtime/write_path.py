@@ -121,6 +121,7 @@ from heddle.runtime.write_args import (
     parse_milestone_edit,
     parse_phase_exit,
     parse_session_log,
+    parse_task_edit,
     parse_verify,
     usage_failure,
     validate_milestone_payload,
@@ -522,18 +523,18 @@ def _read_milestone_payload(
     return payload
 
 
-def task(operation: ops.TaskAdd | ops.TaskCurrent | ops.TaskDone) -> HeddleResult:
-    verb = (
-        "add"
-        if isinstance(operation, ops.TaskAdd)
-        else "current"
-        if isinstance(operation, ops.TaskCurrent)
-        else "done"
-    )
+def task(
+    operation: ops.TaskAdd | ops.TaskCurrent | ops.TaskDone | ops.TaskEdit,
+) -> HeddleResult:
+    verb = ops.operation_name(operation).split()[1]
 
     def render(document: dict[str, Any]) -> dict[str, Any]:
         if isinstance(operation, ops.TaskAdd):
             return mutate_task(document, "add", text=operation.text)
+        if isinstance(operation, ops.TaskEdit):
+            return mutate_task(
+                document, "edit", text=operation.text, task_ref=operation.task_id
+            )
         if isinstance(operation, ops.TaskDone):
             current = next(
                 (m for m in document["milestones"] if m["status"] == "current"), None
@@ -1219,6 +1220,7 @@ type _StateMutationOperation = (
     | ops.TaskAdd
     | ops.TaskCurrent
     | ops.TaskDone
+    | ops.TaskEdit
     | ops.FlowSet
     | ops.FeatureInputsSet
     | ops.AttributeSources
@@ -1808,6 +1810,8 @@ def run_milestone_edit(args: list[str], json_mode: bool) -> int:
 
 
 def run_task(verb: str, args: list[str], json_mode: bool) -> int:
+    if verb == "edit":
+        return _run_task_edit(args, json_mode)
     parsed, positionals, failure = parse_common_with_positionals(args)
     if failure is not None:
         return _emit(failure, json_mode)
@@ -1859,6 +1863,25 @@ def run_task(verb: str, args: list[str], json_mode: bool) -> int:
             json_mode,
         )
     return _emit(application.execute(operation), json_mode)
+
+
+def _run_task_edit(args: list[str], json_mode: bool) -> int:
+    parsed, task_ref, text, failure = parse_task_edit(args)
+    if failure is not None:
+        return _emit(failure, json_mode)
+    assert parsed is not None and task_ref is not None and text is not None
+    return _emit(
+        application.execute(
+            ops.TaskEdit(
+                task_ref,
+                text,
+                feature=parsed.feature,
+                expect_revision=parsed.expect_revision,
+                dry_run=parsed.dry_run,
+            )
+        ),
+        json_mode,
+    )
 
 
 def run_verify(args: list[str], json_mode: bool) -> int:

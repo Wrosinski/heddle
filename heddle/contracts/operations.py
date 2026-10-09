@@ -270,6 +270,15 @@ class TaskDone:
 
 
 @dataclass(frozen=True)
+class TaskEdit:
+    task_id: str
+    text: str
+    feature: str | None = None
+    expect_revision: int | None = None
+    dry_run: bool = False
+
+
+@dataclass(frozen=True)
 class Verify:
     scope: str | None = None
     feature: str | None = None
@@ -400,6 +409,7 @@ type Operation = (
     | TaskAdd
     | TaskCurrent
     | TaskDone
+    | TaskEdit
     | Verify
     | RecordSession
     | PhaseExit
@@ -444,6 +454,7 @@ _OPERATION_NAMES: dict[type, str] = {
     TaskAdd: "task add",
     TaskCurrent: "task current",
     TaskDone: "task done",
+    TaskEdit: "task edit",
     Verify: "verify",
     RecordSession: "session log",
     PhaseExit: "phase-exit",
@@ -555,6 +566,8 @@ def operation_command(operation: Operation) -> str:
             arguments.append(operation.text)
         case TaskCurrent() | TaskDone():
             arguments.append(operation.task_id)
+        case TaskEdit():
+            arguments.extend((operation.task_id, "--text", operation.text))
         case Verify():
             if operation.scope is not None:
                 arguments.extend(("--scope", operation.scope))

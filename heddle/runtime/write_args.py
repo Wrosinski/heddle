@@ -307,6 +307,39 @@ def parse_commands_unset(
     return parsed, key, None
 
 
+def parse_task_edit(
+    args: list[str],
+) -> tuple[ParsedCommon | None, str | None, str | None, HeddleResult | None]:
+    usage = (
+        "usage: heddle task edit <task-ref> --text <text> "
+        "[--feature <slug>] [--dry-run]"
+    )
+    parsed, values, positionals, failure = parse_write_args(
+        args,
+        value_flags={"--text": ("--text requires the replacement task text", usage)},
+        unknown_hint=usage,
+        allow_positionals=True,
+    )
+    if failure is not None:
+        return None, None, None, failure
+    if len(positionals) != 1:
+        return (
+            None,
+            None,
+            None,
+            usage_failure("task edit requires exactly one <task-ref>", usage),
+        )
+    text = values["--text"]
+    if text is None or not text.strip():
+        return (
+            None,
+            None,
+            None,
+            usage_failure("task edit requires a non-blank --text <text>", usage),
+        )
+    return parsed, positionals[0], text, None
+
+
 def parse_session_log(
     args: list[str],
 ) -> tuple[ParsedCommon | None, str | None, HeddleResult | None]:

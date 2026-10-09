@@ -1668,6 +1668,26 @@ COMMAND_SURFACE: tuple[CommandContract, ...] = (
         output_schema="heddle.task-current/v0",
     ),
     CommandContract(
+        name=ops.operation_type_name(ops.TaskEdit),
+        cli_binding=("write_path", "run_task"),
+        # Correcting text the work no longer matches (for example after an
+        # owner ruling) keeps the task's id and status; done tasks stay as
+        # recorded.
+        summary="replace the text of a current-milestone task that is not done",
+        mutating=True,
+        dry_run=True,
+        args=(ArgSpec("task-ref", "task id whose text to replace", True),),
+        flags=(
+            _JSON,
+            _FEATURE,
+            FlagSpec("--text", "replacement task text (required, non-empty)"),
+            _EXPECT_REVISION,
+            _DRY_RUN,
+        ),
+        exit_codes=_EXIT_CAS,
+        output_schema="heddle.task-edit/v0",
+    ),
+    CommandContract(
         name=ops.operation_type_name(ops.Verify),
         cli_binding=("write_path", "run_verify"),
         summary="run a stored verification command and record the fact",
