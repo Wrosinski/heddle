@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import difflib
 from collections.abc import Hashable, Iterable
 
 from heddle.gate.results import (
@@ -42,6 +43,35 @@ _AFFIRMATIVE = _choices(AFFIRMATIVE_EVIDENCE_KINDS)
 
 def _prior_label(source: FindingRef) -> str:
     return f"{source.finding_id} (run {source.run_id})"
+
+
+def _accounting_mismatch(
+    unexpected: set[tuple[str, str]],
+    missing: set[tuple[str, str]],
+    expected: set[tuple[str, str]],
+) -> str:
+    """Name each unmatched (run, finding) pair, and the accepted run id a
+    mistyped one most likely meant, so the repair needs no id comparison."""
+    known_runs = sorted({run_id for run_id, _finding in expected})
+    parts = []
+    if unexpected:
+        rows = []
+        for run_id, finding_id in sorted(unexpected):
+            row = f"{finding_id} (run {run_id})"
+            if run_id not in known_runs:
+                close = difflib.get_close_matches(run_id, known_runs, n=1, cutoff=0.8)
+                if close:
+                    row += f", closest accepted run {close[0]}"
+            rows.append(row)
+        parts.append("unmatched: " + "; ".join(rows))
+    if missing:
+        parts.append(
+            "missing: "
+            + "; ".join(
+                f"{finding_id} (run {run_id})" for run_id, finding_id in sorted(missing)
+            )
+        )
+    return "; " + "; ".join(parts) if parts else ""
 
 
 def _unique[HashableT: Hashable](
@@ -426,19 +456,20 @@ def _validate_prior_dispositions(
             for item in accepted
             if item.result.invocation.assignment_id == prepared.assignment_id
         )
-    if (not actual <= set(prior)) or (
-        prepared.assignment_id is None and actual != set(prior)
-    ):
+    unexpected = actual - set(prior)
+    unaccounted = set(prior) - actual if prepared.assignment_id is None else set()
+    if unexpected or unaccounted:
         raise ValueError(
-            "prior finding accounting must cover exactly the latest accepted findings"
+            "prior finding accounting must cover exactly the latest accepted "
+            "findings" + _accounting_mismatch(unexpected, unaccounted, set(prior))
         )
-    if (
-        prepared.required_prior_references is not None
-        and not set(prepared.required_prior_references) <= actual
-    ):
-        raise ValueError(
-            "prior finding accounting must cover every verification target"
-        )
+    if prepared.required_prior_references is not None:
+        targets = set(prepared.required_prior_references)
+        if not targets <= actual:
+            raise ValueError(
+                "prior finding accounting must cover every verification target"
+                + _accounting_mismatch(set(), targets - actual, targets)
+            )
     findings = {item.id for item in content.findings}
     retained = set()
     decisions = {item.id: item for item in prepared.review_decisions}

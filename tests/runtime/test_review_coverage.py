@@ -194,3 +194,83 @@ def test_coverage_admission_preserves_frozen_capture_and_origin_boundaries(
         "that finding is not a regression",
     ):
         assert rule in rerun_prompt
+
+
+def _accounting_inputs(
+    accounted: list[tuple[str, str]],
+    *,
+    assignment_id: str | None,
+    required: tuple[tuple[str, str], ...] | None = None,
+) -> tuple[Any, Any]:
+    accepted_run = "4f6c2a10-8e3b-4c1d-9a7e-50f8c8f6d6e3"
+    prior = SimpleNamespace(
+        run_id=accepted_run,
+        result=SimpleNamespace(
+            content=SimpleNamespace(
+                findings=[
+                    SimpleNamespace(id="SP-I1", classification="implement"),
+                    SimpleNamespace(id="SP-I2", classification="implement"),
+                ]
+            ),
+            invocation=SimpleNamespace(assignment_id=assignment_id),
+        ),
+    )
+    content = SimpleNamespace(
+        prior_dispositions=[
+            SimpleNamespace(source=SimpleNamespace(run_id=run, finding_id=finding_id))
+            for run, finding_id in accounted
+        ]
+    )
+    prepared = SimpleNamespace(
+        prior_reviews=(prior,),
+        assignment_id=assignment_id,
+        required_prior_references=required,
+    )
+    return content, prepared
+
+
+def test_prior_accounting_refusal_names_each_unmatched_pair_and_the_near_run() -> None:
+    """A transcription slip in one long run id is named with the id it meant."""
+    from heddle.gate.validation import _validate_prior_dispositions
+
+    accepted = "4f6c2a10-8e3b-4c1d-9a7e-50f8c8f6d6e3"
+    mistyped = "4f6c2a10-8e3b-4c1d-9a7e-50f8c6d6e3"
+    content, prepared = _accounting_inputs(
+        [(accepted, "SP-I1"), (mistyped, "SP-I2")], assignment_id="a1"
+    )
+    with pytest.raises(ValueError) as refused:
+        _validate_prior_dispositions(content, prepared)
+    message = str(refused.value)
+    assert message.startswith(
+        "prior finding accounting must cover exactly the latest accepted findings"
+    )
+    assert f"unmatched: SP-I2 (run {mistyped}), closest accepted run {accepted}" in (
+        message
+    )
+
+    content, prepared = _accounting_inputs([(accepted, "SP-I1")], assignment_id=None)
+    with pytest.raises(ValueError, match=rf"missing: SP-I2 \(run {accepted}\)$"):
+        _validate_prior_dispositions(content, prepared)
+
+    unrelated = "00000000-0000-4000-8000-ffffffffffff"
+    content, prepared = _accounting_inputs([(unrelated, "SP-I1")], assignment_id="a1")
+    with pytest.raises(ValueError) as refused:
+        _validate_prior_dispositions(content, prepared)
+    assert str(refused.value).endswith(f"unmatched: SP-I1 (run {unrelated})")
+
+
+def test_verification_target_refusal_names_each_missing_target() -> None:
+    from heddle.gate.validation import _validate_prior_dispositions
+
+    accepted = "4f6c2a10-8e3b-4c1d-9a7e-50f8c8f6d6e3"
+    content, prepared = _accounting_inputs(
+        [(accepted, "SP-I1")],
+        assignment_id="a1",
+        required=((accepted, "SP-I1"), (accepted, "@coverage")),
+    )
+    with pytest.raises(ValueError) as refused:
+        _validate_prior_dispositions(content, prepared)
+    assert str(refused.value) == (
+        "prior finding accounting must cover every verification target; "
+        f"missing: @coverage (run {accepted})"
+    )
