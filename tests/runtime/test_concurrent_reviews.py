@@ -1005,3 +1005,31 @@ def test_ac9_concurrent_and_sequential_runs_leave_the_same_state(
     assert states["concurrent"] == states["sequential"], (
         "FAIL AC-9: accounting differs between launch modes"
     )
+
+
+@pytest.mark.parametrize("fails", (False, True), ids=("recorded", "failed"))
+def test_launch_advice_is_shown_once_and_returned_in_the_envelope(
+    fails: bool,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Both slots of one review read the same inputs, so their identical
+    launch advice is printed once before launch and returned once."""
+    same_gate_host(tmp_path, monkeypatch)
+    advice = "Selected review inputs have uncommitted Git changes: `spec.md`."
+    monkeypatch.setattr(
+        "heddle.gate.preparation._review_source_advice",
+        lambda _root, _paths: (advice,),
+    )
+    with multiprocessing.Manager() as manager:
+        install_slot_engine(monkeypatch, manager, failures=(P,) if fails else ())
+        result = execute_batch()
+    assert result.ok is not fails, result.to_envelope()
+    assert capsys.readouterr().err.count(advice) == 1
+    notes = [
+        diagnostic
+        for diagnostic in result.diagnostics
+        if diagnostic.code == "review-input-git-status"
+    ]
+    assert [diagnostic.message for diagnostic in notes] == [advice]

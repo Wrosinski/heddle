@@ -607,7 +607,7 @@ def _prepare_member(
     preparation_diagnostics = tuple(
         Diagnostic(
             severity=Severity.ADVISORY,
-            code="optional-lane-unavailable",
+            code="review-input-git-status",
             message=message,
         )
         for message in prepared.diagnostics
@@ -827,8 +827,7 @@ def _execute_batch_workers(
     # even partway through a result, leaves its pipe at end of file.
     receivers: dict[multiprocessing.connection.Connection, _BatchMember] = {}
     try:
-        for member in pending:
-            _present_preparation_diagnostics(member.preparation_diagnostics)
+        _present_preparation_diagnostics(_preparation_notes(pending))
         for member in pending:
             receiver, sender = context.Pipe(duplex=False)
             process = context.Process(
@@ -1045,6 +1044,7 @@ def _batch_result(
             error,
             selected.error_exit,
             actions=member_actions,
+            diagnostics=resolved.diagnostics + _preparation_notes(members),
         )
     exit_code = max(
         (
@@ -1066,7 +1066,7 @@ def _batch_result(
             ],
             "revision": refreshed.snapshot.state.revision,
         },
-        diagnostics=resolved.diagnostics,
+        diagnostics=resolved.diagnostics + _preparation_notes(members),
         next_actions=_steering_next_actions(resolved.feature),
         exit_code=exit_code,
     )
@@ -1222,6 +1222,7 @@ def _batch_failure(
     exit_code: ExitCode,
     *,
     actions: Mapping[tuple[str, str, str], tuple[NextAction, ...]],
+    diagnostics: tuple[Diagnostic, ...],
 ) -> HeddleResult:
     assert selected.launch is not None
     return HeddleResult.failure(
@@ -1238,6 +1239,7 @@ def _batch_failure(
             },
         ),
         exit_code=exit_code,
+        diagnostics=diagnostics,
         next_actions=tuple(
             action for member in members for action in actions[member.key]
         ),
@@ -2287,6 +2289,17 @@ def _progress_sink(checkpoint: Any) -> None:
     """Surface one engine monitor checkpoint as progress — a
     terse stderr line so the envelope on stdout stays clean."""
     print("heddle run-gate: …", file=sys.stderr)
+
+
+def _preparation_notes(members: list[_BatchMember]) -> tuple[Diagnostic, ...]:
+    """Members' launch advice once each: slots of one review share its inputs."""
+    return tuple(
+        dict.fromkeys(
+            diagnostic
+            for member in members
+            for diagnostic in member.preparation_diagnostics
+        )
+    )
 
 
 def _present_preparation_diagnostics(
