@@ -2424,10 +2424,13 @@ def _render_human(result: HeddleResult) -> None:
         print(f"  hint: {error.hint}", file=sys.stderr)
     else:
         data = result.data or {}
-        cached = " (cached)" if data.get("cached") else ""
-        print(
-            f"{data.get('gate')} [{data.get('feature')}] — "
-            f"{data.get('status') or 'reported'}{cached}"
-        )
+        # run-gates reports one row per member; run-gate reports one gate.
+        for row in data.get("members") or [data]:
+            slot = f" {row['reviewer_slot']}" if row.get("reviewer_slot") else ""
+            cached = " (cached)" if row.get("cached") else ""
+            print(
+                f"{row.get('gate')}{slot} [{data.get('feature')}] — "
+                f"{row.get('status') or 'reported'}{cached}"
+            )
     for diagnostic in result.diagnostics:
         print(f"note: {diagnostic.code}: {diagnostic.message}", file=sys.stderr)

@@ -1130,3 +1130,23 @@ def test_standalone_run_gate_ticks_while_its_provider_runs(
     assert not any(
         thread.name == "heddle-run-gate-progress" for thread in threading.enumerate()
     ), "the ticker outlived its provider call"
+
+
+def test_human_output_names_every_member_of_a_batch(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    from heddle.runtime import gate_run
+
+    same_gate_host(tmp_path, monkeypatch)
+    findings = {P: (finding("SP-I1"),), S: ()}
+    with multiprocessing.Manager() as manager:
+        install_slot_engine(monkeypatch, manager, findings=findings)
+        result = execute_batch()
+    capsys.readouterr()
+    gate_run._render_human(result)
+    assert capsys.readouterr().out.splitlines() == [
+        f"spec-review primary [{V7_FEATURE}] — pass_with_conditions",
+        f"spec-review secondary [{V7_FEATURE}] — pass",
+    ]
