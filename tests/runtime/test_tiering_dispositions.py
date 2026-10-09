@@ -29,6 +29,7 @@ from tests.tiering_review_helpers import (
     gate_command,
     open_round,
     provider_transport,
+    recorded_stop,
     review_content,
     review_status,
     runs,
@@ -1253,7 +1254,7 @@ def test_ac7_blocked_readers_share_original_work_budget_and_legal_remedy(
             assert recorded.data["closure"]["closed"]
             (host / "src/example.py").write_text("VALUE = 8\n")
         else:
-            assert not open_round(path).ok
+            assert recorded_stop(open_round(path))
     monkeypatch.setattr(loop, "probe_claude_capabilities", lambda: None)
     monkeypatch.setattr(loop, "probe_codex_capabilities", lambda: None)
     before = snapshot(host)
@@ -1578,7 +1579,7 @@ def test_ac4_native_stops_record_one_decision_and_preserve_original_refs(
     assert isinstance(action.action.operation, ops.ReviewRoundOpen)
     assert snapshot(host) == before
     attempted = execute(action.action.operation)
-    assert not attempted.ok
+    assert recorded_stop(attempted), attempted.to_envelope()
     status = review_status(path)
     assert status["stop_reason"] == stop and not status["closed"]
     assert [origin, "SP-I1"] in status["open_refs"]
@@ -1610,7 +1611,7 @@ def test_ac4_native_stops_record_one_decision_and_preserve_original_refs(
         action = current_readiness(host).next_actions[0]
         assert isinstance(action.action, ops.AuthoringAction)
         assert action.action.work == "review-disposition"
-        assert not open_round(path).ok
+        assert recorded_stop(open_round(path))
         replacement = review_status(path)["decision_id"]
         assert replacement not in (None, owner["id"])
         owner = next(
@@ -1650,7 +1651,7 @@ def test_ac4_native_stops_record_one_decision_and_preserve_original_refs(
     assert execute(resolution).ok  # Replay cannot buy another round.
     assert path.read_bytes() == before
     assert review_status(path)["stop_reason"] == stop
-    assert not open_round(path, purpose=purpose).ok
+    assert recorded_stop(open_round(path, purpose=purpose))
     later = review_status(path)
     assert later["decision_id"] not in (None, owner["id"])
     decisions = yaml.safe_load(path.read_text())["decisions"]
@@ -1701,21 +1702,26 @@ def test_round_open_stop_refusal_reports_the_decision_it_records(
         expect_revision=revision,
         dry_run=True,
     )
-    assert not preview.ok and path.read_bytes() == before
-    projected = preview.error.details["decision_id"]
-    assert preview.error.details == {
+    # A recorded stop is advisory success: the stop decision replaces the round.
+    assert recorded_stop(preview) and path.read_bytes() == before
+    projected = preview.data["decision_id"]
+    stop_fields = ("feature", "dry_run", "wrote", "revision", "decision_id")
+    assert {key: preview.data.get(key) for key in stop_fields} == {
         "feature": V7_FEATURE,
         "dry_run": True,
         "wrote": False,
         "revision": revision,
         "decision_id": projected,
-        "stop_reason": "round-limit",
     }
-    assert f"would record stop decision {projected}" in preview.error.message
+    assert preview.data["stop_reason"] == "round-limit"
+    assert preview.data["mutation_summary"] == {
+        "command": "review round-open",
+        "would_write": True,
+    }
 
     stopped = open_round(path)
 
-    assert not stopped.ok and stopped.exit_code == ExitCode.FATAL
+    assert recorded_stop(stopped) and stopped.exit_code == ExitCode.ADVISORY
     (owner,) = {
         assignment["stop_decision_id"]
         for assignment in yaml.safe_load(path.read_text())["review_assignments"][
@@ -1724,17 +1730,19 @@ def test_round_open_stop_refusal_reports_the_decision_it_records(
         if assignment["role"] == "spec-review"
     }
     assert owner == projected and owner not in report_decisions
-    assert stopped.to_envelope()["error"]["details"] == {
+    assert {key: stopped.data.get(key) for key in stop_fields} == {
         "feature": V7_FEATURE,
-        "dry_run": False,
+        "dry_run": None,
         "wrote": True,
         "revision": revision + 1,
         "decision_id": owner,
-        "stop_reason": "round-limit",
     }
+    assert stopped.data["stop_reason"] == "round-limit"
     assert yaml.safe_load(path.read_text())["revision"] == revision + 1
-    assert f"recorded stop decision {owner}" in stopped.error.message
-    assert owner in stopped.error.hint and len(calls) == 1
+    assert stopped.next_actions[0].reason == (
+        f"resolve stop decision {owner}; no original work is waived"
+    )
+    assert len(calls) == 1
 
 
 def test_policy_amendment_cannot_move_a_pending_stop_to_another_round(
@@ -1748,7 +1756,7 @@ def test_policy_amendment_cannot_move_a_pending_stop_to_another_round(
     )
     calls = provider_transport(monkeypatch, review_content())
     assert gate_command(run_cli, "run-gate", "spec-review")[0] == 0
-    assert not open_round(path).ok
+    assert recorded_stop(open_round(path))
     owner = review_status(path)["decision_id"]
     assert amend(path, entry("spec-review", limit=2), revision=2).ok
     before = path.read_bytes()

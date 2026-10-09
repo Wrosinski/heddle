@@ -26,6 +26,7 @@ from tests.tiering_review_helpers import (
     disposition,
     gate_command,
     provider_transport,
+    recorded_stop,
     review_content,
     review_status,
     runs,
@@ -440,7 +441,7 @@ def _pending_cap_host(tmp_path, monkeypatch, run_cli):
     stop = application.execute(ops.Status(feature=V7_FEATURE)).next_actions[0]
     assert isinstance(stop.action, ops.CommandAction)
     assert isinstance(stop.action.operation, ops.ReviewRoundOpen)
-    assert not application.execute(stop.action.operation).ok
+    assert recorded_stop(application.execute(stop.action.operation))
     decision_id = review_status(path)["decision_id"]
     assert decision_id
     return host, path, calls, origin, decision_id

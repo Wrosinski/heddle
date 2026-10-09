@@ -80,6 +80,18 @@ def open_round(
     )
 
 
+def recorded_stop(result) -> bool:
+    """A round-open that recorded a stop decision in place of a round."""
+    from heddle.contracts.result import ExitCode
+
+    return (
+        result.ok
+        and result.exit_code == ExitCode.ADVISORY
+        and "stop_reason" in result.data
+        and "round_number" not in result.data
+    )
+
+
 def review_status(path, *, role="spec-review"):
     from heddle.contracts import operations as ops
     from heddle.runtime.application import execute

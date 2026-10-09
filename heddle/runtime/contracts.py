@@ -1120,8 +1120,9 @@ REVIEW_ROUND_INPUT_SCHEMA: dict[str, Any] = {
         "original targets remain; a sealed acceptance or an off role refuses "
         "another round.",
         "At a round-limit, no-progress or no-decrease stop the command records a "
-        "pending stop decision instead of a round and exits nonzero; resolve it "
-        "with decisions resolve, and raise a reached limit with review allowance.",
+        "pending stop decision instead of a round: ok with exit 4 and the "
+        "decision_id and stop_reason in data; resolve it with decisions resolve, "
+        "and raise a reached limit with review allowance.",
         "scope_change references must be regular files; a change cannot repeat "
         "the exact captured references of an earlier scope change.",
         "Unknown fields are refused.",

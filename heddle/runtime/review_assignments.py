@@ -17,7 +17,6 @@ from heddle.contracts.result import (
     Conflict,
     Diagnostic,
     ExitCode,
-    HeddleError,
     HeddleResult,
     NextAction,
     Severity,
@@ -2142,8 +2141,9 @@ def _apply_round_open(
             stored = next(a for a in ledger["assignments"] if a["id"] == assignment.id)
             stored["stop_decision_id"] = identifier
         response = {
+            "assignment_id": assignment.id,
             "stop_reason": closed.stop_reason,
-            "stop_decision_id": next(
+            "decision_id": next(
                 a["stop_decision_id"]
                 for a in ledger["assignments"]
                 if a["id"] == assignment.id
@@ -2273,31 +2273,18 @@ def _operate(
             **mutation_fields(ops.operation_name(operation), wrote, operation.dry_run),
         )
         if stopped:
+            # A recorded stop is the routed outcome, not a refusal: the round
+            # is replaced by an owner decision, and the advisory exit says
+            # that owner work remains before any further round.
             assert not isinstance(operation, ops.ReaffirmReview)
-            owner = response["stop_decision_id"]
-            recorded = "would record" if operation.dry_run else "recorded"
-            return HeddleResult.failure(
-                HeddleError(
-                    code="workspace-invalid",
-                    message=(
-                        f"review stopped: {response['stop_reason']}; "
-                        f"{recorded} stop decision {owner}"
-                    ),
-                    hint=f"resolve decision {owner}; no original work is waived",
-                    details={
-                        "feature": snapshot.feature,
-                        "dry_run": operation.dry_run,
-                        "wrote": wrote and not operation.dry_run,
-                        "revision": revision,
-                        "decision_id": owner,
-                        "stop_reason": response["stop_reason"],
-                    },
-                ),
-                exit_code=ExitCode.FATAL,
+            owner = response["decision_id"]
+            return HeddleResult.success(
+                {"feature": snapshot.feature, **response},
+                exit_code=ExitCode.ADVISORY,
                 next_actions=(
                     NextAction(
                         ops.CommandAction(ops.DecisionsList(snapshot.feature)),
-                        f"resolve {owner}",
+                        f"resolve stop decision {owner}; no original work is waived",
                     ),
                 ),
             )

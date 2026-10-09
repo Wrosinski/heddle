@@ -225,7 +225,13 @@ def test_new_capture_freezes_targets_while_legacy_absence_roundtrips_unchanged(
 def test_verification_denials_and_changed_slot_remedies_do_not_launch_or_mutate(
     tmp_path, monkeypatch, capsys, condition
 ):
-    from tests.tiering_review_helpers import amend, dispose, disposition, open_round
+    from tests.tiering_review_helpers import (
+        amend,
+        dispose,
+        disposition,
+        open_round,
+        recorded_stop,
+    )
 
     selection = entry(
         "spec-review",
@@ -248,7 +254,8 @@ def test_verification_denials_and_changed_slot_remedies_do_not_launch_or_mutate(
                 disposition(origin, "@coverage"),
             ],
         ).ok
-        assert not open_round(path).ok  # Materialize the ordinary pending stop owner.
+        # Materialize the ordinary pending stop owner.
+        assert recorded_stop(open_round(path))
         stop = review_status(path)["decision_id"]
         assert stop is not None
         raised = execute(

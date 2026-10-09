@@ -20,6 +20,7 @@ from tests.tiering_review_helpers import (
     gate_command,
     open_round,
     provider_transport,
+    recorded_stop,
     review_content,
     review_status,
     runs,
@@ -216,7 +217,7 @@ def test_ac7_allowance_does_not_resolve_the_assignment_stop(
     assert gate_command(run_cli, "run-gate", "spec-review")[0] in (0, 4)
     origin = runs(path)[0]["run_id"]
     _settle_coverage(path, origin, retain_finding=True)
-    assert not open_round(path).ok
+    assert recorded_stop(open_round(path))
     stopped = review_status(path)
     decision_id = stopped["decision_id"]
     assert decision_id is not None
@@ -283,7 +284,7 @@ def _create_stop(path, run_cli, monkeypatch, stop):
         generation["number"] = 2
         assert gate_command(run_cli, "run-gate", "spec-review")[0] in (0, 4)
         _settle_coverage(path, runs(path)[-1]["run_id"])
-    assert not open_round(path).ok
+    assert recorded_stop(open_round(path))
     assert review_status(path)["stop_reason"] == stop
     return calls
 
@@ -407,7 +408,7 @@ def test_ac9_cap_readers_share_the_owner_allowance_remedy(
     assert gate_command(run_cli, "run-gate", "spec-review")[0] in (0, 4)
     origin = runs(path)[0]["run_id"]
     _settle_coverage(path, origin, retain_finding=True)
-    assert not open_round(path).ok
+    assert recorded_stop(open_round(path))
     stopped = review_status(path)
     resolved = invoke(
         "ResolveDecision",
@@ -478,7 +479,7 @@ def test_ac10_controlled_new_round_calls_one_provider_and_retains_immutable_atte
         for relative, content in first_artifacts.items()
     )
     _settle_coverage(path, first["run_id"], retain_finding=True)
-    assert not open_round(path).ok
+    assert recorded_stop(open_round(path))
     stopped = review_status(path)
     assert _allowance(path).ok
     assert len(calls) == 1

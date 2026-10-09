@@ -144,10 +144,13 @@ and coverage through native disposition operations. An aggregate summary or
 reviewer's no-issue statement cannot settle missing coverage or a pending choice.
 
 When a review stops for no progress, no decrease or its round cap, the native
-round-open operation records an owner question. An owner can authorize one next
-round with `heddle decisions resolve <id> --kind continue-review --resolution
-<rationale> --routes-to <record>`. The resolution binds the exact assignment and
-stopped round; advancing the round consumes it, and replay grants no extra pass.
+round-open operation records an owner question in place of a round. It reports
+the recorded stop as success (`ok: true`) with exit 4, naming the stop
+decision, because owner work remains before any further round. An owner can
+authorize one next round with `heddle decisions resolve <id> --kind
+continue-review --resolution <rationale> --routes-to <record>`. The resolution
+binds the exact assignment and stopped round; advancing the round consumes it,
+and replay grants no extra pass.
 A reached cap still requires an explicit feature-policy amendment. A generic
 `disposition` ruling does not authorize another stagnant round. Later stops get
 new questions, while all previous rounds, decisions and obligations remain.
