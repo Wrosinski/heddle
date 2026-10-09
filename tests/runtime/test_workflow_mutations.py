@@ -1248,3 +1248,65 @@ class TestCompletionCloseGrantProvenance:
             "must refuse acceptance (conservative policy bar)"
         )
         assert fixture.state_path.read_bytes() == before
+
+
+def test_session_log_help_schema_matches_the_payload_reader(
+    run_cli, envelope_tools, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    host = _copy_host(tmp_path, GOLDEN)
+    monkeypatch.chdir(host)
+    state_path = host / "plans" / "nl-screening" / "state.yaml"
+    before = state_path.read_bytes()
+
+    code, out, _err = run_cli(["session", "log", "--help"])
+    assert code == 0 and "input payload (heddle.session-input/v1" in out
+    code, out, _err = run_cli(["session", "log", "--help", "--json"])
+    schema = envelope_tools.parse(out)["data"]["input_schema"]
+    assert code == 0 and schema["id"] == "heddle.session-input/v1"
+    required = sorted(
+        name for name, spec in schema["fields"].items() if spec["required"]
+    )
+    assert required == sorted(
+        [
+            "started_at",
+            "ended_at",
+            "completed",
+            "started",
+            "key_context",
+            "next_steps",
+            "blockers",
+        ]
+    )
+
+    def preview(payload: dict[str, Any]) -> tuple[int, dict[str, Any]]:
+        path = tmp_path / "session.yaml"
+        path.write_text(json.dumps(payload), encoding="utf-8")
+        code, out, _err = run_cli(
+            [
+                "session",
+                "log",
+                "--feature",
+                "nl-screening",
+                "--from-file",
+                str(path),
+                "--dry-run",
+                "--json",
+            ]
+        )
+        return code, envelope_tools.parse(out)
+
+    code, envelope = preview(schema["example"])
+    assert code == 0 and envelope["ok"] is True, envelope
+    for name in required:
+        payload = dict(schema["example"])
+        payload.pop(name)
+        code, envelope = preview(payload)
+        assert code == 2 and envelope["error"]["code"] == "usage", name
+        assert repr(name) in envelope["error"]["message"], name
+    for name, spec in schema["fields"].items():
+        if spec["required"]:
+            continue
+        wrong: object = 1 if spec["type"] == "string" else "not-a-value"
+        code, envelope = preview({**schema["example"], name: wrong})
+        assert code == 2 and envelope["error"]["code"] == "usage", name
+    assert state_path.read_bytes() == before

@@ -45,6 +45,10 @@ from heddle.contracts.schemas import (
     DECISION_BATCH_SOURCES,
     ESCALATION_CLASS_SUMMARIES,
     POLICY_RESOLUTION_REQUIRED_FIELDS,
+    SESSION_KEYS,
+    SESSION_PROGRESS_FIELD_TYPES,
+    SESSION_REQUIRED_LIST_KEYS,
+    SESSION_REQUIRED_STRING_KEYS,
 )
 from heddle.kernel.feature_policy import recommend_policy
 
@@ -255,6 +259,64 @@ MILESTONE_INPUT_SCHEMA: dict[str, Any] = {
         "the command records the state skeleton only; author the matching "
         "'### Milestone <id>:' section in the plan yourself",
     ],
+}
+
+_SESSION_FIELD_SUMMARIES = {
+    "started_at": "when the session started, as a timestamp string",
+    "ended_at": "when the session ended, as a timestamp string",
+    "completed": "work finished in this session",
+    "started": "work begun and not yet finished",
+    "key_context": "context the next session needs",
+    "next_steps": "what the next session should do first",
+    "blockers": "open blockers; an empty list when there are none",
+    "stage": "stage the session worked in",
+    "revision_before": "state revision observed when the session started",
+    "revision_after": "state revision observed when the session ended",
+    "advanced": "whether the session advanced the stage",
+}
+_SESSION_SCALAR_TYPES = {str: "string", int: "integer", bool: "boolean"}
+
+
+def _session_field(name: str) -> dict[str, Any]:
+    summary = _SESSION_FIELD_SUMMARIES[name]
+    if name in SESSION_REQUIRED_STRING_KEYS:
+        return {"type": "string", "required": True, "summary": summary}
+    if name in SESSION_REQUIRED_LIST_KEYS:
+        return {
+            "type": "list",
+            "required": True,
+            "summary": summary,
+            "items": {"type": "string"},
+        }
+    return {
+        "type": _SESSION_SCALAR_TYPES[SESSION_PROGRESS_FIELD_TYPES[name]],
+        "required": False,
+        "summary": summary,
+    }
+
+
+SESSION_INPUT_SCHEMA: dict[str, Any] = {
+    "id": "heddle.session-input/v1",
+    "media_type": "application/yaml",
+    "delivered_by": "--from-file <path|->",
+    "summary": "one structured Session Log entry",
+    "fields": {name: _session_field(name) for name in SESSION_KEYS},
+    "notes": [
+        "stage defaults to the feature's current stage; revision_before, "
+        "revision_after and advanced stay unset when omitted",
+        "unknown fields are ignored and not recorded",
+        "a session entry is narrative continuity: it records no task, "
+        "verification or completion fact",
+    ],
+    "example": {
+        "started_at": "2026-01-05T09:00:00Z",
+        "ended_at": "2026-01-05T11:30:00Z",
+        "completed": ["t1: the parser accepts the new field"],
+        "started": ["t2: writer round-trip"],
+        "key_context": "the writer keeps byte order; see src/example.py",
+        "next_steps": "finish t2, then verify m1",
+        "blockers": [],
+    },
 }
 
 # the first pinned input-schema body: a locked transcription of the
@@ -1641,6 +1703,7 @@ COMMAND_SURFACE: tuple[CommandContract, ...] = (
         ),
         exit_codes=_EXIT_CAS,
         output_schema="heddle.session-log/v0",
+        input_schema=SESSION_INPUT_SCHEMA,
     ),
     CommandContract(
         name=ops.operation_type_name(ops.Sync),

@@ -556,6 +556,7 @@ class TestAC2PerCommandPayloadLock:
             "feature policy": "heddle.feature-policy/v1",
             "milestone add": "heddle.milestone-input/v1",
             "milestone edit": "heddle.milestone-patch/v1",
+            "session log": "heddle.session-input/v1",
             "decisions add": "heddle.decision-batch/v1",
             "decisions record-policy": "heddle.policy-batch/v1",
         }.get(name)
