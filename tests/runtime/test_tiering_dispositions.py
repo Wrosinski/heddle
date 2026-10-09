@@ -78,7 +78,11 @@ def test_verification_disposition_without_scope_is_structured_and_write_free(
             "reference": None,
             "verification_scope": None,
             "status": None,
-            "remedy": "supply a nonempty verification_scope",
+            "remedy": (
+                "record the run with heddle verify and give its scope as "
+                "verification_scope; for edits not yet run under heddle verify, "
+                "use evidence_kind inspection"
+            ),
         }
     ]
     assert snapshot(host) == before and len(calls) == 1

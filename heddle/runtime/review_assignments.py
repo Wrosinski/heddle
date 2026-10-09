@@ -575,6 +575,12 @@ class _EvidenceQualification:
         return self.predicate is None
 
 
+_VERIFICATION_SCOPE_REMEDY = (
+    "record the run with heddle verify and give its scope as verification_scope; "
+    "for edits not yet run under heddle verify, use evidence_kind inspection"
+)
+
+
 def _rejected_evidence(
     predicate: str,
     cause: str,
@@ -661,7 +667,7 @@ def _qualify_evidence(
             return _rejected_evidence(
                 "verification-scope-missing",
                 "verification evidence has no scope",
-                "supply a nonempty verification_scope",
+                _VERIFICATION_SCOPE_REMEDY,
                 field="verification_scope",
             )
         try:
@@ -1933,7 +1939,7 @@ def _dispositions(
                 item.row_index,
                 row,
                 "verification-scope-missing",
-                "supply a nonempty verification_scope",
+                _VERIFICATION_SCOPE_REMEDY,
                 field="verification_scope",
             )
             continue
