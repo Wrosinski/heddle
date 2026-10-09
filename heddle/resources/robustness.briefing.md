@@ -123,6 +123,11 @@ evidence and rerun affected checks after fixes, while retaining all required
 native proof. Report required pending checks separately from optional unrun
 regression; a narrower pass or skipped witness cannot satisfy the obligation.
 
+Before recording the dispositions that close these assignments, give each path
+the hardening added a milestone owner or an evidenced outside-feature
+attribution; reassigning a path later stales the post-hardening facts and the
+dispositions resting on them.
+
 When Overlay R is selected, after its assignments are closed and every accepted
 fix is committed, prove the current relevant content under the applicable
 execution grants:

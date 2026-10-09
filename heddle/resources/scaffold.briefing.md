@@ -276,7 +276,10 @@ through the one `run-gates` action that starts independent slots together
 when the host's `reviews.launch` is concurrent; preserve independent initial
 contexts and read all required initial reports before remediation. Off means
 intentionally not run, not passed. Native evidence-bound lead dispositions own
-closure; there is no synthesis gate. Preserve exact original finding/decision references, coverage
+closure; there is no synthesis gate. Finish scaffold fixes and run the host's
+formatters, as its commit hooks would, over every file a row will cite before
+inspecting and recording dispositions; a later reformat of a cited file stops
+that row counting. Preserve exact original finding/decision references, coverage
 gaps, and originating inspection duties. Use the remaining round allowance and
 explicit stop/budget decisions, not a hardcoded tier sequence or a new lower
 cap. At a reached confirmed cap, `heddle review allowance` can raise an

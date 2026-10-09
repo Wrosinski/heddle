@@ -150,7 +150,9 @@ formal gate artifacts retain their required structure and non-narration rules.
    Off means intentionally not run, not passed. Read all required initial
    reports before remediation; Minor findings are audit-only. Apply supported
    Critical/Important IMPLEMENT fixes, rerun affected milestone/consumer proof,
-   and commit the remediation. If a fix changes a shared contract, refresh the
+   and commit the remediation. Record dispositions only after that commit, once
+   its hooks have rewritten what they will, since a later change to a cited
+   file stops the row counting. If a fix changes a shared contract, refresh the
    consumer census before choosing that proof and record inspected consumers,
    exact witnesses, and required pending witnesses. A neighboring failure's
    location alone does not establish that it is unrelated. Record exact original findings and coverage
@@ -410,13 +412,17 @@ position. Authored plan corrections still change the applicable review basis.
 
 ## Final feature verification
 
-After the last milestone and its fixes, retain current milestone proof and run
-the integrated witness before any review:
+After the last milestone and its fixes, settle source ownership, retain current
+milestone proof and run the integrated witness before any review:
 
 ```bash
 heddle verify --scope acceptance
 heddle verify --scope live
 ```
+
+Settled ownership means every path the feature changed is in a milestone's
+`owns` or attributed with evidence as outside-feature work. Changing ownership
+after these runs makes every fact bound to the source set stale.
 
 Run the live scope only when the confirmed witness declares it. Phase exit to
 peer review refuses until every declared lane passes on current content, so no

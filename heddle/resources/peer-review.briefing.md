@@ -99,7 +99,9 @@ inputs remain reviewable without acknowledgement; an unavailable Git observation
 is disclosed. Ignored records are still strict inputs when selected, and later
 formatting can invalidate reviewed bytes. Early coverage advice helps resolve
 ownership or evidenced outside-feature attribution; final coverage is compulsory.
-A review fix that needs a path outside the approved footprint (the spec's
+Settle ownership of every path a review fix adds before the post-review runs and
+before recording dispositions: an `owns` change afterwards stales the final
+facts and reopens the dispositions that cite them. A review fix that needs a path outside the approved footprint (the spec's
 retained Footprint plus widenings the owner accepted) first gets one class-2
 question naming the path, the reason and a route that stays inside; widen
 `owns` only after the owner accepts.
