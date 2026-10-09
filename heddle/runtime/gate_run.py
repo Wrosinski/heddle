@@ -91,6 +91,9 @@ _VERDICT_EXITS: Mapping[str, ExitCode] = {
 # One progress line per interval while a provider runs, so a long review
 # shows which slots are still working without flooding stderr.
 _PROGRESS_INTERVAL_S = 60.0
+# Launch advice about the selected review inputs' Git status. It is printed
+# before any provider starts, so the human summary does not repeat it.
+_LAUNCH_ADVICE_CODE = "review-input-git-status"
 _LOG_SUFFIX = ".log"
 _SUMMARY_SUFFIX = ".gate-summary.json"
 _PHASE6_ACTIONABLE_KEYS = (
@@ -620,7 +623,7 @@ def _prepare_member(
     preparation_diagnostics = tuple(
         Diagnostic(
             severity=Severity.ADVISORY,
-            code="review-input-git-status",
+            code=_LAUNCH_ADVICE_CODE,
             message=message,
         )
         for message in prepared.diagnostics
@@ -2436,4 +2439,6 @@ def _render_human(result: HeddleResult) -> None:
                 f"{row.get('status') or 'reported'}{cached}"
             )
     for diagnostic in result.diagnostics:
+        if diagnostic.code == _LAUNCH_ADVICE_CODE:
+            continue
         print(f"note: {diagnostic.code}: {diagnostic.message}", file=sys.stderr)

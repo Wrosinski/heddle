@@ -1029,6 +1029,10 @@ def test_launch_advice_is_shown_once_and_returned_in_the_envelope(
         install_slot_engine(monkeypatch, manager, failures=(P,) if fails else ())
         result = execute_batch()
     assert result.ok is not fails, result.to_envelope()
+    from heddle.runtime import gate_run
+
+    # The human summary does not repeat advice printed before launch.
+    gate_run._emit(result, False)
     assert capsys.readouterr().err.count(advice) == 1
     notes = [
         diagnostic
