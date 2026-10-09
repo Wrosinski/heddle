@@ -39,7 +39,7 @@ def test_ac5_execution_matrix_resolves_recommended_primary_and_secondary_lanes()
         "spec-review": fable,
         "plan-review": fable,
         "review-test-scaffolding": OPUS,
-        "milestone-review": {**OPUS, "reasoning_effort": "high"},
+        "milestone-review": OPUS,
         "peer-review-sequential": OPUS,
         "behavior-review": OPUS,
         "complexity-review": OPUS,

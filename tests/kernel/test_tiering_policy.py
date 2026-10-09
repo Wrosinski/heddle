@@ -21,7 +21,6 @@ from tests.tiering_helpers import (
 
 ASTRA_XHIGH = {**ASTRA, "reasoning_effort": "xhigh"}
 FABLE_XHIGH = {**FABLE, "reasoning_effort": "xhigh"}
-OPUS_HIGH = {**OPUS, "reasoning_effort": "high"}
 
 
 @pytest.mark.parametrize(
@@ -71,7 +70,7 @@ def test_ac2_all_axis_boundaries_recommend_the_declared_base(
         "spec-review": ASTRA_XHIGH,
         "plan-review": ASTRA_XHIGH,
         "review-test-scaffolding": OPUS,
-        "milestone-review": OPUS_HIGH,
+        "milestone-review": OPUS,
         "peer-review-sequential": OPUS,
         "behavior-review": OPUS,
         "complexity-review": OPUS,
@@ -148,7 +147,7 @@ def test_ac2_large_high_default_roles_tuples_and_dual_first_schedule():
     assert rows["review-test-scaffolding"].limit is None
     assert rows["review-test-scaffolding"].secondary is None
     assert asdict(rows["review-test-scaffolding"].primary) == OPUS
-    assert asdict(rows["milestone-review"].primary) == OPUS_HIGH
+    assert asdict(rows["milestone-review"].primary) == OPUS
     assert asdict(rows["behavior-review"].primary) == OPUS
     assert asdict(rows["behavior-review"].secondary) == ASTRA_XHIGH
     assert asdict(rows["complexity-review"].primary) == OPUS

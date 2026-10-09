@@ -249,12 +249,11 @@ def recommend_policy(axes: FeatureAxes) -> Recommendation:
     astra = Reviewer("codex", "gpt-6-astra", "xhigh")
     fable = Reviewer("claude", "claude-fable-5-1", "xhigh")
     opus = Reviewer("claude", "claude-opus-5-5", "xhigh")
-    opus_high = Reviewer("claude", "claude-opus-5-5", "high")
     reviewers = {
         "spec-review": astra,
         "plan-review": astra,
         "review-test-scaffolding": opus,
-        "milestone-review": opus_high,
+        "milestone-review": opus,
         "peer-review-sequential": opus,
         "behavior-review": opus,
         "complexity-review": opus,

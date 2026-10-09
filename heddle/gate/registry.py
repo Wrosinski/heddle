@@ -22,12 +22,6 @@ CLAUDE_STANDARD_POLICY = GateLanePolicy(
     reasoning_effort="xhigh",
     sandbox="auto",
 )
-CLAUDE_MILESTONE_POLICY = GateLanePolicy(
-    cli="claude",
-    model="claude-opus-5-5",
-    reasoning_effort="high",
-    sandbox="auto",
-)
 CLAUDE_FABLE_POLICY = GateLanePolicy(
     cli="claude",
     model="claude-fable-5-1",
@@ -54,7 +48,7 @@ CODEX_XHIGH_POLICY = GateLanePolicy(
 )
 FABLE_ASTRA_LANE_POLICIES = (CLAUDE_FABLE_POLICY, CODEX_ASTRA_POLICY)
 OPUS_ASTRA_LANE_POLICIES = (CLAUDE_STANDARD_POLICY, CODEX_ASTRA_POLICY)
-MILESTONE_LANE_POLICIES = (CLAUDE_MILESTONE_POLICY, CODEX_POLICY)
+MILESTONE_LANE_POLICIES = (CLAUDE_STANDARD_POLICY, CODEX_POLICY)
 XHIGH_LANE_POLICIES = (CLAUDE_STANDARD_POLICY, CODEX_XHIGH_POLICY)
 
 GATES: dict[str, GateType] = {
