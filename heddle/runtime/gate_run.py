@@ -91,8 +91,8 @@ _VERDICT_EXITS: Mapping[str, ExitCode] = {
 # One progress line per interval while a provider runs, so a long review
 # shows which slots are still working without flooding stderr.
 _PROGRESS_INTERVAL_S = 60.0
-# Launch advice about the selected review inputs' Git status. It is printed
-# before any provider starts, so the human summary does not repeat it.
+# Advice about the selected review inputs' Git status. It is printed before a
+# gate runs or reuses a result, so the human summary does not repeat it.
 _LAUNCH_ADVICE_CODE = "review-input-git-status"
 _LOG_SUFFIX = ".log"
 _SUMMARY_SUFFIX = ".gate-summary.json"
@@ -831,6 +831,7 @@ def _execute_batch_workers(
     Recovered output is recorded in its turn without a call, so a set with
     nothing to call still records inside the locks.
     """
+    _present_preparation_diagnostics(_preparation_notes(members))
     _publish_ready(resolved, members, publication)
     pending = [member for member in members if member.reuse == "none"]
     if not pending:
@@ -842,7 +843,6 @@ def _execute_batch_workers(
     # even partway through a result, leaves its pipe at end of file.
     receivers: dict[multiprocessing.connection.Connection, _BatchMember] = {}
     try:
-        _present_preparation_diagnostics(_preparation_notes(pending))
         for member in pending:
             receiver, sender = context.Pipe(duplex=False)
             process = context.Process(
@@ -1421,6 +1421,7 @@ def _run_locked(
             diagnostics=resolved.diagnostics,
         )
 
+    _present_preparation_diagnostics(member.preparation_diagnostics)
     completion: GateOutcome | ReuseResult
     if member.reuse == "exact":
         completion = cast(ReuseResult, member.completion)
@@ -1430,7 +1431,6 @@ def _run_locked(
     else:
         try:
             if member.reuse == "none":
-                _present_preparation_diagnostics(member.preparation_diagnostics)
                 slot = member.prepared.reviewer_slot
                 with _progress_ticker(
                     f"{parsed.gate} {slot}" if slot else parsed.gate,

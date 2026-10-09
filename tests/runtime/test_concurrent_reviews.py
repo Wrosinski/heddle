@@ -1172,3 +1172,28 @@ def test_standalone_failing_verdict_is_recorded_with_the_advisory_exit(
     assert result.ok, result.to_envelope()
     assert result.data["status"] == "fail"
     assert int(result.exit_code) == 4
+
+
+def test_a_reused_review_still_shows_its_launch_advice_once(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A run that reuses an exact result launches nothing, yet its advice is
+    printed before the reuse and not repeated by the human summary."""
+    from heddle.runtime import gate_run
+
+    same_gate_host(tmp_path, monkeypatch)
+    advice = "Selected review inputs have uncommitted Git changes: `spec.md`."
+    monkeypatch.setattr(
+        "heddle.gate.preparation._review_source_advice",
+        lambda _root, _paths: (advice,),
+    )
+    with multiprocessing.Manager() as manager:
+        install_slot_engine(monkeypatch, manager, parties=1)
+        assert run_slot(*P).ok
+        capsys.readouterr()
+        reused = run_slot(*P)
+        gate_run._emit(reused, False)
+    assert reused.ok and reused.data["cached"], reused.to_envelope()
+    assert capsys.readouterr().err.count(advice) == 1
