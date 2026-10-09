@@ -75,7 +75,7 @@ The recommended reviewer defaults are:
 | `spec-review` | `gpt-6-astra` / `xhigh` | `claude-fable-5-1` / `xhigh` | `all` |
 | `plan-review` | `gpt-6-astra` / `xhigh` | `claude-fable-5-1` / `xhigh` | `all` |
 | `review-test-scaffolding` | `claude-opus-5-5` / `xhigh` | None (suggested: `gpt-6-astra` / `xhigh`) | `all` when the suggestion is adopted |
-| `milestone-review` | `claude-opus-5-5` / `high` | None | — |
+| `milestone-review` | `claude-opus-5-5` / `xhigh` | None | — |
 | `peer-review-sequential` | `claude-opus-5-5` / `xhigh` | None | — |
 | `behavior-review` | `claude-opus-5-5` / `xhigh` | `gpt-6-astra` / `xhigh` | 1 |
 | `complexity-review` | `claude-opus-5-5` / `xhigh` | None | — |

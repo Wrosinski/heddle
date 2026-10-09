@@ -137,7 +137,7 @@ entries:
   - {role: spec-review, scope: feature, mode: "off", limit: null, minimum_rounds: 0, primary: {cli: codex, model: gpt-6-astra, reasoning_effort: xhigh}, secondary: null, trigger: null}
   - {role: plan-review, scope: feature, mode: "off", limit: null, minimum_rounds: 0, primary: {cli: codex, model: gpt-6-astra, reasoning_effort: xhigh}, secondary: null, trigger: null}
   - {role: review-test-scaffolding, scope: feature, mode: "off", limit: null, minimum_rounds: 0, primary: {cli: claude, model: claude-opus-5-5, reasoning_effort: xhigh}, secondary: null, trigger: null}
-  - {role: milestone-review, scope: milestone, mode: "off", limit: null, minimum_rounds: 0, primary: {cli: claude, model: claude-opus-5-5, reasoning_effort: high}, secondary: null, trigger: null}
+  - {role: milestone-review, scope: milestone, mode: "off", limit: null, minimum_rounds: 0, primary: {cli: claude, model: claude-opus-5-5, reasoning_effort: xhigh}, secondary: null, trigger: null}
   - {role: peer-review-sequential, scope: feature, mode: "off", limit: null, minimum_rounds: 0, primary: {cli: claude, model: claude-opus-5-5, reasoning_effort: xhigh}, secondary: null, trigger: null}
   - {role: behavior-review, scope: feature, mode: "off", limit: null, minimum_rounds: 0, primary: {cli: claude, model: claude-opus-5-5, reasoning_effort: xhigh}, secondary: null, trigger: null}
   - {role: complexity-review, scope: feature, mode: "off", limit: null, minimum_rounds: 0, primary: {cli: claude, model: claude-opus-5-5, reasoning_effort: xhigh}, secondary: null, trigger: null}
