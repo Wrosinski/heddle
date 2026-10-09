@@ -1477,13 +1477,18 @@ def _allowance_command(feature: str, role: str, revision: int | str) -> str:
 
 
 def _stop_actions(
-    feature: str, role: str, owner: str, stop_reason: str
+    feature: str, role: str, owner: str, stop_reason: str, *, preview: bool
 ) -> tuple[NextAction, ...]:
     """Name every step a recorded stop needs, in order, before the first runs."""
+    resolve = (
+        f"a write would record stop decision {owner}; resolve it then"
+        if preview
+        else f"resolve stop decision {owner}"
+    )
     actions = [
         NextAction(
             ops.CommandAction(ops.DecisionsList(feature)),
-            f"resolve stop decision {owner}; no original work is waived",
+            f"{resolve}; no original work is waived",
         )
     ]
     if stop_reason == "round-limit":
@@ -2341,6 +2346,7 @@ def _operate(
                     cast(dict[str, Any], operation.payload)["role"],
                     response["decision_id"],
                     response["stop_reason"],
+                    preview=operation.dry_run,
                 ),
             )
         return HeddleResult.success(response)

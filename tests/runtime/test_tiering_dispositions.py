@@ -1718,6 +1718,10 @@ def test_round_open_stop_refusal_reports_the_decision_it_records(
         "command": "review round-open",
         "would_write": True,
     }
+    assert preview.next_actions[0].reason == (
+        f"a write would record stop decision {projected}; resolve it then; "
+        "no original work is waived"
+    )
 
     stopped = open_round(path)
 
