@@ -8,8 +8,10 @@ import multiprocessing.connection
 import os
 import signal
 import sys
-from collections.abc import Callable, Mapping
-from contextlib import ExitStack
+import threading
+import time
+from collections.abc import Callable, Iterator, Mapping
+from contextlib import ExitStack, contextmanager
 from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 from typing import Any, cast
@@ -56,6 +58,7 @@ from heddle.kernel.state import GateRun, StateFile
 from heddle.runtime import recording
 from heddle.runtime.cli_args import parse_gate_options
 from heddle.runtime.clock import utc_now_minutes as _utc_now
+from heddle.runtime.clock import utc_now_seconds
 from heddle.runtime.diagnostics import kernel_error_result
 from heddle.runtime.feature_context import (
     ResolvedSnapshotContext,
@@ -83,6 +86,9 @@ _VERDICT_EXITS: Mapping[str, ExitCode] = {
     "pass_with_conditions": ExitCode.ADVISORY,
     "pass": ExitCode.OK,
 }
+# One progress line per interval while a provider runs, so a long review
+# shows which slots are still working without flooding stderr.
+_PROGRESS_INTERVAL_S = 60.0
 _LOG_SUFFIX = ".log"
 _SUMMARY_SUFFIX = ".gate-summary.json"
 _PHASE6_ACTIONABLE_KEYS = (
@@ -351,6 +357,11 @@ class _BatchMember:
     error: HeddleError | None = None
     error_exit: ExitCode = ExitCode.FATAL
     launch: LaunchMember | None = None
+    # When this member's worker ran; unset for a member nothing launched.
+    started_at: str | None = None
+    finished_at: str | None = None
+    started_monotonic: float | None = None
+    duration_s: int | None = None
 
     @property
     def key(self) -> tuple[str, str, str]:
@@ -791,7 +802,6 @@ def _batch_worker(sender: Any, member: _BatchMember, feature: str) -> None:
             member.gate_type,
             member.context,
             feature=feature,
-            progress=_progress_sink,
             iteration=member.attempt,
             max_iterations=member.policy.max_attempts,
         )
@@ -843,12 +853,28 @@ def _execute_batch_workers(
                 continue
             finally:
                 sender.close()
+            member.started_at = utc_now_seconds()
+            member.started_monotonic = time.monotonic()
             processes.append(process)
             receivers[receiver] = member
+        launched = time.monotonic()
         while receivers:
-            for ready in multiprocessing.connection.wait(list(receivers)):
+            ready_set = multiprocessing.connection.wait(
+                list(receivers), timeout=_PROGRESS_INTERVAL_S
+            )
+            if not ready_set:
+                print(
+                    _batch_progress_line(
+                        time.monotonic() - launched,
+                        [_slot_progress(member) for member in pending],
+                    ),
+                    file=sys.stderr,
+                )
+                continue
+            for ready in ready_set:
                 receiver = cast(multiprocessing.connection.Connection, ready)
                 member = receivers.pop(receiver)
+                _finish_timing(member)
                 try:
                     kind, value = receiver.recv()
                 except EOFError:
@@ -874,6 +900,13 @@ def _execute_batch_workers(
         for receiver in receivers:
             receiver.close()
     return None
+
+
+def _finish_timing(member: _BatchMember) -> None:
+    if member.started_monotonic is None:
+        return
+    member.finished_at = utc_now_seconds()
+    member.duration_s = round(time.monotonic() - member.started_monotonic)
 
 
 def _member_failed(member: _BatchMember, detail: str) -> None:
@@ -1195,6 +1228,9 @@ def _batch_member_summary(
         "findings": dict(findings),
         "artifact": artifact,
         "run_id": member.run_id,
+        "started_at": member.started_at,
+        "finished_at": member.finished_at,
+        "duration_s": member.duration_s,
         "error": (
             {
                 "code": member.error.code,
@@ -1390,14 +1426,18 @@ def _run_locked(
         try:
             if member.reuse == "none":
                 _present_preparation_diagnostics(member.preparation_diagnostics)
-                outcome = entry.run_gate_for_runtime(
-                    gate_type,
-                    member.context,
-                    feature=resolved.feature,
-                    progress=_progress_sink,
-                    iteration=member.attempt,
-                    max_iterations=member.policy.max_attempts,
-                )
+                slot = member.prepared.reviewer_slot
+                with _progress_ticker(
+                    f"{parsed.gate} {slot}" if slot else parsed.gate,
+                    member.invocation.exec_config.cli,
+                ):
+                    outcome = entry.run_gate_for_runtime(
+                        gate_type,
+                        member.context,
+                        feature=resolved.feature,
+                        iteration=member.attempt,
+                        max_iterations=member.policy.max_attempts,
+                    )
             else:
                 outcome = cast(GateOutcome, member.completion)
             _accept_batch_outcome(resolved, member, outcome)
@@ -2285,10 +2325,63 @@ def _recorded_routes_to(finding: GateReportFinding) -> list[str]:
     return [route] if route is not None else []
 
 
-def _progress_sink(checkpoint: Any) -> None:
-    """Surface one engine monitor checkpoint as progress — a
-    terse stderr line so the envelope on stdout stays clean."""
-    print("heddle run-gate: …", file=sys.stderr)
+def _elapsed(seconds: float) -> str:
+    hours, rest = divmod(int(seconds), 3600)
+    minutes, secs = divmod(rest, 60)
+    if hours:
+        return f"{hours}h{minutes:02d}m"
+    return f"{minutes}m{secs:02d}s" if minutes else f"{secs}s"
+
+
+@dataclass(frozen=True)
+class _SlotProgress:
+    label: str
+    cli: str
+    state: str
+    duration_s: int | None = None
+
+
+def _slot_progress(member: _BatchMember) -> _SlotProgress:
+    state = {"pending": "running", "failed": "failed"}.get(member.execution, "done")
+    return _SlotProgress(
+        member.label, member.invocation.exec_config.cli, state, member.duration_s
+    )
+
+
+def _batch_progress_line(elapsed_s: float, slots: list[_SlotProgress]) -> str:
+    """One stderr line naming every launched slot's reviewer and state."""
+    rows = []
+    for slot in slots:
+        state = slot.state
+        if slot.duration_s is not None and state != "running":
+            state += f" after {_elapsed(slot.duration_s)}"
+        rows.append(f"{slot.label} ({slot.cli}) {state}")
+    return f"heddle run-gates: {_elapsed(elapsed_s)} elapsed; " + "; ".join(rows)
+
+
+def _gate_progress_line(label: str, cli: str, elapsed_s: float) -> str:
+    return f"heddle run-gate: {label} ({cli}) running, {_elapsed(elapsed_s)} elapsed"
+
+
+@contextmanager
+def _progress_ticker(label: str, cli: str) -> Iterator[None]:
+    """Print one progress line per interval while the provider runs, on
+    stderr so the envelope on stdout stays clean."""
+    stop = threading.Event()
+    started = time.monotonic()
+
+    def tick() -> None:
+        while not stop.wait(_PROGRESS_INTERVAL_S):
+            line = _gate_progress_line(label, cli, time.monotonic() - started)
+            print(line, file=sys.stderr)
+
+    thread = threading.Thread(target=tick, name="heddle-run-gate-progress", daemon=True)
+    thread.start()
+    try:
+        yield
+    finally:
+        stop.set()
+        thread.join()
 
 
 def _preparation_notes(members: list[_BatchMember]) -> tuple[Diagnostic, ...]:

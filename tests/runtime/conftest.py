@@ -95,11 +95,11 @@ def fake_gate_runner(monkeypatch):
     Callers author native findings explicitly. Role coverage and retained
     dispositions are supplied by the shared event-fixture builder. Provider
     acceptance tests replace only monitored provider I/O instead of this seam.
-    The probe counts executions and surfaced progress checkpoints.
+    The probe counts executions.
     """
     from heddle.gate.diff import resolve_diff as production_resolve_diff
 
-    def install(*, review=None, exit_code=0, progress_chunks=1, prepare_owned=True):
+    def install(*, review=None, exit_code=0, prepare_owned=True):
         from tests.structured_review_helpers import scripted_review
 
         review = scripted_review() if review is None else review
@@ -108,9 +108,7 @@ def fake_gate_runner(monkeypatch):
             _ensure_current_owned_input(Path.cwd())
         _install_fixture_diff_projection(monkeypatch, production_resolve_diff)
 
-        def fake_run(
-            gate_type, context, *, feature, progress=None, iteration=1, max_iterations=5
-        ):
+        def fake_run(gate_type, context, *, feature, iteration=1, max_iterations=5):
             from heddle.contracts.review_assignments import ArtifactRef
             from heddle.gate.cli import GateArgs
             from heddle.gate.entry import machine_projection_from_result
@@ -134,12 +132,6 @@ def fake_gate_runner(monkeypatch):
             )
             directory, name = gate_artifact_location(context, args)
             directory.mkdir(parents=True, exist_ok=True)
-            surfaced = 0
-            if progress is not None:
-                for index in range(progress_chunks):
-                    progress({"chunk": index})
-                    surfaced += 1
-            probe.checkpoints_surfaced = surfaced
 
             failure = prepared.preflight.fatal_reason
             result = None
@@ -283,13 +275,11 @@ def _install_fixture_diff_projection(monkeypatch, production_resolve_diff) -> No
 
 
 class _Probe:
-    """Two observables a streaming/cache test pins both sides of: how many
-    times the runner actually executed (a cache hit leaves it unchanged) and
-    how many monitor checkpoints the runtime surfaced (AC-9)."""
+    """How many times the runner actually executed (a cache hit leaves it
+    unchanged), and the contexts it executed with."""
 
     def __init__(self) -> None:
         self.invocations = 0
-        self.checkpoints_surfaced = 0
         self.contexts: list[tuple[object, object, str]] = []
 
     def __int__(self) -> int:  # legacy cache assertions use int(probe)

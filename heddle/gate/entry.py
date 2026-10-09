@@ -5,7 +5,7 @@ import os
 import shutil
 import stat
 import tempfile
-from collections.abc import Callable, Iterator
+from collections.abc import Iterator
 from contextlib import contextmanager, suppress
 from dataclasses import asdict
 from pathlib import Path
@@ -682,7 +682,6 @@ def run_gate_for_runtime(
     context: GateContext,
     *,
     feature: str | None = None,
-    progress: Callable[[str], None] | None = None,
     iteration: int = 1,
     max_iterations: int | None = 5,
 ) -> GateOutcome:
@@ -717,7 +716,7 @@ def run_gate_for_runtime(
     # production caller): a truncated review re-runs while attempts remain,
     # with each failed attempt's artifacts archived beside the output.
     for attempt in range(1, args.max_attempts + 1):
-        runner = GateRunner(gate_type, args, context=context, progress=progress)
+        runner = GateRunner(gate_type, args, context=context)
         summary, gate_exit = runner.run()
         if summary.reason != "truncated-output" or attempt >= args.max_attempts:
             break

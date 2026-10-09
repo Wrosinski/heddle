@@ -4,7 +4,6 @@ import os
 import shutil
 import traceback
 from pathlib import Path
-from typing import Any
 
 from heddle.gate.cli import GateArgs
 from heddle.gate.findings import (
@@ -55,7 +54,6 @@ class GateRunner:
         gate_type: GateType,
         args: GateArgs,
         context: GateContext,
-        progress: Any = None,
     ):
         self.gate_type = gate_type
         self.args = args
@@ -64,9 +62,6 @@ class GateRunner:
         # production constructor path, and the engine never parses plan
         # frontmatter.
         self._context = context
-        # Band-4: an optional progress sink the runtime supplies to surface
-        # the monitor's checkpoints as they are observed.
-        self._progress = progress
 
     def run(self) -> tuple[GateSummary, int]:
         resolved_ctx = self._context
@@ -130,9 +125,6 @@ class GateRunner:
                 )
 
             execution = self._execute(paths, prompt_text, prepared)
-            if self._progress is not None:
-                for checkpoint in execution.monitor.checkpoints:
-                    self._progress(checkpoint)
             if execution.failure_reason is not None:
                 return self._failure_exit(
                     ctx=resolved_ctx,

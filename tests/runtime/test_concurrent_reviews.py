@@ -1033,3 +1033,100 @@ def test_launch_advice_is_shown_once_and_returned_in_the_envelope(
         if diagnostic.code == "review-input-git-status"
     ]
     assert [diagnostic.message for diagnostic in notes] == [advice]
+
+
+def test_run_gates_prints_one_progress_line_naming_every_running_slot(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Slots finish only after the parent printed an interval line, so the
+    line is observed while both providers are still running."""
+    from heddle.runtime import gate_run
+    from tests.concurrent_review_helpers import canonical_outcome
+
+    same_gate_host(tmp_path, monkeypatch)
+    monkeypatch.setattr(gate_run, "_PROGRESS_INTERVAL_S", 0.01)
+    with multiprocessing.Manager() as manager:
+        printed = manager.Event()
+        line = gate_run._batch_progress_line
+
+        def observed(*args, **kwargs):
+            printed.set()
+            return line(*args, **kwargs)
+
+        def run(gate_type, context, *, feature, **_kwargs):
+            assert printed.wait(timeout=10)
+            return canonical_outcome(gate_type, context, feature)
+
+        monkeypatch.setattr(gate_run, "_batch_progress_line", observed)
+        monkeypatch.setattr("heddle.gate.entry.run_gate_for_runtime", run)
+        result = execute_batch()
+    assert result.ok, result.to_envelope()
+    progress = [
+        row for row in capsys.readouterr().err.splitlines() if "run-gates:" in row
+    ]
+    assert progress, "no progress line while both slots ran"
+    assert "elapsed; spec-review primary (codex) running; " in progress[0]
+    assert "spec-review secondary (claude) running" in progress[0]
+    assert not any(row.startswith("heddle run-gate: …") for row in progress)
+    for member in result.data["members"]:
+        assert member["started_at"] <= member["finished_at"], member
+        assert member["duration_s"] >= 0, member
+
+
+def test_members_report_their_run_times_and_unlaunched_members_none(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    same_gate_host(tmp_path, monkeypatch)
+    with multiprocessing.Manager() as manager:
+        install_slot_engine(monkeypatch, manager, first=S, crashes=(P,))
+        failed = execute_batch()
+        install_slot_engine(monkeypatch, manager, parties=1)
+        retried = execute_batch()
+    assert not failed.ok
+    crashed, finished = failed.error.details["members"]
+    for member in (crashed, finished):
+        assert member["started_at"] and member["finished_at"], member
+        assert isinstance(member["duration_s"], int), member
+    assert retried.ok, retried.to_envelope()
+    rerun, recovered = retried.data["members"]
+    assert recovered["reuse"] == "recovered"
+    assert (recovered["started_at"], recovered["finished_at"]) == (None, None)
+    assert recovered["duration_s"] is None
+    assert rerun["reuse"] == "none" and rerun["finished_at"] is not None
+
+
+def test_standalone_run_gate_ticks_while_its_provider_runs(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    import threading
+
+    from heddle.runtime import gate_run
+    from tests.concurrent_review_helpers import canonical_outcome
+
+    same_gate_host(tmp_path, monkeypatch)
+    monkeypatch.setattr(gate_run, "_PROGRESS_INTERVAL_S", 0.01)
+    ticked = threading.Event()
+    line = gate_run._gate_progress_line
+
+    def observed(*args, **kwargs):
+        ticked.set()
+        return line(*args, **kwargs)
+
+    def run(gate_type, context, *, feature, **_kwargs):
+        assert ticked.wait(timeout=10)
+        return canonical_outcome(gate_type, context, feature)
+
+    monkeypatch.setattr(gate_run, "_gate_progress_line", observed)
+    monkeypatch.setattr("heddle.gate.entry.run_gate_for_runtime", run)
+    result = run_slot(*P)
+    assert result.ok, result.to_envelope()
+    assert "heddle run-gate: spec-review primary (codex) running, " in (
+        capsys.readouterr().err
+    )
+    assert not any(
+        thread.name == "heddle-run-gate-progress" for thread in threading.enumerate()
+    ), "the ticker outlived its provider call"
