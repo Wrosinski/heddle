@@ -200,7 +200,11 @@ def test_ac1_prepare_and_policy_contract_examples_reach_real_decoders(
             dry_run=True,
         )
     )
-    assert confirmed.ok and confirmed.data["wrote"], confirmed.to_envelope()
+    assert confirmed.ok and confirmed.data["wrote"] is False, confirmed.to_envelope()
+    assert confirmed.data["mutation_summary"] == {
+        "command": "feature policy",
+        "would_write": True,
+    }
     assert not (host / "plans/usability-example/state.yaml").exists(), (
         "FAIL AC-3: a policy example used in preview must not grant approval"
     )

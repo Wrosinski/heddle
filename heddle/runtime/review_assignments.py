@@ -85,6 +85,7 @@ from heddle.runtime.recording import allocate_decision_ids
 from heddle.runtime.state_store import (
     check_expect_revision,
     commit_state,
+    mutation_fields,
     read_state_document,
 )
 from heddle.runtime.write_args import parse_write_args, usage_failure
@@ -2261,7 +2262,10 @@ def _operate(
                 path, expect_revision=snapshot.state.revision, transform=transform
             )
             wrote, revision = result.wrote, result.revision
-        response.update(revision=revision, wrote=wrote, dry_run=operation.dry_run)
+        response.update(
+            revision=revision,
+            **mutation_fields(ops.operation_name(operation), wrote, operation.dry_run),
+        )
         if stopped:
             assert not isinstance(operation, ops.ReaffirmReview)
             owner = response["stop_decision_id"]

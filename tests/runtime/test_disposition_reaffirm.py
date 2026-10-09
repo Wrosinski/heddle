@@ -89,6 +89,11 @@ def test_reaffirm_preserves_captured_evidence_and_checks_latest_rows_before_noop
     code, preview = reaffirm(capsys, "--dry-run")
     assert code == 0 and preview["ok"], preview
     assert snapshot(root) == before
+    assert preview["data"]["wrote"] is False
+    assert preview["data"]["mutation_summary"] == {
+        "command": "review reaffirm",
+        "would_write": True,
+    }
     code, result = reaffirm(capsys, "--expect-revision", str(read(path)["revision"]))
     assert code == 0 and result["ok"], result
     rows = read(path)["review_assignments"]["dispositions"]

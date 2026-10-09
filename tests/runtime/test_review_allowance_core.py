@@ -148,7 +148,13 @@ def test_ac2_valid_increase_appends_one_complete_policy_revision(tmp_path, monke
     assert data["quality_round_limit"] == {"before": 2, "after": 5, "added": 3}
     assert data["policy_revision"] == {"before": 1, "after": 2}
     assert data["wrote"] is True and data["readback"] is False
-    transaction_fields = {"revision", "wrote", "dry_run", "readback"}
+    transaction_fields = {
+        "revision",
+        "wrote",
+        "dry_run",
+        "readback",
+        "mutation_summary",
+    }
     assert {k: v for k, v in preview.data.items() if k not in transaction_fields} == {
         k: v for k, v in data.items() if k not in transaction_fields
     }
@@ -158,7 +164,11 @@ def test_ac3_dry_run_exact_readback_and_stale_revision_are_safe(tmp_path, monkey
     host, path = current_host(tmp_path, monkeypatch)
     before = snapshot(host)
     preview = _allowance(path, dry_run=True)
-    assert preview.ok and preview.data["wrote"] is True, preview.to_envelope()
+    assert preview.ok and preview.data["wrote"] is False, preview.to_envelope()
+    assert preview.data["mutation_summary"] == {
+        "command": "review allowance",
+        "would_write": True,
+    }
     assert preview.data["dry_run"] is True and preview.data["readback"] is False
     assert snapshot(host) == before
 
@@ -177,7 +187,13 @@ def test_ac3_dry_run_exact_readback_and_stale_revision_are_safe(tmp_path, monkey
     )
     assert replay.ok, replay.to_envelope()
     assert replay.data["wrote"] is False and replay.data["readback"] is True
-    transaction_fields = {"revision", "wrote", "dry_run", "readback"}
+    transaction_fields = {
+        "revision",
+        "wrote",
+        "dry_run",
+        "readback",
+        "mutation_summary",
+    }
     assert {k: v for k, v in replay.data.items() if k not in transaction_fields} == {
         k: v for k, v in written.data.items() if k not in transaction_fields
     }

@@ -186,7 +186,13 @@ def test_ac6_milestone_role_preview_discloses_all_scopes_and_budget(
         approval="Owner raises all milestone reviews to four quality rounds",
     )
     assert written.ok, written.to_envelope()
-    transaction_fields = {"revision", "wrote", "dry_run", "readback"}
+    transaction_fields = {
+        "revision",
+        "wrote",
+        "dry_run",
+        "readback",
+        "mutation_summary",
+    }
     assert {k: v for k, v in preview.data.items() if k not in transaction_fields} == {
         k: v for k, v in written.data.items() if k not in transaction_fields
     }

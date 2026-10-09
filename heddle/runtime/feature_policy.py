@@ -42,6 +42,7 @@ from heddle.runtime.output import emit_envelope
 from heddle.runtime.state_store import (
     check_expect_revision,
     commit_state,
+    mutation_fields,
     read_state_document,
 )
 from heddle.runtime.write_args import usage_failure
@@ -114,8 +115,9 @@ def _result(
     data: dict[str, Any] = {
         "feature": operation.slug,
         "revision": revision,
-        "wrote": wrote,
-        "dry_run": getattr(operation, "dry_run", False),
+        **mutation_fields(
+            ops.operation_name(operation), wrote, getattr(operation, "dry_run", False)
+        ),
         "effective_policy": intake.policy_projection(parse_policy(policy))
         if policy is not None
         else None,
@@ -320,8 +322,7 @@ def _allowance_result(
             **impact,
             "effective_policy": ops.decoded_payload(after_effective),
             "revision": revision,
-            "wrote": wrote,
-            "dry_run": operation.dry_run,
+            **mutation_fields(ops.operation_name(operation), wrote, operation.dry_run),
             "readback": readback,
         },
         diagnostics=diagnostics,

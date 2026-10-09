@@ -377,6 +377,11 @@ def test_ac7_native_review_cli_and_typed_preview_share_one_owner(
         dry_run=True,
     )
     assert typed.ok, typed.to_envelope()
+    assert typed.data["dry_run"] is True and typed.data["wrote"] is False
+    assert typed.data["mutation_summary"] == {
+        "command": f"review {verb}",
+        "would_write": True,
+    }
     monkeypatch.setattr(sys, "stdin", io.StringIO(json.dumps(payload)))
     code, out, _err = run_cli(
         [
