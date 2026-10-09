@@ -51,6 +51,8 @@ authority for the installed version.
     settle ownership of new paths before final verification and
     dispositions;
   - specify reads allocated decision ids from the `decisions add` result;
+  - implement corrects an open task's text with `heddle task edit` when a
+    ruling changes its work;
   - the stage briefings and the gate failure guide say that exit 4 with
     `ok: true` after a review means the round was recorded with work
     remaining, and that exit 3 means the command failed.
@@ -114,7 +116,9 @@ authority for the installed version.
   round-limit stop returns `ok: true` with exit 4, and its `data` carries
   `wrote`, `revision`, `decision_id` and `stop_reason`; the next action
   resolves that decision. A repeat call while the stop is pending, a reached
-  cap and a sealed acceptance are still refused.
+  cap and a sealed acceptance are still refused. `heddle drive` records the
+  stop, then pauses on its pending decision and notifies the owner, exiting 1
+  where it exited 3.
 - `heddle decisions add`, `resolve` and `record-policy`, `heddle feature
   policy`, `heddle review allowance` and `heddle review disposition`,
   `round-open` and `reaffirm` report `wrote` on a real write; `would_write`
@@ -151,7 +155,8 @@ authority for the installed version.
 - `heddle task edit <task-ref> --text <text>` corrects an open task's text on
   the current milestone, keeping its id and status; a done task is refused.
 - `heddle session log --help` publishes its payload schema,
-  `heddle.session-input/v1`.
+  `heddle.session-input/v1`, with a note to quote `started_at` and
+  `ended_at` in YAML.
 - `heddle feature start --through <stage> --statement <text>` records the
   owner's stated authority ceiling and where it was given. Without
   `--through` the ceiling stays at specify. While the specification
