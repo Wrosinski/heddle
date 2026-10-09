@@ -1352,7 +1352,9 @@ def test_task_edit_replaces_open_task_text_and_keeps_done_tasks(
     scope = ["--feature", "sample-feature", "--json"]
 
     code, out, _err = run_cli([*edit, *scope, "--dry-run"])
-    assert code == 0 and envelope_tools.parse(out)["ok"] is True
+    preview = envelope_tools.parse(out)
+    assert code == 0 and preview["ok"] is True
+    assert preview["data"]["mutation_summary"]["would_write"] is True, preview
     assert state_path.read_bytes() == before
 
     code, out, _err = run_cli([*edit, *scope, "--expect-revision", str(revision)])
@@ -1372,16 +1374,17 @@ def test_task_edit_replaces_open_task_text_and_keeps_done_tasks(
     assert code == 0 and envelope_tools.parse(out)["ok"] is True
     assert state_path.read_bytes() == edited, "an unchanged text is a no-op"
 
-    for argv in (
-        ["t1", "--text", "Rewrite finished work"],
-        ["t2", "--text", "   "],
-        ["t2"],
-        ["t2", "t1", "--text", "Two references"],
-        ["missing", "--text", "Unknown task"],
+    for argv, reason in (
+        (["t1", "--text", "Rewrite finished work"], "is done"),
+        (["t2", "--text", "   "], "text"),
+        (["t2"], "--text"),
+        (["t2", "t1", "--text", "Two references"], "exactly one"),
+        (["missing", "--text", "Unknown task"], "unknown task reference"),
     ):
         code, out, _err = run_cli(["task", "edit", *argv, *scope])
         envelope = envelope_tools.parse(out)
         assert code == 2 and envelope["error"]["code"] == "usage", argv
+        assert reason in envelope["error"]["message"], (argv, envelope["error"])
     from heddle.contracts import operations as ops
     from heddle.runtime import application
 
