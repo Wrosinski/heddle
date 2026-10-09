@@ -863,23 +863,15 @@ def _execute_batch_workers(
             processes.append(process)
             receivers[receiver] = member
         launched = time.monotonic()
+        # A completion does not restart the interval; only a printed line does.
+        next_line = launched + _PROGRESS_INTERVAL_S
         while receivers:
             ready_set = multiprocessing.connection.wait(
-                list(receivers), timeout=_PROGRESS_INTERVAL_S
+                list(receivers), timeout=max(0.0, next_line - time.monotonic())
             )
-            if not ready_set:
-                print(
-                    _batch_progress_line(
-                        time.monotonic() - launched,
-                        [_slot_progress(member) for member in pending],
-                    ),
-                    file=sys.stderr,
-                )
-                continue
             for ready in ready_set:
                 receiver = cast(multiprocessing.connection.Connection, ready)
                 member = receivers.pop(receiver)
-                _finish_timing(member)
                 try:
                     kind, value = receiver.recv()
                 except EOFError:
@@ -889,6 +881,7 @@ def _execute_batch_workers(
                     _member_failed(member, f"its result could not be read: {error}")
                     continue
                 finally:
+                    _finish_timing(member)
                     receiver.close()
                 if kind != "outcome":
                     _member_failed(member, value)
@@ -896,9 +889,22 @@ def _execute_batch_workers(
                 member.completion = value
                 member.execution = _execution_name(value)
                 _publish_ready(resolved, members, publication)
+            now = time.monotonic()
+            if receivers and now >= next_line:
+                print(
+                    _batch_progress_line(
+                        now - launched,
+                        [_slot_progress(member) for member in pending],
+                    ),
+                    file=sys.stderr,
+                )
+                next_line = now + _PROGRESS_INTERVAL_S
         _stop_publication(members, publication)
     except KeyboardInterrupt:
         _terminate_batch_processes(processes)
+        # A launched member that was still running ran until it was stopped.
+        for member in receivers.values():
+            _finish_timing(member)
         return _interrupted_batch(resolved, members)
     finally:
         _terminate_batch_processes(processes)

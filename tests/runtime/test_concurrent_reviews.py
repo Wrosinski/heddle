@@ -715,6 +715,9 @@ def test_ac8_interruption_keeps_finished_output_recoverable(
     members = result.error.details["members"]
     assert [member_key(row) for row in members] == list(SLOTS)
     assert members[0]["execution"] == "interrupted"
+    # The interrupted primary ran until it was stopped, so it has timing.
+    assert members[0]["finished_at"] is not None, members[0]
+    assert isinstance(members[0]["duration_s"], int), members[0]
     assert members[1]["publication"] == "recoverable"
     assert not gate_runs(state_path)
     assert list((host / f"plans/{V7_FEATURE}/reviews").glob("*.review.json"))
@@ -1197,3 +1200,36 @@ def test_a_reused_review_still_shows_its_launch_advice_once(
         gate_run._emit(reused, False)
     assert reused.ok and reused.data["cached"], reused.to_envelope()
     assert capsys.readouterr().err.count(advice) == 1
+
+
+def test_a_slot_completion_does_not_restart_the_progress_interval(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The secondary finishes first; the primary returns only once the parent
+    waits again, and that wait gets only what remains of the interval."""
+    import multiprocessing.connection
+
+    from tests.concurrent_review_helpers import canonical_outcome
+
+    same_gate_host(tmp_path, monkeypatch)
+    real_wait = multiprocessing.connection.wait
+    timeouts: list[float] = []
+    with multiprocessing.Manager() as manager:
+        waiting_again = manager.Event()
+
+        def wait(objects, timeout=None):
+            timeouts.append(timeout)
+            if len(timeouts) == 2:
+                waiting_again.set()
+            return real_wait(objects, timeout)
+
+        def run(gate_type, context, *, feature, **_kwargs):
+            if context.prepared_run.reviewer_slot == PRIMARY:
+                assert waiting_again.wait(timeout=10)
+            return canonical_outcome(gate_type, context, feature)
+
+        monkeypatch.setattr(multiprocessing.connection, "wait", wait)
+        monkeypatch.setattr("heddle.gate.entry.run_gate_for_runtime", run)
+        result = execute_batch()
+    assert result.ok, result.to_envelope()
+    assert len(timeouts) >= 2 and timeouts[1] < timeouts[0], timeouts
