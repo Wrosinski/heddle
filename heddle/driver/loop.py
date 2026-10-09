@@ -561,11 +561,14 @@ def _next_command(
 def _is_unconverged_gate_verdict(
     action: ops.CommandAction, result: HeddleResult
 ) -> bool:
-    """Completed unconverged gates fold into the next bounded phase session."""
+    """Completed unconverged gates fold into the next bounded phase session.
+
+    A recorded run reports an unconverged verdict as advisory; exit 3 always
+    means the run failed (`ok: false`), which halts like any other failure."""
     return (
         isinstance(action.operation, (ops.RunGate, ops.RunGates))
         and result.ok
-        and result.exit_code in (ExitCode.FATAL, ExitCode.ADVISORY)
+        and result.exit_code == ExitCode.ADVISORY
     )
 
 

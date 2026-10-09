@@ -418,13 +418,16 @@ def test_ac6_ac9_rerun_with_no_new_set_is_a_refused_no_op(
     assert state_path.read_bytes() == before
 
 
+# A recorded unconverged verdict is advisory (4) whichever member fails;
+# exit 3 is reserved for a batch that fails (`ok: false`).
 @pytest.mark.parametrize(
     ("verdicts", "exit_code"),
     (
-        (("fail", "pass_with_conditions"), 3),
+        (("fail", "pass_with_conditions"), 4),
         (("pass_with_conditions", "pass"), 4),
         (("pass_with_conditions", "pass_with_conditions"), 4),
-        (("pass", "fail"), 3),
+        (("pass", "fail"), 4),
+        (("pass", "pass"), 0),
     ),
 )
 def test_ac7_unconverged_verdicts_complete_the_batch(
@@ -1150,3 +1153,18 @@ def test_human_output_names_every_member_of_a_batch(
         f"spec-review primary [{V7_FEATURE}] — pass_with_conditions",
         f"spec-review secondary [{V7_FEATURE}] — pass",
     ]
+
+
+def test_standalone_failing_verdict_is_recorded_with_the_advisory_exit(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Exit 3 is reserved for a failed run; a recorded `fail` verdict is 4."""
+    same_gate_host(tmp_path, monkeypatch)
+    with multiprocessing.Manager() as manager:
+        install_slot_engine(
+            monkeypatch, manager, parties=1, findings={P: (_critical("SP-C1"),)}
+        )
+        result = run_slot(*P)
+    assert result.ok, result.to_envelope()
+    assert result.data["status"] == "fail"
+    assert int(result.exit_code) == 4

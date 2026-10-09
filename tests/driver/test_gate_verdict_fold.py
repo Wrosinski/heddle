@@ -504,7 +504,8 @@ def test_unconverged_gate_verdict_predicate_truth_table():
     ok4 = HeddleResult.success({}, exit_code=ExitCode.ADVISORY)
     ok3 = HeddleResult.success({}, exit_code=ExitCode.FATAL)
     assert loop_mod._is_unconverged_gate_verdict(gate_action, ok4)
-    assert loop_mod._is_unconverged_gate_verdict(gate_action, ok3)
+    # A recorded verdict never exits 3; exit 3 means a failed run and halts.
+    assert not loop_mod._is_unconverged_gate_verdict(gate_action, ok3)
     assert not loop_mod._is_unconverged_gate_verdict(
         gate_action, HeddleResult.success({})
     )
@@ -514,10 +515,10 @@ def test_unconverged_gate_verdict_predicate_truth_table():
         HeddleResult.failure(_error_result().error, exit_code=ExitCode.ADVISORY),
     )
     assert not loop_mod._is_unconverged_gate_verdict(other_action, ok4)
-    assert loop_mod._is_unconverged_gate_verdict(batch_action, ok4)
     # concurrent-reviews-v1 AC-7: a completed batch whose most severe member
-    # verdict is `fail` folds like a standalone run (survivor pin).
-    assert loop_mod._is_unconverged_gate_verdict(batch_action, ok3)
+    # verdict is `fail` exits 4 and folds like a standalone run.
+    assert loop_mod._is_unconverged_gate_verdict(batch_action, ok4)
+    assert not loop_mod._is_unconverged_gate_verdict(batch_action, ok3)
 
 
 def test_gate_verdict_problem_names_member_findings_and_unread_retained_output():
@@ -553,7 +554,7 @@ def test_gate_verdict_problem_names_member_findings_and_unread_retained_output()
             "gates": ["spec-review"],
             "members": members,
         },
-        exit_code=ExitCode.FATAL,
+        exit_code=ExitCode.ADVISORY,
     )
     rows = {
         line.split(":", 1)[0]: line
@@ -584,7 +585,7 @@ def test_gate_verdict_problem_labels_batch_members_by_gate_and_slot():
     ]
     result = HeddleResult.success(
         {"feature": "demo", "gates": ["spec-review"], "members": members},
-        exit_code=ExitCode.FATAL,
+        exit_code=ExitCode.ADVISORY,
     )
     detail = loop_mod._gate_verdict_problem(result).detail
     assert "spec-review primary: run run-primary" in detail, detail

@@ -81,8 +81,10 @@ _RESOLUTION_EXITS: Mapping[str, ExitCode] = {
     "usage": ExitCode.USAGE,
     "workspace-invalid": ExitCode.FATAL,
 }
+# A recorded verdict is a completed review, so an unconverged one is advisory:
+# exit 3 stays reserved for a failed (`ok: false`) run.
 _VERDICT_EXITS: Mapping[str, ExitCode] = {
-    "fail": ExitCode.FATAL,
+    "fail": ExitCode.ADVISORY,
     "pass_with_conditions": ExitCode.ADVISORY,
     "pass": ExitCode.OK,
 }
@@ -2046,8 +2048,9 @@ def _exit_for(
 ) -> ExitCode:
     """Map engine completion + explicit gate kind onto the process exit.
 
-    ``gate_exit != 0`` has first precedence and is always FATAL/3.
-    Verdict gates fail closed on missing/unrecognized status.
+    ``gate_exit != 0`` has first precedence and is always FATAL/3; it is the
+    only FATAL result, because every other completion is recorded.
+    Verdict gates fail closed (ADVISORY/4) on missing/unrecognized status.
     A clean non-verdict run uses the IMPLEMENT/unknown/contradiction rule.
     Phase 6 callers may opt into accepting minor findings: only the
     Critical/Important IMPLEMENT/unknown intersections plus contradictions are
@@ -2059,8 +2062,8 @@ def _exit_for(
         return ExitCode.ADVISORY
     if verdict_gate:
         if status is None:
-            return ExitCode.FATAL
-        return _VERDICT_EXITS.get(status, ExitCode.FATAL)
+            return ExitCode.ADVISORY
+        return _VERDICT_EXITS.get(status, ExitCode.ADVISORY)
     classifications = findings.get("by_classification")
     if not isinstance(classifications, Mapping):
         return ExitCode.ADVISORY
