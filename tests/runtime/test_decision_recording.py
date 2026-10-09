@@ -158,52 +158,16 @@ SECOND_ROUND_REVIEW = scripted_review(
 # discriminator in this section.
 #
 # Exits are asserted at the CLI boundary (run_cli + fake_gate_runner) so the
-# pins stay `_exit_for`-signature-agnostic. AC-2(g) is the one exception:
-# malformed `by_classification` is unreachable through `_findings_to_d33`, so
-# its fail-closed leg calls `_exit_for` directly.
+# pins stay `_exit_for`-signature-agnostic. AC-2(f/g) is the one exception:
+# a missing or unrecognized verdict-gate status and a malformed
+# `by_classification` are unreachable through the validated review output and
+# `_findings_to_d33`, so its fail-closed legs call `_exit_for` directly.
 # ===========================================================================
 
 
-# A non-verdict gate artifact: NO **Status:**/**Rerun Recommended:** lines
-# (non-verdict gates emit findings only), two REPORT findings carrying
-# `- **Recommended**:` lines, one IGNORE finding. Zero IMPLEMENT, zero
-# unknown, zero CON- headers — the AC-1 clean shape.
-REPORT_IGNORE_REVIEW = scripted_review(
-    [
-        finding(
-            "XX-C1",
-            classification="report",
-            severity="critical",
-            title="Cache TTL vs event invalidation is a product call",
-            recommendation="Adopt event invalidation with a 60s TTL fallback",
-            route=None,
-        ),
-        finding(
-            "XX-I1",
-            classification="report",
-            severity="important",
-            title="Retention window crosses a compliance boundary",
-            recommendation="Keep the 30-day window; document the carve-out",
-            route=None,
-        ),
-        finding(
-            "XX-M1",
-            classification="ignore",
-            severity="minor",
-            title="Prefer f-string here",
-            recommendation="Apply the fixture repair.",
-            route=None,
-        ),
-    ],
-    summary=(
-        "Cache TTL vs event invalidation is a product call; Retention "
-        "window crosses a compliance boundary; Prefer f-string here"
-    ),
-)
-
-# The all-nine-gate AC-1 discriminator is deliberately pure REPORT. Keeping it
-# separate from REPORT_IGNORE_REVIEW prevents an implementation from
-# accidentally making IGNORE presence a prerequisite for discounting REPORTs.
+# The all-nine-gate AC-1 discriminator is deliberately pure REPORT, so an
+# implementation cannot make IGNORE presence a prerequisite for discounting
+# REPORTs.
 REPORT_ONLY_REVIEW = scripted_review(
     [
         finding(
@@ -627,21 +591,24 @@ def test_ac2_missing_verdict_gate_status_fails_closed(
     run_cli, fake_gate_runner, tmp_path, monkeypatch
 ) -> None:
     """AC-2(f/g): missing verdict or findings shape fails closed."""
-    code, _state, _host = _run_gate_for_resolution(
-        run_cli,
-        fake_gate_runner,
-        tmp_path,
-        monkeypatch,
-        "spec-review",
-        REPORT_IGNORE_REVIEW,
-    )
-    assert code == 3, (
-        "FAIL AC-2(f): gate_exit == 0 with a missing verdict-gate status "
-        f"must fail closed FATAL/3, got {code}"
-    )
-
     from heddle.contracts.result import ExitCode
     from heddle.runtime.gate_run import _exit_for
+
+    for status in (None, "unrecognized"):
+        assert (
+            _exit_for(
+                verdict_gate=True,
+                accept_minor=False,
+                status=status,
+                findings={},
+                severity_classification=None,
+                gate_exit=0,
+            )
+            == ExitCode.ADVISORY
+        ), (
+            "FAIL AC-2(f): a recorded verdict-gate run with a missing or "
+            f"unrecognized status must fail closed ADVISORY/4, got {status!r}"
+        )
 
     for malformed in ({}, {"by_classification": None}):
         assert (
