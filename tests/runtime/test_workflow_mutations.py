@@ -1309,6 +1309,34 @@ def test_session_log_help_schema_matches_the_payload_reader(
         wrong: object = 1 if spec["type"] == "string" else "not-a-value"
         code, envelope = preview({**schema["example"], name: wrong})
         assert code == 2 and envelope["error"]["code"] == "usage", name
+
+    # The notes warn that YAML reads an unquoted timestamp as a date.
+    assert any("quote started_at" in note for note in schema["notes"])
+    natural = (
+        "started_at: {stamp}\n"
+        "ended_at: '2026-01-05T11:30:00Z'\n"
+        "completed: []\n"
+        "started: []\n"
+        "key_context: context\n"
+        "next_steps: next\n"
+        "blockers: []\n"
+    )
+    for stamp, expected in (("'2026-01-05T09:00:00Z'", 0), ("2026-01-05T09:00:00Z", 2)):
+        path = tmp_path / "natural.yaml"
+        path.write_text(natural.format(stamp=stamp), encoding="utf-8")
+        code, _out, _err = run_cli(
+            [
+                "session",
+                "log",
+                "--feature",
+                "nl-screening",
+                "--from-file",
+                str(path),
+                "--dry-run",
+                "--json",
+            ]
+        )
+        assert code == expected, stamp
     assert state_path.read_bytes() == before
 
 

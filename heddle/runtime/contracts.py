@@ -305,6 +305,9 @@ SESSION_INPUT_SCHEMA: dict[str, Any] = {
         "stage defaults to the feature's current stage; revision_before, "
         "revision_after and advanced stay unset when omitted",
         "unknown fields are ignored and not recorded",
+        "quote started_at and ended_at in YAML (started_at: "
+        "'2026-01-05T09:00:00Z'); an unquoted timestamp parses as a date and "
+        "is refused as not a string",
         "a session entry is narrative continuity: it records no task, "
         "verification or completion fact",
     ],
