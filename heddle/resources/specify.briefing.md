@@ -218,7 +218,9 @@ Populate `plans/<feature>/plan.md` with:
   feature calls a real provider/service and a run is feasible. Name ACs per lane
   and concrete fallback witnesses for exclusions, deterministic pass conditions,
   real/doubled systems, alignment criteria (observable contract conditions,
-  not quality judgments) and retained artifacts. Include
+  not quality judgments) and retained artifacts. An alignment check's result
+  is recorded as one Assessment entry in the plan's `### Verification Commands`
+  note; say so where the check is declared. Include
   live prerequisites (targets, credential references, data/freshness, network,
   quota/cost, effects and evidence destination), classified auto-resolvable or
   user-required; effects must be idempotent or reversible with cleanup/recovery.

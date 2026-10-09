@@ -60,8 +60,10 @@ setup or reviewer choices. The final proof includes acceptance even when live is
 declared.
 Each declared lane is scheduled at implement exit, before any review, with a
 post-review rerun the owner may waive.
-Any alignment check names observable contract criteria and retained artifacts;
-quality judgments belong to the spec's Assessment Targets and stay observational.
+Any alignment check names observable contract criteria and retained artifacts,
+and says where its result is recorded: one Assessment entry in the plan's
+verification note under `### Verification Commands`. Quality judgments belong
+to the spec's Assessment Targets and stay observational.
 For existing active work, reconcile existing design and approvals rather than
 requiring a retrospective checkpoint.
 
