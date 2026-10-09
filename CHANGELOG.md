@@ -10,6 +10,10 @@ authority for the installed version.
 
 ### Changed
 
+- The recommended review policy runs `milestone-review` on
+  `claude-opus-5-5` at `xhigh` reasoning effort instead of `high`, and the
+  Claude lane default for that gate matches. Confirmed policies keep the
+  reviewer they recorded.
 - Scaffold review admission and the repository AC-coverage hook resolve every
   `Verified-by:` line of an acceptance criterion, not only the first. A broken
   target on a later line refuses before the reviewer is called, and a test file
