@@ -1248,15 +1248,16 @@ def test_decisions_add_human_output_tells_a_preview_from_a_write(
     payload_path.write_text(json.dumps(_decision_batch_payload(8)), encoding="utf-8")
     monkeypatch.chdir(host)
     command = ["decisions", "add", "--feature", SLUG, "--input-json", str(payload_path)]
+    row = f"{'D1'} — pending — class 8 escalation"
 
     code, preview, _err = run_cli([*command, "--dry-run"])
     assert code == 0
-    assert "would add D1 — pending — class 8 escalation" in preview, preview
+    assert f"would add {row}" in preview, preview
     assert "would be recorded at revision" in preview, preview
 
     code, written, _err = run_cli(command)
     assert code == 0
-    assert "D1 — pending — class 8 escalation" in written, written
+    assert row in written, written
     assert "would" not in written and "recorded at revision" in written, written
 
 
