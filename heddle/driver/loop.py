@@ -227,6 +227,15 @@ def run_loop(config: ProjectConfig, slug: str, *, until: str | None) -> HeddleRe
                     return _persistent_conflict_failure(conflict_retries)
                 continue
             conflict_retries = 0
+            if (
+                isinstance(action.operation, ops.ReviewRoundOpen)
+                and result.ok
+                and "stop_reason" in (result.data or {})
+            ):
+                # A recorded review stop is routed success with an advisory
+                # exit; the next pass blocks on its pending owner decision,
+                # which pauses the drive and notifies the owner.
+                continue
             if _is_unconverged_gate_verdict(action, result):
                 # A completed gate run whose verdict did not converge —
                 # pass_with_conditions or a clean-engine fail verdict, both

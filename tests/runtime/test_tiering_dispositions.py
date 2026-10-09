@@ -2209,3 +2209,52 @@ def test_a_round_with_two_report_findings_names_both_decisions(
             f"resolve original review decision {recorded[1]} (2 of 2)",
         ]
     assert len(calls) == 1
+
+
+def test_drive_pauses_and_notifies_at_a_recorded_review_stop(
+    tmp_path, monkeypatch, run_cli
+):
+    from heddle.contracts import operations as ops
+    from heddle.driver import loop
+    from heddle.runtime import drive as drive_module
+    from heddle.runtime.application import execute
+
+    _host, path = current_host(
+        tmp_path, monkeypatch, overrides={"spec-review": entry("spec-review", limit=1)}
+    )
+    provider_transport(
+        monkeypatch,
+        review_content(findings=[finding("SP-I1", classification="implement")]),
+    )
+    code, result = gate_command(run_cli, "run-gate", "spec-review")
+    assert code in {0, 4}, result
+    origin = runs(path)[0]["run_id"]
+    assert dispose(
+        path,
+        [
+            disposition(origin, status="retained"),
+            disposition(origin, "@coverage", status="settled"),
+        ],
+    ).ok
+    monkeypatch.setattr(loop, "probe_claude_capabilities", lambda: None)
+    monkeypatch.setattr(loop, "probe_codex_capabilities", lambda: None)
+    notified: list[object] = []
+    monkeypatch.setattr(
+        drive_module, "_notify", lambda _config, result: notified.append(result) or ()
+    )
+
+    driven = execute(ops.Drive(feature=None))
+
+    # The drive records the round-limit stop, then pauses on its owner decision
+    # with the blocked exit and a notification, instead of ending on the stop's
+    # advisory success.
+    assert driven.error is not None, driven.to_envelope()
+    assert driven.error.code == "pending-decisions", driven.to_envelope()
+    assert int(driven.exit_code) == 1
+    assert len(notified) == 1
+    stops = [
+        decision
+        for decision in yaml.safe_load(path.read_text())["decisions"]
+        if decision["status"] == "pending" and "stopped" in decision["title"]
+    ]
+    assert len(stops) == 1, stops
