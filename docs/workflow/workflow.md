@@ -148,16 +148,19 @@ round-open operation records an owner question in place of a round. It reports
 the recorded stop as success (`ok: true`) with exit 4, naming the stop
 decision, because owner work remains before any further round. An owner can
 authorize one next round with `heddle decisions resolve <id> --kind
-continue-review --resolution <rationale> --routes-to <record>`. The resolution
-binds the exact assignment and stopped round; advancing the round consumes it,
-and replay grants no extra pass.
-A reached cap still requires an explicit feature-policy amendment. A generic
-`disposition` ruling does not authorize another stagnant round. Later stops get
-new questions, while all previous rounds, decisions and obligations remain.
+continue-review --resolution <rationale>`; `--routes-to` is optional for a
+continuation and defaults to the feature spec. The resolution binds the exact
+assignment and stopped round; advancing the round consumes it, and replay
+grants no extra pass.
+A reached cap still requires an explicit feature-policy amendment, so a
+round-limit stop lists both steps up front: the resolution, then
+`heddle review allowance`. A generic `disposition` ruling does not authorize
+another stagnant round. Later stops get new questions, while all previous
+rounds, decisions and obligations remain.
 Use `heddle review allowance` to preview or publish an owner-approved absolute
 quality round ceiling for an existing upper-limit role. The command changes no
-provider retry budget, invokes no provider, and leaves the stop in force; after
-the increase, resolve that exact stop with `continue-review`, then use
+provider retry budget, invokes no provider, and leaves the stop in force. With
+the stop resolved by `continue-review` and the cap raised, in either order, use
 `heddle review round-open` through ordinary native routing.
 
 For an unsealed assignment, disposition freshness follows its review subject. Spec review

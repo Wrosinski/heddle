@@ -1465,6 +1465,41 @@ def allowance_impact(
     }
 
 
+def _allowance_command(feature: str, role: str, revision: int | str) -> str:
+    return (
+        "heddle review allowance "
+        f"--role {role} "
+        "--limit ABSOLUTE_TOTAL "
+        "--approval OWNER_APPROVAL "
+        f"--feature {feature} "
+        f"--expect-revision {revision}"
+    )
+
+
+def _stop_actions(
+    feature: str, role: str, owner: str, stop_reason: str
+) -> tuple[NextAction, ...]:
+    """Name every step a recorded stop needs, in order, before the first runs."""
+    actions = [
+        NextAction(
+            ops.CommandAction(ops.DecisionsList(feature)),
+            f"resolve stop decision {owner}; no original work is waived",
+        )
+    ]
+    if stop_reason == "round-limit":
+        actions.append(
+            NextAction(
+                ops.ManualAction(_allowance_command(feature, role, "CURRENT_REVISION")),
+                f"If the owner approves another round, the reached cap also needs "
+                f"raising: after resolving {owner} with continue-review, run review "
+                "allowance with the owner's absolute total and approval at the "
+                "revision that resolution returns. Raising the cap neither "
+                "resolves the stop nor invokes a provider.",
+            )
+        )
+    return tuple(actions)
+
+
 def next_action(snapshot: FeatureSnapshot, row: dict[str, Any]) -> NextAction:
     if row["next_step"] == "policy":
         reason = (
@@ -1473,13 +1508,8 @@ def next_action(snapshot: FeatureSnapshot, row: dict[str, Any]) -> NextAction:
             "an absolute total and approval; increasing review allowance does not "
             "resolve the stop or invoke a provider."
         )
-        command = (
-            "heddle review allowance "
-            f"--role {row['role']} "
-            "--limit ABSOLUTE_TOTAL "
-            "--approval OWNER_APPROVAL "
-            f"--feature {snapshot.feature} "
-            f"--expect-revision {snapshot.state.revision}"
+        command = _allowance_command(
+            snapshot.feature, row["role"], snapshot.state.revision
         )
         return NextAction(ops.ManualAction(command), reason)
     if row["next_step"] == "interpret":
@@ -2107,7 +2137,8 @@ def _apply_round_open(
         if core.continuation_authorized(current.state, assignment):
             raise core.invalid(
                 "continuation is authorized but the confirmed cap is reached; "
-                "explicitly amend feature policy before opening the next round"
+                "raise it with review allowance (the owner's absolute total and "
+                "approval) before opening the next round"
             )
         stopped = True
         if owner is None or owner.status == "resolved":
@@ -2125,7 +2156,12 @@ def _apply_round_open(
                         "Resolve with evidence and native dispositions",
                         "Explicitly amend policy",
                         "Authorize one more round with decisions resolve "
-                        "--kind continue-review; amend a reached cap separately",
+                        "--kind continue-review"
+                        + (
+                            ", then raise the reached cap with review allowance"
+                            if closed.stop_reason == "round-limit"
+                            else ""
+                        ),
                     ],
                     "recommendation": "Preserve all original obligations "
                     "and settle the remaining work",
@@ -2277,15 +2313,14 @@ def _operate(
             # is replaced by an owner decision, and the advisory exit says
             # that owner work remains before any further round.
             assert not isinstance(operation, ops.ReaffirmReview)
-            owner = response["decision_id"]
             return HeddleResult.success(
                 {"feature": snapshot.feature, **response},
                 exit_code=ExitCode.ADVISORY,
-                next_actions=(
-                    NextAction(
-                        ops.CommandAction(ops.DecisionsList(snapshot.feature)),
-                        f"resolve stop decision {owner}; no original work is waived",
-                    ),
+                next_actions=_stop_actions(
+                    snapshot.feature,
+                    cast(dict[str, Any], operation.payload)["role"],
+                    response["decision_id"],
+                    response["stop_reason"],
                 ),
             )
         return HeddleResult.success(response)

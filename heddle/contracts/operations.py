@@ -342,7 +342,7 @@ class ResolveDecision:
     decision_id: str
     kind: ResolutionKind
     rationale: str
-    routes_to: str
+    routes_to: str | None = None
     feature: str | None = None
     expect_revision: int | None = None
     dry_run: bool = False
@@ -584,10 +584,10 @@ def operation_command(operation: Operation) -> str:
                     operation.kind,
                     "--resolution",
                     operation.rationale,
-                    "--routes-to",
-                    operation.routes_to,
                 )
             )
+            if operation.routes_to is not None:
+                arguments.extend(("--routes-to", operation.routes_to))
         case Search():
             arguments.extend((operation.query, "--limit", str(operation.limit)))
             if operation.titles_only:

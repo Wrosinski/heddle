@@ -480,7 +480,8 @@ DECISION_BATCH_INPUT_SCHEMA: dict[str, Any] = {
         "witness-waiver requires class 5 and witness_waiver",
         "class-7 question requires driver source, no target_stage or "
         "target_blocker, and resolves only by disposition",
-        "resolve with required --kind, --resolution rationale and --routes-to",
+        "resolve with required --kind and --resolution rationale, plus "
+        "--routes-to except for continue-review and continue-stage",
     ],
 }
 
@@ -1806,7 +1807,11 @@ COMMAND_SURFACE: tuple[CommandContract, ...] = (
                 "--resolution",
                 "required authored rationale; text never selects authority",
             ),
-            FlagSpec("--routes-to", "permanent-record destination (§7)"),
+            FlagSpec(
+                "--routes-to",
+                "permanent-record destination (§7); optional for continue-review "
+                "and continue-stage, which default to the feature spec",
+            ),
             _EXPECT_REVISION,
             _DRY_RUN,
         ),

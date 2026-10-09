@@ -2087,3 +2087,86 @@ def test_ac7_public_driver_observes_the_same_selected_matrix_before_running(
     assert probes.count("codex") == codex_probes
     assert probes.count("claude") == 1  # The independent headless session capability.
     assert not calls and snapshot(host) == before
+
+
+def test_round_limit_stop_names_both_continuation_steps_and_defaults_the_route(
+    tmp_path, monkeypatch, run_cli
+):
+    from heddle.contracts import operations as ops
+
+    _host, path = current_host(
+        tmp_path, monkeypatch, overrides={"spec-review": entry("spec-review", limit=1)}
+    )
+    calls = provider_transport(monkeypatch, review_content())
+    assert gate_command(run_cli, "run-gate", "spec-review")[0] == 0
+    stopped = open_round(path)
+    assert recorded_stop(stopped) and stopped.data["stop_reason"] == "round-limit"
+    owner = stopped.data["decision_id"]
+    resolve, allowance = stopped.next_actions
+    assert isinstance(resolve.action, ops.CommandAction) and owner in resolve.reason
+    assert isinstance(allowance.action, ops.ManualAction)
+    assert allowance.action.instruction == (
+        "heddle review allowance --role spec-review --limit ABSOLUTE_TOTAL "
+        f"--approval OWNER_APPROVAL --feature {V7_FEATURE} "
+        "--expect-revision CURRENT_REVISION"
+    )
+    assert f"after resolving {owner} with continue-review" in allowance.reason
+    state = yaml.safe_load(path.read_text())
+    decision = next(row for row in state["decisions"] if row["id"] == owner)
+    assert decision["options"][-1] == (
+        "Authorize one more round with decisions resolve --kind continue-review, "
+        "then raise the reached cap with review allowance"
+    )
+
+    # Every other resolution still names its permanent record.
+    before = path.read_bytes()
+    code, refused = gate_command(
+        run_cli,
+        "decisions",
+        "resolve",
+        owner,
+        "--kind",
+        "disposition",
+        "--resolution",
+        "Owner settles the remaining work",
+    )
+    assert code == 2 and not refused["ok"] and "--routes-to" in json.dumps(refused)
+    assert path.read_bytes() == before
+
+    # A continuation records its ruling in the feature spec by default.
+    continuation = ops.ResolveDecision(
+        owner, "continue-review", "Owner approves one more round", feature=V7_FEATURE
+    )
+    assert "--routes-to" not in ops.operation_command(continuation)
+    code, resolved = gate_command(
+        run_cli,
+        "decisions",
+        "resolve",
+        owner,
+        "--kind",
+        "continue-review",
+        "--resolution",
+        "Owner approves one more round",
+    )
+    assert code == 0 and resolved["ok"], resolved
+    state = yaml.safe_load(path.read_text())
+    decision = next(row for row in state["decisions"] if row["id"] == owner)
+    assert decision["status"] == "resolved"
+    assert decision["routes_to"] == [state["spec"]]
+    replayed = path.read_bytes()
+    code, replay = gate_command(
+        run_cli,
+        "decisions",
+        "resolve",
+        owner,
+        "--kind",
+        "continue-review",
+        "--resolution",
+        "Owner approves one more round",
+    )
+    assert code == 0 and replay["data"]["wrote"] is False
+    assert path.read_bytes() == replayed
+
+    blocked = open_round(path)
+    assert not blocked.ok and "review allowance" in blocked.error.message
+    assert len(calls) == 1

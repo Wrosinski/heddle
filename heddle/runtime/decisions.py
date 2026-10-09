@@ -19,6 +19,7 @@ from heddle.contracts.schemas import (
     DECISION_RESOLUTION_KINDS,
     POLICY_JOURNAL_FIELDS,
     POLICY_RESOLUTION_REQUIRED_FIELDS,
+    SPEC_ROUTED_RESOLUTION_KINDS,
     normalize_decision_route,
 )
 from heddle.kernel import blockers
@@ -116,16 +117,24 @@ def resolve_decision(operation: ops.ResolveDecision) -> HeddleResult:
             "--resolution requires nonempty rationale",
             "describe the ruling and its permanent record",
         )
-    route = normalize_decision_route(operation.routes_to)
-    if route is None:
-        return HeddleResult.failure(
-            HeddleError(
-                "invalid-route",
-                f"invalid resolution route {operation.routes_to!r}",
-                "provide one truthful repo-relative path",
-            ),
-            exit_code=ExitCode.USAGE,
-        )
+    route = None
+    if operation.routes_to is None:
+        if operation.kind not in SPEC_ROUTED_RESOLUTION_KINDS:
+            return usage_failure(
+                f"--routes-to is required to resolve with {operation.kind}",
+                "name the permanent record of the ruling with --routes-to",
+            )
+    else:
+        route = normalize_decision_route(operation.routes_to)
+        if route is None:
+            return HeddleResult.failure(
+                HeddleError(
+                    "invalid-route",
+                    f"invalid resolution route {operation.routes_to!r}",
+                    "provide one truthful repo-relative path",
+                ),
+                exit_code=ExitCode.USAGE,
+            )
     if operation.kind == "policy" or operation.kind not in {
         kind for values in DECISION_RESOLUTION_KINDS.values() for kind in values
     }:
@@ -136,6 +145,10 @@ def resolve_decision(operation: ops.ResolveDecision) -> HeddleResult:
     target = _resolve_target(operation.feature, operation.expect_revision)
     if isinstance(target, HeddleResult):
         return target
+    if route is None:
+        # A continuation's permanent record is the feature spec; deriving it
+        # keeps an exact replay identical to the first resolution.
+        route = target.state.spec
     affected: dict[str, str] = {}
     evidence_binding = None
     if operation.kind == "accept-degraded-smoke":
@@ -818,12 +831,13 @@ def run_decisions(args: list[str], json_mode: bool) -> int:
         operation = ops.DecisionsList(feature)
     elif verb == "resolve":
         if len(positionals) != 1 or any(
-            flag not in values for flag in ("--kind", "--resolution", "--routes-to")
+            flag not in values for flag in ("--kind", "--resolution")
         ):
             return _emit(
                 usage_failure(
-                    "decisions resolve requires id, --kind, --resolution "
-                    "and --routes-to",
+                    "decisions resolve requires id, --kind and --resolution, "
+                    "plus --routes-to except for continue-review and "
+                    "continue-stage",
                     "provide the typed resolution and authored rationale",
                 ),
                 json_mode,
@@ -832,7 +846,7 @@ def run_decisions(args: list[str], json_mode: bool) -> int:
             positionals[0],
             cast(kinds.ResolutionKind, values["--kind"]),
             values["--resolution"],
-            values["--routes-to"],
+            values.get("--routes-to"),
             feature=feature,
             expect_revision=expect_revision,
             dry_run=dry_run,

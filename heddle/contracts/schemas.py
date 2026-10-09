@@ -250,6 +250,9 @@ DECISION_RESOLUTION_KINDS = {
     "witness-waiver": ("disposition", "accept-prior-witness"),
     "policy": ("policy",),
 }
+# Continuations record their ruling in the feature spec, so their resolution
+# may omit --routes-to; every other resolution names its permanent record.
+SPEC_ROUTED_RESOLUTION_KINDS = frozenset({"continue-review", "continue-stage"})
 
 # The eight-class escalation taxonomy is single-sourced here: class →
 # surfacing mechanism, plus
