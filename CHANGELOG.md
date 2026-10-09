@@ -10,6 +10,50 @@ authority for the installed version.
 
 ### Changed
 
+- `heddle run-gate` and `heddle run-gates` print progress to stderr once a
+  minute while reviewers run, naming the gate, slot, CLI and elapsed time;
+  `run-gates` gives every slot's state (`running`, `done after …` or
+  `failed after …`) on one line. Progress used to arrive as unlabelled lines
+  only after each provider had exited. `run-gates` members report
+  `started_at`, `finished_at` and `duration_s`, and its human output names
+  each member instead of printing `None`.
+- A recorded review whose verdict has not converged exits 4 with `ok: true`
+  on spec, plan and scaffold review too, where it exited 3, so exit 3 always
+  comes with `ok: false`. The driver carries only an `ok: true` exit 4 into
+  the next session.
+- `heddle run-gates` prints launch advice once, before any slot starts, and
+  returns it in the envelope diagnostics whether the batch succeeds or fails.
+  The advice's diagnostic code `optional-lane-unavailable` is renamed
+  `review-input-git-status`.
+- After a review round, readiness lists one decision action for every
+  pending decision the round recorded, not only the first.
+- `heddle decisions resolve --kind continue-review` and `continue-stage` take
+  `--routes-to` as optional; the route defaults to the feature spec. A
+  round-limit stop lists both continuation steps up front: the resolution,
+  then `heddle review allowance` for the reached cap.
+- `heddle decisions add` returns the decisions it allocated in
+  `data.decisions` (`id`, `title`, `status`), with the would-be ids on a dry
+  run.
+- A failing configured close suite at `heddle feature complete` reports
+  `verification-failed` with the command, its exit code and the log path,
+  instead of `internal`.
+- A disposition with verification evidence but no `verification_scope` is
+  refused with a remedy: record the run with `heddle verify` and name its
+  scope, or use `inspection` for edits not yet run under `heddle verify`. A
+  review whose prior-finding accounting cites an unknown or misses an
+  expected finding names the unmatched and missing pairs and the closest
+  accepted run id.
+- Stage briefings carry new guidance; no gate prompt changes:
+  - specify and plan review say an alignment check is recorded as one
+    Assessment entry in the plan's verification note;
+  - scaffold and implement run the host's formatters over every file a
+    disposition will cite before recording it, and the final boundaries
+    settle ownership of new paths before final verification and
+    dispositions;
+  - specify reads allocated decision ids from the `decisions add` result;
+  - the stage briefings and the gate failure guide say that exit 4 with
+    `ok: true` after a review means the round was recorded with work
+    remaining, and that exit 3 means the command failed.
 - The recommended review policy runs `milestone-review` on
   `claude-opus-5-5` at `xhigh` reasoning effort instead of `high`, and the
   Claude lane default for that gate matches. Confirmed policies keep the
@@ -66,11 +110,16 @@ authority for the installed version.
 - At a round limit, when the only open reference is the latest round's own
   `@coverage` duty, readiness routes to `heddle review disposition` instead of
   a round-limit stop.
-- A refused `heddle review round-open` that records a stop decision now says
-  so: its error details carry `wrote`, `revision`, `decision_id` and
-  `stop_reason`.
-- `heddle decisions add`, `resolve` and `record-policy` report `wrote` on a
-  real write; `would_write` appears only in dry runs.
+- A `heddle review round-open` that records a no-progress, no-decrease or
+  round-limit stop returns `ok: true` with exit 4, and its `data` carries
+  `wrote`, `revision`, `decision_id` and `stop_reason`; the next action
+  resolves that decision. A repeat call while the stop is pending, a reached
+  cap and a sealed acceptance are still refused.
+- `heddle decisions add`, `resolve` and `record-policy`, `heddle feature
+  policy`, `heddle review allowance` and `heddle review disposition`,
+  `round-open` and `reaffirm` report `wrote` on a real write; `would_write`
+  appears only in dry runs, and a real write no longer reports
+  `dry_run: false`.
 - `heddle milestone add` accepts complexity `low` or `high` only and refuses
   any other value as a usage error naming both. The plan scaffold no longer
   says the command appends a plan section; the lead writes it.
@@ -99,6 +148,10 @@ authority for the installed version.
 
 ### Added
 
+- `heddle task edit <task-ref> --text <text>` corrects an open task's text on
+  the current milestone, keeping its id and status; a done task is refused.
+- `heddle session log --help` publishes its payload schema,
+  `heddle.session-input/v1`.
 - `heddle feature start --through <stage> --statement <text>` records the
   owner's stated authority ceiling and where it was given. Without
   `--through` the ceiling stays at specify. While the specification
