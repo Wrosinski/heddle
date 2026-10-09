@@ -229,8 +229,8 @@ def run_loop(config: ProjectConfig, slug: str, *, until: str | None) -> HeddleRe
             conflict_retries = 0
             if _is_unconverged_gate_verdict(action, result):
                 # A completed gate run whose verdict did not converge —
-                # pass_with_conditions (ADVISORY/4) or a clean-engine fail
-                # verdict (FATAL/3 on an ok envelope) — is a normal
+                # pass_with_conditions or a clean-engine fail verdict, both
+                # ADVISORY/4 on an ok envelope — is a normal
                 # convergence-loop outcome, not a halt: fold it into the next
                 # attempt's kickoff so a stage session applies the findings
                 # and re-converges the gate (attempts are never blind; bounded

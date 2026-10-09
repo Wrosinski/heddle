@@ -7,8 +7,8 @@ ADVISORY/4 exit — and the loop's generic nonzero-exit halt ended the run
 instead of continuing the convergence loop. Contract (autopilot Decision Log,
 "Gate-verdict continuation"): a driver-executed ``run-gate`` whose engine run
 COMPLETED (``ok`` envelope) but whose verdict is not converged
-(``pass_with_conditions`` → 4, clean-engine ``fail`` verdict → 3) folds into
-the next attempt's kickoff — attempts are never blind — bounded by
+(``pass_with_conditions`` or a clean-engine ``fail`` verdict, both → 4)
+folds into the next attempt's kickoff — attempts are never blind — bounded by
 ``VALIDATION_ATTEMPT_LIMIT``. Engine errors (``ok: false``) keep halting
 (AC-22); those runs are error-marked and review accounting-counted.
 """
