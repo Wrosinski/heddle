@@ -470,7 +470,8 @@ DECISION_BATCH_INPUT_SCHEMA: dict[str, Any] = {
     },
     "notes": [
         "id is allocated opaquely; created_at and status: pending are recorded "
-        "by the handler",
+        "by the handler; the result lists each allocated id, title and status "
+        "under decisions (a dry run lists the ids a write would allocate)",
         "unknown fields are refused at every document boundary",
         "caps require their reached stage/blocker and the matching escalation "
         "class; runtime binds current evidence",

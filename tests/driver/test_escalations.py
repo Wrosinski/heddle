@@ -508,6 +508,23 @@ def test_ac13_decisions_add_validates_decision_batch_payload(
     payload_path = tmp_path / "batch.json"
     payload_path.write_text(json.dumps(_decision_batch_payload(8)), encoding="utf-8")
     monkeypatch.chdir(host)
+    allocated = [{"id": "D1", "title": "class 8 escalation", "status": "pending"}]
+    before = state_path.read_bytes()
+    code, out, _err = run_cli(
+        [
+            "decisions",
+            "add",
+            "--feature",
+            SLUG,
+            "--input-json",
+            str(payload_path),
+            "--dry-run",
+            "--json",
+        ]
+    )
+    preview = envelope_tools.parse(out)
+    assert code == 0 and preview["data"]["decisions"] == allocated, preview
+    assert state_path.read_bytes() == before, "a preview names ids without writing"
 
     code, out, _err = run_cli(
         [
@@ -528,6 +545,9 @@ def test_ac13_decisions_add_validates_decision_batch_payload(
         "command": "decisions add",
         "wrote": True,
     }, "a real add reports wrote, not the dry-run would_write"
+    assert envelope["data"]["decisions"] == allocated, (
+        "the add result names the ids it allocated, so no read-back is needed"
+    )
     state = driver_corpus.read_yaml(state_path)
     decision = state["decisions"][-1]
     assert decision["id"] == "D1" and decision["status"] == "pending", (

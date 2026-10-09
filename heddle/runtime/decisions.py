@@ -415,9 +415,14 @@ def decisions_add(operation: ops.DecisionsAdd) -> HeddleResult:
             parse_state_document(document, source=target.state_path)
         except KernelError as error:
             raise _usage_error(error.message) from error
+        added["decisions"] = [
+            {key: fields[key] for key in ("id", "title", "status")}
+            for fields in additions
+        ]
         return document
 
-    return _mutate(target, operation.dry_run, "decisions add", transform, {})
+    added: dict[str, Any] = {}
+    return _mutate(target, operation.dry_run, "decisions add", transform, added)
 
 
 def record_policy(operation: ops.RecordPolicy) -> HeddleResult:
