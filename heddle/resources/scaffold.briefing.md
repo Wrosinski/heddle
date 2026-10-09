@@ -275,8 +275,10 @@ next actions. Run selected calls through the emitted `heddle run-gate`, or
 through the one `run-gates` action that starts independent slots together
 when the host's `reviews.launch` is concurrent; preserve independent initial
 contexts and read all required initial reports before remediation. Off means
-intentionally not run, not passed. Native evidence-bound lead dispositions own
-closure; there is no synthesis gate. Finish scaffold fixes and run the host's
+intentionally not run, not passed. Treat `ok: true` as a recorded round
+whatever its exit: exit 4 says findings, decisions or a retained response still
+need you, and only `ok: false` reports a failed call. Native evidence-bound
+lead dispositions own closure; there is no synthesis gate. Finish scaffold fixes and run the host's
 formatters, as its commit hooks would, over every file a row will cite before
 inspecting and recording dispositions; a later reformat of a cited file stops
 that row counting. Preserve exact original finding/decision references, coverage

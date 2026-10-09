@@ -13,6 +13,19 @@ Rerun the recorded verification scope when fresh proof is required; never restam
 old bytes or edit the reference by hand. A v8 workspace is unsupported by the
 current runtime and must remain with its compatible pinned supervisor.
 
+## Exit status of a recorded round
+
+`heddle run-gate` and `heddle run-gates` return `ok: true` once a round is
+recorded. Exit 0 then means the verdict converged; native closure may still ask
+for the round's coverage disposition. Exit 4 means the recorded round left
+work: conditions or findings to disposition, owner decisions it routed, or a
+retained response to interpret. Read `data`, and for `run-gates` every member
+row (the batch exits with its most severe member); nothing failed and no retry
+is needed. A review stop (round cap, no progress or no decrease) recorded
+through `heddle review round-open` also returns `ok: true` with exit 4 and
+names its stop decision. An `ok: false` result, usually exit 3, means the command failed
+or was refused: follow its `error` and the matching entry below.
+
 ## Completed responses awaiting interpretation
 
 For current assigned reviews, `ok: true`, `status: retained`, advisory exit 4

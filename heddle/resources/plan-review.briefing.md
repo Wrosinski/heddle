@@ -21,6 +21,9 @@ through the emitted `heddle run-gate`, or `run-gates` when readiness starts
 independent slots at once (`reviews.launch` decides), preserving execution
 tuples and independent initial contexts. Read all required initial reports
 before changing the plan. Off means intentionally not run, not a reviewer pass.
+An `ok: true` result means the round was recorded; exit 4 then marks remaining
+work (findings, conditions, owner decisions or a retained response), not a
+failure. Only `ok: false` reports a failed call.
 
 Closure belongs to native evidence-bound lead dispositions, not a synthesis or
 the newest report. Preserve original findings, coverage gaps, exact REPORT

@@ -146,7 +146,9 @@ formal gate artifacts retain their required structure and non-narration rules.
    milestone.
 5. Follow the confirmed `milestone-review` assignment through its emitted
    action: `heddle run-gate` per slot, or `run-gates` for slots that
-   `reviews.launch` lets start together.
+   `reviews.launch` lets start together. With `ok: true` the round is
+   recorded even at exit 4, which signals open findings, decisions or a
+   retained response; a failed call returns `ok: false`.
    Off means intentionally not run, not passed. Read all required initial
    reports before remediation; Minor findings are audit-only. Apply supported
    Critical/Important IMPLEMENT fixes, rerun affected milestone/consumer proof,

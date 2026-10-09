@@ -46,7 +46,9 @@ Run the selected `spec-review` calls through the emitted review action:
 other's findings launch together under the host's `reviews.launch` setting.
 Preserve their resolved execution tuples and independent contexts. Read every
 required initial report before remediation. An off entry is intentionally not
-run, not passed.
+run, not passed. An `ok: true` result means the round was recorded; exit 4 then
+marks remaining work (findings, conditions, owner decisions or a retained
+response), not a failure. Only `ok: false` reports a failed call.
 
 The lead's native evidence-bound dispositions establish closure. There is no
 synthesis gate or separate prose verdict owner. A clean report cannot erase an

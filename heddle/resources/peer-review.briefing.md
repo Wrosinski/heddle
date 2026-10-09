@@ -40,7 +40,9 @@ concurrently; with `reviews.launch: sequential` it emits each slot's
 `heddle run-gate` instead. Keep one run per assignment slot at a time and
 preserve independent initial contexts, including required secondary slots.
 Commands that carry `--expect-revision` run one at a time with a fresh revision.
-Read all required initial reports before remediation.
+Read all required initial reports before remediation. Each slot's `ok: true`
+records its round; exit 4 flags remaining findings, owner decisions or a
+retained response rather than a failure, which returns `ok: false`.
 
 There is no synthesis authority or manual merged verdict. The lead accounts
 for every original finding and coverage duty through native evidence-bound

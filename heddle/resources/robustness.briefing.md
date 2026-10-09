@@ -11,7 +11,9 @@ Use native status/orientation for the confirmed `robustness-analysis`
 assignment, reviewer slots, allowance, and next action. Run only selected calls
 through the emitted action, a slot's `heddle run-gate` or, for slots the host's
 `reviews.launch` setting starts together, `run-gates`, with independent initial
-contexts and all required initial reports read before remediation. The runtime
+contexts and all required initial reports read before remediation. A slot
+returning `ok: true` was recorded even when it exits 4 for remaining work; a
+failed call returns `ok: false`. The runtime
 records canonical results and decisions; the lead records evidence-bound
 dispositions, not a synthesis.
 
