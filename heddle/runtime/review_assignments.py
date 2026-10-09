@@ -1292,15 +1292,13 @@ def projection(
                     <= STAGES.index(snapshot.state.stage) + 1
                     else "scope-not-defined"
                 )
-            owner = next(
-                (
-                    d.id
-                    for d in snapshot.state.decisions
-                    if d.status == "pending"
-                    and (d.origin_run_id, d.origin_finding_id) in closed.open_refs
-                ),
-                None,
-            )
+            owners = [
+                d.id
+                for d in snapshot.state.decisions
+                if d.status == "pending"
+                and (d.origin_run_id, d.origin_finding_id) in closed.open_refs
+            ]
+            owner = owners[0] if owners else None
             stop_decision = next(
                 (
                     decision
@@ -1315,6 +1313,7 @@ def projection(
                 and stop_decision.status == "pending"
             ):
                 owner = stop_decision.id
+                owners = [owner]
             row = {
                 "assignment_id": assignment.id,
                 "role": assignment.role,
@@ -1322,6 +1321,7 @@ def projection(
                 "policy_revision": assignment.policy_revision,
                 **ops.decoded_payload(closed),
                 "decision_id": owner,
+                "decision_ids": owners,
                 "evidence_state": evidence_state,
                 "evidence_basis": evidence_basis,
             }
@@ -1500,6 +1500,39 @@ def _stop_actions(
     return tuple(actions)
 
 
+def _decision_action(
+    snapshot: FeatureSnapshot, identifier: str, position: str = ""
+) -> NextAction:
+    decision = next(
+        item
+        for item in snapshot.state.decisions
+        if item.id == identifier and item.status != "resolved"
+    )
+    return NextAction(
+        ops.DecisionAction(
+            feature=snapshot.feature,
+            decision_id=decision.id,
+            choices=decision.options,
+            routes_to=decision.routes_to,
+        ),
+        f"resolve original review decision {identifier}{position}",
+    )
+
+
+def next_actions(
+    snapshot: FeatureSnapshot, row: dict[str, Any]
+) -> tuple[NextAction, ...]:
+    """Every action an assignment row needs now: one per pending decision a
+    round recorded, otherwise its single next step."""
+    owners = row["decision_ids"]
+    if row["next_step"] == "decision" and len(owners) > 1:
+        return tuple(
+            _decision_action(snapshot, owner, f" ({index} of {len(owners)})")
+            for index, owner in enumerate(owners, start=1)
+        )
+    return (next_action(snapshot, row),)
+
+
 def next_action(snapshot: FeatureSnapshot, row: dict[str, Any]) -> NextAction:
     if row["next_step"] == "policy":
         reason = (
@@ -1516,20 +1549,7 @@ def next_action(snapshot: FeatureSnapshot, row: dict[str, Any]) -> NextAction:
         retained = core.pending_retained(snapshot.state, row["assignment_id"])[0]
         return interpretation_action(snapshot, retained)
     if row["next_step"] == "decision" and row["decision_id"] is not None:
-        decision = next(
-            item
-            for item in snapshot.state.decisions
-            if item.id == row["decision_id"] and item.status != "resolved"
-        )
-        return NextAction(
-            ops.DecisionAction(
-                feature=snapshot.feature,
-                decision_id=decision.id,
-                choices=decision.options,
-                routes_to=decision.routes_to,
-            ),
-            f"resolve original review decision {row['decision_id']}",
-        )
+        return _decision_action(snapshot, row["decision_id"])
     if _originating_inspection_round_requested(snapshot, row):
         reason = (
             f"Open the originating-reviewer verification pass for "

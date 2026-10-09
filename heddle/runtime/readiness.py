@@ -93,7 +93,7 @@ def _assignment_readiness(
 ) -> BoundaryAssessment:
     from heddle.contracts.review_assignments import ROLE_STAGES
     from heddle.contracts.schemas import STAGES
-    from heddle.runtime.review_assignments import next_action, projection
+    from heddle.runtime.review_assignments import next_actions, projection
 
     if observed is None:
         observed = projection(config, snapshot, source_observations=captures)
@@ -197,7 +197,7 @@ def _assignment_readiness(
         if not row["closed"] and (retained or not implementation_work_pending):
             if "gate-not-converged" not in blockers:
                 blockers.append("gate-not-converged")
-            actions.append(next_action(snapshot, row))
+            actions.extend(next_actions(snapshot, row))
     if len(actions) > proof_actions:
         # Open review work here may change owned content again, so a default
         # post-review witness rerun waits behind it; the lane still blocks exit.

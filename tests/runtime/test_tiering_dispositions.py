@@ -2170,3 +2170,42 @@ def test_round_limit_stop_names_both_continuation_steps_and_defaults_the_route(
     blocked = open_round(path)
     assert not blocked.ok and "review allowance" in blocked.error.message
     assert len(calls) == 1
+
+
+def test_a_round_with_two_report_findings_names_both_decisions(
+    tmp_path, monkeypatch, run_cli
+):
+    from heddle.contracts import operations as ops
+
+    _host, path = current_host(tmp_path, monkeypatch)
+    calls = provider_transport(
+        monkeypatch, review_content(findings=[finding("SP-I1"), finding("SP-I2")])
+    )
+    code, gated = gate_command(run_cli, "run-gate", "spec-review")
+    assert code == 4 and gated["ok"], gated
+    recorded = [
+        row["id"]
+        for row in yaml.safe_load(path.read_text())["decisions"]
+        if row["status"] == "pending"
+    ]
+    assert len(recorded) == 2
+    assert [
+        item["action"]["decision_id"]
+        for item in gated["next_actions"]
+        if item["action"]["kind"] == "decision"
+    ] == recorded
+    assert review_status(path)["decision_ids"] == recorded
+    for name in ("Status", "Orient"):
+        observed = invoke(name, feature=V7_FEATURE)
+        assert observed.ok, observed.to_envelope()
+        actions = [
+            item
+            for item in observed.next_actions
+            if isinstance(item.action, ops.DecisionAction)
+        ]
+        assert [item.action.decision_id for item in actions] == recorded
+        assert [item.reason for item in actions] == [
+            f"resolve original review decision {recorded[0]} (1 of 2)",
+            f"resolve original review decision {recorded[1]} (2 of 2)",
+        ]
+    assert len(calls) == 1
