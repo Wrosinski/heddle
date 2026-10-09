@@ -582,3 +582,25 @@ def test_ac12_valid_nonzero_close_suite_refuses_then_retry_succeeds(
     assert recovered.ok and recovered.data["accepted"] is True
     assert read(host.state)["completion"] is not None
     assert host.suite_calls() == ["close", "retry"]
+
+
+def test_failed_close_suite_is_a_verification_failure_naming_its_log(
+    tmp_path, monkeypatch
+) -> None:
+    """A failing host suite is refused as unusable evidence, not an internal
+    fault, and the refusal names the command, its exit and its log."""
+    host = final_host(tmp_path, monkeypatch, verify_now=False)
+    _set_close_suite(host, "raise SystemExit(17)")
+
+    failed = host.complete()
+
+    assert not failed.ok and failed.error is not None
+    assert failed.error.code == "verification-failed"
+    assert int(failed.exit_code) == 3
+    details = failed.error.details
+    assert details["feature"] == FEATURE
+    assert details["child_exit_code"] == 17
+    assert details["command"].endswith("'raise SystemExit(17)'")
+    log = host.state.parent / details["log"]
+    assert details["log"].startswith("verification/final-close-") and log.is_file()
+    assert read(host.state)["completion"] is None

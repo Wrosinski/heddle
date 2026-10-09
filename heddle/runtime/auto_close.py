@@ -285,22 +285,27 @@ def run_close_suite(
         return None
     log_path = _close_suite_log_path(context)
     exit_code = run_verification_command(context.config.root, command, log_path)
+    log = log_path.relative_to(context.state_path.parent).as_posix()
     if exit_code != 0:
-        return _close_validation_failure(
+        return _close_suite_failure(
             message=(
                 f"close validation failed: configured test command exited "
                 f"{exit_code}; log: {log_path}"
             ),
             hint="make the configured autopilot test command pass before close",
+            details={
+                "feature": context.feature,
+                "command": command,
+                "child_exit_code": exit_code,
+                "log": log,
+            },
             action=ops.ManualAction(command),
             reason=(
                 "run the additional close suite configured at "
                 ".heddle.yaml:autopilot.test_command in the current host checkout"
             ),
         )
-    return CloseSuiteFact(
-        command, log_path.relative_to(context.state_path.parent).as_posix(), exit_code
-    )
+    return CloseSuiteFact(command, log, exit_code)
 
 
 def _close_suite_log_path(context: ResolvedSnapshotContext) -> Path:
@@ -311,15 +316,20 @@ def _close_suite_log_path(context: ResolvedSnapshotContext) -> Path:
     )
 
 
-def _close_validation_failure(
+def _close_suite_failure(
     *,
     message: str,
     hint: str,
+    details: dict[str, Any],
     action: ops.Action,
     reason: str,
 ) -> HeddleResult:
+    """A failing host suite is unusable verification evidence, not a Heddle
+    fault: it shares ``verify``'s refusal code and detail keys."""
     return HeddleResult.failure(
-        HeddleError(code="internal", message=message, hint=hint),
+        HeddleError(
+            code="verification-failed", message=message, hint=hint, details=details
+        ),
         exit_code=ExitCode.FATAL,
         next_actions=(NextAction(action=action, reason=reason),),
     )
