@@ -871,7 +871,7 @@ def _execute_batch_workers(
             )
             for ready in ready_set:
                 receiver = cast(multiprocessing.connection.Connection, ready)
-                member = receivers.pop(receiver)
+                member = receivers[receiver]
                 try:
                     kind, value = receiver.recv()
                 except EOFError:
@@ -882,6 +882,7 @@ def _execute_batch_workers(
                     continue
                 finally:
                     _finish_timing(member)
+                    del receivers[receiver]
                     receiver.close()
                 if kind != "outcome":
                     _member_failed(member, value)
@@ -901,10 +902,12 @@ def _execute_batch_workers(
                 next_line = now + _PROGRESS_INTERVAL_S
         _stop_publication(members, publication)
     except KeyboardInterrupt:
-        _terminate_batch_processes(processes)
-        # A launched member that was still running ran until it was stopped.
+        # A launched member that was still running ran until the interrupt;
+        # the shutdown that follows is not its run time.
         for member in receivers.values():
-            _finish_timing(member)
+            if member.finished_at is None:
+                _finish_timing(member)
+        _terminate_batch_processes(processes)
         return _interrupted_batch(resolved, members)
     finally:
         _terminate_batch_processes(processes)
