@@ -317,10 +317,10 @@ is proposed, or declined for a real-provider feature, also record one class-5
 user-required prerequisites, allowed effects and cleanup or recovery,
 time/turn/retry and per-attempt/aggregate cost caps sized for both runs, and the
 live stages and bounded reruns, or the reason and a concrete fallback. Draft
-both documents with the recommended posture. Read the allocated decision IDs
-back from the workspace `state.yaml` and cite both in the spec's Approved MVP
-and the plan's Integrated Witness Proposal. Scope confirmation and credentials
-alone are not execution grants.
+both documents with the recommended posture. Take the allocated decision IDs
+from the `decisions add` result (`data.decisions`) and cite both in the spec's
+Approved MVP and the plan's Integrated Witness Proposal. Scope confirmation and
+credentials alone are not execution grants.
 
 Both are approvals of prepared work under the Decision routing policy:
 resolving them lets the driver advance straight to spec review, so any change,

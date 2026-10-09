@@ -310,7 +310,8 @@ class TestL3SpecificationCheckpoint:
             "class-8 `question` titled `Specification checkpoint: <slug>`, with "
             "the overview as its body",
             "titled `Live witness: <slug>`",
-            "Read the allocated decision IDs back from the workspace `state.yaml`",
+            "Take the allocated decision IDs from the `decisions add` result "
+            "(`data.decisions`)",
             "Both are approvals of prepared work under the Decision routing policy",
         ):
             assert anchor in section, anchor
