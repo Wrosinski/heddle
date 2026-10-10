@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import hashlib
 import json
-from collections.abc import Iterable
-from dataclasses import dataclass
+from collections.abc import Iterable, Mapping
+from dataclasses import dataclass, replace
 from pathlib import PurePosixPath
 from typing import Any, Literal, get_args
 
@@ -212,7 +212,11 @@ def build_source_evidence(
     definition: SourceDefinition,
     observations: Iterable[ObservedPath],
 ) -> SourceEvidence:
-    """Build the immutable, compact evidence form for one source observation."""
+    """Build the immutable, compact evidence form for one source observation.
+
+    Observations carry raw identity only, so reads pay no rule cost; a write
+    records equivalence through ``stamp_equivalence``.
+    """
     rows: list[EvidenceObservation] = []
     seen: set[str] = set()
     for observation in observations:
@@ -226,18 +230,12 @@ def build_source_evidence(
                 f"unknown source observation kind: {observation.kind!r}"
             )
         seen.add(path)
-        identity = (
-            equivalence_identity(path, observation.content)
-            if observation.kind == "file"
-            else None
-        )
         rows.append(
             EvidenceObservation(
                 path,
                 observation.kind,
                 observation.executable,
                 hashlib.sha256(observation.content).hexdigest(),
-                None if identity is None else EquivalenceIdentity(*identity),
             )
         )
     rows.sort(key=lambda row: byte_sort_key(row.path))
@@ -250,6 +248,39 @@ def build_source_evidence(
     return SourceEvidence(
         SOURCE_EVIDENCE_SCHEMA, definition, tuple(rows), source_sha256
     )
+
+
+def stamp_equivalence(
+    evidence: SourceEvidence, contents: Mapping[str, Iterable[bytes]]
+) -> SourceEvidence:
+    """Record the review-equivalence identity of the named observations.
+
+    A named file observation takes the identity of the first candidate whose
+    SHA-256 is its raw content digest, so the identity is always that of the
+    observed bytes. With no such candidate, or no rule for the path, it records
+    none. Other observations, raw identity and ``source_sha256`` are unchanged.
+    """
+    return replace(
+        evidence,
+        observations=tuple(
+            replace(row, equivalence=_observed_identity(row, contents[row.path]))
+            if row.path in contents
+            else row
+            for row in evidence.observations
+        ),
+    )
+
+
+def _observed_identity(
+    row: EvidenceObservation, candidates: Iterable[bytes]
+) -> EquivalenceIdentity | None:
+    if row.kind != "file":
+        return None
+    for content in candidates:
+        if hashlib.sha256(content).hexdigest() == row.content_sha256:
+            identity = equivalence_identity(row.path, content)
+            return None if identity is None else EquivalenceIdentity(*identity)
+    return None
 
 
 def encode_source_evidence(evidence: SourceEvidence) -> bytes:

@@ -29,6 +29,7 @@ import time
 from pathlib import Path
 
 import pytest
+import yaml
 
 from heddle.runtime.contracts import (
     PERF_CI_CEILING_S,
@@ -142,9 +143,48 @@ class TestAC15PerformanceAndHotPath:
         )
 
 
+OWNED_MARKDOWN = "src/example/screening/notes.md"
+
+
+def record_owned_markdown(host: Path) -> Path:
+    """Let the current milestone own a Markdown file and record a fact for it.
+
+    Returns the recorded after-manifest, which carries the file's equivalence
+    identity because written records are stamped.
+    """
+    notes = host / OWNED_MARKDOWN
+    notes.parent.mkdir(parents=True)
+    notes.write_text("# Notes\n\nOwned  Markdown.\n", encoding="utf-8")
+    state_path = host / "plans" / "nl-screening" / "state.yaml"
+    state = yaml.safe_load(state_path.read_text(encoding="utf-8"))
+    current = next(row for row in state["milestones"] if row["status"] == "current")
+    current["owns"].append(OWNED_MARKDOWN)
+    current["verification"]["command"] = f"{sys.executable} -c pass"
+    state_path.write_text(yaml.safe_dump(state, sort_keys=False), encoding="utf-8")
+    result = subprocess.run(
+        [sys.executable, "-m", "heddle", "verify", "--scope", current["id"], "--json"],
+        cwd=host,
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    after = json.loads(result.stdout)["data"]["verification"]["evidence"]["after"]
+    return state_path.parent / after["artifact"]
+
+
 def test_ac11_non_search_hot_paths_never_load_or_scan_search(tmp_path: Path) -> None:
-    """AC-11 survivor: fresh non-search processes never enter search code."""
+    """AC-11 survivor: fresh non-search processes never enter search code.
+
+    Identity is lazy on reads: status, status --json and orient load neither the
+    Markdown parser nor the search module unless a Markdown observation differs
+    raw from its record. The owned Markdown file is unchanged here, so they
+    load neither; reading that one source file is source observation, not a
+    knowledge-document read. The control reflows it afterwards and shows the
+    on-demand read helper is what loads the parser.
+    """
     host = make_host(tmp_path)
+    manifest = record_owned_markdown(host)
     probe = r"""
 import builtins
 import contextlib
@@ -193,16 +233,36 @@ with (
 ):
     for argv in (["status"], ["status", "--json"], ["orient"], ["help"]):
         codes.append(main(argv))
+hot = {"imports": imports[:], "opens": opens[:], "connections": connections[:]}
 
+# Control: a raw change to the recorded Markdown file, bridged on demand.
+from heddle.io.source import observe_source
+from heddle.kernel.review_equivalence import review_equivalent
+from heddle.kernel.source_manifest import decode_source_evidence
+from heddle.runtime.verification import stamp_changed_equivalence
+
+control_start = len(imports)
+notes = host / sys.argv[3]
+notes.write_text(notes.read_text().replace("Owned  Markdown", "Owned Markdown"))
+recorded = decode_source_evidence(Path(sys.argv[2]).read_bytes())
+current = stamp_changed_equivalence(
+    host, observe_source(host, recorded.definition), recorded
+)
+before = {row.path: row for row in recorded.observations}
 print(json.dumps({
     "codes": codes,
-    "imports": imports,
-    "opens": opens,
-    "connections": connections,
+    **hot,
+    "control_imports": imports[control_start:],
+    "bridged": [
+        row.path
+        for row in current.observations
+        if row.content_sha256 != before[row.path].content_sha256
+        and review_equivalent(before[row.path], row)
+    ],
 }))
 """
     result = subprocess.run(
-        [sys.executable, "-c", probe, str(host)],
+        [sys.executable, "-c", probe, str(host), str(manifest), OWNED_MARKDOWN],
         cwd=host,
         capture_output=True,
         text=True,
@@ -211,21 +271,37 @@ print(json.dumps({
     assert result.returncode == 0, result.stderr
     observation = json.loads(result.stdout)
     assert observation["codes"] == [0, 0, 0, 0]
-    forbidden_imports = [
-        name
-        for name in observation["imports"]
-        if name == "heddle.kernel.knowledge_search" or name.startswith("markdown_it")
-    ]
+
+    def search_imports(names: list[str]) -> list[str]:
+        return [
+            name
+            for name in names
+            if name == "heddle.kernel.knowledge_search"
+            or name.startswith("markdown_it")
+        ]
+
+    forbidden_imports = search_imports(observation["imports"])
     assert not forbidden_imports, (
-        f"FAIL AC-11: non-search hot paths imported search code: {forbidden_imports}"
+        "FAIL AC-11: non-search hot paths imported search code while every "
+        f"Markdown observation matched its record: {forbidden_imports}"
     )
-    md_reads = [path for path in observation["opens"] if path.endswith(".md")]
+    owned = str((host / OWNED_MARKDOWN).resolve())
+    md_reads = [
+        path for path in observation["opens"] if path.endswith(".md") and path != owned
+    ]
     assert not md_reads, (
         f"FAIL AC-11: non-search hot paths read knowledge Markdown: {md_reads}"
     )
     assert observation["connections"] == [], (
         "FAIL AC-11: non-search hot paths connected to SQLite: "
         f"{observation['connections']}"
+    )
+    assert any(
+        name.startswith("markdown_it")
+        for name in search_imports(observation["control_imports"])
+    ), "the probe must observe the parser load once a Markdown record differs raw"
+    assert observation["bridged"] == [OWNED_MARKDOWN], (
+        "the reflowed Markdown must stay review-equivalent to its record"
     )
 
 

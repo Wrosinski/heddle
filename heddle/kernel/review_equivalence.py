@@ -254,6 +254,7 @@ _LINE_PREFIX = re.compile(r"[ \t]*(?:(?:[-+*]|[0-9]{1,9}[.)])(?:[ \t]+|\Z))*")
 _DELIMITER_CELL = re.compile(r":?-+:?")
 _ASCII_PUNCTUATION = frozenset("!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~")
 _TAG_START = re.compile(r"[A-Za-z/!?]")
+_HTML_TERMINATORS = (("<!--", "-->"), ("<?", "?>"), ("<![CDATA[", "]]>"))
 
 
 def _markdown_digest(content: bytes) -> str | None:
@@ -279,18 +280,35 @@ def _markdown_tokens(text: str) -> Iterator[str]:
     verbatim = set(range(front_matter))
     for start, end in markdown_block_ranges(parsed):
         verbatim.update(range(start, end))
+    # A blockquote line, a link reference definition or a line leaving an
+    # inline construct open may be continued by the following lines; those
+    # stay verbatim up to the next blank line, which no inline construct
+    # crosses.
+    continued = False
     for index, (line, body) in enumerate(zip(lines, bodies, strict=True)):
         if index in verbatim:
             yield "v" + line
-        elif not body.strip(" \t"):
+            continue
+        if not body.strip(" \t"):
+            continued = False
             yield "b"
-        elif _BLOCKQUOTE.match(body) or _LINK_REFERENCE_DEFINITION.match(body):
-            yield "v" + line
+            continue
+        tokens: tuple[str, ...] | None
+        if (
+            continued
+            or _BLOCKQUOTE.match(body)
+            or _LINK_REFERENCE_DEFINITION.match(body)
+        ):
+            tokens = None
         elif _TABLE_ROW.match(body):
-            yield from _table_tokens(body)
+            tokens = _table_tokens(body)
         else:
-            prose = _prose_tokens(body)
-            yield from ("v" + line,) if prose is None else prose
+            tokens = _prose_tokens(body)
+        if tokens is None:
+            continued = True
+            yield "v" + line
+        else:
+            yield from tokens
 
 
 def _front_matter_lines(bodies: list[str]) -> int:
@@ -303,8 +321,13 @@ def _front_matter_lines(bodies: list[str]) -> int:
     return 0
 
 
-def _table_tokens(body: str) -> tuple[str, ...]:
-    """A table row as its leading whitespace and trimmed cells."""
+def _table_tokens(body: str) -> tuple[str, ...] | None:
+    """A table row as its leading whitespace and trimmed cells.
+
+    None when the row leaves an inline construct open.
+    """
+    if _inline_text(body) is None:
+        return None
     lead = body[: len(body) - len(body.lstrip(" "))]
     cells = [cell.strip(" \t") for cell in re.split(r"(?<!\\)\|", body)]
     filled = [cell for cell in cells if cell]
@@ -321,6 +344,14 @@ def _prose_tokens(body: str) -> tuple[str, str, str] | None:
     content = rest.rstrip(" \t")
     trailing = rest[len(content) :]
     hard_break = len(trailing) - len(trailing.rstrip(" ")) >= 2
+    text = _inline_text(content)
+    if text is None:
+        return None
+    return "p" + prefix.group(), text, "1" if hard_break else "0"
+
+
+def _inline_text(content: str) -> str | None:
+    """Collapse whitespace runs outside verbatim spans; None if a span stays open."""
     pieces: list[str] = []
     index = 0
     while index < len(content):
@@ -333,7 +364,7 @@ def _prose_tokens(body: str) -> tuple[str, str, str] | None:
             return None
         pieces.append(content[index:end])
         index = end
-    return "p" + prefix.group(), "".join(pieces), "1" if hard_break else "0"
+    return "".join(pieces)
 
 
 def _token_end(text: str, index: int) -> int | None:
@@ -371,13 +402,30 @@ def _code_span_end(text: str, start: int) -> int | None:
 
 
 def _angle_span_end(text: str, start: int) -> int | None:
-    """End of an autolink or inline tag; a lone ``<`` stays plain text."""
-    close = text.find(">", start + 1)
-    if close != -1:
-        return close + 1
+    """End of an autolink, inline tag, comment or declaration at ``start``.
+
+    None when the construct stays open past the line. A tag ends at the first
+    ``>`` outside a quoted attribute value. A ``<`` opening none of these is
+    plain text, or a verbatim span when a later ``>`` on the line closes it.
+    """
+    for opener, closer in _HTML_TERMINATORS:
+        if text.startswith(opener, start):
+            close = text.find(closer, start + len(opener))
+            return None if close == -1 else close + len(closer)
     if _TAG_START.match(text, start + 1):
+        quote = None
+        for index in range(start + 1, len(text)):
+            character = text[index]
+            if quote is not None:
+                if character == quote:
+                    quote = None
+            elif character in "\"'":
+                quote = character
+            elif character == ">":
+                return index + 1
         return None
-    return start + 1
+    close = text.find(">", start + 1)
+    return start + 1 if close == -1 else close + 1
 
 
 def _link_tail_end(text: str, start: int) -> int | None:

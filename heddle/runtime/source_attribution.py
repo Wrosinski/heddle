@@ -30,7 +30,11 @@ from heddle.kernel.verification import (
 from heddle.runtime.clock import utc_now_seconds
 from heddle.runtime.feature_context import ResolvedSnapshotContext
 from heddle.runtime.feature_inputs import _read_payload
-from heddle.runtime.verification import inventory_source_paths, workflow_control_paths
+from heddle.runtime.verification import (
+    inventory_source_paths,
+    stamp_recorded_equivalence,
+    workflow_control_paths,
+)
 from heddle.runtime.write_args import parse_write_args, usage_failure
 from heddle.runtime.write_path import emit_result, run_state_mutation
 
@@ -152,8 +156,13 @@ def attribute_sources(operation: ops.AttributeSources) -> HeddleResult:
             )
             validate_attribution_evidence(source, references=False)
             validate_attribution_evidence(references, references=True)
+            # A written record carries equivalence identity;
+            # attribution currency still compares raw fields only.
             row = SourceAttribution(
-                entry["reason"], utc_now_seconds(), source, references
+                entry["reason"],
+                utc_now_seconds(),
+                stamp_recorded_equivalence(root, source),
+                stamp_recorded_equivalence(root, references),
             )
             payload = attribution_payload(row)
             proposed.append(payload)

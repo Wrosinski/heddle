@@ -12,6 +12,9 @@ re-implemented here. Activation seams:
   fence, code_block and html_block tokens;
 - ``EvidenceObservation.equivalence``, a ``(rule, digest)`` pair or a value
   with ``rule`` and ``digest`` attributes, None when absent;
+- ``heddle.kernel.source_manifest.stamp_equivalence(evidence, contents)``,
+  which records identity from the observed bytes when a record is written
+  (reads build raw identity only);
 - ``SourceEvidence.components``, ordered named digests built as
   ``EvidenceComponent(name, digest)`` when that type exists, else as pairs.
 
@@ -82,18 +85,23 @@ def markdown_rule_id() -> str:
 
 
 def observation(path, content, *, kind="file", executable=False):
-    """Observe one path through the production evidence builder."""
+    """Observe one path as a written record holds it.
+
+    The production builder records raw identity only; a write stamps the
+    equivalence identity from the observed bytes.
+    """
     from heddle.kernel.source_manifest import (
         ObservedPath,
         SourceDefinition,
         build_source_evidence,
+        stamp_equivalence,
     )
 
     evidence = build_source_evidence(
         SourceDefinition("milestone-owns", (path,), (path,)),
         (ObservedPath(path, kind, executable, content),),
     )
-    return evidence.observations[0]
+    return stamp_equivalence(evidence, {path: (content,)}).observations[0]
 
 
 def recorded_equivalence(row) -> tuple[str, str] | None:

@@ -232,6 +232,33 @@ MARKDOWN_FAIL_CLOSED = {
         "Intro\r\n\r\n```\r\ncode\r\n```\r\n",
         "Intro\n\n```\ncode\n```\n",
     ),
+    # A line continuing an inline construct opened on an earlier paragraph line
+    # stays exact, though the line alone looks like prose.
+    "middle-line-of-a-code-span": ("a `b\nc  d\ne` f\n", "a `b\nc d\ne` f\n"),
+    "link-title-on-a-continuation-line": (
+        '[text](url\n"title  two")\n',
+        '[text](url\n"title two")\n',
+    ),
+    "link-reference-definition-title-on-the-next-line": (
+        '[ref]: /url\n"a  b"\n',
+        '[ref]: /url\n"a b"\n',
+    ),
+    "inline-html-attribute-on-a-continuation-line": (
+        'See <a\nhref="x  y">t</a>\n',
+        'See <a\nhref="x y">t</a>\n',
+    ),
+    "quoted-angle-bracket-in-a-multi-line-attribute": (
+        'See <a title="x > y\nz  w">t</a>\n',
+        'See <a title="x > y\nz w">t</a>\n',
+    ),
+    "inline-html-comment-across-lines": (
+        "a <!-- x > y\nz  w -->\n",
+        "a <!-- x > y\nz w -->\n",
+    ),
+    "code-span-continued-from-a-blockquote": (
+        "> a `b\nc  d\ne` f\n",
+        "> a `b\nc d\ne` f\n",
+    ),
 }
 
 

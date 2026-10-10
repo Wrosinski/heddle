@@ -6,7 +6,7 @@ import hashlib
 import os
 import secrets
 import stat
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, replace
 from pathlib import Path
@@ -23,8 +23,15 @@ from heddle.contracts.operations import (
 from heddle.contracts.result import Diagnostic, Severity
 from heddle.io import git
 from heddle.io.source import capture_path, observe_source, resolve_source_definition
-from heddle.kernel.project_config import KernelError, ProjectConfig, load_project_config
+from heddle.kernel.managed_regions import authored_plan_observation
+from heddle.kernel.project_config import (
+    KernelError,
+    ProjectConfig,
+    find_project_root,
+    load_project_config,
+)
 from heddle.kernel.readiness import EvidenceExplanation
+from heddle.kernel.review_equivalence import rule_id_for
 from heddle.kernel.smoke_disposition import (
     validate_smoke_proposal,
     verification_fact_identity,
@@ -43,6 +50,7 @@ from heddle.kernel.source_manifest import (
     normalize_paths,
     normalize_source_paths,
     safe_relative_parts,
+    stamp_equivalence,
 )
 from heddle.kernel.state import SourceBaseline, StateFile
 from heddle.kernel.test_bindings import (
@@ -698,10 +706,78 @@ def replace_file_bytes(path: Path, content: bytes) -> None:
             temporary.unlink(missing_ok=True)
 
 
+def stamp_recorded_equivalence(root: Path, evidence: SourceEvidence) -> SourceEvidence:
+    """Stamp every rule-bearing file observation, as each written record does.
+
+    Identity comes from a re-read at ``root``; a re-read whose bytes no longer
+    match an observation's raw digest records none, so that path compares raw.
+    """
+    return _stamp_from_root(root, evidence, {row.path for row in evidence.observations})
+
+
+def stamp_changed_equivalence(
+    root: Path, current: SourceEvidence, recorded: SourceEvidence
+) -> SourceEvidence:
+    """Current evidence stamped for the paths that differ raw from ``recorded``.
+
+    Reads build raw identity only. This computes identity on
+    demand, and only where it can bridge the difference: a file observation of
+    the same path, kind and mode whose content digest differs and whose
+    recorded observation carries an identity under the rule this Heddle uses.
+    """
+    prior = {row.path: row for row in recorded.observations}
+    changed: set[str] = set()
+    for row in current.observations:
+        before = prior.get(row.path)
+        if (
+            before is not None
+            and before.equivalence is not None
+            and row.kind == "file"
+            and (before.kind, before.executable) == (row.kind, row.executable)
+            and before.content_sha256 != row.content_sha256
+            and before.equivalence.rule == rule_id_for(row.path)
+        ):
+            changed.add(row.path)
+    return _stamp_from_root(root, current, changed)
+
+
+def _stamp_from_root(
+    root: Path, evidence: SourceEvidence, paths: set[str]
+) -> SourceEvidence:
+    contents: dict[str, Iterable[bytes]] = {}
+    for row in evidence.observations:
+        if row.path not in paths or row.kind != "file" or rule_id_for(row.path) is None:
+            continue
+        try:
+            contents[row.path] = _observed_contents(capture_path(root, row.path))
+        except KernelError:
+            contents[row.path] = ()
+    return stamp_equivalence(evidence, contents)
+
+
+def _observed_contents(captured: ObservedPath) -> Iterator[bytes]:
+    """The re-read bytes, then the authored text a plan observation holds."""
+    yield captured.content
+    yield authored_plan_observation(captured).content
+
+
 def publish_source_evidence(
-    workspace: Path, evidence: SourceEvidence
+    workspace: Path, evidence: SourceEvidence, *, root: Path | None = None
 ) -> tuple[EvidenceReference, bool]:
-    """Publish canonical evidence create-only and return its validated reference."""
+    """Stamp, publish create-only and return the stamped evidence's reference.
+
+    Every published manifest records the equivalence identity of each
+    rule-bearing file observation, re-read at ``root``, else at the project
+    enclosing ``workspace``.
+    """
+    project = root if root is not None else find_project_root(workspace)
+    if project is None:
+        raise _source_error(
+            "evidence",
+            f"has no enclosing Heddle project: {workspace}",
+            hint="publish source evidence from a workspace inside a Heddle project",
+        )
+    evidence = stamp_recorded_equivalence(project, evidence)
     content = encode_source_evidence(evidence)
     reference = evidence_reference(evidence)
     target = _evidence_path(workspace, reference.artifact)

@@ -91,9 +91,9 @@ def test_ac7_publication_is_create_only_exactly_reusable_and_tamper_evident(
     workspace = tmp_path / "plans/feature"
     workspace.mkdir(parents=True)
     evidence = _evidence()
-    first, reused = publish_source_evidence(workspace, evidence)
+    first, reused = publish_source_evidence(workspace, evidence, root=tmp_path)
     assert reused is False
-    second, reused = publish_source_evidence(workspace, evidence)
+    second, reused = publish_source_evidence(workspace, evidence, root=tmp_path)
     assert reused is True and second == first
     assert read_source_evidence(workspace, first) == evidence
 
@@ -102,12 +102,12 @@ def test_ac7_publication_is_create_only_exactly_reusable_and_tamper_evident(
     with pytest.raises(KernelError, match="identity|bytes|tamper"):
         read_source_evidence(workspace, first)
     with pytest.raises(KernelError, match="conflict|bytes|tamper"):
-        publish_source_evidence(workspace, evidence)
+        publish_source_evidence(workspace, evidence, root=tmp_path)
 
     artifact.unlink()
     artifact.symlink_to(workspace / "outside")
     with pytest.raises(KernelError, match="symlink"):
-        publish_source_evidence(workspace, evidence)
+        publish_source_evidence(workspace, evidence, root=tmp_path)
 
 
 def test_ac7_publication_rejects_traversal_type_conflict_and_pre_reference_failure(
@@ -133,7 +133,7 @@ def test_ac7_publication_rejects_traversal_type_conflict_and_pre_reference_failu
     artifact = workspace / reference.artifact
     artifact.mkdir(parents=True)
     with pytest.raises(KernelError, match="type|regular|conflict"):
-        verification.publish_source_evidence(workspace, _evidence())
+        verification.publish_source_evidence(workspace, _evidence(), root=tmp_path)
     assert artifact.is_dir()
 
     artifact.rmdir()
@@ -144,7 +144,7 @@ def test_ac7_publication_rejects_traversal_type_conflict_and_pre_reference_failu
     with monkeypatch.context() as patch:
         patch.setattr(verification, "replace_file_bytes", fail_durable_publish)
         with pytest.raises(KernelError, match="publication failure"):
-            verification.publish_source_evidence(workspace, _evidence())
+            verification.publish_source_evidence(workspace, _evidence(), root=tmp_path)
     assert not artifact.exists()
     assert isinstance(reference, EvidenceReference)
 
@@ -171,10 +171,16 @@ def test_ac7_simultaneous_same_manifest_publication_converges_without_clobber(
                 future.result(timeout=3)
                 for future in (
                     workers.submit(
-                        verification.publish_source_evidence, workspace, evidence
+                        verification.publish_source_evidence,
+                        workspace,
+                        evidence,
+                        root=tmp_path,
                     ),
                     workers.submit(
-                        verification.publish_source_evidence, workspace, evidence
+                        verification.publish_source_evidence,
+                        workspace,
+                        evidence,
+                        root=tmp_path,
                     ),
                 )
             )
@@ -698,6 +704,7 @@ def test_ac15_writers_emit_v2_with_equivalence_beside_unchanged_raw_identity() -
         decode_source_evidence,
         encode_source_evidence,
         evidence_reference,
+        stamp_equivalence,
     )
     from tests.change_impact_identity_helpers import (
         V1_MILESTONE_SRC_PY,
@@ -707,18 +714,25 @@ def test_ac15_writers_emit_v2_with_equivalence_beside_unchanged_raw_identity() -
         recorded_equivalence,
     )
 
-    evidence = _mixed_evidence()
+    # Reads build raw identity only; a write stamps it from the observed bytes.
+    observed = _mixed_evidence()
+    assert all(recorded_equivalence(row) is None for row in observed.observations), (
+        "FAIL AC-15: building evidence for a read computed equivalence identity"
+    )
+    contents = {row[0]: row[3] for row in _MIXED_OBSERVATIONS}
+    evidence = stamp_equivalence(
+        observed, {path: (content,) for path, content in contents.items()}
+    )
     assert evidence.schema == "heddle.source-evidence/v2", (
         "FAIL AC-15: build_source_evidence still writes heddle.source-evidence/v1"
     )
-    assert evidence.source_sha256 == _MIXED_SOURCE_SHA256, (
+    assert evidence.source_sha256 == _MIXED_SOURCE_SHA256 == observed.source_sha256, (
         "FAIL AC-15: the source_sha256 recipe changed with v2"
     )
     rows = {row.path: row for row in evidence.observations}
     for path, kind, executable, content in _MIXED_OBSERVATIONS:
         assert (rows[path].kind, rows[path].executable) == (kind, executable)
         assert rows[path].content_sha256 == hashlib.sha256(content).hexdigest()
-    contents = {row[0]: row[3] for row in _MIXED_OBSERVATIONS}
     for path in ("src/a.py", "src/b.md"):
         assert recorded_equivalence(rows[path]) == identity(path, contents[path]), (
             f"FAIL AC-15: {path} does not record its review-equivalence identity"
@@ -813,10 +827,13 @@ def test_ac15_publisher_and_reader_accept_v2_beside_v1(tmp_path) -> None:
     assert evidence.schema == "heddle.source-evidence/v2", (
         "FAIL AC-15: build_source_evidence still writes heddle.source-evidence/v1"
     )
-    reference, reused = publish_source_evidence(workspace, evidence)
+    reference, reused = publish_source_evidence(workspace, evidence, root=tmp_path)
     assert reused is False
     assert read_source_evidence(workspace, reference) == evidence
-    assert publish_source_evidence(workspace, evidence) == (reference, True)
+    assert publish_source_evidence(workspace, evidence, root=tmp_path) == (
+        reference,
+        True,
+    )
     assert read_source_evidence(workspace, v1_ref).schema == (
         "heddle.source-evidence/v1"
     )
@@ -876,3 +893,158 @@ def test_ac15_v1_verification_record_reads_exactly_as_before(
         "FAIL AC-15: verification freshness must stay raw for a v1 record: "
         f"{status.status}"
     )
+
+
+def test_ac15_published_manifests_record_equivalence_from_a_raw_checked_reread(
+    tmp_path,
+) -> None:
+    """Publication stamps each rule-bearing file from a re-read at the root.
+
+    A re-read whose bytes no longer match the observation records no identity,
+    and a plan observation takes the identity of its authored text.
+    """
+    from heddle.io.source import observe_source
+    from heddle.kernel.managed_regions import (
+        PLAN_STATUS_ID,
+        authored_plan,
+        begin_marker,
+        end_marker,
+    )
+    from heddle.kernel.source_manifest import SourceDefinition
+    from heddle.runtime.verification import (
+        publish_source_evidence,
+        read_source_evidence,
+    )
+    from tests.change_impact_identity_helpers import identity, recorded_equivalence
+
+    root = tmp_path / "host"
+    workspace = root / "plans/feature"
+    workspace.mkdir(parents=True)
+    plan = (
+        "# Plan\n\n"
+        + begin_marker(PLAN_STATUS_ID)
+        + "\nRendered status.\n"
+        + end_marker(PLAN_STATUS_ID)
+        + "\n\nAuthored  plan.\n"
+    )
+    files = {
+        "plan.md": plan.encode(),
+        "src/a.py": b"x = 'a'\n",
+        "src/b.md": b"one  two\n",
+        "src/c.txt": b"plain  text\n",
+        "src/raced.py": b"y = 1\n",
+    }
+    for path, content in files.items():
+        (root / path).parent.mkdir(parents=True, exist_ok=True)
+        (root / path).write_bytes(content)
+    paths = tuple(files)
+    observed = observe_source(
+        root, SourceDefinition("feature-inputs", paths, paths), plan_path="plan.md"
+    )
+    assert all(recorded_equivalence(row) is None for row in observed.observations), (
+        "FAIL AC-15: observing source for a read computed equivalence identity"
+    )
+    (root / "src/raced.py").write_bytes(b"y = 2\n")
+
+    reference, reused = publish_source_evidence(workspace, observed, root=root)
+    assert reused is False
+    assert reference.source_sha256 == observed.source_sha256
+    published = read_source_evidence(workspace, reference)
+    expected = {
+        "plan.md": identity("plan.md", authored_plan(plan).encode()),
+        "src/a.py": identity("src/a.py", files["src/a.py"]),
+        "src/b.md": identity("src/b.md", files["src/b.md"]),
+        "src/c.txt": None,
+        "src/raced.py": None,
+    }
+    assert {
+        row.path: recorded_equivalence(row) for row in published.observations
+    } == expected, (
+        "FAIL AC-15: a published manifest must stamp exactly the rule-bearing "
+        "files whose re-read matches the observation"
+    )
+
+    # Without an explicit root the publisher stamps at the enclosing project.
+    (root / "src/raced.py").write_bytes(b"y = 1\n")
+    with pytest.raises(KernelError, match="no enclosing Heddle project"):
+        publish_source_evidence(workspace, observed)
+    (root / ".heddle.yaml").write_text("")
+    discovered, _reused = publish_source_evidence(workspace, observed)
+    rows = {
+        row.path: row
+        for row in read_source_evidence(workspace, discovered).observations
+    }
+    assert recorded_equivalence(rows["src/raced.py"]) == identity(
+        "src/raced.py", b"y = 1\n"
+    )
+
+
+def test_ac15_reads_compute_equivalence_only_where_a_path_differs_raw(
+    tmp_path,
+) -> None:
+    """The one read helper stamps only paths the record can bridge."""
+    from dataclasses import replace
+
+    from heddle.io.source import observe_source
+    from heddle.kernel.review_equivalence import review_equivalent
+    from heddle.kernel.source_manifest import SourceDefinition
+    from heddle.runtime.verification import (
+        stamp_changed_equivalence,
+        stamp_recorded_equivalence,
+    )
+    from tests.change_impact_identity_helpers import (
+        recorded_equivalence,
+        with_rule,
+        without_equivalence,
+    )
+
+    files = {
+        "src/a.py": b"x = 'a'\n",  # reflowed below
+        "src/b.md": b"one two\n",  # unchanged
+        "src/c.py": b"z = 1\n",  # reflowed; its record has no identity
+        "src/d.py": b"w = 'd'\n",  # reflowed; recorded under another interpreter
+        "src/e.py": b"v = 1\n",  # its mode changes
+    }
+    for path, content in files.items():
+        (tmp_path / path).parent.mkdir(parents=True, exist_ok=True)
+        (tmp_path / path).write_bytes(content)
+    paths = tuple(files)
+    definition = SourceDefinition("milestone-owns", paths, paths)
+    written = stamp_recorded_equivalence(tmp_path, observe_source(tmp_path, definition))
+    recorded = replace(
+        written,
+        observations=tuple(
+            without_equivalence(row)
+            if row.path == "src/c.py"
+            else with_rule(row, "python-tree/1+py2.7")
+            if row.path == "src/d.py"
+            else row
+            for row in written.observations
+        ),
+    )
+    (tmp_path / "src/a.py").write_bytes(b'x = "a"\n')
+    (tmp_path / "src/c.py").write_bytes(b"z = (1)\n")
+    (tmp_path / "src/d.py").write_bytes(b'w = "d"\n')
+    (tmp_path / "src/e.py").chmod(0o755)
+    current = observe_source(tmp_path, definition)
+    assert all(recorded_equivalence(row) is None for row in current.observations)
+
+    stamped = stamp_changed_equivalence(tmp_path, current, recorded)
+    assert stamped.source_sha256 == current.source_sha256
+    before = {row.path: row for row in recorded.observations}
+    after = {row.path: row for row in stamped.observations}
+    assert {
+        path for path, row in after.items() if recorded_equivalence(row) is not None
+    } == {"src/a.py"}, (
+        "FAIL AC-15: reads must compute identity only for paths that differ raw "
+        "from a record carrying the current rule's identity"
+    )
+    assert [path for path in paths if review_equivalent(before[path], after[path])] == [
+        "src/a.py",
+        "src/b.md",
+    ]
+
+    # A path that changes again after the observation fails closed.
+    (tmp_path / "src/a.py").write_bytes(b'x = "b"\n')
+    raced = stamp_changed_equivalence(tmp_path, current, recorded)
+    assert recorded_equivalence(raced.observations[0]) is None
