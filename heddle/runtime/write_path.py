@@ -212,21 +212,21 @@ def milestone_advance(operation: ops.MilestoneAdvance) -> HeddleResult:
                 if milestone.get("id") == current.get("id")
             )
             if landed.get("status") == "done":
-                from heddle.runtime.review_assignments import (
-                    build_boundary_acceptance,
-                )
+                from heddle.runtime.review_assignments import seal_boundary
 
-                receipt = build_boundary_acceptance(
+                rebound = seal_boundary(
                     context.config,
                     context.snapshot,
                     document,
+                    next_document,
                     boundary="milestone",
                     scope=str(current["id"]),
                     stage_after=str(next_document["stage"]),
                     accepted_at=utc_now_minutes(),
+                    publish=not parsed.dry_run,
                 )
-                if receipt is not None:
-                    next_document["review_assignments"]["acceptances"].append(receipt)
+                if rebound:
+                    extra["rebinding_rows"] = rebound
         extra["milestone_advance_summary"] = _milestone_advance_summary(
             document, next_document
         )
@@ -1002,23 +1002,21 @@ def phase_exit(operation: ops.PhaseExit) -> HeddleResult:
             if stage_advanced:
                 boundary = str(document.get("stage"))
                 if boundary in PHASE_BOUNDARIES:
-                    from heddle.runtime.review_assignments import (
-                        build_boundary_acceptance,
-                    )
+                    from heddle.runtime.review_assignments import seal_boundary
 
-                    receipt = build_boundary_acceptance(
+                    rebound = seal_boundary(
                         context.config,
                         context.snapshot,
                         document,
+                        next_document,
                         boundary=boundary,
                         scope=None,
                         stage_after=str(next_document.get("stage")),
                         accepted_at=now,
+                        publish=not parsed.dry_run,
                     )
-                    if receipt is not None:
-                        next_document["review_assignments"]["acceptances"].append(
-                            receipt
-                        )
+                    if rebound:
+                        extra["rebinding_rows"] = rebound
                 apply_pending_flow_change(next_document, at=now)
             append_authorization_grant(
                 next_document,
@@ -1113,13 +1111,21 @@ def _transition_context(
     context = resolve_write_context(feature, expect_revision)
     if isinstance(context, HeddleResult) or is_terminal(context.snapshot.state):
         return context
+    from heddle.runtime.readiness import assessed_review_snapshot
     from heddle.runtime.verification import coverage_diagnostics
 
     try:
         advice = coverage_diagnostics(context.config, context.snapshot.state)
+        # Transition guards read the kernel's convergence, so they see review
+        # equivalence the runtime assessed.
+        snapshot = assessed_review_snapshot(context.config, context.snapshot)
     except KernelError as error:
         return write_failure(error, context.diagnostics)
-    return replace(context, diagnostics=(*context.diagnostics, *advice))
+    return replace(
+        context,
+        snapshot=snapshot,
+        diagnostics=(*context.diagnostics, *advice),
+    )
 
 
 def preview_state_write(

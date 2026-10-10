@@ -136,6 +136,10 @@ class AssignmentDisposition:
     source_disposition: tuple[str, int] | None = None
     # The basis manifest the write published; absent on rows recorded before.
     basis_evidence: ManifestReference | None = None
+    # Per cited rule-bearing path: (path, rule, digest); absent when none has one.
+    reference_equivalence: tuple[tuple[str, str, str], ...] | None = None
+    # Set on a row a sealing write re-binds to the current basis by equivalence.
+    rebound_by: str | None = None
 
 
 @dataclass(frozen=True)

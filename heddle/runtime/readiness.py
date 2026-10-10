@@ -23,6 +23,7 @@ from heddle.kernel.model import (
     FeatureSnapshot,
     derive_next_actions,
     is_terminal,
+    with_assessed_review_closure,
 )
 from heddle.kernel.project_config import KernelError, ProjectConfig
 from heddle.kernel.readiness import (
@@ -46,6 +47,7 @@ from heddle.runtime.review_launch import LaunchMember, launch_set
 from heddle.runtime.verification import (
     assess_current_verifications,
     required_verification_scopes,
+    verify_named_source_evidence,
 )
 
 
@@ -54,6 +56,8 @@ class ComposedReadiness:
     assessment: BoundaryAssessment
     assignment_projection: dict[str, Any] | None
     blocking_conditions: tuple[str, ...]
+    # The snapshot whose kernel facts carry the runtime's review closure.
+    snapshot: FeatureSnapshot
 
 
 def composed_readiness(
@@ -74,8 +78,12 @@ def composed_readiness(
     if snapshot.state.feature_policy is not None:
         from heddle.runtime.review_assignments import projection
 
+        verify_named_source_evidence(config.root, snapshot.state)
         assignment_projection = projection(
             config, snapshot, source_observations=captures
+        )
+        snapshot = with_assessed_review_closure(
+            snapshot, assessed_closed_assignments(assignment_projection)
         )
     assessment = (assess or assess_current_readiness)(
         config,
@@ -88,7 +96,35 @@ def composed_readiness(
     ordered = [code for code, _action in BLOCKING_TRIGGER_ROWS]
     conditions = [code for code in ordered if code in combined]
     conditions.extend(sorted(combined - set(ordered)))
-    return ComposedReadiness(assessment, assignment_projection, tuple(conditions))
+    return ComposedReadiness(
+        assessment, assignment_projection, tuple(conditions), snapshot
+    )
+
+
+def assessed_closed_assignments(observed: dict[str, Any]) -> frozenset[str]:
+    """Assignment ids the runtime projection assessed closed against current source."""
+    return frozenset(
+        str(row["assignment_id"])
+        for row in observed.get("review_closure", {}).get("assignments", ())
+        if row["closed"] and row["evidence_basis"] is not None
+    )
+
+
+def assessed_review_snapshot(
+    config: ProjectConfig, snapshot: FeatureSnapshot
+) -> FeatureSnapshot:
+    """The snapshot whose derived actions carry the runtime's review closure.
+
+    The kernel then never derives a gate run for an assignment closed only by
+    review equivalence, which its recorded facts alone cannot see.
+    """
+    if snapshot.state.feature_policy is None or is_terminal(snapshot.state):
+        return snapshot
+    from heddle.runtime.review_assignments import projection
+
+    return with_assessed_review_closure(
+        snapshot, assessed_closed_assignments(projection(config, snapshot))
+    )
 
 
 def assess_current_readiness(
@@ -142,6 +178,9 @@ def _assignment_readiness(
 
     if observed is None:
         observed = projection(config, snapshot, source_observations=captures)
+    snapshot = with_assessed_review_closure(
+        snapshot, assessed_closed_assignments(observed)
+    )
     actionable_scopes = (
         (boundary.milestone_id,)
         if boundary.milestone_id

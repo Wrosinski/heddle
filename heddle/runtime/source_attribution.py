@@ -21,7 +21,11 @@ from heddle.kernel.source_attribution import (
     stale_attribution_error,
     validate_attribution_evidence,
 )
-from heddle.kernel.source_manifest import SourceDefinition, SourceEvidence
+from heddle.kernel.source_manifest import (
+    SourceDefinition,
+    SourceEvidence,
+    compare_source_evidence,
+)
 from heddle.kernel.state import StateFile, parse_state_document
 from heddle.kernel.verification import (
     reconcile_source_coverage,
@@ -32,6 +36,7 @@ from heddle.runtime.feature_context import ResolvedSnapshotContext
 from heddle.runtime.feature_inputs import _read_payload
 from heddle.runtime.verification import (
     inventory_source_paths,
+    stamp_changed_equivalence,
     stamp_recorded_equivalence,
     workflow_control_paths,
 )
@@ -87,13 +92,9 @@ def qualified_attribution_paths(
         references = observe_attribution(
             root, row.references.definition.paths, plan_path=plan_path
         )
-        if not same_raw_evidence(references, row.references):
-            changed_evidence.update(
-                changed_observation_paths(
-                    row.references.observations, references.observations
-                )
-                or row.references.definition.paths
-            )
+        changed = _changed_reference_paths(root, references, row.references)
+        if changed is not None:
+            changed_evidence.update(changed or row.references.definition.paths)
             citing.extend(paths)
             continue
         qualified.extend(paths)
@@ -104,6 +105,34 @@ def qualified_attribution_paths(
             tuple(sorted(changed_evidence)), tuple(sorted(citing)), evidence=True
         )
     return tuple(sorted(qualified))
+
+
+def _changed_reference_paths(
+    root: Path, current: SourceEvidence, recorded: SourceEvidence
+) -> tuple[str, ...] | None:
+    """Cited paths that changed; None when the citations are still current.
+
+    Citations are current when raw-equal or review-equivalent to the recorded
+    identities; the attributed source itself always compares raw.
+    """
+    if same_raw_evidence(current, recorded):
+        return None
+    if current.definition == recorded.definition:
+        comparison = compare_source_evidence(
+            recorded, stamp_changed_equivalence(root, current, recorded)
+        )
+        if comparison.equivalent:
+            return None
+        return tuple(
+            sorted(
+                {
+                    change.path
+                    for change in comparison.changes
+                    if change.kind != "formatting-only" and change.path is not None
+                }
+            )
+        ) or changed_observation_paths(recorded.observations, current.observations)
+    return changed_observation_paths(recorded.observations, current.observations)
 
 
 def attribute_sources(operation: ops.AttributeSources) -> HeddleResult:

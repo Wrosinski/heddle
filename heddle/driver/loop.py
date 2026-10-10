@@ -43,11 +43,13 @@ from heddle.kernel.model import (
     milestones_landed_since,
     resolve_snapshot,
     stage_session_count,
+    with_assessed_review_closure,
 )
 from heddle.runtime import application
 from heddle.runtime.clock import utc_now_seconds
 from heddle.runtime.readiness import (
     assess_current_readiness,
+    assessed_closed_assignments,
     readiness_failure,
     readiness_status_block,
 )
@@ -978,14 +980,19 @@ def _accepted_result(snap: FeatureSnapshot) -> HeddleResult:
 
 
 def _success(snap: FeatureSnapshot, status: str) -> HeddleResult:
+    projection = gate_run.review_projection(snap)
+    # Report blocking conditions under the runtime's assessed review closure.
+    assessed = with_assessed_review_closure(
+        snap, assessed_closed_assignments(projection)
+    )
     return HeddleResult.success(
         {
             "feature": snap.feature,
             "stage": snap.stage,
             "authorized_through": snap.authorized_through,
             "status": status,
-            "blocking_conditions": list(snap.blocking_conditions),
-            **gate_run.review_projection(snap),
+            "blocking_conditions": list(assessed.blocking_conditions),
+            **projection,
         }
     )
 

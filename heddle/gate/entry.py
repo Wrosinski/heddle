@@ -41,7 +41,7 @@ if TYPE_CHECKING:
     from heddle.gate.retained import CapturedReview as CapturedReview
     from heddle.kernel.model import FeatureSnapshot
     from heddle.kernel.project_config import ProjectConfig
-    from heddle.kernel.source_manifest import ObservedPath
+    from heddle.kernel.source_manifest import ObservedPath, SourceEvidence
     from heddle.kernel.state import GateRun
 
 MAX_GATE_ARTIFACT_BYTES = 8 * 1024 * 1024
@@ -417,7 +417,14 @@ def prepare_current_review_basis(
     context: GateContext, invocation: ResolvedGateInvocation
 ) -> ReviewBasis:
     """Observe the stable basis without preparing rerun or producer history."""
-    from heddle.gate.preparation import prepare_review_basis
+    return prepare_current_review_manifest(context, invocation)[0]
+
+
+def prepare_current_review_manifest(
+    context: GateContext, invocation: ResolvedGateInvocation
+) -> tuple[ReviewBasis, SourceEvidence | None]:
+    """Observe the stable basis and its unpublished reviewer-basis manifest."""
+    from heddle.gate.preparation import prepare_review_basis_manifest
 
     with _resolved_gate_sources(
         context, context.gate_type, invocation.exec_config.cli, basis_only=True
@@ -425,7 +432,7 @@ def prepare_current_review_basis(
         prompt,
         diff,
     ):
-        return prepare_review_basis(
+        return prepare_review_basis_manifest(
             context,
             gate_type=context.gate_type,
             invocation=invocation,

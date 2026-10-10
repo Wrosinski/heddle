@@ -155,6 +155,11 @@ def gate_converged(state: StateFile, gate: str, scope: str) -> bool:
     from heddle.kernel.review_closure import assess_review_closure
 
     assignment = assignment_for(state, gate, scope)
+    closed = state.assessed_closed_assignments
+    if closed is not None and assignment.id in closed:
+        # The runtime assessed this assignment closed against current source,
+        # review equivalence included; never re-derive a gate run for it.
+        return True
     source_ids = {
         source.run_id
         for source in authoritative_sources(state)

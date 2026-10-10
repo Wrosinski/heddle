@@ -326,7 +326,7 @@ def _read_surface(
             assess=assess_current_readiness,
         )
         assessment = readiness.assessment
-        payload = build_payload(snapshot)
+        payload = build_payload(readiness.snapshot)
         payload["close_obligation"] = close_obligation(resolved.config)
         if not is_terminal(snapshot.state):
             if readiness.assignment_projection is not None:

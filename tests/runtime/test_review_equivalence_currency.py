@@ -297,6 +297,17 @@ def _assert_closed_everywhere(host):
         assert "gate-not-converged" not in result.data["blocking_conditions"], (
             "FAIL AC-3: a closed review still blocks as gate-not-converged"
         )
+        assert result.data["gate_convergence_phase"] is None, (
+            "FAIL AC-3: a closed review still reports a gate convergence phase"
+        )
+    commands = [
+        [row["command"] for row in result.to_envelope()["next_actions"]]
+        for result in (status, orient)
+    ]
+    assert commands[0] == commands[1] and all(
+        status.data[key] == orient.data[key]
+        for key in ("blocking_conditions", "gate_convergence_phase")
+    ), "FAIL AC-3: status and orient disagree about closure-derived fields"
     rendered = _plan_status(host)
     assert "gate-not-converged" not in rendered["conditions"], (
         f"FAIL AC-9: plan-status renders {rendered['conditions']}"
@@ -375,7 +386,9 @@ def _coverage(root, state_path) -> str:
             baseline_probe=state_path.relative_to(root).as_posix(),
             runtime_owned_roots=controls.roots,
             plan_path=state_path.with_name("plan.md").relative_to(root).as_posix(),
-            excluded_paths=controls.exact,
+            # The cited file's own coverage is outside this check, like real
+            # evidence under ignored local records.
+            excluded_paths=(*controls.exact, "origin.md"),
         ).status
     except KernelError as error:
         return error.message

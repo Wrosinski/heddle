@@ -550,7 +550,7 @@ def qualification_counts(monkeypatch):
     observe(source, "capture_path", "captures", lambda root, path: path)
     observe(
         review_assignments,
-        "current_basis",
+        "current_basis_evidence",
         "bases",
         lambda config, snap, assignment, **kw: assignment.id,
     )

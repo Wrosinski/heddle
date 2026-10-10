@@ -81,6 +81,8 @@ def _validate(facts: ReviewClosureFacts) -> None:
         raise ValueError("historical completion must be a qualified boolean fact")
     if type(facts.continuation_authorized) is not bool:
         raise ValueError("review continuation must be a qualified boolean fact")
+    if not isinstance(facts.equivalent_bases, frozenset):
+        raise ValueError("equivalent bases must be a runtime-assessed frozen set")
     origins = {_ref(row) for row in facts.obligations}
     if len(origins) != len(facts.obligations) or any(not all(ref) for ref in origins):
         raise ValueError("review obligation origins must be distinct and nonempty")
@@ -165,7 +167,10 @@ def _resolved(
         resolution is None
         or resolution.status not in {"addressed", "settled"}
         or not resolution.references
-        or resolution.evidence_basis != facts.current_basis
+        or (
+            resolution.evidence_basis != facts.current_basis
+            and resolution.evidence_basis not in facts.equivalent_bases
+        )
         or not resolution.reason.strip()
         or source.classification == "unknown"
     ):

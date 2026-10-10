@@ -6,7 +6,7 @@ import hashlib
 import os
 import secrets
 import stat
-from collections.abc import Iterable, Iterator
+from collections.abc import Iterable, Iterator, Mapping
 from contextlib import contextmanager
 from dataclasses import asdict, dataclass, replace
 from pathlib import Path
@@ -631,8 +631,102 @@ def coverage_diagnostics(
 def verification_statuses(
     root: Path, state: StateFile
 ) -> tuple[VerificationFreshness, ...]:
+    verify_named_source_evidence(root, state)
     return assess_current_verifications(
         root, state, required_verification_scopes(state)
+    )
+
+
+def verify_named_source_evidence(root: Path, state: StateFile) -> None:
+    """Every basis manifest a disposition row names is present and intact.
+
+    A verification fact's own manifests are read when its freshness is
+    assessed. Each disposition manifest is checked once per call, whatever the
+    number of rows naming it, and re-read only when its file changed since this
+    process last found it intact; a missing or altered one fails naming the
+    first row that names it.
+    """
+    named = {}
+    for row in state.review_assignments.dispositions:
+        reference = row.basis_evidence
+        if reference is not None and reference.artifact not in named:
+            named[reference.artifact] = (
+                reference.artifact_sha256,
+                f"disposition {row.run_id}#{row.finding_id}",
+            )
+    if not named:
+        return
+    workspace = root / load_project_config(root).layout.plans / state.feature
+    for artifact, (artifact_sha256, subject) in named.items():
+        key = (str(workspace / artifact), artifact_sha256)
+        try:
+            metadata = (workspace / artifact).lstat()
+            stamp = (metadata.st_ino, metadata.st_size, metadata.st_mtime_ns)
+        except OSError:
+            stamp = None
+        if stamp is not None and _INTACT_EVIDENCE.get(key) == stamp:
+            continue
+        read_named_source_evidence(
+            workspace, artifact, artifact_sha256, subject=subject, decode=False
+        )
+        if stamp is not None:
+            if len(_INTACT_EVIDENCE) >= _INTACT_EVIDENCE_LIMIT:
+                _INTACT_EVIDENCE.clear()
+            _INTACT_EVIDENCE[key] = stamp
+
+
+# Named evidence this process found intact, by path and digest, with the file
+# identity it was read at; a changed file is read again.
+_INTACT_EVIDENCE: dict[tuple[str, str], tuple[int, int, int]] = {}
+_INTACT_EVIDENCE_LIMIT = 4096
+
+
+def read_named_source_evidence(
+    workspace: Path,
+    artifact: str,
+    artifact_sha256: str,
+    *,
+    subject: str,
+    source_sha256: str | None = None,
+    decode: bool = True,
+) -> SourceEvidence | None:
+    """Read a source-evidence artifact a record names, checked against its digest.
+
+    A record's named manifest is required evidence: a missing, unreadable or
+    altered one is an integrity failure naming the record and the artifact,
+    never a fallback to raw comparison.
+    """
+    try:
+        content = _read_regular_bytes(
+            _evidence_path(workspace, artifact), label="source evidence"
+        )
+    except FileNotFoundError as error:
+        raise _named_evidence_error(subject, artifact, "is missing") from error
+    except (KernelError, OSError) as error:
+        raise _named_evidence_error(subject, artifact, "is unreadable") from error
+    if hashlib.sha256(content).hexdigest() != artifact_sha256:
+        raise _named_evidence_error(subject, artifact, "has altered bytes")
+    if not decode:
+        return None
+    try:
+        evidence = decode_source_evidence(content)
+    except (KernelError, ValueError) as error:
+        raise _named_evidence_error(subject, artifact, "is malformed") from error
+    if source_sha256 is not None and evidence.source_sha256 != source_sha256:
+        raise _named_evidence_error(
+            subject, artifact, "contradicts the recorded source identity"
+        )
+    return evidence
+
+
+def _named_evidence_error(subject: str, artifact: str, problem: str) -> KernelError:
+    return KernelError(
+        code="workspace-invalid",
+        message=f"{subject} names source evidence {artifact}, which {problem}",
+        hint=(
+            "restore the published artifact from version control or a backup; "
+            "recorded source evidence is never recomputed"
+        ),
     )
 
 
@@ -728,13 +822,21 @@ def replace_file_bytes(path: Path, content: bytes) -> None:
             temporary.unlink(missing_ok=True)
 
 
-def stamp_recorded_equivalence(root: Path, evidence: SourceEvidence) -> SourceEvidence:
+def stamp_recorded_equivalence(
+    root: Path,
+    evidence: SourceEvidence,
+    *,
+    observed: Mapping[str, ObservedPath] | None = None,
+) -> SourceEvidence:
     """Stamp every rule-bearing file observation, as each written record does.
 
-    Identity comes from a re-read at ``root``; a re-read whose bytes no longer
-    match an observation's raw digest records none, so that path compares raw.
+    Identity comes from the bytes ``observed`` holds for a path, else a re-read
+    at ``root``; with neither matching an observation's raw digest it records
+    none, so that path compares raw.
     """
-    return _stamp_from_root(root, evidence, {row.path for row in evidence.observations})
+    return _stamp_from_root(
+        root, evidence, {row.path for row in evidence.observations}, observed
+    )
 
 
 def stamp_changed_equivalence(
@@ -764,17 +866,32 @@ def stamp_changed_equivalence(
 
 
 def _stamp_from_root(
-    root: Path, evidence: SourceEvidence, paths: set[str]
+    root: Path,
+    evidence: SourceEvidence,
+    paths: set[str],
+    observed: Mapping[str, ObservedPath] | None = None,
 ) -> SourceEvidence:
     contents: dict[str, Iterable[bytes]] = {}
     for row in evidence.observations:
         if row.path not in paths or row.kind != "file" or rule_id_for(row.path) is None:
             continue
-        try:
-            contents[row.path] = _observed_contents(capture_path(root, row.path))
-        except KernelError:
-            contents[row.path] = ()
+        contents[row.path] = _candidate_contents(
+            root, row.path, (observed or {}).get(row.path)
+        )
     return stamp_equivalence(evidence, contents)
+
+
+def _candidate_contents(
+    root: Path, path: str, held: ObservedPath | None
+) -> Iterator[bytes]:
+    """Held bytes first; the re-read at ``root`` only when they do not match."""
+    if held is not None:
+        yield from _observed_contents(held)
+    try:
+        captured = capture_path(root, path)
+    except KernelError:
+        return
+    yield from _observed_contents(captured)
 
 
 def _observed_contents(captured: ObservedPath) -> Iterator[bytes]:
@@ -784,13 +901,17 @@ def _observed_contents(captured: ObservedPath) -> Iterator[bytes]:
 
 
 def publish_source_evidence(
-    workspace: Path, evidence: SourceEvidence, *, root: Path | None = None
+    workspace: Path,
+    evidence: SourceEvidence,
+    *,
+    root: Path | None = None,
+    observed: Mapping[str, ObservedPath] | None = None,
 ) -> tuple[EvidenceReference, bool]:
     """Stamp, publish create-only and return the stamped evidence's reference.
 
     Every published manifest records the equivalence identity of each
-    rule-bearing file observation, re-read at ``root``, else at the project
-    enclosing ``workspace``.
+    rule-bearing file observation, from the bytes ``observed`` holds or else
+    re-read at ``root``, else at the project enclosing ``workspace``.
     """
     project = root if root is not None else find_project_root(workspace)
     if project is None:
@@ -799,13 +920,13 @@ def publish_source_evidence(
             f"has no enclosing Heddle project: {workspace}",
             hint="publish source evidence from a workspace inside a Heddle project",
         )
-    evidence = stamp_recorded_equivalence(project, evidence)
+    evidence = stamp_recorded_equivalence(project, evidence, observed=observed)
     content = encode_source_evidence(evidence)
     reference = evidence_reference(evidence)
     target = _evidence_path(workspace, reference.artifact)
     try:
         reused = _publish_evidence_bytes(target, content)
-        observed = read_source_evidence(workspace, reference)
+        readback = read_source_evidence(workspace, reference)
     except KernelError:
         raise
     except OSError as error:
@@ -814,7 +935,7 @@ def publish_source_evidence(
             f"publication failure for {reference.artifact}: {error}",
             hint="restore a writable verification directory and retry",
         ) from error
-    if observed != evidence:
+    if readback != evidence:
         raise _source_error(
             "evidence",
             f"published artifact contradicts {reference.artifact}",

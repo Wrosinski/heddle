@@ -13,7 +13,7 @@ knowledge-plane document.
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -421,6 +421,27 @@ def resolve_snapshot(config: ProjectConfig, slug: str) -> FeatureSnapshot:
         state=state,
         checkpoints=dict(config.checkpoints),
     )
+
+
+def with_assessed_review_closure(
+    snapshot: FeatureSnapshot, closed: frozenset[str]
+) -> FeatureSnapshot:
+    """Carry the runtime's review closure into the kernel's derived facts.
+
+    Only the closed direction applies: an assignment the runtime assessed closed
+    converges, so neither gate-not-converged nor a gate run is derived for it.
+    """
+    known = snapshot.state.assessed_closed_assignments or frozenset()
+    if closed <= known:
+        return snapshot
+    state = replace(snapshot.state, assessed_closed_assignments=known | closed)
+    conditions = snapshot.blocking_conditions
+    if (
+        "gate-not-converged" in conditions
+        and _first_unconverged_gate(state, snapshot.required_gates) is None
+    ):
+        conditions = tuple(code for code in conditions if code != "gate-not-converged")
+    return replace(snapshot, state=state, blocking_conditions=conditions)
 
 
 def _effective_flow(state: StateFile, config: ProjectConfig) -> str:

@@ -27,6 +27,7 @@ from heddle.contracts.result import (
     Severity,
 )
 from heddle.contracts.review_assignments import (
+    ArtifactRef,
     CanonicalReview,
     EngineFailure,
     RetainedReview,
@@ -53,7 +54,7 @@ from heddle.gate.types import (
 )
 from heddle.kernel.model import FeatureSnapshot
 from heddle.kernel.project_config import KernelError, ProjectConfig
-from heddle.kernel.source_manifest import ObservedPath
+from heddle.kernel.source_manifest import ObservedPath, SourceEvidence
 from heddle.kernel.state import GateRun, StateFile
 from heddle.runtime import recording
 from heddle.runtime.cli_args import parse_gate_options
@@ -367,6 +368,9 @@ class _BatchMember:
     finished_at: str | None = None
     started_monotonic: float | None = None
     duration_s: int | None = None
+    # The reviewer-basis manifest of the launch basis, read from the launch
+    # captures; published on the recorded attempt.
+    basis_manifest: SourceEvidence | None = None
 
     @property
     def key(self) -> tuple[str, str, str]:
@@ -620,6 +624,7 @@ def _prepare_member(
             include_feature_switch_action=False,
         )
     context.prepared_run = prepared
+    manifest = _launch_manifest(context, invocation, prepared)
     preparation_diagnostics = tuple(
         Diagnostic(
             severity=Severity.ADVISORY,
@@ -653,6 +658,7 @@ def _prepare_member(
             "recovered",
             preparation_diagnostics,
             recovered,
+            basis_manifest=manifest,
         )
     reuse = (
         Execute()
@@ -695,6 +701,7 @@ def _prepare_member(
             reuse.run.run_id,
             "exact",
             "completed",
+            basis_manifest=manifest,
         )
     return _BatchMember(
         parsed,
@@ -707,7 +714,21 @@ def _prepare_member(
         attempt,
         "none",
         preparation_diagnostics,
+        basis_manifest=manifest,
     )
+
+
+def _launch_manifest(
+    context: Any, invocation: ResolvedGateInvocation, prepared: PreparedGateRun
+) -> SourceEvidence | None:
+    """The launch basis's reviewer-basis manifest, from the launch captures.
+
+    Kept only when it describes exactly the prepared basis.
+    """
+    if prepared.assignment_id is None:
+        return None
+    basis, manifest = entry.prepare_current_review_manifest(context, invocation)
+    return manifest if basis.review_basis_hash == prepared.review_basis_hash else None
 
 
 def _unrecorded_completion(
@@ -1027,6 +1048,8 @@ def _accept_batch_outcome(
             member.invocation,
             member.prepared.review_basis_hash,
             outcome,
+            launch=member.basis_manifest,
+            launch_observations=member.context.source_observations,
         )
     member.completion = outcome
     member.decision = _completed_decision(
@@ -1126,6 +1149,14 @@ def _record_batch_member(
 ) -> int | HeddleError:
     outcome = cast(GateOutcome, member.completion)
     try:
+        if member.prepared.assignment_id is not None:
+            outcome = _with_basis_manifest(
+                resolved.config.root,
+                resolved.config.root / resolved.snapshot.workspace,
+                outcome,
+                member.basis_manifest,
+                member.context.source_observations,
+            )
         accepted = _record(
             resolved.config.root / resolved.snapshot.workspace,
             member.parsed.gate,
@@ -1582,6 +1613,32 @@ def _recover_revision_drift(
     return replace(result, diagnostics=(*result.diagnostics, advisory))
 
 
+def _with_basis_manifest(
+    root: Path,
+    workspace: Path,
+    outcome: GateOutcome,
+    manifest: SourceEvidence | None,
+    observations: Mapping[str, ObservedPath] | None,
+) -> GateOutcome:
+    """Publish the reviewer-basis manifest and name it on the attempt.
+
+    Identity is stamped from the launch captures, so a formatting edit made
+    while the reviewer ran keeps the manifest's identities those of the
+    reviewed bytes.
+    """
+    if manifest is None:
+        return outcome
+    from heddle.runtime.verification import publish_source_evidence
+
+    reference, _reused = publish_source_evidence(
+        workspace, manifest, root=root, observed=observations
+    )
+    artifact = ArtifactRef(reference.artifact, reference.artifact_sha256, "evidence")
+    if artifact in outcome.artifacts:
+        return outcome
+    return replace(outcome, artifacts=(*outcome.artifacts, artifact))
+
+
 def _check_completed_source(
     snapshot: FeatureSnapshot,
     config: ProjectConfig,
@@ -1590,8 +1647,15 @@ def _check_completed_source(
     invocation: ResolvedGateInvocation,
     basis: str,
     outcome: GateOutcome,
+    *,
+    launch: SourceEvidence | None = None,
+    launch_observations: Mapping[str, ObservedPath] | None = None,
 ) -> GateOutcome:
-    """Persist rejection through the ordinary error-event path, never as credit."""
+    """Persist rejection through the ordinary error-event path, never as credit.
+
+    A change while the reviewer ran is accepted only when it is review
+    equivalent to the launch manifest; the run still records the launch basis.
+    """
     try:
         context = entry.build_gate_context(
             snapshot,
@@ -1602,8 +1666,16 @@ def _check_completed_source(
             source_observations={},
             basis_only=True,
         )
-        current = entry.prepare_current_review_basis(context, invocation)
+        current, manifest = entry.prepare_current_review_manifest(context, invocation)
         if current.review_basis_hash == basis:
+            return outcome
+        if (
+            launch is not None
+            and manifest is not None
+            and _equivalent_to_launch(
+                config.root, launch, manifest, launch_observations
+            )
+        ):
             return outcome
         reason = FailureReason.REVIEWED_SOURCE_CHANGED
         warnings = ("reviewed source changed while the reviewer was running",)
@@ -1617,6 +1689,46 @@ def _check_completed_source(
         structure_warnings=warnings,
         artifacts=outcome.artifacts,
     )
+
+
+def _current_review_manifest(
+    snapshot: FeatureSnapshot,
+    config: ProjectConfig,
+    gate_type: GateType,
+    scope: str,
+    invocation: ResolvedGateInvocation,
+    basis: str,
+) -> SourceEvidence | None:
+    """The current reviewer-basis manifest, when it still describes ``basis``."""
+    context = entry.build_gate_context(
+        snapshot,
+        config,
+        gate_type,
+        cli=invocation.exec_config.cli,
+        milestone_id=scope if gate_type.requires_milestone else None,
+        source_observations={},
+        basis_only=True,
+    )
+    current, manifest = entry.prepare_current_review_manifest(context, invocation)
+    return manifest if current.review_basis_hash == basis else None
+
+
+def _equivalent_to_launch(
+    root: Path,
+    launch: SourceEvidence,
+    current: SourceEvidence,
+    observations: Mapping[str, ObservedPath] | None,
+) -> bool:
+    from heddle.kernel.source_manifest import compare_source_evidence
+    from heddle.runtime.verification import (
+        stamp_changed_equivalence,
+        stamp_recorded_equivalence,
+    )
+
+    launched = stamp_recorded_equivalence(root, launch, observed=observations)
+    return compare_source_evidence(
+        launched, stamp_changed_equivalence(root, current, launched)
+    ).equivalent
 
 
 def _retained_reuse(
@@ -1671,7 +1783,20 @@ def _retained_reuse(
                     raise ValueError(checked.structure_warnings[0])
                 recovered = recording.record_retained_review(
                     resolved.config.root / snapshot.workspace / WORKSPACE_STATE,
-                    outcome=orphan,
+                    outcome=_with_basis_manifest(
+                        resolved.config.root,
+                        resolved.config.root / snapshot.workspace,
+                        orphan,
+                        _current_review_manifest(
+                            snapshot,
+                            resolved.config,
+                            cast(GateType, GATES.get(parsed.gate)),
+                            capture.invocation.scope,
+                            invocation,
+                            capture.invocation.review_basis_hash,
+                        ),
+                        None,
+                    ),
                     expected_revision=snapshot.state.revision,
                 )
                 refreshed = resolve_snapshot_from_cwd(snapshot.feature, writable=True)

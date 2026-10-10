@@ -41,7 +41,8 @@ _LISTED_PATHS = 10
 def raw_observations(
     rows: tuple[EvidenceObservation, ...],
 ) -> tuple[tuple[str, str, bool, str], ...]:
-    """Attributions bind raw identity only; equivalence never applies to them."""
+    """An attribution's source binds raw identity only; equivalence never applies
+    to it. Its cited references may also be current by review equivalence."""
     return tuple(raw_observation(row) for row in rows)
 
 

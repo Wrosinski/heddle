@@ -182,6 +182,8 @@ class ReviewClosureFacts:
     current_basis: str
     historical_complete: bool = False
     continuation_authorized: bool = False
+    # Recorded bases the runtime assessed review-equivalent to ``current_basis``.
+    equivalent_bases: frozenset[str] = frozenset()
 
 
 @dataclass(frozen=True)

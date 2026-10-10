@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 from collections.abc import Mapping
 from dataclasses import asdict, dataclass, replace
+from dataclasses import field as dataclass_field
 from datetime import datetime
 from pathlib import Path, PurePosixPath
 from typing import Any, Literal, cast
@@ -353,6 +354,12 @@ class StateFile:  # §10.1 required keys plus additive optional keys
     review_assignments: ReviewAssignments = ReviewAssignments()
     assessments: tuple[Mapping[str, Any], ...] = ()
     intake: Mapping[str, str] | None = None
+    assessed_closed_assignments: frozenset[str] | None = dataclass_field(
+        default=None, compare=False, repr=False
+    )
+    """Runtime-only assignment ids assessed closed; never parsed, written or digested.
+
+    ``None`` keeps convergence derived from recorded facts alone."""
 
 
 def read_state_file(path: Path) -> StateFile:

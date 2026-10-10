@@ -62,8 +62,10 @@ from heddle.io.source import (
 from heddle.kernel.managed_regions import authored_plan, authored_plan_observation
 from heddle.kernel.project_config import KernelError
 from heddle.kernel.source_manifest import (
+    EvidenceComponent,
     ObservedPath,
     SourceDefinition,
+    SourceEvidence,
     build_source_evidence,
     safe_relative_parts,
 )
@@ -171,6 +173,7 @@ class _CapturedReviewInputs:
     rule_context: str
     diagnostics: tuple[str, ...]
     binding_issues: tuple[TestBindingIssue, ...]
+    manifest: SourceEvidence | None = None
 
 
 def _capture_review_inputs(
@@ -180,8 +183,13 @@ def _capture_review_inputs(
     invocation: ResolvedGateInvocation,
     prompt: ResolvedGatePrompt,
     diff: DiffResult,
+    basis_only: bool = False,
 ) -> _CapturedReviewInputs:
-    """Capture stable sources once for both full and producer-basis preparation."""
+    """Capture stable sources once for both full and producer-basis preparation.
+
+    Basis-only preparation also names the reviewer-basis manifest and skips the
+    uncommitted-input advice, which only a launch reports.
+    """
     contract = input_contract_for(gate_type)
     exec_config = invocation.exec_config
     output_version, output_digest = _output_contract_identity(gate_type)
@@ -216,7 +224,9 @@ def _capture_review_inputs(
         allowed_non_owned_paths=workflow_paths,
     )
     allow_missing = preflight_result.fatal_reason is not None
-    owned, source_paths = _owned_content(context, contract, allow_empty=allow_missing)
+    owned, source_paths, owned_definition = _owned_content(
+        context, contract, allow_empty=allow_missing
+    )
     projections, scaffold_paths, binding_issues = _context_projections(
         context,
         contract,
@@ -238,14 +248,16 @@ def _capture_review_inputs(
         )
         if required and path is not None
     )
-    advised = {*document_paths, *source_paths, *scaffold_paths}
-    if contract.requires_plan and context.plan_path is not None:
-        plan = _logical_document_path(context, context.plan_path, "plan")
-        if not _authored_plan_uncommitted(context, plan):
-            # A change confined to the generated plan-status region is not an
-            # authored change to commit before review.
-            advised.discard(plan)
-    source_advice = _review_source_advice(context.repo_root, tuple(advised))
+    source_advice: tuple[str, ...] = ()
+    if not basis_only:
+        advised = {*document_paths, *source_paths, *scaffold_paths}
+        if contract.requires_plan and context.plan_path is not None:
+            plan = _logical_document_path(context, context.plan_path, "plan")
+            if not _authored_plan_uncommitted(context, plan):
+                # A change confined to the generated plan-status region is not
+                # an authored change to commit before review.
+                advised.discard(plan)
+        source_advice = _review_source_advice(context.repo_root, tuple(advised))
     basis_records = _review_basis_records(
         context,
         contract,
@@ -293,6 +305,17 @@ def _capture_review_inputs(
         rule_context="",
         diagnostics=(*context.preparation_diagnostics, *source_advice),
         binding_issues=binding_issues,
+        manifest=(
+            _reviewer_basis_manifest(
+                context,
+                basis_records,
+                reviewed,
+                owned_definition,
+                (*document_paths, *scaffold_paths),
+            )
+            if basis_only
+            else None
+        ),
     )
 
 
@@ -305,9 +328,29 @@ def prepare_review_basis(
     diff: DiffResult,
 ) -> ReviewBasis:
     """Compute stable role validation inputs without rendering rerun history."""
-    return _capture_review_inputs(
+    return prepare_review_basis_manifest(
         context, gate_type=gate_type, invocation=invocation, prompt=prompt, diff=diff
-    ).basis
+    )[0]
+
+
+def prepare_review_basis_manifest(
+    context: GateContext,
+    *,
+    gate_type: GateType,
+    invocation: ResolvedGateInvocation,
+    prompt: ResolvedGatePrompt,
+    diff: DiffResult,
+) -> tuple[ReviewBasis, SourceEvidence | None]:
+    """The stable basis and the reviewer-basis manifest naming its parts."""
+    captured = _capture_review_inputs(
+        context,
+        gate_type=gate_type,
+        invocation=invocation,
+        prompt=prompt,
+        diff=diff,
+        basis_only=True,
+    )
+    return captured.basis, captured.manifest
 
 
 def prepare_gate_run(
@@ -544,6 +587,83 @@ def _review_basis_records(
             )
         )
     return records
+
+
+def _reviewer_basis_manifest(
+    context: GateContext,
+    records: list[tuple[str, bytes]],
+    reviewed: tuple[ReviewedInput, ...],
+    owned: SourceDefinition | None,
+    reviewed_paths: tuple[str, ...],
+) -> SourceEvidence | None:
+    """Name the review basis as components and observed paths.
+
+    Each non-path basis record is one component; the reviewed and owned paths
+    are observations, read from the same capture as the basis. Every raw basis
+    difference therefore names a typed change, and two equivalent manifests
+    differ only by formatting. A basis with no path has no manifest.
+    """
+    callers = {_normalize_path(item.name) for item in context.reviewed_inputs}
+    components = [
+        EvidenceComponent(name, hashlib.sha256(value).hexdigest())
+        for name, value in records
+        if not name.startswith(("reviewed/", "owned/"))
+    ]
+    components.extend(
+        EvidenceComponent(
+            f"reviewed-input/{item.name}",
+            hashlib.sha256(
+                encode_gate_manifest(
+                    (("kind", item.kind.encode()), ("identity", item.identity.encode()))
+                )
+            ).hexdigest(),
+        )
+        for item in reviewed
+        if item.name in callers
+    )
+    path_inputs = [[i.name, i.kind] for i in reviewed if i.name not in callers]
+    components.append(
+        EvidenceComponent(
+            "reviewed-paths", hashlib.sha256(canonical_json(path_inputs)).hexdigest()
+        )
+    )
+    declarations = set(reviewed_paths)
+    selected = set(reviewed_paths)
+    if owned is not None:
+        components.append(
+            EvidenceComponent(
+                "owned-source",
+                hashlib.sha256(
+                    canonical_json(
+                        {
+                            "kind": owned.kind,
+                            "declarations": list(owned.declaration_paths),
+                            "paths": list(owned.paths),
+                        }
+                    )
+                ).hexdigest(),
+            )
+        )
+        declarations.update(owned.declaration_paths)
+        selected.update(owned.paths)
+    if not declarations:
+        return None
+    plan = _stable_document_path(context, context.plan_path)
+    observations = []
+    for path in sorted(declarations | selected, key=lambda value: value.encode()):
+        captured = capture_source_path(
+            context.repo_root, path, context.source_observations
+        )
+        observations.append(
+            authored_plan_observation(captured) if path == plan else captured
+        )
+    evidence = build_source_evidence(
+        SourceDefinition(
+            "feature-inputs", tuple(sorted(declarations)), tuple(sorted(selected))
+        ),
+        observations,
+    )
+    return replace(evidence, components=tuple(components))
 
 
 def _input_records(
@@ -860,9 +980,9 @@ def _owned_content(
     contract: GateInputContract,
     *,
     allow_empty: bool = False,
-) -> tuple[tuple[tuple[str, str, str], ...], tuple[str, ...]]:
+) -> tuple[tuple[tuple[str, str, str], ...], tuple[str, ...], SourceDefinition | None]:
     if contract.source_selector == "none":
-        return (), ()
+        return (), (), None
     declarations = (
         tuple(context.owned_paths)
         if contract.source_selector == "milestone-owns"
@@ -870,7 +990,7 @@ def _owned_content(
     )
     if not declarations:
         if allow_empty:
-            return (), ()
+            return (), (), None
         raise _input_error(
             f"{context.gate_type.name} has no declared implementation source",
             "declare the applicable milestone ownership before review",
@@ -889,6 +1009,7 @@ def _owned_content(
                 key=lambda value: value.encode(),
             )
         ),
+        definition,
     )
 
 

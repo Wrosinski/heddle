@@ -271,7 +271,12 @@ def parse_assignments(value: Any) -> ReviewAssignments:
         row = _object(
             item,
             AssignmentDisposition,
-            defaults={"source_disposition": None, "basis_evidence": None},
+            defaults={
+                "source_disposition": None,
+                "basis_evidence": None,
+                "reference_equivalence": None,
+                "rebound_by": None,
+            },
         )
         historical = row["source_disposition"]
         if historical is not None:
@@ -283,6 +288,11 @@ def parse_assignments(value: Any) -> ReviewAssignments:
         evidence_basis = (
             None if row["evidence_basis"] is None else _sha(row["evidence_basis"])
         )
+        references = _pairs(row["references"], hashes=True)
+        basis_evidence = _basis_evidence(row["basis_evidence"], evidence_basis)
+        rebound_by = _nullable(row["rebound_by"])
+        if rebound_by is not None and basis_evidence is None:
+            raise invalid("a re-binding row must name its basis manifest")
         dispositions.append(
             AssignmentDisposition(
                 _text(row["run_id"]),
@@ -295,7 +305,7 @@ def parse_assignments(value: Any) -> ReviewAssignments:
                     row["evidence_kind"],
                     EVIDENCE_KINDS,
                 ),
-                _pairs(row["references"], hashes=True),
+                references,
                 evidence_basis,
                 _text(row["reason"]),
                 row["requires_inspection"],
@@ -304,7 +314,9 @@ def parse_assignments(value: Any) -> ReviewAssignments:
                 _nullable(row["verification_scope"]),
                 _text(row["at"]),
                 historical,
-                _basis_evidence(row["basis_evidence"], evidence_basis),
+                basis_evidence,
+                _reference_equivalence(row["reference_equivalence"], references),
+                rebound_by,
             )
         )
     attempts = tuple(parse_review_attempt(item) for item in _rows(raw["attempts"]))
@@ -336,9 +348,68 @@ def _basis_evidence(value: Any, evidence_basis: str | None) -> ManifestReference
     )
 
 
-_ABSENT_ADDITIVE_FIELDS = frozenset({"witness_waiver", "basis_evidence"})
+def _reference_equivalence(
+    value: Any, references: tuple[tuple[str, str], ...]
+) -> tuple[tuple[str, str, str], ...] | None:
+    """Each entry binds one cited path to the rule and digest recorded with it."""
+    if value is None:
+        return None
+    cited = {path for path, _digest in references}
+    entries = []
+    for item in _rows(value):
+        if not isinstance(item, list) or len(item) != 3:
+            raise invalid("reference equivalence needs a path, rule and digest")
+        path, rule, digest = _text(item[0]), _text(item[1]), _sha(item[2])
+        if path not in cited:
+            raise invalid(f"reference equivalence names an uncited path: {path}")
+        entries.append((path, rule, digest))
+    if len({path for path, _rule, _digest in entries}) != len(entries):
+        raise invalid("reference equivalence names a path twice")
+    return tuple(entries)
+
+
+_ABSENT_ADDITIVE_FIELDS = frozenset(
+    {"witness_waiver", "basis_evidence", "reference_equivalence", "rebound_by"}
+)
 """Optional fact fields added after receipts were sealed; absent, they keep the
 historical identity so earlier receipts still verify unchanged ledger bytes."""
+
+
+REVIEWER_BASIS_PREFIX = "verification/source-evidence."
+"""Attempt ``evidence`` artifacts under this prefix are source-evidence manifests."""
+
+
+def reviewer_basis_artifacts(attempt: ReviewAttempt) -> tuple[ArtifactRef, ...]:
+    """The source-evidence manifests an attempt names as ``evidence``."""
+    return tuple(
+        item
+        for item in attempt.artifacts
+        if item.role == "evidence" and item.path.startswith(REVIEWER_BASIS_PREFIX)
+    )
+
+
+def legacy_assignment(state: StateFile, assignment_id: str) -> bool:
+    """Whether an assignment was opened before review-equivalence records.
+
+    It is legacy when any of its attempts names no reviewer-basis manifest or
+    any disposition row on its attempts names no basis manifest, so an
+    attempt-only assignment opened before the upgrade is legacy too.
+    """
+    ledger = state.review_assignments
+    attempts = {
+        row.attempt_id: row
+        for row in ledger.attempts
+        if row.assignment_id == assignment_id
+    }
+    runs = set(attempts) | {
+        row.run_id for row in ledger.sources if row.assignment_id == assignment_id
+    }
+    return any(
+        run not in attempts or not reviewer_basis_artifacts(attempts[run])
+        for run in runs
+    ) or any(
+        row.basis_evidence is None for row in ledger.dispositions if row.run_id in runs
+    )
 
 
 def acceptance_record_digest(value: Any) -> str:
@@ -1155,7 +1226,13 @@ def closure_facts(
     valid_dispositions: tuple[AssignmentDisposition, ...] | None = None,
     policy: GatePolicy | None = None,
     historical_complete: bool = False,
+    equivalent_bases: frozenset[str] = frozenset(),
 ) -> ReviewClosureFacts:
+    """Closure inputs for one assignment.
+
+    ``equivalent_bases`` are recorded bases the runtime assessed
+    review-equivalent to ``current_basis``; the kernel never infers them.
+    """
     ledger = state.review_assignments
     sources = tuple(
         source
@@ -1223,7 +1300,8 @@ def closure_facts(
     resolved = {
         (d.run_id, d.finding_id)
         for d in qualified
-        if (d.status in {"addressed", "settled"} and d.evidence_basis == current_basis)
+        if d.status in {"addressed", "settled"}
+        and (d.evidence_basis == current_basis or d.evidence_basis in equivalent_bases)
     }
     rounds = []
     for row in assignment.rounds:
@@ -1253,6 +1331,7 @@ def closure_facts(
         current_basis,
         historical_complete,
         continuation_authorized(state, assignment),
+        equivalent_bases,
     )
 
 
