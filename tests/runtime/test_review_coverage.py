@@ -288,3 +288,62 @@ def test_verification_target_refusal_names_each_missing_target() -> None:
         f"unmatched: SP-I1 (run {mistyped}), closest accepted run {accepted}; "
         f"missing: @coverage (run {accepted}); SP-I1 (run {accepted})"
     )
+
+
+def test_unowned_minor_report_settles_as_awareness_without_decision_fields() -> None:
+    """Policy records no owner for a Minor REPORT, so a later round settles it
+    without decision fields; an owned or Important REPORT still binds its owner.
+    """
+    from heddle.gate.types import ReviewDecision
+    from heddle.gate.validation import _validate_prior_dispositions
+
+    run = "4f6c2a10-8e3b-4c1d-9a7e-50f8c8f6d6e3"
+
+    def validate(finding_id, action, *, decision=False, owners=()):
+        prior = SimpleNamespace(
+            run_id=run,
+            result=SimpleNamespace(
+                content=SimpleNamespace(
+                    findings=[
+                        SimpleNamespace(
+                            id="TS-M1", classification="report", severity="minor"
+                        ),
+                        SimpleNamespace(
+                            id="TS-M2", classification="report", severity="minor"
+                        ),
+                        SimpleNamespace(
+                            id="TS-I1", classification="report", severity="important"
+                        ),
+                    ]
+                ),
+                invocation=SimpleNamespace(assignment_id="a1"),
+            ),
+        )
+        source = SimpleNamespace(run_id=run, finding_id=finding_id)
+        row = SimpleNamespace(
+            source=source,
+            disposition=action,
+            output_finding_id=None,
+            decision_id="D7" if decision else None,
+            decision_origin=source if decision else None,
+        )
+        content = SimpleNamespace(prior_dispositions=[row], findings=[], regressions=[])
+        prepared = SimpleNamespace(
+            prior_reviews=(prior,),
+            assignment_id="a1",
+            required_prior_references=None,
+            review_decisions=tuple(owners),
+        )
+        _validate_prior_dispositions(content, prepared)
+
+    owner = ReviewDecision("D7", "resolved", run, "TS-M2")
+    validate("TS-M1", "settled", owners=(owner,))
+    for action, decision in (("settled", True), ("awaiting_decision", False)):
+        with pytest.raises(ValueError, match="unowned Minor REPORT TS-M1"):
+            validate("TS-M1", action, decision=decision, owners=(owner,))
+    # A decision owns TS-M2, and an Important REPORT always has an owner.
+    with pytest.raises(ValueError, match="must bind the exact decision origin"):
+        validate("TS-M2", "settled", owners=(owner,))
+    validate("TS-M2", "settled", decision=True, owners=(owner,))
+    with pytest.raises(ValueError, match="must bind the exact decision origin"):
+        validate("TS-I1", "settled")
