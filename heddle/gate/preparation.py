@@ -1125,12 +1125,16 @@ def reviewed_test_subject(
     explicit = set(
         _explicit_scaffold_paths(context, tests_root, require_existing=reviewer)
     )
+    # A declared or bound path joins anyway, so only an undeclared test
+    # needs its baseline comparison.
+    settled = explicit | binding_paths
     changed = {
         change.path
         for change in baseline_test_changes(
             context.repo_root, baseline, tests_root=tests_root
         )
         if change.path.startswith(f"{tests_root}/")
+        and change.path not in settled
         and _differs_from_baseline(context, baseline.oid, change)
     }
     helpers = _scaffold_helpers(

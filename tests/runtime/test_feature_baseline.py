@@ -191,6 +191,34 @@ def test_ac8_scaffolding_and_milestone_gates_refuse_before_any_provider_call(
     assert _names_reason(text, reason), f"FAIL AC-8: refusal omits the reason: {text}"
 
 
+def test_ac8_phase_exit_with_an_open_review_leads_with_the_repoint(
+    tmp_path, monkeypatch, run_cli
+):
+    """Phase exit agrees with orient: an open review does not route a launch."""
+    host = baseline_host(tmp_path, monkeypatch)
+    calls = provider_transport(monkeypatch, review_content(SCAFFOLD_ROLE))
+    code, result = gate_command(run_cli, "run-gate", SCAFFOLD_ROLE)
+    assert code in (0, 4) and result["ok"], result
+    make_baseline_unavailable(host, "diverged")
+    assert "gate-not-converged" in _orient(run_cli)["data"]["blocking_conditions"]
+    before = host.state.read_bytes()
+
+    code, result = gate_command(
+        run_cli, "phase-exit", "--expect-revision", str(_revision(host))
+    )
+
+    assert not result["ok"] and result["error"]["code"] == "baseline-unavailable", (
+        f"FAIL AC-8: phase exit with an open review does not lead with the "
+        f"unavailable baseline: {result.get('error')}"
+    )
+    assert host.state.read_bytes() == before, "FAIL AC-8: the refused exit wrote state"
+    actions = result["next_actions"]
+    assert len(actions) == 1 and actions[0]["action"]["kind"] == "manual", actions
+    assert REPOINT_COMMAND in actions[0]["command"], actions
+    assert _names_reason(f"{actions[0]['command']} {actions[0]['reason']}", "diverged")
+    assert len(calls) == 1, "FAIL AC-8: the refused exit launched a provider"
+
+
 def test_ac8_feature_without_a_recorded_baseline_is_not_blocked(
     tmp_path, monkeypatch, run_cli
 ):

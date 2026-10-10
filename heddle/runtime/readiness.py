@@ -216,11 +216,7 @@ def _assignment_readiness(
     )
     basic = assess_boundary(snapshot.state, boundary, (), (), actionable_verifications)
     rows, actions, blockers = [], list(basic.next_actions), list(basic.blockers)
-    unavailable = (
-        entry.unavailable_feature_baseline(config.root, snapshot.state.source_baseline)
-        if snapshot.state.source_baseline is not None
-        else None
-    )
+    unavailable = unavailable_baseline(config, snapshot)
     proof_actions = len(actions)
     completed_scopes = {m.id for m in snapshot.state.milestones if m.status == "done"}
     for row in observed["review_closure"]["assignments"]:
@@ -359,6 +355,16 @@ def _assignment_readiness(
         obligations,
         identity,
     )
+
+
+def unavailable_baseline(
+    config: ProjectConfig, snapshot: FeatureSnapshot
+) -> entry.UnavailableBaseline | None:
+    """Why the feature's recorded baseline no longer resolves, or None."""
+    baseline = snapshot.state.source_baseline
+    if baseline is None:
+        return None
+    return entry.unavailable_feature_baseline(config.root, baseline)
 
 
 def _baseline_repoint_action(

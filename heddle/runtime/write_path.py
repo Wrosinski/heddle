@@ -89,6 +89,7 @@ from heddle.runtime.readiness import (
     assess_current_readiness,
     readiness_failure,
     readiness_status_block,
+    unavailable_baseline,
 )
 from heddle.runtime.state_store import (
     StateCommit,
@@ -239,6 +240,9 @@ def milestone_advance(operation: ops.MilestoneAdvance) -> HeddleResult:
     block = _not_authorized_block(context.snapshot)
     if block is not None:
         return replace(block, diagnostics=(*context.diagnostics, *block.diagnostics))
+    baseline_block = _unavailable_baseline_block(context)
+    if baseline_block is not None:
+        return baseline_block
     precheck = _advance_readiness_precheck(context)
     if precheck is not None:
         return precheck
@@ -1049,6 +1053,9 @@ def phase_exit(operation: ops.PhaseExit) -> HeddleResult:
     # validation and the lifecycle stamp belong to qualifying Phase 9
     # the explicit feature complete operation, not this boundary.
     if not is_current_stage_regrant and not authorization_only:
+        baseline_block = _unavailable_baseline_block(context)
+        if baseline_block is not None:
+            return baseline_block
         if transition.would_write:
             if grant_blockers:
                 result = blocking_failure(context.snapshot, code=grant_blockers[0])
@@ -1406,6 +1413,19 @@ def _bind_action_revisions(
                 action = ops.CommandAction(replace(operation, expect_revision=revision))
         bound.append(NextAction(action, item.reason))
     return tuple(bound)
+
+
+def _unavailable_baseline_block(
+    context: ResolvedSnapshotContext,
+) -> HeddleResult | None:
+    """Lead a transition with an unavailable baseline, as readiness does.
+
+    Readiness then offers only the re-point, so no other refusal routes a
+    review the baseline cannot support.
+    """
+    if unavailable_baseline(context.config, context.snapshot) is None:
+        return None
+    return _readiness_boundary_block(context)
 
 
 def _readiness_boundary_block(
