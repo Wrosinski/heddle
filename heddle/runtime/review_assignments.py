@@ -45,7 +45,7 @@ from heddle.contracts.review_assignments import (
 from heddle.contracts.schemas import STAGES
 from heddle.gate import entry
 from heddle.gate.cli import resolve_gate_execution
-from heddle.gate.preparation import declared_scaffold_paths, input_contract_for
+from heddle.gate.preparation import input_contract_for, reviewed_test_subject
 from heddle.gate.registry import GATES
 from heddle.gate.types import (
     FailureReason,
@@ -628,7 +628,13 @@ def current_basis_evidence(
                 basis_only=True,
                 source_observations=source_observations,
             )
-            paths.extend(declared_scaffold_paths(context, require_existing=False))
+            # A legacy assignment keeps the recipe its rows were recorded under.
+            legacy = core.legacy_assignment(snapshot.state, assignment.id)
+            context = replace(
+                context,
+                source_baseline=None if legacy else snapshot.state.source_baseline,
+            )
+            paths.extend(reviewed_test_subject(context, reviewer=False).paths)
     definition = resolve_source_definition(
         config.root, "feature-inputs", tuple(set(paths))
     )
@@ -1713,9 +1719,27 @@ def projection(
                 evidence_basis = accepted_entry.source_identity
                 evidence_state = "accepted"
             elif basis_applies:
-                closed = frame.assess(assignment)
-                evidence_basis = frame.basis(assignment)
-                evidence_state = "current" if has_accepted_source else "missing"
+                try:
+                    closed = frame.assess(assignment)
+                    evidence_basis = frame.basis(assignment)
+                    evidence_state = "current" if has_accepted_source else "missing"
+                except KernelError as error:
+                    if error.reason != entry.BASELINE_UNAVAILABLE:
+                        raise
+                    # The subject cannot be resolved against an unavailable
+                    # baseline: the assignment reads unresolved, and readiness
+                    # names the re-point.
+                    basis_applies = False
+                    closed = assess_review_closure(
+                        core.closure_facts(
+                            snapshot.state,
+                            assignment,
+                            current_basis="",
+                            valid_dispositions=(),
+                        )
+                    )
+                    evidence_basis = None
+                    evidence_state = "missing"
             else:
                 # Off and future assignments have no current implementation-source
                 # obligation.  Assess their schedule/history without manufacturing

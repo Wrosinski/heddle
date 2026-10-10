@@ -192,6 +192,7 @@ RUNTIME_IMPORT_EDGES = {
     "migration_history.py": {"heddle.gate.entry"},
     "intake.py": {"yaml", "heddle.io.source"},
     "feature_start.py": {"heddle.io.git"},
+    "feature_baseline.py": {"heddle.gate.entry"},
     "readiness.py": {"heddle.gate.entry", "heddle.gate.registry"},
     "review_launch.py": {"heddle.gate.registry", "heddle.gate.types"},
     "peer_approval.py": {"heddle.gate.entry", "heddle.io.source"},

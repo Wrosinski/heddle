@@ -78,10 +78,17 @@ def commit_state(
     *,
     expect_revision: int,
     transform: StateTransform,
+    baseline_repoint: bool = False,
 ) -> StateCommit:
-    """Commit a snapshot-based mutation, or refuse its stale revision."""
+    """Commit a snapshot-based mutation, or refuse its stale revision.
+
+    Only the baseline re-point passes ``baseline_repoint``.
+    """
     return _commit_state(
-        state_path, expect_revision=expect_revision, transform=transform
+        state_path,
+        expect_revision=expect_revision,
+        transform=transform,
+        baseline_repoint=baseline_repoint,
     )
 
 
@@ -91,6 +98,7 @@ def _commit_state(
     expect_revision: int,
     transform: StateTransform,
     before_publish: Callable[[], None] | None = None,
+    baseline_repoint: bool = False,
 ) -> StateCommit:
     # The private hook is exclusively for policy journal-before-state ordering.
     if type(expect_revision) is not int or expect_revision < 0:
@@ -113,7 +121,7 @@ def _commit_state(
             return StateCommit(revision, False)
         updated["revision"] = revision + 1
         updated["updated"] = utc_now_minutes()
-        validate_state_transition(document, updated)
+        validate_state_transition(document, updated, baseline_repoint=baseline_repoint)
         validate_retained_transition(document, updated)
         parse_state_document(updated, source=state_path)
         text = _serialize(state_path, updated)

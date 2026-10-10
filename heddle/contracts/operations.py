@@ -167,6 +167,15 @@ class FeatureInputsSet:
 
 
 @dataclass(frozen=True)
+class FeatureBaselineSet:
+    commit: str
+    reason: str
+    feature: str | None = None
+    expect_revision: int | None = None
+    dry_run: bool = False
+
+
+@dataclass(frozen=True)
 class AttributeSources:
     payload: dict[str, Any]
     feature: str | None = None
@@ -400,6 +409,7 @@ type Operation = (
     | FeatureSwitch
     | FeatureComplete
     | FeatureInputsSet
+    | FeatureBaselineSet
     | AttributeSources
     | CommandsSet
     | CommandsUnset
@@ -445,6 +455,7 @@ _OPERATION_NAMES: dict[type, str] = {
     FeatureSwitch: "feature switch",
     FeatureComplete: "feature complete",
     FeatureInputsSet: "feature inputs set",
+    FeatureBaselineSet: "feature baseline set",
     AttributeSources: "feature sources attribute",
     CommandsSet: "commands set",
     CommandsUnset: "commands unset",
@@ -550,6 +561,10 @@ def operation_command(operation: Operation) -> str:
             arguments.append(operation.feature)
         case FeatureComplete():
             pass
+        case FeatureBaselineSet():
+            arguments.extend(
+                ("--commit", operation.commit, "--reason", operation.reason)
+            )
         case MilestoneEdit():
             arguments.extend((operation.milestone_id, "--from-file", "-"))
         case (

@@ -15,6 +15,7 @@ import re
 from dataclasses import asdict, dataclass, replace
 from pathlib import Path, PurePosixPath
 
+from heddle.gate.diff import BaselineTestChange, baseline_test_changes
 from heddle.gate.extraction import (
     extract_acceptance_criteria_blocks,
     extract_command_test_paths,
@@ -53,7 +54,12 @@ from heddle.gate.types import (
     ReviewDecision,
     ReviewedInput,
 )
-from heddle.io.git import observe_dirty_paths, read_head_blob
+from heddle.io.git import (
+    GitError,
+    observe_dirty_paths,
+    read_commit_blob,
+    read_head_blob,
+)
 from heddle.io.source import (
     capture_source_path,
     observe_source,
@@ -61,6 +67,7 @@ from heddle.io.source import (
 )
 from heddle.kernel.managed_regions import authored_plan, authored_plan_observation
 from heddle.kernel.project_config import KernelError
+from heddle.kernel.review_equivalence import equivalence_identity
 from heddle.kernel.source_manifest import (
     EvidenceComponent,
     ObservedPath,
@@ -780,28 +787,13 @@ def _context_projections(
     bindings: tuple[PrimaryTestBinding, ...] = ()
     for builder in contract.context_builders:
         if builder == "test-scaffolding":
-            declared_paths = declared_scaffold_paths(context, prepared_diff)
-            mandatory_paths = set(declared_paths)
-            bindings, parse_issues = _required_scaffold_bindings(context)
-            binding_issues.extend(parse_issues)
-            valid_bindings: list[PrimaryTestBinding] = []
-            binding_paths: set[str] = set()
-            for binding in bindings:
-                try:
-                    safe_relative_parts(binding.path)
-                except KernelError as error:
-                    binding_issues.append(
-                        TestBindingIssue(binding.ac_id, binding.target, error.message)
-                    )
-                    continue
-                valid_bindings.append(binding)
-                binding_paths.add(binding.path)
-            selected = tuple(
-                sorted(
-                    mandatory_paths | binding_paths,
-                    key=lambda value: value.encode("utf-8"),
-                )
-            )
+            subject = reviewed_test_subject(context, prepared_diff, reviewer=True)
+            mandatory_paths = subject.mandatory
+            bindings = subject.bindings
+            binding_issues.extend(subject.binding_issues)
+            valid_bindings = subject.valid_bindings
+            binding_paths = {binding.path for binding in valid_bindings}
+            selected = subject.paths
             selected_paths.update(selected)
             text = build_test_scaffolding_context(
                 context, prepared_diff, relevant_paths=selected
@@ -821,6 +813,11 @@ def _context_projections(
                             f"restore or create {relative} before running this gate",
                         )
                     captures[relative] = captured
+                    if subject.baseline_relative:
+                        # A test deleted since the baseline is reviewed as missing.
+                        reviewed_inputs.append(
+                            _captured_identity(captured, "test/" + relative)
+                        )
                     continue
                 captures[relative] = captured
                 if relative in binding_paths:
@@ -1063,6 +1060,120 @@ def _captured_identity(captured: ObservedPath, label: str) -> ReviewedInput:
     return _reviewed("reviewed/identity/" + label, "fact", evidence.source_sha256)
 
 
+@dataclass(frozen=True)
+class ReviewedTestSubject:
+    """The test paths a scaffolding review covers, and the bindings among them.
+
+    ``mandatory`` paths must be present for a launch; any other selected path
+    that is absent is recorded as a missing observation when the subject is
+    baseline-relative.
+    """
+
+    paths: tuple[str, ...]
+    mandatory: frozenset[str]
+    bindings: tuple[PrimaryTestBinding, ...]
+    valid_bindings: tuple[PrimaryTestBinding, ...]
+    binding_issues: tuple[TestBindingIssue, ...]
+    baseline_relative: bool
+
+
+def reviewed_test_subject(
+    context: GateContext,
+    cascade: DiffResult | None = None,
+    *,
+    reviewer: bool,
+) -> ReviewedTestSubject:
+    """Select the reviewed-test subject for the reviewer and assignment bases.
+
+    With a recorded feature baseline the subject is the declared tests, the
+    ``Verified-by:`` bindings and their helpers, and every test under the tests
+    root whose content differs from the baseline under review equivalence, so
+    history alone never changes it. Without a baseline each surface keeps its
+    earlier selection: the reviewer adds the HEAD ``cascade`` and the bindings,
+    the assignment only the declarations.
+    """
+    bindings, parse_issues = _required_scaffold_bindings(context)
+    issues = list(parse_issues)
+    valid_bindings: list[PrimaryTestBinding] = []
+    for binding in bindings:
+        try:
+            safe_relative_parts(binding.path)
+        except KernelError as error:
+            issues.append(
+                TestBindingIssue(binding.ac_id, binding.target, error.message)
+            )
+            continue
+        valid_bindings.append(binding)
+    binding_paths = {binding.path for binding in valid_bindings}
+    baseline = context.source_baseline
+    if baseline is None:
+        if reviewer:
+            declared = declared_scaffold_paths(context, cascade)
+            selected = set(declared) | binding_paths
+        else:
+            declared = declared_scaffold_paths(context, require_existing=False)
+            selected = set(declared)
+        return ReviewedTestSubject(
+            paths=tuple(sorted(selected, key=lambda value: value.encode("utf-8"))),
+            mandatory=frozenset(declared),
+            bindings=bindings,
+            valid_bindings=tuple(valid_bindings),
+            binding_issues=tuple(issues),
+            baseline_relative=False,
+        )
+    tests_root = _normalize_path(resolve_tests_root(context.repo_root))
+    explicit = set(
+        _explicit_scaffold_paths(context, tests_root, require_existing=reviewer)
+    )
+    changed = {
+        change.path
+        for change in baseline_test_changes(
+            context.repo_root, baseline, tests_root=tests_root
+        )
+        if change.path.startswith(f"{tests_root}/")
+        and _differs_from_baseline(context, baseline.oid, change)
+    }
+    helpers = _scaffold_helpers(
+        context.repo_root, explicit | binding_paths | changed, tests_root
+    )
+    subject = explicit | helpers | binding_paths | changed
+    return ReviewedTestSubject(
+        paths=tuple(sorted(subject, key=lambda value: value.encode("utf-8"))),
+        mandatory=frozenset(explicit | helpers),
+        bindings=bindings,
+        valid_bindings=tuple(valid_bindings),
+        binding_issues=tuple(issues),
+        baseline_relative=True,
+    )
+
+
+def _differs_from_baseline(
+    context: GateContext, baseline: str, change: BaselineTestChange
+) -> bool:
+    """Whether a path's working content differs from the baseline for review.
+
+    Only a path Git reports as modified can still be review-equivalent; its
+    equivalence identity is computed only when the raw bytes differ.
+    """
+    if change.status != "M" or change.baseline_mode not in {"100644", "100755"}:
+        return True
+    captured = capture_source_path(
+        context.repo_root, change.path, context.source_observations
+    )
+    if captured.kind != "file" or captured.executable != (
+        change.baseline_mode == "100755"
+    ):
+        return True
+    try:
+        committed = read_commit_blob(context.repo_root, baseline, change.path)
+    except GitError:
+        return True
+    if committed == captured.content:
+        return False
+    current = equivalence_identity(change.path, captured.content)
+    return current is None or current != equivalence_identity(change.path, committed)
+
+
 def declared_scaffold_paths(
     context: GateContext,
     diff: DiffResult | None = None,
@@ -1071,7 +1182,22 @@ def declared_scaffold_paths(
 ) -> tuple[str, ...]:
     """Resolve explicit plan declarations and current changed test files once."""
     tests_root = _normalize_path(resolve_tests_root(context.repo_root))
-    declared: set[str] = set()
+    declared = set(
+        _explicit_scaffold_paths(context, tests_root, require_existing=require_existing)
+    )
+    if diff is not None:
+        for value in (*diff.changed_files, *diff.untracked_files):
+            declared.update(
+                _resolve_scaffold_path(context, tests_root, value, explicit=False)
+            )
+    declared |= _scaffold_helpers(context.repo_root, declared, tests_root)
+    return tuple(sorted(declared, key=lambda value: value.encode("utf-8")))
+
+
+def _explicit_scaffold_paths(
+    context: GateContext, tests_root: str, *, require_existing: bool
+) -> tuple[str, ...]:
+    """The test files the plan and the verification commands declare."""
     unsupported_plan = unsupported_explicit_test_tokens(
         context.plan_content, tests_root=tests_root
     )
@@ -1098,55 +1224,71 @@ def declared_scaffold_paths(
             tuple(context.verification_commands.values()), tests_root=tests_root
         )
     )
-    initial = list(explicit_paths)
-    if diff is not None:
-        initial.extend(diff.changed_files)
-        initial.extend(diff.untracked_files)
-
-    explicit = set(explicit_paths)
-
-    def add(value: str) -> None:
-        logical = _normalize_path(value)
-        if not logical.startswith(f"{tests_root}/"):
-            return
-        candidate = context.repo_root.joinpath(*PurePosixPath(logical).parts)
-        if not candidate.exists():
-            if value in explicit:
-                if not require_existing:
-                    declared.add(logical)
-                    return
-                raise _input_error(
-                    f"required reviewed test artifact {logical} is missing",
-                    f"restore or create {logical} before running this gate",
-                )
-            return
-        if candidate.is_dir():
-            declared.update(
-                path.relative_to(context.repo_root).as_posix()
-                for path in candidate.rglob("*.py")
-                if path.is_file()
+    declared: set[str] = set()
+    for value in explicit_paths:
+        declared.update(
+            _resolve_scaffold_path(
+                context,
+                tests_root,
+                value,
+                explicit=True,
+                require_existing=require_existing,
             )
-        else:
-            declared.add(logical)
+        )
+    return tuple(sorted(declared, key=lambda value: value.encode("utf-8")))
 
-    for value in initial:
-        add(value)
 
-    for relative in tuple(declared):
-        candidate = context.repo_root.joinpath(*PurePosixPath(relative).parts)
+def _resolve_scaffold_path(
+    context: GateContext,
+    tests_root: str,
+    value: str,
+    *,
+    explicit: bool,
+    require_existing: bool = True,
+) -> tuple[str, ...]:
+    """Expand one declared or changed path under the tests root to test files.
+
+    An absent explicit declaration is refused, or kept when absence is
+    allowed; an absent changed path is dropped.
+    """
+    logical = _normalize_path(value)
+    if not logical.startswith(f"{tests_root}/"):
+        return ()
+    candidate = context.repo_root.joinpath(*PurePosixPath(logical).parts)
+    if not candidate.exists():
+        if explicit:
+            if not require_existing:
+                return (logical,)
+            raise _input_error(
+                f"required reviewed test artifact {logical} is missing",
+                f"restore or create {logical} before running this gate",
+            )
+        return ()
+    if candidate.is_dir():
+        return tuple(
+            path.relative_to(context.repo_root).as_posix()
+            for path in candidate.rglob("*.py")
+            if path.is_file()
+        )
+    return (logical,)
+
+
+def _scaffold_helpers(repo_root: Path, paths: set[str], tests_root: str) -> set[str]:
+    """The conftest, helper and local test modules beside each present test."""
+    helpers: set[str] = set()
+    for relative in paths:
+        candidate = repo_root.joinpath(*PurePosixPath(relative).parts)
         if not candidate.is_file():
             continue
         for helper_name in ("conftest.py", "helpers.py"):
             helper_path = candidate.parent / helper_name
             if helper_path.is_file():
-                declared.add(helper_path.relative_to(context.repo_root).as_posix())
+                helpers.add(helper_path.relative_to(repo_root).as_posix())
         parent_helper = candidate.parent.parent / "helpers.py"
         if parent_helper.is_file():
-            declared.add(parent_helper.relative_to(context.repo_root).as_posix())
-        declared.update(
-            _local_test_dependencies(context.repo_root, candidate, tests_root)
-        )
-    return tuple(sorted(declared, key=lambda value: value.encode("utf-8")))
+            helpers.add(parent_helper.relative_to(repo_root).as_posix())
+        helpers.update(_local_test_dependencies(repo_root, candidate, tests_root))
+    return helpers
 
 
 def missing_scaffold_paths(context: GateContext) -> tuple[str, ...]:

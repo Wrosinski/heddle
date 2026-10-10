@@ -1482,6 +1482,27 @@ COMMAND_SURFACE: tuple[CommandContract, ...] = (
         output_schema=None,
     ),
     CommandContract(
+        name=ops.operation_type_name(ops.FeatureBaselineSet),
+        cli_binding=("feature_baseline", "run_feature_baseline_set"),
+        summary=(
+            "re-point a missing or diverged feature baseline to a reachable "
+            "ancestor of HEAD"
+        ),
+        mutating=True,
+        dry_run=True,
+        args=(),
+        flags=(
+            _JSON,
+            _FEATURE,
+            FlagSpec("--commit", "the new baseline commit (an ancestor of HEAD)"),
+            FlagSpec("--reason", "why the recorded baseline is replaced"),
+            _EXPECT_REVISION,
+            _DRY_RUN,
+        ),
+        exit_codes=_EXIT_CAS,
+        output_schema=None,
+    ),
+    CommandContract(
         name=ops.operation_type_name(ops.Kickoff),
         cli_binding=("kickoff", "run_kickoff"),
         summary="render the current stage's briefing",

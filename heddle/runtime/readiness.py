@@ -216,6 +216,11 @@ def _assignment_readiness(
     )
     basic = assess_boundary(snapshot.state, boundary, (), (), actionable_verifications)
     rows, actions, blockers = [], list(basic.next_actions), list(basic.blockers)
+    unavailable = (
+        entry.unavailable_feature_baseline(config.root, snapshot.state.source_baseline)
+        if snapshot.state.source_baseline is not None
+        else None
+    )
     proof_actions = len(actions)
     completed_scopes = {m.id for m in snapshot.state.milestones if m.status == "done"}
     for row in observed["review_closure"]["assignments"]:
@@ -281,7 +286,28 @@ def _assignment_readiness(
         if not row["closed"] and (retained or not implementation_work_pending):
             if "gate-not-converged" not in blockers:
                 blockers.append("gate-not-converged")
-            actions.extend(next_actions(snapshot, row))
+            if unavailable is None:
+                actions.extend(next_actions(snapshot, row))
+    obligations = tuple(
+        (str(reference[0]), str(reference[1]))
+        for reference in observed["review_closure"]["open_refs"]
+    )
+    identity = hashlib.sha256(
+        f"{snapshot.feature}:{snapshot.state.revision}:{snapshot.stage}:{purpose}".encode()
+    ).hexdigest()
+    if unavailable is not None:
+        # No review or gate can resolve its subject until the baseline is
+        # restored or re-pointed, so the re-point is the only next action.
+        return BoundaryAssessment(
+            boundary,
+            tuple(rows),
+            verifications,
+            (entry.BASELINE_UNAVAILABLE, *blockers),
+            (_baseline_repoint_action(snapshot, unavailable),),
+            purpose,
+            obligations,
+            identity,
+        )
     if len(actions) > proof_actions:
         # Open review work here may change owned content again, so a default
         # post-review witness rerun waits behind it; the lane still blocks exit.
@@ -323,13 +349,6 @@ def _assignment_readiness(
         and isinstance(derived[0].action, ops.SessionAction)
     ):
         actions = [derived[0], *(item for item in actions if item != derived[0])]
-    obligations = tuple(
-        (str(reference[0]), str(reference[1]))
-        for reference in observed["review_closure"]["open_refs"]
-    )
-    identity = hashlib.sha256(
-        f"{snapshot.feature}:{snapshot.state.revision}:{snapshot.stage}:{purpose}".encode()
-    ).hexdigest()
     return BoundaryAssessment(
         boundary,
         tuple(rows),
@@ -339,6 +358,19 @@ def _assignment_readiness(
         purpose,
         obligations,
         identity,
+    )
+
+
+def _baseline_repoint_action(
+    snapshot: FeatureSnapshot, unavailable: entry.UnavailableBaseline
+) -> NextAction:
+    return NextAction(
+        ops.ManualAction(
+            f"{entry.REPOINT_REMEDY} --feature {snapshot.feature} "
+            f"--expect-revision {snapshot.state.revision}"
+        ),
+        f"{unavailable.explanation}; restore it, or record a reachable ancestor "
+        "of HEAD as the feature baseline",
     )
 
 

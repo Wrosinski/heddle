@@ -81,6 +81,8 @@ ERROR_CODES: frozenset[str] = frozenset(
         # Product follow-up 02: a structurally supported disposition batch
         # reports every rejected row without publishing any of them.
         "disposition-batch-invalid",
+        # A recorded feature baseline that is missing or diverged blocks readiness.
+        "baseline-unavailable",
     }
 )
 

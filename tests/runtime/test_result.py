@@ -71,6 +71,7 @@ PINNED_ERROR_CODES = frozenset(
         "decision-already-resolved",
         "verification-failed",
         "disposition-batch-invalid",
+        "baseline-unavailable",
     }
 )
 
@@ -96,7 +97,7 @@ class TestAC5Vocabularies:
 
     def test_error_codes_equal_req7_vocabulary(self):
         assert ERROR_CODES == PINNED_ERROR_CODES
-        assert len(ERROR_CODES) == 24
+        assert len(ERROR_CODES) == 25
 
     def test_unknown_error_code_raises_value_error(self):
         with pytest.raises(ValueError):

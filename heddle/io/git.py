@@ -87,7 +87,7 @@ def resolve_feature_baseline(
     if warning is not None:
         raise FeatureBaselineError(
             "baseline-missing",
-            f"feature baseline {oid} is unavailable in local Git history ({warning})",
+            f"feature baseline {oid} is missing from local Git history ({warning})",
         )
     if kind.strip() != "commit":
         raise FeatureBaselineError(
@@ -186,6 +186,65 @@ def read_head_blob(repo_root: Path, relpath: str) -> bytes:
             f"HEAD does not retain {relpath}; commit the accepted ledger and archive"
         )
     return result.stdout
+
+
+def read_commit_blob(repo_root: Path, commit: str, relpath: str) -> bytes:
+    """Read a path's exact committed bytes at ``commit``."""
+    try:
+        result = subprocess.run(
+            ["git", "cat-file", "blob", f"{commit}:{relpath}"],
+            cwd=repo_root,
+            check=False,
+            capture_output=True,
+            timeout=GIT_TIMEOUT_SECONDS,
+        )
+    except (OSError, subprocess.TimeoutExpired) as error:
+        raise GitError(f"cannot read {relpath} at {commit}: {error}") from error
+    if result.returncode != 0:
+        raise GitError(f"commit {commit} does not hold {relpath}")
+    return result.stdout
+
+
+def resolve_commit(repo_root: Path, revision: str) -> str:
+    """Resolve a revision to its full commit identity, without changing state."""
+    if not revision or revision.startswith("-"):
+        raise GitError(f"{revision!r} is not a revision")
+    output, warning = run_git(
+        ["git", "rev-parse", "--verify", "--quiet", f"{revision}^{{commit}}"],
+        repo_root.resolve(),
+    )
+    oid = output.strip()
+    if warning is not None or re.fullmatch(r"[a-f0-9]{40}|[a-f0-9]{64}", oid) is None:
+        raise GitError(f"{revision} does not name a commit in local Git history")
+    return oid
+
+
+@dataclass(frozen=True)
+class RawChange:
+    """One ``git diff --raw -z`` record: the status letter, source side, paths."""
+
+    status: str
+    source_mode: str
+    paths: tuple[str, ...]
+
+
+def changed_raw_records(output: str) -> tuple[RawChange, ...]:
+    """Decode ``git diff --raw -z`` records; a rename or copy names two paths."""
+    fields = _git_path_records(output)
+    changes: list[RawChange] = []
+    index = 0
+    while index < len(fields):
+        meta = fields[index].split(" ")
+        if len(meta) != 5 or not meta[0].startswith(":") or not meta[4]:
+            raise GitError("git diff --raw -z returned an invalid record")
+        status = meta[4][0]
+        count = 2 if status in {"R", "C"} else 1
+        selected = fields[index + 1 : index + 1 + count]
+        if len(selected) != count:
+            raise GitError("git diff --raw -z returned an incomplete path record")
+        changes.append(RawChange(status, meta[0][1:], tuple(selected)))
+        index += count + 1
+    return tuple(changes)
 
 
 def _git_path_records(output: str) -> tuple[str, ...]:

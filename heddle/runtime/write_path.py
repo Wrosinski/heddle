@@ -1133,6 +1133,7 @@ def preview_state_write(
     *,
     expect_revision: int,
     transform: Callable[[dict[str, Any]], dict[str, Any]],
+    baseline_repoint: bool = False,
 ) -> StateCommit:
     with state_recording_lock(state_path):
         document = _load_expected_state(state_path, expect_revision)
@@ -1143,7 +1144,9 @@ def preview_state_write(
         if wrote:
             new_document["revision"] = expect_revision + 1
             new_document["updated"] = utc_now_minutes()
-        validate_state_transition(document, new_document)
+        validate_state_transition(
+            document, new_document, baseline_repoint=baseline_repoint
+        )
         validate_retained_transition(document, new_document)
         parse_state_document(new_document, source=state_path)
     return StateCommit(
@@ -1229,6 +1232,7 @@ type _StateMutationOperation = (
     | ops.TaskEdit
     | ops.FlowSet
     | ops.FeatureInputsSet
+    | ops.FeatureBaselineSet
     | ops.AttributeSources
 )
 
@@ -1240,6 +1244,7 @@ def _run_state_mutation(
     render: Callable[[dict[str, Any]], dict[str, Any]],
     extra: Mapping[str, Any] | None = None,
     precheck: Callable[[ResolvedSnapshotContext], HeddleResult | None] | None = None,
+    baseline_repoint: bool = False,
 ) -> HeddleResult:
     context_result = resolve_write_context(parsed.feature, parsed.expect_revision)
     if isinstance(context_result, HeddleResult):
@@ -1254,8 +1259,20 @@ def _run_state_mutation(
             return precheck_block
     # FlowSet and FeatureInputsSet have no dry-run option.
     if getattr(parsed, "dry_run", False):
-        return _dry_run_result(context, render, command_name=command_name, extra=extra)
-    return _commit_result(context, render, command_name=command_name, extra=extra)
+        return _dry_run_result(
+            context,
+            render,
+            command_name=command_name,
+            extra=extra,
+            baseline_repoint=baseline_repoint,
+        )
+    return _commit_result(
+        context,
+        render,
+        command_name=command_name,
+        extra=extra,
+        baseline_repoint=baseline_repoint,
+    )
 
 
 def run_state_mutation(
@@ -1265,15 +1282,26 @@ def run_state_mutation(
     render: Callable[[dict[str, Any]], dict[str, Any]],
     extra: Mapping[str, Any] | None = None,
     precheck: Callable[[ResolvedSnapshotContext], HeddleResult | None] | None = None,
+    baseline_repoint: bool = False,
 ) -> HeddleResult:
-    """Public CAS mutation seam shared by focused runtime command modules."""
+    """Public CAS mutation seam shared by focused runtime command modules.
+
+    Only the baseline re-point passes ``baseline_repoint``.
+    """
     return _run_state_mutation(
         parsed,
         command_name=command_name,
         render=render,
         extra=extra,
         precheck=precheck,
+        baseline_repoint=baseline_repoint,
     )
+
+
+def _repoint_flag(baseline_repoint: bool) -> dict[str, bool]:
+    """Name the re-point flag only on the re-point, so other writes keep
+    the seam's ordinary call."""
+    return {"baseline_repoint": True} if baseline_repoint else {}
 
 
 def _commit_result(
@@ -1283,12 +1311,14 @@ def _commit_result(
     command_name: str,
     extra: Mapping[str, Any] | None = None,
     post_write_guidance: bool = False,
+    baseline_repoint: bool = False,
 ) -> HeddleResult:
     try:
         commit = commit_state(
             context.state_path,
             expect_revision=context.snapshot.state.revision,
             transform=render,
+            **_repoint_flag(baseline_repoint),
         )
     except Conflict as error:
         result = conflict_failure(error)
@@ -1401,12 +1431,14 @@ def _dry_run_result(
     extra: Mapping[str, Any] | None = None,
     factual_projection: bool = False,
     projected_fact_keys: tuple[str, ...] = (),
+    baseline_repoint: bool = False,
 ) -> HeddleResult:
     try:
         preview = preview_state_write(
             context.state_path,
             expect_revision=context.snapshot.state.revision,
             transform=render,
+            **_repoint_flag(baseline_repoint),
         )
     except Conflict as error:
         return conflict_failure(error)

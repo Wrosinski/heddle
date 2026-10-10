@@ -107,6 +107,12 @@ STATE_V9_OPTIONAL_TOP_LEVEL_KEYS = (
     "policy_history",
     "assessments",
 )
+# A v10 workspace may also carry the append-only record of baseline re-points.
+STATE_V10_OPTIONAL_TOP_LEVEL_KEYS = (
+    *STATE_V9_OPTIONAL_TOP_LEVEL_KEYS,
+    "source_baseline_history",
+)
+SOURCE_BASELINE_HISTORY_KEYS = ("from", "to", "reason", "at")
 
 # workflow-model §10.1 — the scalar facts; the six collections may be empty,
 # but fixture state files carry all fifteen keys explicitly.

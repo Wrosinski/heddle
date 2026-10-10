@@ -41,6 +41,7 @@ from heddle.contracts.schemas import (
     SESSION_KEYS,
     SESSION_OPTIONAL_KEYS,
     SESSION_PROGRESS_FIELD_TYPES,
+    SOURCE_BASELINE_HISTORY_KEYS,
     SPEC_STAMP_KEYS,
     STAGES,
     STATE_REQUIRED_KEYS,
@@ -48,6 +49,7 @@ from heddle.contracts.schemas import (
     STATE_SCHEMA_VERSIONS,
     STATE_V9_OPTIONAL_TOP_LEVEL_KEYS,
     STATE_V9_TOP_LEVEL_KEYS,
+    STATE_V10_OPTIONAL_TOP_LEVEL_KEYS,
     STATE_V10_TOP_LEVEL_KEYS,
     TASK_KEYS,
     VERIFICATION_EVIDENCE_KEYS,
@@ -436,7 +438,11 @@ def parse_state_document(document: object, *, source: Path) -> StateFile:
             f"missing required top-level keys: {missing}",
             "every §10.1 key must be present (collections may be empty)",
         )
-    optional_keys = STATE_V9_OPTIONAL_TOP_LEVEL_KEYS
+    optional_keys = (
+        STATE_V10_OPTIONAL_TOP_LEVEL_KEYS
+        if schema == STATE_SCHEMA_V10
+        else STATE_V9_OPTIONAL_TOP_LEVEL_KEYS
+    )
     allowed_top_level = required_keys + optional_keys
     unknown = [key for key in document if key not in allowed_top_level]
     if unknown:
@@ -488,6 +494,10 @@ def parse_state_document(document: object, *, source: Path) -> StateFile:
                 str(error),
                 "restore the immutable source baseline recorded at admission",
             ) from error
+        if "source_baseline_history" in document:
+            _source_baseline_history(
+                path, document["source_baseline_history"], source_baseline
+            )
 
     confirmed_policy = None
     history: tuple[ConfirmedPolicy, ...] = ()
@@ -615,19 +625,84 @@ def parse_state_document(document: object, *, source: Path) -> StateFile:
     return state
 
 
-def validate_state_transition(before: dict[str, Any], after: dict[str, Any]) -> None:
-    """Keep the wire version and admission baseline immutable across writes."""
+def _source_baseline_history(path: Path, value: Any, current: SourceBaseline) -> None:
+    """Each re-point continues the last, and the last names the current baseline."""
+
+    def reject(problem: str) -> KernelError:
+        return _invalid(
+            path,
+            f"source_baseline_history: {problem}",
+            "restore the recorded baseline re-point history",
+        )
+
+    if not isinstance(value, list) or not value:
+        raise reject("must be a non-empty list")
+    reached: SourceBaseline | None = None
+    for index, entry in enumerate(value):
+        if not isinstance(entry, dict) or set(entry) != set(
+            SOURCE_BASELINE_HISTORY_KEYS
+        ):
+            raise reject(f"entry {index} needs exactly from, to, reason and at")
+        try:
+            start = parse_source_baseline(entry["from"])
+            end = parse_source_baseline(entry["to"])
+        except ValueError as error:
+            raise reject(f"entry {index}: {error}") from error
+        if start == end or (reached is not None and start != reached):
+            raise reject(f"entry {index} does not continue the previous baseline")
+        for key in ("reason", "at"):
+            if not isinstance(entry[key], str) or not entry[key].strip():
+                raise reject(f"entry {index} needs a non-blank {key}")
+        reached = end
+    if reached != current:
+        raise reject("the last entry must name the recorded source_baseline")
+
+
+def validate_state_transition(
+    before: dict[str, Any], after: dict[str, Any], *, baseline_repoint: bool = False
+) -> None:
+    """Keep the wire version and admission baseline immutable across writes.
+
+    ``baseline_repoint`` admits the one write that replaces a recorded
+    baseline, with exactly one appended history entry naming both values.
+    """
     if after.get("schema") != before.get("schema"):
         raise _invalid(
             Path("state.yaml"),
             "state schema is immutable across ordinary writes",
             "preserve the existing state schema",
         )
-    if before.get("source_baseline") != after.get("source_baseline"):
+    prior_history = before.get("source_baseline_history", [])
+    next_history = after.get("source_baseline_history", [])
+    if (
+        not isinstance(next_history, list)
+        or next_history[: len(prior_history)] != prior_history
+    ):
         raise _invalid(
             Path("state.yaml"),
-            "source_baseline is immutable after admission",
-            "restore the baseline recorded at admission",
+            "source_baseline_history is append-only",
+            "preserve the recorded baseline re-points",
+        )
+    appended = next_history[len(prior_history) :]
+    if before.get("source_baseline") != after.get("source_baseline"):
+        repoint = appended[0] if len(appended) == 1 else None
+        if not (
+            baseline_repoint
+            and before.get("source_baseline") is not None
+            and isinstance(repoint, dict)
+            and repoint.get("from") == before.get("source_baseline")
+            and repoint.get("to") == after.get("source_baseline")
+        ):
+            raise _invalid(
+                Path("state.yaml"),
+                "source_baseline is immutable after admission",
+                "restore the baseline recorded at admission",
+            )
+    elif appended:
+        raise _invalid(
+            Path("state.yaml"),
+            "source_baseline_history grows only with a baseline re-point",
+            "record a re-point with heddle feature baseline set",
         )
     prior_attributions = before.get("source_attributions", [])
     next_attributions = after.get("source_attributions", [])

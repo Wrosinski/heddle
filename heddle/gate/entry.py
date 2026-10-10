@@ -7,11 +7,22 @@ import stat
 import tempfile
 from collections.abc import Iterator
 from contextlib import contextmanager, suppress
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
 from heddle.contracts.review_assignments import ArtifactRef
+
+# The runtime reaches baseline availability and the re-point through this seam.
+from heddle.gate.diff import BASELINE_UNAVAILABLE as BASELINE_UNAVAILABLE
+from heddle.gate.diff import REPOINT_COMMAND as REPOINT_COMMAND
+from heddle.gate.diff import REPOINT_REMEDY as REPOINT_REMEDY
+from heddle.gate.diff import RepointTargetError as RepointTargetError
+from heddle.gate.diff import UnavailableBaseline as UnavailableBaseline
+from heddle.gate.diff import repoint_target as repoint_target
+from heddle.gate.diff import (
+    unavailable_feature_baseline as unavailable_feature_baseline,
+)
 from heddle.gate.results import (
     ReviewResult,
     bind_review_result,
@@ -355,8 +366,10 @@ def build_gate_context(
     second-suite first review must not be framed as a rerun of
     the other lane's completed review."""
     from heddle.gate.context import build_context_from_snapshot
+    from heddle.gate.preparation import input_contract_for
+    from heddle.kernel.review_assignments import legacy_assignment
 
-    return build_context_from_snapshot(
+    context = build_context_from_snapshot(
         snapshot,
         config,
         gate_type,
@@ -365,6 +378,16 @@ def build_gate_context(
         basis_only=basis_only,
         source_observations=source_observations,
     )
+    if (
+        context.source_baseline is not None
+        and context.review_assignment is not None
+        and "test-scaffolding" in input_contract_for(gate_type).context_builders
+        and legacy_assignment(snapshot.state, context.review_assignment.id)
+    ):
+        # A legacy scaffolding assignment keeps the HEAD-cascade recipe its
+        # rows, reviewer basis and sealing were recorded under.
+        return replace(context, source_baseline=None)
+    return context
 
 
 def build_gate_lock_context(
@@ -502,8 +525,11 @@ def _resolved_gate_sources(
     basis_only: bool = False,
 ) -> Iterator[tuple[ResolvedGatePrompt, DiffResult]]:
     """Resolve the declared diff/resources for full and basis-only preparation."""
-    from heddle.gate.diff import resolve_diff
-    from heddle.gate.preparation import gate_requires_diff_resolution
+    from heddle.gate.diff import qualify_feature_baseline, resolve_diff
+    from heddle.gate.preparation import (
+        gate_requires_diff_resolution,
+        input_contract_for,
+    )
     from heddle.gate.types import DiffResult
 
     baseline_probe = None
@@ -514,6 +540,13 @@ def _resolved_gate_sources(
             .relative_to(context.repo_root.resolve())
             .as_posix()
         )
+    if (
+        context.source_baseline is not None
+        and "test-scaffolding" in input_contract_for(gate_type).context_builders
+    ):
+        # Scaffolding selects its subject against the baseline, so an
+        # unavailable one refuses with the milestone gates' diagnostic.
+        qualify_feature_baseline(context.repo_root, context.source_baseline)
     with tempfile.TemporaryDirectory(prefix="heddle-gate-prepare-") as temp:
         if gate_requires_diff_resolution(gate_type):
             diff = resolve_diff(

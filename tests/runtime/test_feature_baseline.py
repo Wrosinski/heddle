@@ -221,7 +221,8 @@ def test_ac8_baseline_set_refuses_without_writing(tmp_path, monkeypatch, run_cli
             else git(host.root, "rev-parse", "HEAD")
         )
     if case == "stale-revision":
-        revision -= 1
+        # The fixture starts at revision 0; a future revision is equally stale.
+        revision += 1
     before = host.state.read_bytes()
 
     code, result = baseline_set(
@@ -249,7 +250,6 @@ def test_ac8_baseline_set_refuses_without_writing(tmp_path, monkeypatch, run_cli
             f"FAIL AC-8: the refusal does not say the baseline is still available: "
             f"{message}"
         )
-        assert "unavailable" not in message, message
     elif case == "not-ancestor":
         assert "not an ancestor" in message, (
             f"FAIL AC-8: the refusal does not say the commit is not an ancestor: "

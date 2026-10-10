@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import tempfile
+from dataclasses import dataclass
 from pathlib import Path
+from typing import Literal
 
 from heddle.gate.overlap import paths_overlap
 from heddle.gate.types import DiffResult
@@ -10,6 +12,43 @@ from heddle.kernel.project_config import KernelError
 from heddle.kernel.state import SourceBaseline
 
 MAX_GATE_DIFF_BYTES = 8 * 1024 * 1024
+# The typed reason a recorded feature baseline refusal carries.
+BASELINE_UNAVAILABLE = "baseline-unavailable"
+REPOINT_COMMAND = "heddle feature baseline set"
+REPOINT_REMEDY = f"{REPOINT_COMMAND} --commit <rev> --reason <text>"
+_REASON_TEXT = {
+    "missing": "missing from local Git history",
+    "diverged": "diverged: it is not an ancestor of HEAD",
+}
+
+
+@dataclass(frozen=True)
+class UnavailableBaseline:
+    """A recorded feature baseline that no longer qualifies, and why."""
+
+    oid: str
+    reason: Literal["missing", "diverged"]
+    detail: str
+
+    @property
+    def explanation(self) -> str:
+        return (
+            f"the recorded feature baseline {self.oid} is {_REASON_TEXT[self.reason]}"
+        )
+
+
+@dataclass(frozen=True)
+class BaselineTestChange:
+    """One path under the tests root whose content differs from the baseline.
+
+    ``status`` is Git's letter (``A``, ``D``, ``M``, ``T``), with a rename split
+    into its deleted and added ends and ``?`` for an untracked path;
+    ``baseline_mode`` is the path's mode at the baseline, when it had one.
+    """
+
+    path: str
+    status: str
+    baseline_mode: str | None
 
 
 def resolve_diff(
@@ -232,7 +271,143 @@ def _feature_baseline_commit(
             None,
         )
     except git.FeatureBaselineError as error:
-        raise _baseline_preparation_error(error) from error
+        raise _baseline_preparation_error(
+            error, recorded=feature_baseline is not None
+        ) from error
+
+
+def unavailable_feature_baseline(
+    repo_root: Path, feature_baseline: SourceBaseline
+) -> UnavailableBaseline | None:
+    """Name why a recorded baseline no longer resolves, or None while it does."""
+    try:
+        git.resolve_feature_baseline(repo_root, feature_baseline)
+    except git.FeatureBaselineError as error:
+        return UnavailableBaseline(
+            feature_baseline.oid, _unavailable_reason(error), str(error)
+        )
+    return None
+
+
+class RepointTargetError(ValueError):
+    """A re-point target that names no commit, or one HEAD does not contain."""
+
+
+def repoint_target(repo_root: Path, revision: str) -> str:
+    """Resolve a re-point target to a commit that is an ancestor of HEAD."""
+    try:
+        target = git.resolve_commit(repo_root, revision)
+    except git.GitError as error:
+        raise RepointTargetError(
+            f"--commit {revision!r} does not name a commit: {error}"
+        ) from error
+    try:
+        git.resolve_feature_baseline(repo_root, SourceBaseline("git-commit", target))
+    except git.FeatureBaselineError as error:
+        if error.reason == "baseline-diverged":
+            raise RepointTargetError(
+                f"commit {target} is not an ancestor of HEAD"
+            ) from error
+        raise RepointTargetError(
+            f"commit {target} cannot be a feature baseline: {error}"
+        ) from error
+    return target
+
+
+def qualify_feature_baseline(repo_root: Path, feature_baseline: SourceBaseline) -> str:
+    """Return the recorded baseline commit, or the milestone gates' refusal."""
+    baseline, _warning = _feature_baseline_commit(repo_root, feature_baseline, None)
+    assert baseline is not None
+    return baseline
+
+
+def baseline_test_changes(
+    repo_root: Path, feature_baseline: SourceBaseline, *, tests_root: str
+) -> tuple[BaselineTestChange, ...]:
+    """Every path under ``tests_root`` whose content differs from the baseline.
+
+    One ``git diff --raw -M <baseline>`` against the working tree gives both
+    ends of a rename, deletions and changes, and untracked files under the
+    root join, so history that leaves content equal to the baseline is
+    invisible. An unavailable baseline is refused, naming its reason and the
+    re-point.
+    """
+    root = repo_root.resolve()
+    baseline = qualify_feature_baseline(root, feature_baseline)
+    changed, changed_warning = _run_git_result(
+        [
+            "git",
+            "--literal-pathspecs",
+            "diff",
+            "--raw",
+            "-z",
+            "-M",
+            "--no-abbrev",
+            baseline,
+            "--",
+            tests_root,
+        ],
+        root,
+        enforce_cap=False,
+    )
+    untracked, untracked_warning = _run_git_result(
+        [
+            "git",
+            "--literal-pathspecs",
+            "ls-files",
+            "--others",
+            "--exclude-standard",
+            "-z",
+            "--",
+            tests_root,
+        ],
+        root,
+        enforce_cap=False,
+    )
+    warning = changed_warning or untracked_warning
+    if warning is not None:
+        raise KernelError(
+            code="workspace-invalid",
+            message=(
+                f"cannot list tests under {tests_root} that differ from the "
+                f"feature baseline {baseline}: {warning}"
+            ),
+            hint="restore a readable Git working tree, then retry",
+        )
+    try:
+        records = git.changed_raw_records(changed)
+    except git.GitError as error:
+        raise _git_preparation_error(error) from error
+    untracked_paths = tuple(path for path in untracked.split("\0") if path)
+    changes: dict[str, BaselineTestChange] = {}
+    for record in records:
+        if record.status in {"R", "C"}:
+            old, new = record.paths
+            if record.status == "R":
+                changes[old] = BaselineTestChange(old, "D", record.source_mode)
+            changes[new] = BaselineTestChange(new, "A", None)
+            continue
+        (path,) = record.paths
+        changes[path] = BaselineTestChange(
+            path,
+            record.status,
+            None if record.status == "A" else record.source_mode,
+        )
+    for path in untracked_paths:
+        changes.setdefault(path, BaselineTestChange(path, "?", None))
+    return tuple(changes[path] for path in sorted(changes, key=str.encode))
+
+
+def baseline_test_paths(
+    repo_root: Path, feature_baseline: SourceBaseline, *, tests_root: str
+) -> tuple[str, ...]:
+    """The paths of ``baseline_test_changes``, byte-sorted."""
+    return tuple(
+        change.path
+        for change in baseline_test_changes(
+            repo_root, feature_baseline, tests_root=tests_root
+        )
+    )
 
 
 def extract_changed_files(diff_path: Path) -> list[str]:
@@ -280,15 +455,39 @@ def _git_preparation_error(error: git.GitError) -> KernelError:
     )
 
 
-def _baseline_preparation_error(error: git.FeatureBaselineError) -> KernelError:
+def _baseline_preparation_error(
+    error: git.FeatureBaselineError, *, recorded: bool
+) -> KernelError:
+    if not recorded:
+        return KernelError(
+            code="workspace-invalid",
+            message=str(error),
+            hint=(
+                "restore the recorded baseline commit and its ancestry from the "
+                "original checkout or repository history, then retry without "
+                "changing the baseline"
+            ),
+        )
+    reason = _unavailable_reason(error)
     return KernelError(
         code="workspace-invalid",
         message=str(error),
         hint=(
-            "restore the recorded baseline commit and its ancestry from the original "
-            "checkout or repository history, then retry without changing the baseline"
+            f"the recorded feature baseline is {_REASON_TEXT[reason]}; restore the "
+            "recorded baseline commit and its ancestry from the original checkout "
+            "or repository history, or record a reachable ancestor of HEAD with "
+            f"`{REPOINT_REMEDY}`"
         ),
+        reason=BASELINE_UNAVAILABLE,
+        details={"baseline_reason": reason},
     )
+
+
+def _unavailable_reason(
+    error: git.FeatureBaselineError,
+) -> Literal["missing", "diverged"]:
+    """A baseline that is not an ancestor diverged; any other no longer resolves."""
+    return "diverged" if error.reason == "baseline-diverged" else "missing"
 
 
 def _require_bounded_diff_path(path: Path) -> None:
