@@ -283,7 +283,11 @@ def _assignment_readiness(
             if "gate-not-converged" not in blockers:
                 blockers.append("gate-not-converged")
             if unavailable is None:
-                actions.extend(next_actions(snapshot, row))
+                routed = next_actions(snapshot, row)
+                # Every assignment routed to reaffirm carries the same
+                # boundary-level work, which is offered once.
+                if row["next_step"] != "reaffirm" or routed[0] not in actions:
+                    actions.extend(routed)
     obligations = tuple(
         (str(reference[0]), str(reference[1]))
         for reference in observed["review_closure"]["open_refs"]

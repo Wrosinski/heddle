@@ -559,7 +559,9 @@ def _citation_change(
 ) -> tuple[SourceChange, ...] | None:
     """How a cited file changed since the row; None when only by formatting.
 
-    A row recorded before citation identities names no typed change.
+    A row recorded before citation identities names no typed change, and nor
+    does a rule-bearing citation the row recorded no identity for: its raw
+    difference may be formatting only.
     """
     if disposition.basis_evidence is None:
         return ()
@@ -579,6 +581,8 @@ def _citation_change(
         mode_only = recorded == _citation_digest(
             not captured.executable, captured.content
         )
+        if not mode_only and bound is None and rule_id_for(path) is not None:
+            return ()
     return (SourceChange("mode" if mode_only else "content", path),)
 
 
@@ -684,6 +688,10 @@ _BASIS_DETAIL_UNAVAILABLE = (
 _CITATION_DETAIL_UNAVAILABLE = (
     "change detail is unavailable: the row was recorded before basis manifests, "
     "so only the raw citation identity is retained"
+)
+_CITATION_IDENTITY_UNAVAILABLE = (
+    "change detail is unavailable: the row recorded no equivalence identity for "
+    "this citation, so a formatting-only change cannot be told from a content change"
 )
 _REVIEW_DETAIL_UNAVAILABLE = (
     "change detail is unavailable: the row or its review attempt was recorded "
@@ -803,9 +811,11 @@ def _qualify_evidence(
             reference=reference[0],
             changed_dependencies=(reference[0],),
             detail_limit=(
-                _CITATION_DETAIL_UNAVAILABLE
+                None
+                if cited
+                else _CITATION_DETAIL_UNAVAILABLE
                 if disposition.basis_evidence is None
-                else None
+                else _CITATION_IDENTITY_UNAVAILABLE
             ),
             changes=cited,
             stale=True,
@@ -1689,6 +1699,7 @@ def projection(
     if policy is None:
         return {}
     frame = _Qualification(config, snapshot, source_observations=source_observations)
+    reaffirm: _ReaffirmWork | None = None
     accepted = core.validate_boundary_acceptances(snapshot.state)
     assignments = []
     for selection in policy.entries:
@@ -1870,13 +1881,15 @@ def projection(
                 if (
                     isinstance(remedy, ops.AuthoringAction)
                     and remedy.work == "review-disposition"
-                    and (references := _reaffirm_references(frame, assignment))
                 ):
-                    # A stale row reaffirm would write routes reaffirm first;
-                    # its references mark the rows it would refuse.
-                    row["next_step"] = "reaffirm"
-                    row["reaffirm_references"] = list(references)
-                    remedy = next_action(snapshot, row).action
+                    if reaffirm is None:
+                        reaffirm = _reaffirm_work(frame)
+                    if assignment.id in reaffirm.routed:
+                        # A writable stale row routes the one boundary-level
+                        # reaffirm work, which every such assignment shares.
+                        row["next_step"] = "reaffirm"
+                        row["reaffirm"] = reaffirm.work
+                        remedy = next_action(snapshot, row).action
                 explained = frame.explain_open(assignment, closed.open_refs, remedy)
             row["evidence_explanations"] = []
             for explanation, _stale in explained:
@@ -2105,17 +2118,25 @@ def next_action(snapshot: FeatureSnapshot, row: dict[str, Any]) -> NextAction:
             f"complete {row['role']} {row['scope']} slot {slot.name}",
         )
     if row["next_step"] == "reaffirm":
+        work = row["reaffirm"]
+        skipped = (
+            f" It skips {', '.join(work['skipped'])} until their missing reviewer "
+            "slots complete."
+            if work["skipped"]
+            else ""
+        )
         return NextAction(
             ops.AuthoringAction(
                 snapshot.feature,
                 "review-reaffirm",
-                tuple(row["reaffirm_references"]),
+                tuple(work["references"]),
                 "",
                 snapshot.state.revision,
             ),
-            f"Inspect whether each resolution of {row['role']} {row['scope']} still "
-            "applies, then run review reaffirm: it re-records the rows that still "
-            "qualify and lists those marked refused, which need new dispositions.",
+            "Inspect whether each listed resolution still applies, then run review "
+            "reaffirm: across every unsealed assignment it re-records the rows "
+            "that still qualify and lists those marked refused, which need new "
+            "dispositions." + skipped,
         )
     return NextAction(
         ops.AuthoringAction(
@@ -2567,9 +2588,10 @@ def _publish_basis_manifests(
 
 @dataclass(frozen=True)
 class _Reaffirmation:
-    """One assignment's reaffirm: the copies it writes and the rows it refuses.
+    """One assignment's reaffirm: the stale rows it writes and the rows it refuses.
 
-    Each entry keeps the ledger index of the effective row it judged.
+    Each entry keeps the ledger index of the effective row it judged. A row
+    already current, raw or by review equivalence, needs no write.
     """
 
     assignment: ReviewAssignment
@@ -2582,11 +2604,12 @@ def _reaffirmation(
 ) -> _Reaffirmation:
     """Requalify each effective resolution at the assignment's current basis.
 
-    The command and readiness share it. A candidate names the unstamped
-    current manifest, because qualification reads only that one is named; the
-    command stamps the rows it writes.
+    A candidate names the unstamped current manifest, because qualification
+    reads only that one is named; the command stamps the rows it writes.
     """
     basis = frame.basis(assignment)
+    frame.assess(assignment)
+    current = set(frame.qualified_disposition_indexes[assignment.id])
     reference: ManifestReference | None = None
     written: list[tuple[int, AssignmentDisposition]] = []
     refused: list[tuple[int, AssignmentDisposition, _EvidenceQualification]] = []
@@ -2603,7 +2626,7 @@ def _reaffirmation(
         )
         if not qualification.qualifies:
             refused.append((index, old, qualification))
-        elif old.evidence_basis != basis:
+        elif index not in current:
             written.append((index, candidate))
     return _Reaffirmation(assignment, tuple(written), tuple(refused))
 
@@ -2621,24 +2644,104 @@ def _stale_resolutions(
     )
 
 
-def _reaffirm_references(
-    frame: _Qualification, assignment: ReviewAssignment
-) -> tuple[str, ...]:
-    """The rows reaffirm would write, then those it would refuse with why.
+@dataclass(frozen=True)
+class _ReaffirmSelection:
+    """One reaffirm across its assignments.
 
-    Empty unless it would write a stale row, so disposition work stays the
-    remedy when every stale row needs new evidence.
+    Each skipped assignment is missing a reviewer slot; it keeps those slots
+    and its stale rows, which remain.
     """
-    plan = _reaffirmation(frame, assignment)
-    stale = {(d.run_id, d.finding_id) for d in _stale_resolutions(frame, assignment)}
-    if not any((row.run_id, row.finding_id) in stale for _i, row in plan.written):
-        return ()
-    return (
-        *(f"{row.run_id}#{row.finding_id}" for _i, row in plan.written),
-        *(
-            f"{old.run_id}#{old.finding_id} (refused: {_refusal(result)})"
-            for _i, old, result in plan.refused
-        ),
+
+    plans: tuple[_Reaffirmation, ...]
+    skipped: tuple[
+        tuple[ReviewAssignment, tuple[str, ...], tuple[AssignmentDisposition, ...]],
+        ...,
+    ]
+
+
+def _reaffirm_selection(
+    frame: _Qualification, role: str | None, scope: str | None
+) -> _ReaffirmSelection:
+    """Plan reaffirm for the assignment role and scope name, or for every one.
+
+    Without a role every unsealed assignment is selected and sealed ones are
+    skipped; a named sealed assignment refuses. The command and readiness's
+    review-reaffirm work share it, so the work lists exactly what the role-free
+    command writes and refuses.
+    """
+    state = frame.snapshot.state
+    if role is None:
+        selected = tuple(
+            a
+            for a in state.review_assignments.assignments
+            if not core.assignment_sealed(state, a)
+        )
+    else:
+        assignment = next(
+            (
+                a
+                for a in state.review_assignments.assignments
+                if (a.role, a.scope) == (role, scope)
+            ),
+            None,
+        )
+        if assignment is None:
+            raise core.invalid("reaffirm requires an existing review assignment")
+        if core.assignment_sealed(state, assignment):
+            raise core.invalid("sealed acceptance cannot gain reaffirmed dispositions")
+        selected = (assignment,)
+    plans: list[_Reaffirmation] = []
+    skipped = []
+    for assignment in selected:
+        missing = tuple(frame.assess(assignment).missing_slots)
+        if missing:
+            skipped.append((assignment, missing, _stale_resolutions(frame, assignment)))
+        else:
+            plans.append(_reaffirmation(frame, assignment))
+    return _ReaffirmSelection(tuple(plans), tuple(skipped))
+
+
+@dataclass(frozen=True)
+class _ReaffirmWork:
+    """Readiness's one review-reaffirm work item and the assignments it routes."""
+
+    routed: frozenset[str]
+    work: dict[str, Any]
+
+
+def _reaffirm_work(frame: _Qualification) -> _ReaffirmWork:
+    """The role-free command's effect as one boundary-level work item.
+
+    Its references are the rows the command writes, then those it refuses,
+    each marked with why. It routes only the assignments with a writable stale
+    row; the others keep their disposition work.
+    """
+    try:
+        selection = _reaffirm_selection(frame, None, None)
+    except KernelError as error:
+        if error.reason != entry.BASELINE_UNAVAILABLE:
+            raise
+        # Until the baseline resolves, readiness offers only its re-point.
+        return _ReaffirmWork(frozenset(), {})
+    return _ReaffirmWork(
+        frozenset(plan.assignment.id for plan in selection.plans if plan.written),
+        {
+            "references": [
+                *(
+                    f"{row.run_id}#{row.finding_id}"
+                    for plan in selection.plans
+                    for _index, row in plan.written
+                ),
+                *(
+                    f"{old.run_id}#{old.finding_id} (refused: {_refusal(result)})"
+                    for plan in selection.plans
+                    for _index, old, result in plan.refused
+                ),
+            ],
+            "skipped": [
+                assignment.id for assignment, _slots, _rows in selection.skipped
+            ],
+        },
     )
 
 
@@ -2675,69 +2778,63 @@ def _refused_row(
     }
 
 
+def _citation_identities(
+    frame: _Qualification, disposition: AssignmentDisposition
+) -> tuple[tuple[str, str, str], ...] | None:
+    """A reaffirmed copy's citation identities, keeping those already recorded.
+
+    The copy qualified, so a citation without a recorded identity matched raw;
+    its identity comes from the current bytes, as a disposition write records it.
+    """
+    identities = list(disposition.reference_equivalence or ())
+    recorded = {row[0] for row in identities}
+    for path, _digest in disposition.references:
+        if path in recorded:
+            continue
+        cited = _captured_citation(
+            frame.config.root,
+            path,
+            plan_path=frame.snapshot.plan_path,
+            source_observations=frame.captures,
+        )
+        identity = _citation_equivalence(cited.path, cited.executable, cited.content)
+        if identity is not None:
+            identities.append(identity)
+    return tuple(identities) or None
+
+
 _NOTHING_REAFFIRMED = "nothing-reaffirmed"
 
 
 def _reaffirmations(
     config: ProjectConfig, snapshot: FeatureSnapshot, operation: ops.ReaffirmReview
 ) -> tuple[list[dict[str, Any]], dict[str, Any], bool]:
-    """Write every qualifying row of the selected assignments, listing the rest.
+    """Write every stale row that still qualifies, listing the rest.
 
-    Without a role every unsealed assignment is selected, and sealed ones are
-    skipped; a named sealed assignment refuses. An assignment missing a slot
-    is listed with its reason, and its stale rows remain. Returns the rows to
-    append, the listing, and whether rows remain.
+    An assignment missing a slot is listed with its reason, and its stale rows
+    remain. Returns the rows to append, the listing, and whether rows remain.
     """
-    state = snapshot.state
-    if operation.role is None:
-        selected = tuple(
-            a
-            for a in state.review_assignments.assignments
-            if not core.assignment_sealed(state, a)
-        )
-    else:
-        assignment = next(
-            (
-                a
-                for a in state.review_assignments.assignments
-                if (a.role, a.scope) == (operation.role, operation.scope)
-            ),
-            None,
-        )
-        if assignment is None:
-            raise core.invalid("reaffirm requires an existing review assignment")
-        if core.assignment_sealed(state, assignment):
-            raise core.invalid("sealed acceptance cannot gain reaffirmed dispositions")
-        selected = (assignment,)
     frame = _Qualification(config, snapshot)
-    plans: list[_Reaffirmation] = []
-    skipped: list[dict[str, Any]] = []
-    for assignment in selected:
-        missing = frame.assess(assignment).missing_slots
-        if missing:
-            skipped.append(
-                {
-                    "assignment_id": assignment.id,
-                    "role": assignment.role,
-                    "scope": assignment.scope,
-                    "reason": "complete missing reviewer slots before reaffirming: "
-                    + ", ".join(missing),
-                    "missing_slots": list(missing),
-                    "rows": [
-                        f"{d.run_id}#{d.finding_id}"
-                        for d in _stale_resolutions(frame, assignment)
-                    ],
-                }
-            )
-        else:
-            plans.append(_reaffirmation(frame, assignment))
+    selection = _reaffirm_selection(frame, operation.role, operation.scope)
+    skipped = [
+        {
+            "assignment_id": assignment.id,
+            "role": assignment.role,
+            "scope": assignment.scope,
+            "reason": "complete missing reviewer slots before reaffirming: "
+            + ", ".join(slots),
+            "missing_slots": list(slots),
+            "rows": [f"{d.run_id}#{d.finding_id}" for d in rows],
+        }
+        for assignment, slots, rows in selection.skipped
+    ]
     refused = [
         _refused_row(plan.assignment, index, old, result)
-        for plan in plans
+        for plan in selection.plans
         for index, old, result in plan.refused
     ]
-    remaining = bool(refused) or any(row["rows"] for row in skipped)
-    written = [plan for plan in plans if plan.written]
+    remaining = bool(refused) or any(rows for _a, _s, rows in selection.skipped)
+    written = [plan for plan in selection.plans if plan.written]
     if remaining and not written:
         raise KernelError(
             code="disposition-batch-invalid",
@@ -2749,7 +2846,7 @@ def _reaffirmations(
             reason=_NOTHING_REAFFIRMED,
             details={
                 "feature": snapshot.feature,
-                "revision": state.revision,
+                "revision": snapshot.state.revision,
                 "dry_run": operation.dry_run,
                 "wrote": False,
                 "rows": refused,
@@ -2763,7 +2860,14 @@ def _reaffirmations(
     for plan in written:
         stamped = frame.basis_reference(plan.assignment)
         additions.extend(
-            ops.decoded_payload(replace(row, basis_evidence=stamped, at=now))
+            ops.decoded_payload(
+                replace(
+                    row,
+                    basis_evidence=stamped,
+                    reference_equivalence=_citation_identities(frame, row),
+                    at=now,
+                )
+            )
             for _index, row in plan.written
         )
     listing = {

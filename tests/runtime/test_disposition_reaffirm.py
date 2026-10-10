@@ -18,9 +18,16 @@ Activation seams, each failing as an assertion until implemented:
 import json
 
 import pytest
+import yaml
 
 from heddle.cli import main
-from tests.change_impact_explanation_helpers import basis_manifest, evidence_files
+from tests.change_impact_explanation_helpers import (
+    as_recorded_before_manifests,
+    basis_manifest,
+    evidence_files,
+    explanation_for,
+    typed_changes,
+)
 from tests.change_impact_routing_helpers import (
     PEER_CITATIONS,
     SPEC_CITATIONS,
@@ -857,3 +864,121 @@ def test_ac10_reaffirmed_row_stays_current_across_a_reflow_of_its_citation(
         "a behaviour edit to the citation must make exactly that row stale"
     )
     assert len(calls) == 1
+
+
+def test_ac10_reaffirmed_legacy_row_stays_current_across_a_reflow_of_its_citation(
+    tmp_path, monkeypatch, capsys
+):
+    """A row recorded before manifests gains its citations' identities when
+    reaffirmed, so a later reflow of a citation keeps the copy current."""
+    root, path, origin, calls = disposed_spec_review(tmp_path, monkeypatch)
+    check = root / SPEC_CITATIONS["@coverage"]
+    assert check.read_text() == CHECK_SOURCE
+    as_recorded_before_manifests(path)
+    stale_basis(root)
+    prior = read(path)
+    code, result = reaffirm(capsys)
+    assert code == 0 and result["ok"], result
+    assert sorted(_written(path, prior)) == sorted(
+        (origin, finding_id) for finding_id in SPEC_CITATIONS
+    )
+    check.write_text(REFLOWED_CHECK)
+    current = review_status(path)
+    assert current["closed"] and current["evidence_state"] == "current", (
+        f"FAIL AC-10: a review-equivalent reflow of a reaffirmed legacy row's "
+        f"citation must keep the row current: {current}"
+    )
+    check.write_text(REFLOWED_CHECK.replace("VALUE = 7", "VALUE = 8"))
+    assert review_status(path)["open_refs"] == [[origin, "@coverage"]], (
+        "a behaviour edit to the citation must make exactly that row stale"
+    )
+    assert len(calls) == 1
+
+
+def test_ac6_citation_without_a_recorded_identity_says_its_detail_is_unavailable(
+    tmp_path, monkeypatch, capsys
+):
+    """A manifest-bearing row with no identity for a citation cannot tell a
+    reflow from a content change, so it names no typed change."""
+    root, path, origin, calls = disposed_spec_review(tmp_path, monkeypatch)
+    value = yaml.safe_load(path.read_text())
+    for row in value["review_assignments"]["dispositions"]:
+        assert row.get("basis_evidence"), row
+        row.pop("reference_equivalence", None)
+    path.write_text(yaml.safe_dump(value, sort_keys=False))
+    (root / SPEC_CITATIONS["@coverage"]).write_text(REFLOWED_CHECK)
+    row = review_status(path)
+    assert row["open_refs"] == [[origin, "@coverage"]], row
+    explanation = explanation_for(row, f"{origin}#@coverage")
+    assert typed_changes(explanation) == set(), (
+        f"FAIL AC-6: a citation without a recorded identity invents a typed "
+        f"change: {explanation}"
+    )
+    assert "unavailable" in str(explanation["detail_limit"]).lower(), explanation
+    assert len(calls) == 1
+
+
+def test_ac10_reaffirm_leaves_rows_current_by_equivalence_unwritten(
+    tmp_path, monkeypatch, capsys
+):
+    """A review-equivalent basis change leaves every row current, so reaffirm
+    has no stale row to write and exits 0 without a write."""
+    root, path, _origin, calls = disposed_spec_review(tmp_path, monkeypatch)
+    spec = root / SPEC
+    # A trailing space on a paragraph line is formatting only under the
+    # Markdown rule.
+    spec.write_text(spec.read_text().rstrip("\n") + " \n")
+    current = review_status(path)
+    assert current["closed"] and current["evidence_state"] == "current", current
+    before = snapshot(root)
+    for flags in (("--dry-run",), ()):
+        code, result = reaffirm(capsys, *flags)
+        assert code == 0 and result["ok"], result
+        assert result["data"]["reaffirmed"] == [], (
+            f"FAIL AC-10: reaffirm re-recorded rows current by equivalence: "
+            f"{result['data']['reaffirmed']}"
+        )
+        assert snapshot(root) == before
+    assert len(calls) == 1
+
+
+def test_ac11_orient_routes_one_review_reaffirm_naming_every_listed_row(
+    tmp_path, monkeypatch, capsys
+):
+    """Two assignments with writable stale rows share one boundary-level work
+    item that lists exactly what the role-free command writes and refuses."""
+    root, path, origins, calls = disposed_peer_reviews(tmp_path, monkeypatch)
+    stale_basis(root)
+    change_citation(root, "docs/second.md")
+    code, preview = reaffirm_all(capsys, "--dry-run")
+    assert code == 4 and preview["ok"], preview
+    listed = [
+        f"{row['run_id']}#{row['finding_id']}"
+        for key in ("reaffirmed", "refused")
+        for row in preview["data"][key]
+    ]
+    assert {token.split("#")[0] for token in listed} == set(origins.values()), listed
+    before = snapshot(root)
+    code, oriented = command(capsys, "orient")
+    assert code == 0 and oriented["ok"], oriented
+    work = [
+        entry["action"]
+        for entry in oriented["next_actions"]
+        if entry["action"]["kind"] == "authoring"
+    ]
+    reaffirms = [action for action in work if action["work"] == "review-reaffirm"]
+    assert len(reaffirms) == 1 and work[0] == reaffirms[0], (
+        f"FAIL AC-11: orient must route one review-reaffirm action across "
+        f"assignments: {work}"
+    )
+    references = reaffirms[0]["references"]
+    assert len(references) == len(listed), references
+    for token in listed:
+        assert sum(token in item for item in references) == 1, (
+            f"FAIL AC-11: review-reaffirm references must name {token} once: "
+            f"{references}"
+        )
+    assert not any(action["work"] == "review-disposition" for action in work), work
+    status = execute(ops.Status(feature=V7_FEATURE)).to_envelope()
+    assert status["next_actions"][0]["action"] == oriented["next_actions"][0]["action"]
+    assert snapshot(root) == before and len(calls) == 2

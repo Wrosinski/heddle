@@ -19,15 +19,18 @@ from __future__ import annotations
 import json
 
 import pytest
+import yaml
 
 from heddle.contracts import operations as ops
 from heddle.driver import loop
 from heddle.driver.sessions import SessionResult
 from heddle.kernel.project_config import load_project_config
 from tests.change_impact_routing_helpers import (
+    PEER_CITATIONS,
     SPEC_CITATIONS,
     baseline_unavailable_host,
     change_citation,
+    disposed_peer_reviews,
     disposed_spec_review,
     stale_basis,
 )
@@ -56,6 +59,10 @@ def _drive(monkeypatch, host, *, until):
     monkeypatch.setattr(application, "execute", recording)
     result = loop.run_loop(load_project_config(host), V7_FEATURE, until=until)
     return result, prompts, executed
+
+
+def _ledger(path):
+    return yaml.safe_load(path.read_text())["review_assignments"]
 
 
 @pytest.mark.parametrize("reason", ["missing", "diverged"])
@@ -107,3 +114,44 @@ def test_ac11_driver_opens_a_stage_session_for_review_reaffirm_and_never_runs_it
     )
     assert not result.ok and "17" in result.error.message, result.to_envelope()
     assert path.read_bytes() == before and len(calls) == 1
+
+
+def test_ac11_driver_session_names_every_row_of_the_one_review_reaffirm(
+    tmp_path, monkeypatch
+):
+    """Across two assignments the session carries one review-reaffirm work item
+    naming every row the role-free command writes or refuses."""
+    from heddle.runtime.application import execute
+
+    host, path, origins, calls = disposed_peer_reviews(tmp_path, monkeypatch)
+    # Peer review needs every done milestone verified, and refreshes acceptance
+    # and smoke verification before its review work; each run passes.
+    for name in ("test_command", "acceptance_test", "smoke_test"):
+        declared = execute(
+            ops.CommandsSet(name, "python3 tests/check.py", feature=V7_FEATURE)
+        )
+        assert declared.ok, declared.to_envelope()
+    for milestone in yaml.safe_load(path.read_text())["milestones"]:
+        verified = execute(ops.Verify(scope=milestone["id"], feature=V7_FEATURE))
+        assert verified.ok, verified.to_envelope()
+    stale_basis(host)
+    change_citation(host, "docs/second.md")
+    before = _ledger(path)
+    result, prompts, executed = _drive(monkeypatch, host, until="robustness")
+    assert len(prompts) == 1, f"FAIL AC-11: expected one stage session: {prompts}"
+    lines = prompts[0].splitlines()
+    assert lines.count("Authoring work: review-reaffirm") == 1, prompts[0]
+    # The work's own references, not the session's list of open obligations.
+    references = lines[lines.index("Authoring work: review-reaffirm") + 1]
+    assert references.startswith("References: "), prompts[0]
+    for role, citations in PEER_CITATIONS.items():
+        for finding_id in citations:
+            assert f"{origins[role]}#{finding_id}" in references, (
+                f"FAIL AC-11: the review-reaffirm work must name {role} "
+                f"{finding_id}: {references}"
+            )
+    assert not any(isinstance(op, ops.ReaffirmReview) for op in executed), (
+        "FAIL AC-11: the driver executed review reaffirm itself"
+    )
+    assert not result.ok and "17" in result.error.message, result.to_envelope()
+    assert _ledger(path) == before and len(calls) == 2
