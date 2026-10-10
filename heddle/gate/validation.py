@@ -476,6 +476,20 @@ def _validate_prior_dispositions(
     findings = {item.id for item in content.findings}
     retained = set()
     decisions = {item.id: item for item in prepared.review_decisions}
+    owned = {
+        (item.origin_run_id, item.origin_finding_id)
+        for item in prepared.review_decisions
+    }
+    # Policy accepts a Minor REPORT without an owning decision, so a later round
+    # settles it as awareness, like an IGNORE finding.
+    unowned_minor = {
+        (item.run_id, finding.id)
+        for item in accepted
+        for finding in item.result.content.findings
+        if finding.classification == "report"
+        and finding.severity == "minor"
+        and (item.run_id, finding.id) not in owned
+    }
     for row in content.prior_dispositions:
         source = prior[(row.source.run_id, row.source.finding_id)]
         allowed = PRIOR_DISPOSITIONS[source]
@@ -504,6 +518,16 @@ def _validate_prior_dispositions(
             if source == "ignore":
                 if row.decision_id is not None or row.decision_origin is not None:
                     raise ValueError("accepted awareness has no decision owner")
+            elif (row.source.run_id, row.source.finding_id) in unowned_minor:
+                if (
+                    row.disposition != "settled"
+                    or row.decision_id is not None
+                    or row.decision_origin is not None
+                ):
+                    raise ValueError(
+                        f"unowned Minor REPORT {_prior_label(row.source)} is "
+                        "retained or settled without decision fields"
+                    )
             elif source == "report":
                 decision = (
                     decisions.get(row.decision_id)
