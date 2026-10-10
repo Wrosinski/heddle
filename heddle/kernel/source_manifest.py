@@ -12,7 +12,7 @@ from typing import Any, Literal, get_args
 import yaml
 
 from heddle.kernel.project_config import KernelError
-from heddle.kernel.review_equivalence import equivalence_identity
+from heddle.kernel.review_equivalence import equivalence_identity, review_equivalent
 
 SOURCE_MANIFEST_SCHEMA = "heddle.verification-source/v2"
 SOURCE_EVIDENCE_V1_SCHEMA = "heddle.source-evidence/v1"
@@ -98,6 +98,27 @@ class EvidenceReference:
     artifact: str
     artifact_sha256: str
     source_sha256: str
+
+
+COMPONENT_CHANGE_PREFIX = "component:"
+
+
+@dataclass(frozen=True)
+class SourceChange:
+    """One typed difference from a recorded manifest to the current one.
+
+    A path change names its path; a named component change has the kind
+    ``component:<name>`` and no path.
+    """
+
+    kind: str
+    path: str | None = None
+
+
+@dataclass(frozen=True)
+class SourceComparison:
+    changes: tuple[SourceChange, ...]
+    equivalent: bool
 
 
 def byte_sort_key(value: str) -> bytes:
@@ -281,6 +302,65 @@ def _observed_identity(
             identity = equivalence_identity(row.path, content)
             return None if identity is None else EquivalenceIdentity(*identity)
     return None
+
+
+def compare_source_evidence(
+    recorded: SourceEvidence, current: SourceEvidence
+) -> SourceComparison:
+    """Name every change from a recorded manifest; the one equivalence verdict.
+
+    A path in only one manifest's path set is a ``membership`` change. A path in
+    both is ``added`` or ``removed`` when it flips between missing and present,
+    ``kind`` when file, symlink or directory differ, ``mode`` when the
+    executable bit differs, and otherwise ``formatting-only`` when the two
+    observations are review-equivalent, else ``content``. Each named component
+    whose digest differs is ``component:<name>``. The manifests are equivalent
+    only when every change is formatting-only. Equivalence needs identity on
+    both sides, so a current read is stamped against the record first.
+    """
+    before = {row.path: row for row in recorded.observations}
+    after = {row.path: row for row in current.observations}
+    changes = [
+        SourceChange(kind, path)
+        for path in sorted(before.keys() | after.keys(), key=byte_sort_key)
+        if (kind := _path_change(before.get(path), after.get(path))) is not None
+    ]
+    left = {component.name: component.digest for component in recorded.components}
+    right = {component.name: component.digest for component in current.components}
+    changes.extend(
+        SourceChange(COMPONENT_CHANGE_PREFIX + name)
+        for name in (*left, *(name for name in right if name not in left))
+        if left.get(name) != right.get(name)
+    )
+    return SourceComparison(
+        tuple(changes), all(change.kind == "formatting-only" for change in changes)
+    )
+
+
+def changed_paths(changes: Iterable[SourceChange]) -> tuple[str, ...]:
+    """Return the distinct changed paths in canonical order."""
+    return tuple(
+        sorted(
+            {change.path for change in changes if change.path is not None},
+            key=byte_sort_key,
+        )
+    )
+
+
+def _path_change(
+    recorded: EvidenceObservation | None, current: EvidenceObservation | None
+) -> str | None:
+    if recorded is None or current is None:
+        return "membership"
+    if raw_observation(recorded) == raw_observation(current):
+        return None
+    if (recorded.kind == "missing") != (current.kind == "missing"):
+        return "added" if recorded.kind == "missing" else "removed"
+    if recorded.kind != current.kind:
+        return "kind"
+    if recorded.executable != current.executable:
+        return "mode"
+    return "formatting-only" if review_equivalent(recorded, current) else "content"
 
 
 def encode_source_evidence(evidence: SourceEvidence) -> bytes:

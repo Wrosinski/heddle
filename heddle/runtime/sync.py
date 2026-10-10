@@ -11,8 +11,9 @@ import stat
 import sys
 import tempfile
 from contextlib import suppress
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from heddle.contracts import operations as ops
 from heddle.contracts.result import (
@@ -37,6 +38,9 @@ from heddle.runtime.feature_context import (
     resolve_snapshot_from_cwd,
 )
 from heddle.runtime.output import emit_envelope
+
+if TYPE_CHECKING:
+    from heddle.runtime.readiness import ComposedReadiness
 
 SESSION_ENTRY_ID = "session-entry"
 
@@ -450,7 +454,27 @@ def _fresh_plan_body(config: ProjectConfig, feature: str) -> str:
         from heddle.runtime.state_store import accepted_state_error
 
         raise accepted_state_error(feature)
-    return render_plan_status(snapshot, derive_next_actions(snapshot))
+    return _plan_body(snapshot, _plan_readiness(config, snapshot))
+
+
+def _plan_readiness(
+    config: ProjectConfig, snapshot: FeatureSnapshot
+) -> ComposedReadiness | None:
+    """The readiness orient reports; an accepted feature keeps its snapshot."""
+    if is_terminal(snapshot.state):
+        return None
+    from heddle.runtime.readiness import composed_readiness
+
+    return composed_readiness(config, snapshot, purpose="orient")
+
+
+def _plan_body(snapshot: FeatureSnapshot, readiness: ComposedReadiness | None) -> str:
+    if readiness is None:
+        return render_plan_status(snapshot, derive_next_actions(snapshot))
+    return render_plan_status(
+        replace(snapshot, blocking_conditions=readiness.blocking_conditions),
+        readiness.assessment.next_actions,
+    )
 
 
 def _target_matches_preflight(projection: _Projection) -> bool:
@@ -547,9 +571,13 @@ def sync(parsed: ops.Sync) -> HeddleResult:
     plan_path = config.root / plan_display
     agents_path = config.root / "AGENTS.md"
     try:
-        plan_body = render_plan_status(
-            resolved.snapshot, derive_next_actions(resolved.snapshot)
-        )
+        readiness = _plan_readiness(config, resolved.snapshot)
+    except KernelError as error:
+        from heddle.runtime.readiness import readiness_failure
+
+        return readiness_failure(error, resolved.diagnostics)
+    try:
+        plan_body = _plan_body(resolved.snapshot, readiness)
     except KernelError as error:
         return _kernel_failure(
             _path_error(plan_display, error),

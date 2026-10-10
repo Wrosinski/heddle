@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import hashlib
+from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, cast
 
@@ -17,6 +19,7 @@ from heddle.contracts.result import (
 from heddle.gate import entry
 from heddle.gate.registry import GATES
 from heddle.kernel.model import (
+    BLOCKING_TRIGGER_ROWS,
     FeatureSnapshot,
     derive_next_actions,
     is_terminal,
@@ -44,6 +47,48 @@ from heddle.runtime.verification import (
     assess_current_verifications,
     required_verification_scopes,
 )
+
+
+@dataclass(frozen=True)
+class ComposedReadiness:
+    assessment: BoundaryAssessment
+    assignment_projection: dict[str, Any] | None
+    blocking_conditions: tuple[str, ...]
+
+
+def composed_readiness(
+    config: ProjectConfig,
+    snapshot: FeatureSnapshot,
+    *,
+    purpose: str,
+    assess: Callable[..., BoundaryAssessment] | None = None,
+) -> ComposedReadiness:
+    """Compose one read frame's readiness for every surface that renders it.
+
+    Status, orient and the plan-status projection share it, so the plan's next
+    command and conditions are orient's first action and blocking conditions.
+    ``assess`` defaults to ``assess_current_readiness``.
+    """
+    captures: dict[str, ObservedPath] = {}
+    assignment_projection = None
+    if snapshot.state.feature_policy is not None:
+        from heddle.runtime.review_assignments import projection
+
+        assignment_projection = projection(
+            config, snapshot, source_observations=captures
+        )
+    assessment = (assess or assess_current_readiness)(
+        config,
+        snapshot,
+        source_observations=captures,
+        assignment_projection=assignment_projection,
+        purpose=purpose,
+    )
+    combined = set(snapshot.blocking_conditions) | set(assessment.blockers)
+    ordered = [code for code, _action in BLOCKING_TRIGGER_ROWS]
+    conditions = [code for code in ordered if code in combined]
+    conditions.extend(sorted(combined - set(ordered)))
+    return ComposedReadiness(assessment, assignment_projection, tuple(conditions))
 
 
 def assess_current_readiness(

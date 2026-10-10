@@ -104,6 +104,20 @@ class AssignmentSource:
 
 
 @dataclass(frozen=True)
+class ManifestReference:
+    """A published source-evidence manifest a ledger row names.
+
+    The artifact is addressed by its own digest; ``source_sha256`` is the
+    logical basis digest the manifest records.
+    """
+
+    schema: str
+    artifact: str
+    artifact_sha256: str
+    source_sha256: str
+
+
+@dataclass(frozen=True)
 class AssignmentDisposition:
     run_id: str
     finding_id: str
@@ -120,6 +134,8 @@ class AssignmentDisposition:
     # Original bootstrap ledger ordinal or canonical report/row ordinal.
     # Historical evidence has no newly observed source-basis claim.
     source_disposition: tuple[str, int] | None = None
+    # The basis manifest the write published; absent on rows recorded before.
+    basis_evidence: ManifestReference | None = None
 
 
 @dataclass(frozen=True)

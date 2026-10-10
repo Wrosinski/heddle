@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import sys
+from collections.abc import Iterable
 from copy import deepcopy
 from dataclasses import asdict, dataclass, replace
 from pathlib import Path
@@ -34,6 +35,7 @@ from heddle.contracts.review_assignments import (
     BoundaryAcceptance,
     CanonicalReview,
     EngineFailure,
+    ManifestReference,
     RetainedReview,
     ReviewAssignment,
     ReviewScopeChange,
@@ -70,7 +72,15 @@ from heddle.kernel.review_closure import (
     required_obligation,
     settles_decision_route,
 )
-from heddle.kernel.source_manifest import ObservedPath, normalize_paths
+from heddle.kernel.source_manifest import (
+    ObservedPath,
+    SourceChange,
+    SourceEvidence,
+    changed_paths,
+    compare_source_evidence,
+    evidence_reference,
+    normalize_paths,
+)
 from heddle.kernel.state import StateFile, parse_state_document
 from heddle.kernel.verification import VerificationFreshness
 from heddle.runtime.clock import utc_now_minutes
@@ -515,6 +525,19 @@ def current_basis(
     *,
     source_observations: dict[str, ObservedPath] | None = None,
 ) -> str:
+    return current_basis_evidence(
+        config, snapshot, assignment, source_observations=source_observations
+    ).source_sha256
+
+
+def current_basis_evidence(
+    config: ProjectConfig,
+    snapshot: FeatureSnapshot,
+    assignment: ReviewAssignment,
+    *,
+    source_observations: dict[str, ObservedPath] | None = None,
+) -> SourceEvidence:
+    """Observe the assignment's current basis manifest, raw identity only."""
     # Disposition evidence survives a model amendment, not a source amendment.
     # Invocation-specific prompt/model identity remains on the canonical run.
     # Explicit references are captured and checked by the shared qualifier.
@@ -554,7 +577,7 @@ def current_basis(
         definition,
         observations=source_observations,
         plan_path=plan_path,
-    ).source_sha256
+    )
 
 
 @dataclass(frozen=True)
@@ -568,6 +591,10 @@ class _EvidenceQualification:
     remedy: str | None = None
     changed_dependencies: tuple[str, ...] = ()
     detail_limit: str | None = None
+    changes: tuple[SourceChange, ...] = ()
+    # A recorded dependency changed (stale), rather than the evidence being
+    # unusable as recorded (invalid).
+    stale: bool = False
 
     @property
     def qualifies(self) -> bool:
@@ -577,6 +604,10 @@ class _EvidenceQualification:
 _VERIFICATION_SCOPE_REMEDY = (
     "record the run with heddle verify and give its scope as verification_scope; "
     "for edits not yet run under heddle verify, use evidence_kind inspection"
+)
+_BASIS_DETAIL_UNAVAILABLE = (
+    "change detail is unavailable: the row was recorded before basis manifests, "
+    "so only the assignment-level source identity is retained"
 )
 
 
@@ -591,6 +622,8 @@ def _rejected_evidence(
     status: str | None = None,
     changed_dependencies: tuple[str, ...] = (),
     detail_limit: str | None = None,
+    changes: tuple[SourceChange, ...] = (),
+    stale: bool = False,
 ) -> _EvidenceQualification:
     return _EvidenceQualification(
         predicate=predicate,
@@ -602,6 +635,8 @@ def _rejected_evidence(
         remedy=remedy,
         changed_dependencies=changed_dependencies,
         detail_limit=detail_limit,
+        changes=changes,
+        stale=stale,
     )
 
 
@@ -619,12 +654,16 @@ def _qualify_evidence(
             field="source_disposition",
         )
     if disposition.evidence_basis != basis:
+        changes = frame.basis_changes(disposition)
         return _rejected_evidence(
             "assignment-basis-changed",
             "governing review source changed",
             "refresh evidence against the current assignment source",
             field="evidence_basis",
-            detail_limit="only the assignment-level source identity is retained",
+            changed_dependencies=changed_paths(changes or ()),
+            detail_limit=None if changes is not None else _BASIS_DETAIL_UNAVAILABLE,
+            changes=changes or (),
+            stale=True,
         )
     if not disposition.references or disposition.evidence_kind == "unavailable":
         return _rejected_evidence(
@@ -657,9 +696,13 @@ def _qualify_evidence(
                 field="references",
                 reference=reference[0],
                 changed_dependencies=(reference[0],),
+                stale=True,
             )
     if disposition.evidence_kind == "verification":
-        from heddle.runtime.verification import assess_current_verifications
+        from heddle.runtime.verification import (
+            STALE_FRESHNESS,
+            assess_current_verifications,
+        )
 
         scope = disposition.verification_scope
         if not isinstance(scope, str) or not scope:
@@ -690,6 +733,10 @@ def _qualify_evidence(
         rejected = next((row for row in checks if not row.authorizes), None)
         if not checks or rejected is not None:
             status = rejected.status if rejected is not None else "missing"
+            # The row follows its verification: stale when a later change
+            # made it stale, invalid otherwise, with that change's detail.
+            explained = rejected.explanation if rejected is not None else None
+            changes = explained.changes if explained is not None else ()
             return _rejected_evidence(
                 "verification-not-qualifying",
                 "verification evidence does not authorize this disposition",
@@ -698,6 +745,9 @@ def _qualify_evidence(
                 reference=scope,
                 verification_scope=scope,
                 status=status,
+                changed_dependencies=changed_paths(changes),
+                changes=changes,
+                stale=status in STALE_FRESHNESS,
             )
         return _EvidenceQualification()
     if disposition.evidence_kind == "decision":
@@ -892,15 +942,26 @@ def _evidence_explanation(
     remedy: ops.Action,
 ) -> EvidenceExplanation:
     """Project the shared qualification result into readiness explanation."""
-    result = _closing_qualification(frame, disposition, basis)
-    subject = f"{disposition.run_id}#{disposition.finding_id}"
+    return _explanation(
+        disposition, _closing_qualification(frame, disposition, basis), remedy
+    )
+
+
+def _explanation(
+    disposition: AssignmentDisposition,
+    result: _EvidenceQualification,
+    remedy: ops.Action,
+) -> EvidenceExplanation:
     return EvidenceExplanation(
-        subject,
-        result.cause or "recorded supporting evidence is no longer current",
-        result.changed_dependencies,
-        result.reference if result.predicate == "reference-unavailable" else None,
-        remedy,
-        result.detail_limit,
+        subject=f"{disposition.run_id}#{disposition.finding_id}",
+        cause=result.cause or "recorded supporting evidence is no longer current",
+        changed_dependencies=result.changed_dependencies,
+        failed_reference=(
+            result.reference if result.predicate == "reference-unavailable" else None
+        ),
+        remedy=remedy,
+        detail_limit=result.detail_limit,
+        changes=result.changes,
     )
 
 
@@ -925,6 +986,9 @@ class _Qualification:
             )
         )
         self.bases: dict[str, str] = {}
+        self.basis_manifests: dict[str, SourceEvidence] = {}
+        self.stamped_bases: dict[str, SourceEvidence] = {}
+        self.recorded_manifests: dict[str, SourceEvidence] = {}
         self.assessments: dict[str, ReviewClosure] = {}
         self.qualified_dispositions: dict[str, tuple[AssignmentDisposition, ...]] = {}
         self.qualified_disposition_indexes: dict[str, tuple[int, ...]] = {}
@@ -940,6 +1004,82 @@ class _Qualification:
                 source_observations=self.captures,
             )
         return self.bases[assignment.id]
+
+    def basis_evidence(self, assignment: ReviewAssignment) -> SourceEvidence:
+        """The current basis manifest behind ``basis``, raw identity only."""
+        if assignment.id not in self.basis_manifests:
+            self.basis_manifests[assignment.id] = current_basis_evidence(
+                self.config,
+                self.snapshot,
+                assignment,
+                source_observations=self.captures,
+            )
+        return self.basis_manifests[assignment.id]
+
+    def stamped_basis(self, assignment: ReviewAssignment) -> SourceEvidence:
+        """The current basis manifest as a write records and publishes it."""
+        if assignment.id not in self.stamped_bases:
+            from heddle.runtime.verification import stamp_recorded_equivalence
+
+            evidence = self.basis_evidence(assignment)
+            if evidence.source_sha256 != self.basis(assignment):
+                raise Conflict("review source changed while it was observed; retry")
+            self.stamped_bases[assignment.id] = stamp_recorded_equivalence(
+                self.config.root, evidence
+            )
+        return self.stamped_bases[assignment.id]
+
+    def basis_reference(self, assignment: ReviewAssignment) -> ManifestReference:
+        """The reference a written row names; a dry run computes it unpublished."""
+        reference = evidence_reference(self.stamped_basis(assignment))
+        return ManifestReference(
+            reference.schema,
+            reference.artifact,
+            reference.artifact_sha256,
+            reference.source_sha256,
+        )
+
+    def basis_changes(
+        self, disposition: AssignmentDisposition
+    ) -> tuple[SourceChange, ...] | None:
+        """Typed changes from a row's basis manifest; None when it names none."""
+        reference = disposition.basis_evidence
+        if reference is None:
+            return None
+        from heddle.runtime.verification import (
+            read_source_evidence,
+            stamp_changed_equivalence,
+        )
+
+        recorded = self.recorded_manifests.get(reference.artifact)
+        if recorded is None:
+            # A named manifest is required evidence: absence is an integrity
+            # failure, never a fallback to the unavailable detail.
+            recorded = read_source_evidence(
+                self.config.root / self.snapshot.workspace, asdict(reference)
+            )
+            self.recorded_manifests[reference.artifact] = recorded
+        current = self.basis_evidence(self._assignment_of(disposition))
+        return compare_source_evidence(
+            recorded, stamp_changed_equivalence(self.config.root, current, recorded)
+        ).changes
+
+    def _assignment_of(self, disposition: AssignmentDisposition) -> ReviewAssignment:
+        state = self.snapshot.state
+        assignment_id = next(
+            (
+                source.assignment_id
+                for source in core.authoritative_sources(state)
+                if source.run_id == disposition.run_id
+            ),
+            None,
+        )
+        for assignment in state.review_assignments.assignments:
+            if assignment.id == assignment_id:
+                return assignment
+        raise core.invalid(
+            f"disposition has no review assignment: {disposition.run_id}"
+        )
 
     def effective_dispositions(
         self, assignment: ReviewAssignment
@@ -982,15 +1122,20 @@ class _Qualification:
         assignment: ReviewAssignment,
         open_refs: tuple[tuple[str, str], ...],
         remedy: ops.Action,
-    ) -> tuple[EvidenceExplanation, ...]:
-        """Explain reopened original work without inventing unavailable detail."""
+    ) -> tuple[tuple[EvidenceExplanation, bool], ...]:
+        """Explain reopened original work without inventing unavailable detail.
+
+        Each explanation is paired with whether a recorded dependency changed.
+        """
         latest = self._latest_dispositions(assignment)
         basis = self.basis(assignment)
         return tuple(
-            _evidence_explanation(self, disposition, basis, remedy)
+            (_explanation(disposition, result, remedy), result.stale)
             for reference in open_refs
             if (disposition := latest.get(reference)) is not None
-            and not _closing_qualification(self, disposition, basis).qualifies
+            and not (
+                result := _closing_qualification(self, disposition, basis)
+            ).qualifies
         )
 
     def only_changed_evidence(
@@ -1381,25 +1526,21 @@ def projection(
                 snapshot.state, assignment
             ):
                 row["next_step"] = "policy"
-            explanations: tuple[EvidenceExplanation, ...] = ()
+            explained: tuple[tuple[EvidenceExplanation, bool], ...] = ()
             if receipt is None and basis_applies and closed.open_refs:
-                explanations = frame.explain_open(
+                explained = frame.explain_open(
                     assignment, closed.open_refs, next_action(snapshot, row).action
                 )
             row["evidence_explanations"] = []
-            for explanation in explanations:
+            for explanation, _stale in explained:
                 payload = ops.decoded_payload(explanation)
                 assert explanation.remedy is not None
                 payload["remedy"] = ops.action_payload(explanation.remedy)
                 row["evidence_explanations"].append(payload)
-            if explanations:
+            if explained:
                 row["evidence_state"] = (
                     "stale"
-                    if any(
-                        explanation.changed_dependencies
-                        or explanation.cause == "governing review source changed"
-                        for explanation in explanations
-                    )
+                    if any(stale for _explanation, stale in explained)
                     else "invalid"
                 )
             assignments.append(row)
@@ -1868,6 +2009,7 @@ def _dispositions(
             )
 
     additions: list[dict[str, Any]] = []
+    manifests: dict[str, ReviewAssignment] = {}
     for item in decoded:
         if not isinstance(item, _DispositionInput) or item.row_index in failures:
             continue
@@ -1984,6 +2126,7 @@ def _dispositions(
             item.review_run_id,
             item.verification_scope,
             now,
+            basis_evidence=frame.basis_reference(assignment),
         )
         if disposition.evidence_kind == "verification" and (
             not isinstance(disposition.verification_scope, str)
@@ -2016,6 +2159,7 @@ def _dispositions(
         if previous is not None and replace(previous, at=now) == disposition:
             continue
         additions.append(ops.decoded_payload(disposition))
+        manifests[assignment.id] = assignment
 
     if failures:
         ordered = [failures[index] for index in sorted(failures)]
@@ -2033,7 +2177,24 @@ def _dispositions(
                 "rows": ordered,
             },
         )
+    if not dry_run:
+        _publish_basis_manifests(frame, manifests.values())
     return additions
+
+
+def _publish_basis_manifests(
+    frame: _Qualification, assignments: Iterable[ReviewAssignment]
+) -> None:
+    """Publish each basis manifest the written rows name, before they commit."""
+    from heddle.runtime.verification import publish_source_evidence
+
+    workspace = frame.config.root / frame.snapshot.workspace
+    for assignment in assignments:
+        published, _created = publish_source_evidence(
+            workspace, frame.basis_evidence(assignment), root=frame.config.root
+        )
+        if asdict(published) != asdict(frame.basis_reference(assignment)):
+            raise Conflict("review source changed while it was recorded; retry")
 
 
 def _reaffirmations(
@@ -2061,7 +2222,12 @@ def _reaffirmations(
     for index, old in frame.effective_dispositions(assignment):
         if old.status not in {"addressed", "settled"}:
             continue
-        candidate = replace(old, evidence_basis=basis, at=now)
+        candidate = replace(
+            old,
+            evidence_basis=basis,
+            basis_evidence=frame.basis_reference(assignment),
+            at=now,
+        )
         qualification = _qualify_resolution(frame, candidate, basis)
         if not qualification.qualifies:
             failures.append(
@@ -2092,6 +2258,8 @@ def _reaffirmations(
                 "rows": failures,
             },
         )
+    if additions and not operation.dry_run:
+        _publish_basis_manifests(frame, (assignment,))
     return assignment, additions
 
 

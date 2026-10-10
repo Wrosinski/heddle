@@ -30,6 +30,7 @@ from heddle.contracts.result import (
 from heddle.contracts.review_assignments import (
     RESERVED_AUTHORED_ARTIFACT_PATHS,
     ArtifactRef,
+    ManifestReference,
     ReviewAttempt,
 )
 from heddle.kernel.feature_policy import effective_policy
@@ -533,6 +534,15 @@ class CleanupReport:
     preserved: tuple[tuple[str, str], ...]
 
 
+def _disposition_manifests(state: StateFile) -> tuple[ManifestReference, ...]:
+    """Each distinct basis manifest a disposition row names, in ledger order."""
+    references: dict[str, ManifestReference] = {}
+    for row in state.review_assignments.dispositions:
+        if row.basis_evidence is not None:
+            references.setdefault(row.basis_evidence.artifact, row.basis_evidence)
+    return tuple(references.values())
+
+
 def retained_evidence_paths(
     facts: tuple[VerificationFact, ...],
 ) -> tuple[str, ...]:
@@ -663,6 +673,8 @@ def _retained_evidence_snapshot(
                     evidence_reference.artifact,
                     evidence_reference.artifact_sha256,
                 )
+        for manifest in _disposition_manifests(state):
+            register(manifest.artifact, manifest.artifact_sha256)
         for name in sorted(_retained_paths(state)):
             parsed = PurePosixPath(name)
             if (
@@ -735,6 +747,8 @@ def _retained_evidence_report(
         add(fact.log, "verification-log")
         add(fact.evidence.before.artifact, "verification-evidence")
         add(fact.evidence.after.artifact, "verification-evidence")
+    for manifest in _disposition_manifests(state):
+        add(manifest.artifact, "disposition-evidence")
     if state.completion is not None and state.completion.close_suite is not None:
         add(state.completion.close_suite.log, "close-suite-log")
 
@@ -1127,6 +1141,7 @@ def _retained_paths(state: StateFile) -> set[str]:
             if run.verdict.get("status") != "error"
         )
     paths.update(retained_evidence_paths(state.verifications))
+    paths.update(manifest.artifact for manifest in _disposition_manifests(state))
     if state.completion is not None and state.completion.close_suite is not None:
         paths.add(state.completion.close_suite.log)
     return paths
@@ -1163,6 +1178,7 @@ def optional_retained_paths(state: StateFile) -> frozenset[str]:
     for fact in state.verifications:
         optional.add(fact.log)
         required.update((fact.evidence.before.artifact, fact.evidence.after.artifact))
+    required.update(manifest.artifact for manifest in _disposition_manifests(state))
     if state.completion is not None and state.completion.close_suite is not None:
         optional.add(state.completion.close_suite.log)
     return frozenset(optional - required)

@@ -180,11 +180,11 @@ def test_ac11_non_search_hot_paths_never_load_or_scan_search(tmp_path: Path) -> 
     Markdown parser nor the search module unless a Markdown observation differs
     raw from its record. The owned Markdown file is unchanged here, so they
     load neither; reading that one source file is source observation, not a
-    knowledge-document read. The control reflows it afterwards and shows the
-    on-demand read helper is what loads the parser.
+    knowledge-document read. The control reflows it afterwards and shows that
+    status itself then loads the parser and reports the formatting-only change.
     """
     host = make_host(tmp_path)
-    manifest = record_owned_markdown(host)
+    record_owned_markdown(host)
     probe = r"""
 import builtins
 import contextlib
@@ -235,34 +235,28 @@ with (
         codes.append(main(argv))
 hot = {"imports": imports[:], "opens": opens[:], "connections": connections[:]}
 
-# Control: a raw change to the recorded Markdown file, bridged on demand.
-from heddle.io.source import observe_source
-from heddle.kernel.review_equivalence import review_equivalent
-from heddle.kernel.source_manifest import decode_source_evidence
-from heddle.runtime.verification import stamp_changed_equivalence
-
+# Control: a raw change to the recorded Markdown file, bridged on demand by
+# status itself.
 control_start = len(imports)
-notes = host / sys.argv[3]
+notes = host / sys.argv[2]
 notes.write_text(notes.read_text().replace("Owned  Markdown", "Owned Markdown"))
-recorded = decode_source_evidence(Path(sys.argv[2]).read_bytes())
-current = stamp_changed_equivalence(
-    host, observe_source(host, recorded.definition), recorded
-)
-before = {row.path: row for row in recorded.observations}
+control_output = io.StringIO()
+with (
+    contextlib.redirect_stdout(control_output),
+    contextlib.redirect_stderr(io.StringIO()),
+):
+    control_code = main(["status", "--json"])
+envelope = json.loads(control_output.getvalue())
 print(json.dumps({
     "codes": codes,
     **hot,
+    "control_code": control_code,
     "control_imports": imports[control_start:],
-    "bridged": [
-        row.path
-        for row in current.observations
-        if row.content_sha256 != before[row.path].content_sha256
-        and review_equivalent(before[row.path], row)
-    ],
+    "verification_status": envelope["data"]["verification_status"],
 }))
 """
     result = subprocess.run(
-        [sys.executable, "-c", probe, str(host), str(manifest), OWNED_MARKDOWN],
+        [sys.executable, "-c", probe, str(host), OWNED_MARKDOWN],
         cwd=host,
         capture_output=True,
         text=True,
@@ -296,12 +290,19 @@ print(json.dumps({
         "FAIL AC-11: non-search hot paths connected to SQLite: "
         f"{observation['connections']}"
     )
+    assert observation["control_code"] == 0
     assert any(
         name.startswith("markdown_it")
         for name in search_imports(observation["control_imports"])
-    ), "the probe must observe the parser load once a Markdown record differs raw"
-    assert observation["bridged"] == [OWNED_MARKDOWN], (
-        "the reflowed Markdown must stay review-equivalent to its record"
+    ), "status must load the parser once a Markdown record differs raw"
+    reported = [
+        row["changes"]
+        for row in observation["verification_status"]
+        if any(change["path"] == OWNED_MARKDOWN for change in row.get("changes", []))
+    ]
+    assert reported == [[{"kind": "formatting-only", "path": OWNED_MARKDOWN}]], (
+        "status must report the reflowed Markdown as a formatting-only change: "
+        f"{observation['verification_status']}"
     )
 
 

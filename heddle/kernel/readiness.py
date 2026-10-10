@@ -15,6 +15,7 @@ from heddle.kernel.reviews import (
     run_actionability_coherent,
     run_owner,
 )
+from heddle.kernel.source_manifest import SourceChange
 from heddle.kernel.state import StateFile
 from heddle.kernel.verification import VerificationFreshness
 from heddle.kernel.witness_waiver import verification_refresh_reason
@@ -56,10 +57,13 @@ class EvidenceState(StrEnum):
 class EvidenceExplanation:
     subject: str
     cause: str | None
+    # The changed paths, kept beside the typed changes for existing readers.
     changed_dependencies: tuple[str, ...]
     failed_reference: str | None
     remedy: ops.Action | None
     detail_limit: str | None
+    # Typed changes against a recorded manifest; empty when none records them.
+    changes: tuple[SourceChange, ...] = ()
 
 
 @dataclass(frozen=True)

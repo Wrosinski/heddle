@@ -53,7 +53,7 @@ from heddle.gate.types import (
     ReviewDecision,
     ReviewedInput,
 )
-from heddle.io.git import observe_dirty_paths
+from heddle.io.git import observe_dirty_paths, read_head_blob
 from heddle.io.source import (
     capture_source_path,
     observe_source,
@@ -238,10 +238,14 @@ def _capture_review_inputs(
         )
         if required and path is not None
     )
-    source_advice = _review_source_advice(
-        context.repo_root,
-        tuple({*document_paths, *source_paths, *scaffold_paths}),
-    )
+    advised = {*document_paths, *source_paths, *scaffold_paths}
+    if contract.requires_plan and context.plan_path is not None:
+        plan = _logical_document_path(context, context.plan_path, "plan")
+        if not _authored_plan_uncommitted(context, plan):
+            # A change confined to the generated plan-status region is not an
+            # authored change to commit before review.
+            advised.discard(plan)
+    source_advice = _review_source_advice(context.repo_root, tuple(advised))
     basis_records = _review_basis_records(
         context,
         contract,
@@ -903,6 +907,21 @@ def _review_source_advice(repo_root: Path, paths: tuple[str, ...]) -> tuple[str,
         f"{rendered}. Format these exact paths and commit them before paid review "
         "when appropriate; captured input identity remains authoritative.",
     )
+
+
+def _authored_plan_uncommitted(context: GateContext, plan: str) -> bool:
+    """Whether the plan differs from HEAD outside its generated status region.
+
+    An unreadable or uncommitted plan counts as changed, so it is still advised.
+    """
+    try:
+        committed = authored_plan(read_head_blob(context.repo_root, plan).decode())
+        current = authored_plan_observation(
+            capture_source_path(context.repo_root, plan, context.source_observations)
+        )
+    except (KernelError, ValueError):
+        return True
+    return current.kind != "file" or current.content != committed.encode()
 
 
 def _document_identity(

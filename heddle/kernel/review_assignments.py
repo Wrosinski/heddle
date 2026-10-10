@@ -36,6 +36,7 @@ from heddle.contracts.review_assignments import (
     CanonicalReview,
     EngineFailure,
     FindingFact,
+    ManifestReference,
     RetainedReview,
     ReviewAssignment,
     ReviewAssignments,
@@ -50,7 +51,7 @@ from heddle.contracts.review_assignments import (
 from heddle.kernel.feature_policy import secondary_serves
 from heddle.kernel.project_config import KernelError
 from heddle.kernel.review_closure import assess_review_closure
-from heddle.kernel.source_manifest import normalize_paths
+from heddle.kernel.source_manifest import decode_evidence_reference, normalize_paths
 
 if TYPE_CHECKING:
     from heddle.kernel.state import GateRun, StateFile
@@ -268,7 +269,9 @@ def parse_assignments(value: Any) -> ReviewAssignments:
     dispositions = []
     for item in _rows(raw["dispositions"]):
         row = _object(
-            item, AssignmentDisposition, defaults={"source_disposition": None}
+            item,
+            AssignmentDisposition,
+            defaults={"source_disposition": None, "basis_evidence": None},
         )
         historical = row["source_disposition"]
         if historical is not None:
@@ -277,6 +280,9 @@ def parse_assignments(value: Any) -> ReviewAssignments:
             historical = (_text(historical[0]), _number(historical[1], 0))
         if type(row["requires_inspection"]) is not bool:
             raise invalid("requires_inspection must be boolean")
+        evidence_basis = (
+            None if row["evidence_basis"] is None else _sha(row["evidence_basis"])
+        )
         dispositions.append(
             AssignmentDisposition(
                 _text(row["run_id"]),
@@ -290,7 +296,7 @@ def parse_assignments(value: Any) -> ReviewAssignments:
                     EVIDENCE_KINDS,
                 ),
                 _pairs(row["references"], hashes=True),
-                None if row["evidence_basis"] is None else _sha(row["evidence_basis"]),
+                evidence_basis,
                 _text(row["reason"]),
                 row["requires_inspection"],
                 _nullable(row["decision_id"]),
@@ -298,6 +304,7 @@ def parse_assignments(value: Any) -> ReviewAssignments:
                 _nullable(row["verification_scope"]),
                 _text(row["at"]),
                 historical,
+                _basis_evidence(row["basis_evidence"], evidence_basis),
             )
         )
     attempts = tuple(parse_review_attempt(item) for item in _rows(raw["attempts"]))
@@ -311,7 +318,25 @@ def parse_assignments(value: Any) -> ReviewAssignments:
     )
 
 
-_ABSENT_ADDITIVE_FIELDS = frozenset({"witness_waiver"})
+def _basis_evidence(value: Any, evidence_basis: str | None) -> ManifestReference | None:
+    """A named basis manifest must record the row's own basis digest."""
+    if value is None:
+        return None
+    try:
+        reference = decode_evidence_reference(value)
+    except KernelError as error:
+        raise invalid(f"disposition basis manifest: {error.message}") from error
+    if reference.source_sha256 != evidence_basis:
+        raise invalid("disposition basis manifest records another basis")
+    return ManifestReference(
+        reference.schema,
+        reference.artifact,
+        reference.artifact_sha256,
+        reference.source_sha256,
+    )
+
+
+_ABSENT_ADDITIVE_FIELDS = frozenset({"witness_waiver", "basis_evidence"})
 """Optional fact fields added after receipts were sealed; absent, they keep the
 historical identity so earlier receipts still verify unchanged ledger bytes."""
 

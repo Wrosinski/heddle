@@ -8,7 +8,7 @@ import secrets
 import stat
 from collections.abc import Iterable, Iterator
 from contextlib import contextmanager
-from dataclasses import dataclass, replace
+from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 from typing import Any
@@ -42,6 +42,8 @@ from heddle.kernel.source_manifest import (
     SourceDefinition,
     SourceEvidence,
     byte_sort_key,
+    changed_paths,
+    compare_source_evidence,
     decode_evidence_reference,
     decode_source_evidence,
     encode_source_evidence,
@@ -268,31 +270,9 @@ def assess_current_verifications(
             after,
             manifest,
         )
-        if status.status == "source-set-stale":
+        if status.status in {"content-stale", "source-set-stale"}:
             assert after is not None
-            dependencies = tuple(
-                sorted(
-                    set(after.definition.paths) ^ set(manifest.definition.paths),
-                    key=byte_sort_key,
-                )
-            )
-            detail_limit = (
-                None
-                if dependencies
-                else "only the verification source-set identity is retained"
-            )
-            status = replace(
-                status,
-                detail_limit=detail_limit,
-                explanation=EvidenceExplanation(
-                    subject=f"verification:{scope}",
-                    cause="declared verification source set changed",
-                    changed_dependencies=dependencies,
-                    failed_reference=None,
-                    remedy=status.action,
-                    detail_limit=detail_limit,
-                ),
-            )
+            status = _stale_explanation(root, scope, status, after, manifest)
         statuses.append(status)
     for index, status in enumerate(statuses):
         if status.scope != "smoke" or status.status != "failed":
@@ -357,6 +337,43 @@ def assess_current_verifications(
         if status.action is not None
         else status
         for status in statuses
+    )
+
+
+def _stale_explanation(
+    root: Path,
+    scope: str,
+    status: VerificationFreshness,
+    recorded: SourceEvidence,
+    current: SourceEvidence,
+) -> VerificationFreshness:
+    """Name each change from the fact's after-run manifest to current source."""
+    changes = compare_source_evidence(
+        recorded, stamp_changed_equivalence(root, current, recorded)
+    ).changes
+    dependencies = changed_paths(changes)
+    source_set = status.status == "source-set-stale"
+    detail_limit = (
+        "only the verification source-set identity is retained"
+        if source_set and not dependencies
+        else None
+    )
+    return replace(
+        status,
+        detail_limit=detail_limit if source_set else status.detail_limit,
+        explanation=EvidenceExplanation(
+            subject=f"verification:{scope}",
+            cause=(
+                "declared verification source set changed"
+                if source_set
+                else "relevant content changed"
+            ),
+            changed_dependencies=dependencies,
+            failed_reference=None,
+            remedy=status.action,
+            detail_limit=detail_limit,
+            changes=changes,
+        ),
     )
 
 
@@ -619,6 +636,10 @@ def verification_statuses(
     )
 
 
+# Freshness statuses whose recorded evidence a later change made stale.
+STALE_FRESHNESS = frozenset({"content-stale", "command-stale", "source-set-stale"})
+
+
 def verification_status_payload(
     statuses: tuple[VerificationFreshness, ...],
 ) -> list[dict[str, Any]]:
@@ -638,7 +659,7 @@ def verification_status_payload(
             else "current"
             if status.status == "fresh"
             else "stale"
-            if status.status in {"content-stale", "command-stale", "source-set-stale"}
+            if status.status in STALE_FRESHNESS
             else "missing"
             if status.status == "missing"
             else "invalid"
@@ -670,6 +691,7 @@ def verification_status_payload(
                 changed_dependencies=list(explanation.changed_dependencies),
                 failed_reference=explanation.failed_reference,
                 detail_limit=explanation.detail_limit,
+                changes=[asdict(change) for change in explanation.changes],
             )
         if status.accepted_decision:
             row["accepted_degraded"] = status.accepted_decision

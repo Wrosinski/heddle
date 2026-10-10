@@ -27,7 +27,6 @@ from heddle.contracts.result import (
     Severity,
 )
 from heddle.kernel.model import (
-    BLOCKING_TRIGGER_ROWS,
     FeatureSnapshot,
     derive_authoring_guidance,
     gate_convergence_phase,
@@ -42,7 +41,6 @@ from heddle.kernel.project_config import (
     ProjectConfig,
     load_project_config_from_cwd,
 )
-from heddle.kernel.source_manifest import ObservedPath
 from heddle.kernel.state import INCOMPATIBLE_STATE_SCHEMA
 from heddle.runtime import application
 from heddle.runtime.audit import (
@@ -58,7 +56,11 @@ from heddle.runtime.feature_context import (
 )
 from heddle.runtime.identity import attach_runtime_identity
 from heddle.runtime.output import emit_envelope
-from heddle.runtime.readiness import assess_current_readiness, readiness_failure
+from heddle.runtime.readiness import (
+    assess_current_readiness,
+    composed_readiness,
+    readiness_failure,
+)
 from heddle.runtime.verification import verification_status_payload
 
 # The handler-owned code→exit mapping for the read surfaces.
@@ -316,26 +318,19 @@ def _read_surface(
         from heddle.runtime.verification import coverage_diagnostics
 
         coverage = coverage_diagnostics(resolved.config, snapshot.state)
-        captures: dict[str, ObservedPath] = {}
-        assignment_projection = None
-        if snapshot.state.feature_policy is not None:
-            from heddle.runtime.review_assignments import projection
-
-            assignment_projection = projection(
-                resolved.config, snapshot, source_observations=captures
-            )
-        assessment = assess_current_readiness(
+        # The read surface names its assessor, so it stays this module's seam.
+        readiness = composed_readiness(
             resolved.config,
             snapshot,
-            source_observations=captures,
-            assignment_projection=assignment_projection,
             purpose=purpose,
+            assess=assess_current_readiness,
         )
+        assessment = readiness.assessment
         payload = build_payload(snapshot)
         payload["close_obligation"] = close_obligation(resolved.config)
         if not is_terminal(snapshot.state):
-            if assignment_projection is not None:
-                payload.update(assignment_projection)
+            if readiness.assignment_projection is not None:
+                payload.update(readiness.assignment_projection)
             payload["review_status"] = [asdict(row) for row in assessment.reviews]
             payload["verification_status"] = verification_status_payload(
                 assessment.verifications
@@ -347,12 +342,7 @@ def _read_surface(
                 ],
                 "observation_identity": assessment.observation_identity,
             }
-            combined = set(payload["blocking_conditions"]) | set(assessment.blockers)
-            ordered = [code for code, _action in BLOCKING_TRIGGER_ROWS]
-            payload["blocking_conditions"] = [
-                code for code in ordered if code in combined
-            ]
-            payload["blocking_conditions"].extend(sorted(combined - set(ordered)))
+            payload["blocking_conditions"] = list(readiness.blocking_conditions)
     except KernelError as error:
         return readiness_failure(error, resolved.diagnostics)
     audit = surfaced_decision_journal_audit(
