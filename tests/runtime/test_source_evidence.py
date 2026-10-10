@@ -48,7 +48,6 @@ def _evidence():
 def test_ac7_manifest_codec_is_canonical_and_preserves_source_identity() -> None:
     from heddle.gate.preparation import _captured_identity
     from heddle.kernel.source_manifest import (
-        SOURCE_EVIDENCE_SCHEMA,
         ObservedPath,
         SourceDefinition,
         build_source_evidence,
@@ -60,7 +59,9 @@ def test_ac7_manifest_codec_is_canonical_and_preserves_source_identity() -> None
     encoded = encode_source_evidence(evidence)
     decoded = decode_source_evidence(encoded)
     assert decoded == evidence
-    assert decoded.schema == SOURCE_EVIDENCE_SCHEMA == "heddle.source-evidence/v1"
+    assert decoded.schema == "heddle.source-evidence/v2", (
+        "FAIL AC-15: the source-evidence writer still emits heddle.source-evidence/v1"
+    )
     assert decoded.definition.paths == ("src/a.py", "src/b.py")
     assert [item.path for item in decoded.observations] == ["src/a.py", "src/b.py"]
     assert len(decoded.source_sha256) == 64
@@ -587,3 +588,291 @@ def test_ac12_current_parser_observation_status_and_orient_stay_within_ceiling(
     populated_host, populated_state = _v8_host(tmp_path, name="populated-host")
     assert exercise(empty_host, empty_state, populated=False) == "missing"
     assert exercise(populated_host, populated_state, populated=True) == "fresh"
+
+
+# Change-impact identity: source evidence v2 beside pre-feature v1 records
+# (AC-15, v1 compatibility). Activation seams are asserted at call time through
+# ``tests/change_impact_identity_helpers.py``.
+
+# The v1 recipe's source identity of ``_MIXED_OBSERVATIONS`` before this feature.
+_MIXED_SOURCE_SHA256 = (
+    "9ceeef06f203810c9005733f107a230f1298f82542fece789d7fc8f7e78c2674"
+)
+_MIXED_OBSERVATIONS = (
+    ("guide.md", "directory", False, b""),
+    ("src/a.py", "file", False, b"x = 'a'\n"),
+    ("src/b.md", "file", True, b"| a | b |\n|---|---|\n"),
+    ("src/c.txt", "file", False, b"plain  text\n"),
+    ("src/d.py", "missing", False, b""),
+    ("src/link.py", "symlink", False, b"a.py"),
+)
+
+
+def _mixed_evidence():
+    from heddle.kernel.source_manifest import (
+        ObservedPath,
+        SourceDefinition,
+        build_source_evidence,
+    )
+
+    paths = tuple(row[0] for row in _MIXED_OBSERVATIONS)
+    return build_source_evidence(
+        SourceDefinition("milestone-owns", paths, paths),
+        tuple(ObservedPath(*row) for row in _MIXED_OBSERVATIONS),
+    )
+
+
+def _frozen_v1_artifacts() -> dict[str, bytes]:
+    from tests.change_impact_identity_helpers import (
+        V1_MILESTONE_SRC_PY,
+        V1_MILESTONE_SRC_PY_SHA256,
+        V1_OUTSIDE_ORIGIN_MD,
+        V1_OUTSIDE_ORIGIN_MD_SHA256,
+        V1_OUTSIDE_VENDORED_PY,
+        V1_OUTSIDE_VENDORED_PY_SHA256,
+        frozen_v1,
+    )
+
+    committed = sorted(
+        REPO.glob("tests/fixtures/workspaces/**/verification/source-evidence.*.yaml")
+    )
+    assert len(committed) >= 5, "committed v1 source-evidence fixtures are missing"
+    artifacts = {
+        path.relative_to(REPO).as_posix(): path.read_bytes() for path in committed
+    }
+    artifacts["frozen src.py"] = frozen_v1(
+        V1_MILESTONE_SRC_PY, V1_MILESTONE_SRC_PY_SHA256
+    )
+    artifacts["frozen vendored.py"] = frozen_v1(
+        V1_OUTSIDE_VENDORED_PY, V1_OUTSIDE_VENDORED_PY_SHA256
+    )
+    artifacts["frozen origin.md"] = frozen_v1(
+        V1_OUTSIDE_ORIGIN_MD, V1_OUTSIDE_ORIGIN_MD_SHA256
+    )
+    return artifacts
+
+
+def test_ac15_pre_feature_v1_evidence_decodes_and_reencodes_byte_exactly(
+    tmp_path,
+) -> None:
+    """Survivor pin: v1 artifacts decode, re-encode and read back byte-exactly.
+
+    v2 writers put this at risk; the committed edge fixtures and the frozen
+    pre-feature artifacts are the v1 bytes, never regenerated.
+    """
+    import hashlib
+
+    from heddle.kernel.source_manifest import (
+        decode_source_evidence,
+        encode_source_evidence,
+        evidence_reference,
+    )
+    from heddle.runtime.verification import read_source_evidence
+
+    workspace = tmp_path / "plans/feature"
+    (workspace / "verification").mkdir(parents=True)
+    for label, content in _frozen_v1_artifacts().items():
+        decoded = decode_source_evidence(content)
+        assert decoded.schema == "heddle.source-evidence/v1", label
+        assert encode_source_evidence(decoded) == content, (
+            f"FAIL AC-15: v1 evidence {label} no longer re-encodes byte-exactly"
+        )
+        reference = evidence_reference(decoded)
+        assert reference.artifact_sha256 == hashlib.sha256(content).hexdigest(), (
+            f"FAIL AC-15: v1 evidence {label} changed its artifact identity"
+        )
+        if label.startswith("tests/"):
+            assert label.endswith(reference.artifact.removeprefix("verification/"))
+        (workspace / reference.artifact).write_bytes(content)
+        assert read_source_evidence(workspace, reference) == decoded, label
+
+
+def test_ac15_writers_emit_v2_with_equivalence_beside_unchanged_raw_identity() -> None:
+    """AC-15: v2 records each rule-bearing file's equivalence; raw stays as v1."""
+    import hashlib
+
+    from heddle.kernel.source_manifest import (
+        ObservedPath,
+        SourceDefinition,
+        build_source_evidence,
+        decode_source_evidence,
+        encode_source_evidence,
+        evidence_reference,
+    )
+    from tests.change_impact_identity_helpers import (
+        V1_MILESTONE_SRC_PY,
+        V1_MILESTONE_SRC_PY_SHA256,
+        frozen_v1,
+        identity,
+        recorded_equivalence,
+    )
+
+    evidence = _mixed_evidence()
+    assert evidence.schema == "heddle.source-evidence/v2", (
+        "FAIL AC-15: build_source_evidence still writes heddle.source-evidence/v1"
+    )
+    assert evidence.source_sha256 == _MIXED_SOURCE_SHA256, (
+        "FAIL AC-15: the source_sha256 recipe changed with v2"
+    )
+    rows = {row.path: row for row in evidence.observations}
+    for path, kind, executable, content in _MIXED_OBSERVATIONS:
+        assert (rows[path].kind, rows[path].executable) == (kind, executable)
+        assert rows[path].content_sha256 == hashlib.sha256(content).hexdigest()
+    contents = {row[0]: row[3] for row in _MIXED_OBSERVATIONS}
+    for path in ("src/a.py", "src/b.md"):
+        assert recorded_equivalence(rows[path]) == identity(path, contents[path]), (
+            f"FAIL AC-15: {path} does not record its review-equivalence identity"
+        )
+    for path in ("guide.md", "src/c.txt", "src/d.py", "src/link.py"):
+        assert recorded_equivalence(rows[path]) is None, (
+            f"FAIL AC-15: {path} must keep raw identity only"
+        )
+
+    encoded = encode_source_evidence(evidence)
+    decoded = decode_source_evidence(encoded)
+    assert decoded == evidence and encode_source_evidence(decoded) == encoded
+    reference = evidence_reference(evidence)
+    assert reference.artifact_sha256 == hashlib.sha256(encoded).hexdigest()
+    assert reference.source_sha256 == _MIXED_SOURCE_SHA256
+
+    v1 = decode_source_evidence(
+        frozen_v1(V1_MILESTONE_SRC_PY, V1_MILESTONE_SRC_PY_SHA256)
+    )
+    assert recorded_equivalence(v1.observations[0]) is None, (
+        "FAIL AC-15: a v1 observation must decode as raw-only"
+    )
+    current = build_source_evidence(
+        SourceDefinition("milestone-owns", ("src.py",), ("src.py",)),
+        (ObservedPath("src.py", "file", False, b"value = 1\n"),),
+    )
+    assert current.source_sha256 == v1.source_sha256, (
+        "FAIL AC-15: the same bytes changed source identity between v1 and v2"
+    )
+
+    marker = b'"heddle.source-evidence/v2"'
+    assert marker in encoded
+    with pytest.raises(KernelError):
+        decode_source_evidence(encoded.replace(marker, b'"heddle.source-evidence/v1"'))
+
+
+def test_ac15_v2_components_are_ordered_and_outside_the_source_identity() -> None:
+    """AC-15: optional named components round-trip in order beside raw identity."""
+    import hashlib
+    from dataclasses import replace
+
+    from heddle.kernel.source_manifest import (
+        decode_source_evidence,
+        encode_source_evidence,
+        evidence_reference,
+    )
+    from tests.change_impact_identity_helpers import evidence_components
+
+    plain = _evidence()
+    assert plain.schema == "heddle.source-evidence/v2", (
+        "FAIL AC-15: build_source_evidence still writes heddle.source-evidence/v1"
+    )
+    first = ("instructions", hashlib.sha256(b"instructions").hexdigest())
+    second = ("contracts", hashlib.sha256(b"contracts").hexdigest())
+    ordered = replace(plain, components=evidence_components((first, second)))
+    swapped = replace(plain, components=evidence_components((second, first)))
+
+    encoded = encode_source_evidence(ordered)
+    decoded = decode_source_evidence(encoded)
+    assert decoded == ordered and encode_source_evidence(decoded) == encoded
+    assert decoded.components == evidence_components((first, second)), (
+        "FAIL AC-15: v2 components lost their order"
+    )
+    assert encode_source_evidence(swapped) != encoded
+    assert not decode_source_evidence(encode_source_evidence(plain)).components
+    assert len({evidence_reference(item).artifact for item in (plain, ordered)}) == 2
+    assert ordered.source_sha256 == swapped.source_sha256 == plain.source_sha256, (
+        "FAIL AC-15: components must not enter the source_sha256 recipe"
+    )
+
+
+def test_ac15_publisher_and_reader_accept_v2_beside_v1(tmp_path) -> None:
+    """AC-15: one workspace publishes v2 and still reads its v1 artifacts."""
+    from heddle.runtime.verification import (
+        publish_source_evidence,
+        read_source_evidence,
+    )
+    from tests.change_impact_identity_helpers import (
+        V1_MILESTONE_SRC_PY,
+        V1_MILESTONE_SRC_PY_SHA256,
+        frozen_v1,
+        v1_reference,
+    )
+
+    workspace = tmp_path / "plans/feature"
+    (workspace / "verification").mkdir(parents=True)
+    v1_bytes = frozen_v1(V1_MILESTONE_SRC_PY, V1_MILESTONE_SRC_PY_SHA256)
+    v1_ref = v1_reference(v1_bytes)
+    (workspace / v1_ref["artifact"]).write_bytes(v1_bytes)
+
+    evidence = _mixed_evidence()
+    assert evidence.schema == "heddle.source-evidence/v2", (
+        "FAIL AC-15: build_source_evidence still writes heddle.source-evidence/v1"
+    )
+    reference, reused = publish_source_evidence(workspace, evidence)
+    assert reused is False
+    assert read_source_evidence(workspace, reference) == evidence
+    assert publish_source_evidence(workspace, evidence) == (reference, True)
+    assert read_source_evidence(workspace, v1_ref).schema == (
+        "heddle.source-evidence/v1"
+    )
+
+
+def test_ac15_v1_verification_record_reads_exactly_as_before(
+    run_cli, tmp_path, monkeypatch
+) -> None:
+    """AC-15: a v1 fact stays fresh against v2 observations and compares raw."""
+    from heddle.kernel.state import read_state_file
+    from heddle.runtime.verification import (
+        assess_current_verification,
+        read_source_evidence,
+    )
+    from tests.change_impact_identity_helpers import (
+        V1_MILESTONE_SRC_PY,
+        V1_MILESTONE_SRC_PY_SHA256,
+        frozen_v1,
+        recorded_equivalence,
+        v1_reference,
+    )
+    from tests.runtime.verification_provenance_helpers import write_yaml
+
+    host, state_path = _v8_host(tmp_path)
+    monkeypatch.chdir(host)
+    code, output, _error = run_cli(
+        ["verify", "--scope", "m1", "--feature", "sample-feature", "--json"]
+    )
+    assert code == 0, output
+    document = yaml.safe_load(state_path.read_text())
+    fact = document["verifications"][-1]
+    written = read_source_evidence(state_path.parent, fact["evidence"]["after"])
+    assert written.schema == "heddle.source-evidence/v2", (
+        "FAIL AC-15: verify still writes heddle.source-evidence/v1"
+    )
+    assert recorded_equivalence(written.observations[0]) is not None
+
+    v1_bytes = frozen_v1(V1_MILESTONE_SRC_PY, V1_MILESTONE_SRC_PY_SHA256)
+    v1_ref = v1_reference(v1_bytes)
+    assert v1_ref["source_sha256"] == fact["evidence"]["after"]["source_sha256"]
+    (state_path.parent / v1_ref["artifact"]).write_bytes(v1_bytes)
+    fact["evidence"]["before"] = dict(v1_ref)
+    fact["evidence"]["after"] = dict(v1_ref)
+    write_yaml(state_path, document)
+
+    status = assess_current_verification(host, read_state_file(state_path), "m1")
+    assert status.status == "fresh", (
+        "FAIL AC-15: a v1 verification record no longer reads fresh against "
+        f"unchanged source: {status.status}"
+    )
+    code, output, _error = run_cli(["status", "--feature", "sample-feature", "--json"])
+    assert code == 0, output
+
+    (host / "src.py").write_text("value = (1)\n", encoding="utf-8")
+    status = assess_current_verification(host, read_state_file(state_path), "m1")
+    assert status.status == "content-stale", (
+        "FAIL AC-15: verification freshness must stay raw for a v1 record: "
+        f"{status.status}"
+    )

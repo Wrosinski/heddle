@@ -18,7 +18,7 @@ from typing import Any
 import pytest
 
 from heddle.kernel.knowledge import AC_HEADING, MILESTONE_HEADING, VERIFIED_BY
-from heddle.kernel.model import derive_next_actions, resolve_snapshot
+from heddle.kernel.model import resolve_snapshot
 from heddle.kernel.project_config import KernelError, load_project_config
 from tests.runtime.adoption_helpers import adopt_fixture_host
 from tests.runtime.authoring_helpers import tree_snapshot
@@ -594,7 +594,7 @@ def test_ac07_ac08_ac15_red_populate_then_zero_diff_dogfood_equivalent(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """AC-3/5/7/8/15 red discriminator: populate + zero-diff rerun."""
-    sync = _sync_module()
+    _sync_module()
     host = _created_demo_host(
         run_cli,
         envelope_tools,
@@ -610,8 +610,23 @@ def test_ac07_ac08_ac15_red_populate_then_zero_diff_dogfood_equivalent(
         plan.read_text(encoding="utf-8"), PLAN_BEGIN, PLAN_END
     )
     snapshot = resolve_snapshot(load_project_config(host), "demo")
-    next_actions = derive_next_actions(snapshot)
-    expected_body = sync.render_plan_status(snapshot, next_actions)
+    # The rendered status follows orient's readiness, not a kernel-only view.
+    _code, oriented = _json_run(
+        run_cli, envelope_tools, ["orient", "--feature", "demo", "--json"]
+    )
+    milestone = snapshot.current_milestone
+    expected_body = (
+        "\nGenerated status snapshot — not live. Operational facts live in\n"
+        "`state.yaml`, which is authoritative; refresh this block with\n"
+        "`heddle sync --feature demo`.\n\n"
+        "- feature: demo\n"
+        f"- stage: {snapshot.stage} (authorized through "
+        f"{snapshot.authorized_through})\n"
+        f"- milestone: {milestone.id if milestone else 'none'}\n"
+        "- conditions: "
+        f"{', '.join(oriented['data']['blocking_conditions']) or 'none'}\n"
+        f"- next: {oriented['next_actions'][0]['command']}\n\n"
+    )
 
     first_code, first = _json_run(
         run_cli,
@@ -634,8 +649,8 @@ def test_ac07_ac08_ac15_red_populate_then_zero_diff_dogfood_equivalent(
     ), "FAIL AC-7: plan host bytes outside markers changed"
     plan_body = _managed_body(plan.read_text(encoding="utf-8"), PLAN_BEGIN, PLAN_END)
     assert plan_body == expected_body, (
-        "FAIL AC-3/AC-7: command must install exactly the kernel-derived "
-        "render_plan_status body"
+        "FAIL AC-3/AC-7: command must install exactly the readiness-derived "
+        "plan-status body that orient reports"
     )
     assert "Generated status snapshot — not live." in plan_body, (
         "FAIL AC-3/AC-7: populated notice must disclaim liveness"
@@ -2283,3 +2298,74 @@ def test_ac19_red_dual_refusals_aggregate_in_target_order_with_zero_writes(
     assert plan.read_bytes() == plan_before and agents.read_bytes() == agents_before, (
         "FAIL AC-19: aggregate preflight must write neither faulted target"
     )
+
+
+def _plan_status_fields(plan: Path) -> dict[str, str]:
+    body = _managed_body(plan.read_text(encoding="utf-8"), PLAN_BEGIN, PLAN_END)
+    return dict(
+        line[2:].split(": ", 1) for line in body.splitlines() if line.startswith("- ")
+    )
+
+
+@pytest.mark.parametrize("state", ["open-findings", "changed-citation"])
+def test_ac9_plan_status_renders_orient_readiness_next_and_conditions(
+    run_cli,
+    envelope_tools,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    state: str,
+) -> None:
+    """AC-9 red: plan-status next and conditions equal orient's readiness."""
+    from tests.structured_review_helpers import finding
+    from tests.tiering_review_helpers import (
+        V7_FEATURE,
+        current_host,
+        dispose,
+        disposition,
+        gate_command,
+        provider_transport,
+        review_content,
+        runs,
+    )
+
+    host, state_path = current_host(tmp_path, monkeypatch)
+    plan = state_path.with_name("plan.md")
+    plan.write_text(
+        plan.read_text(encoding="utf-8")
+        + f"\n{PLAN_BEGIN}\nstale status\n{PLAN_END}\n",
+        encoding="utf-8",
+    )
+    calls = provider_transport(
+        monkeypatch,
+        review_content(findings=[finding("SP-I1", classification="implement")]),
+    )
+    code, result = gate_command(run_cli, "run-gate", "spec-review")
+    assert code == 4 and result["ok"], result
+    if state == "changed-citation":
+        origin = runs(state_path)[0]["run_id"]
+        assert dispose(
+            state_path,
+            [disposition(origin), disposition(origin, "@coverage", status="settled")],
+        ).ok
+        source = host / "src/example.py"
+        source.write_text(source.read_text() + "\n# citation changed\n")
+
+    code, synced = _json_run(
+        run_cli, envelope_tools, ["sync", "--feature", V7_FEATURE, "--json"]
+    )
+    assert code == 0, f"FAIL AC-9: sync refused: {synced.get('error')!r}"
+    code, oriented = _json_run(
+        run_cli, envelope_tools, ["orient", "--feature", V7_FEATURE, "--json"]
+    )
+    assert code == 0 and oriented["next_actions"], oriented
+    fields = _plan_status_fields(plan)
+    assert fields["next"] == oriented["next_actions"][0]["command"], (
+        f"FAIL AC-9: plan-status next {fields['next']!r} is not orient's first "
+        f"action {oriented['next_actions'][0]['command']!r}"
+    )
+    conditions = ", ".join(oriented["data"]["blocking_conditions"]) or "none"
+    assert fields["conditions"] == conditions, (
+        f"FAIL AC-9: plan-status conditions {fields['conditions']!r} are not "
+        f"orient's {conditions!r}"
+    )
+    assert len(calls) == 1

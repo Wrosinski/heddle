@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+
 import pytest
 import yaml
 
@@ -183,7 +185,9 @@ def test_rerun_supersedes_the_waiver(tmp_path, monkeypatch) -> None:
             "cannot waive a rerun of command-stale evidence",
         ),
         ("live-undeclared", "usage", "live scope requires a declared live_e2e_test"),
-        ("implement", "usage", "the pre-review witness run is mandatory"),
+        # Implement exit may accept an earlier witness only after a
+        # formatting-only change, so current evidence there needs no waiver.
+        ("implement", "workspace-invalid", "is current; no rerun waiver is needed"),
         ("lanes", "usage", "scope must name one witness lane"),
         ("object", "usage", "scope must name one witness lane"),
     ],
@@ -215,8 +219,13 @@ def test_waiver_refuses_ineligible_evidence(
     write(host.state, value)
     before = host.state.read_bytes()
     refused = _propose(scope)
-    assert not refused.ok and refused.error.code == code, refused.to_envelope()
-    assert message in refused.error.message, refused.to_envelope()
+    ac = "AC-14" if change == "implement" else "AC-13"
+    assert not refused.ok and refused.error.code == code, (
+        f"FAIL {ac}: the {change} refusal is {code}: {refused.to_envelope()}"
+    )
+    assert message in refused.error.message, (
+        f"FAIL {ac}: the {change} refusal says {message!r}: {refused.to_envelope()}"
+    )
     assert host.state.read_bytes() == before
 
 
@@ -497,3 +506,246 @@ def test_waived_lane_never_qualifies_as_disposition_evidence(
     assert row["predicate"] == "verification-not-qualifying"
     assert row["status"] == "content-stale"
     assert host.state.read_bytes() == before
+
+
+# Review-equivalent currency (AC-13) and implement-exit acceptance (AC-14).
+# Activation seams: typed `changes` on a status row
+# (`tests.change_impact_explanation_helpers.typed_changes`) and the optional
+# manifest reference a waiver binds (`waiver_manifest_reference`).
+
+
+def _status_row(scope: str) -> dict:
+    from tests.change_impact_verify_helpers import status_rows
+
+    return status_rows()[scope]
+
+
+def test_ac13_waiver_stays_current_across_a_review_equivalent_change(
+    tmp_path, monkeypatch
+) -> None:
+    from tests.change_impact_verify_helpers import reflow_review_fix
+
+    host = final_host(tmp_path, monkeypatch)
+    _review_fix(host.root, 8)
+    verify(host.state, "smoke")
+    decision_id = _waive(host.state, "acceptance")
+    reflow_review_fix(host.root, 8)
+
+    _readiness, row = _row(host.root, "acceptance", "complete")
+    assert row.status == "content-stale", row
+    assert row.waived_by == decision_id and row.action is None, (
+        "FAIL AC-13: a formatting-only change voided the witness waiver: "
+        f"waived_by={row.waived_by!r}"
+    )
+
+
+def test_ac13_non_equivalent_change_restores_the_rerun_naming_the_path(
+    tmp_path, monkeypatch
+) -> None:
+    from tests.change_impact_explanation_helpers import typed_changes
+
+    host = final_host(tmp_path, monkeypatch)
+    _review_fix(host.root, 8)
+    verify(host.state, "smoke")
+    _waive(host.state, "acceptance")
+    _review_fix(host.root, 9)
+
+    _readiness, row = _row(host.root, "acceptance", "complete")
+    assert row.waived_by is None and row.action is not None
+    assert typed_changes(_status_row("acceptance"), ac="AC-13") == {
+        ("content", "src/example.py")
+    }, "FAIL AC-13: the restored rerun's explanation must name the changed path"
+
+
+def test_ac13_legacy_waiver_stays_exact(tmp_path, monkeypatch) -> None:
+    """Survivor pin: a waiver recorded before review equivalence compares exactly."""
+    from tests.change_impact_verify_helpers import (
+        LEGACY_WAIVER_KEYS,
+        legacy_host,
+        reflow_legacy_source,
+    )
+
+    host = legacy_host(tmp_path, monkeypatch)
+    waiver = next(
+        decision
+        for decision in read(host.state)["decisions"]
+        if decision["kind"] == "witness-waiver"
+    )
+    assert set(waiver["witness_waiver"]) == LEGACY_WAIVER_KEYS
+    assert waiver["witness_waiver"]["scope"] == "live"
+    row = _status_row("live")
+    assert row.get("waived_rerun") == waiver["id"] and row["action"] is None, row
+
+    reflow_legacy_source(host.root)
+
+    row = _status_row("live")
+    assert row.get("waived_rerun") is None and row["action"] is not None, (
+        f"a legacy waiver stays exact across a review-equivalent change: {row}"
+    )
+
+
+def test_ac13_resolution_tolerates_a_review_equivalent_change(
+    tmp_path, monkeypatch
+) -> None:
+    from tests.change_impact_verify_helpers import reflow_review_fix
+
+    host = final_host(tmp_path, monkeypatch)
+    _review_fix(host.root, 8)
+    verify(host.state, "smoke")
+    added = _propose("acceptance")
+    assert added.ok, added.to_envelope()
+    decision_id = read(host.state)["decisions"][-1]["id"]
+    reflow_review_fix(host.root, 8)
+
+    resolved = _resolve(decision_id)
+    assert resolved.ok, (
+        "FAIL AC-13: resolving a waiver after a formatting-only change must "
+        f"succeed: {resolved.to_envelope()}"
+    )
+    _readiness, row = _row(host.root, "acceptance", "complete")
+    assert row.waived_by == decision_id
+
+
+def test_ac13_lane_waived_across_an_equivalent_change_never_qualifies_evidence(
+    tmp_path, monkeypatch, run_cli
+) -> None:
+    """Survivor pin: a waiver never makes its lane disposition evidence."""
+    from tests.change_impact_verify_helpers import reflow_review_fix
+    from tests.tiering_review_helpers import dispose, disposition
+
+    host, origin = _open_behavior_review(tmp_path, monkeypatch, run_cli)
+    _review_fix(host.root, 8)
+    verify(host.state, "smoke")
+    _waive(host.state, "acceptance")
+    reflow_review_fix(host.root, 8)
+    before = host.state.read_bytes()
+    rejected = dispose(
+        host.state,
+        [
+            disposition(
+                origin,
+                "BE-I1",
+                evidence_kind="verification",
+                verification_scope="acceptance",
+            ),
+            disposition(origin, "@coverage", status="settled"),
+        ],
+    )
+    assert not rejected.ok, rejected.to_envelope()
+    row = rejected.error.details["rows"][0]
+    assert row["predicate"] == "verification-not-qualifying"
+    assert row["status"] == "content-stale"
+    assert host.state.read_bytes() == before
+
+
+def _implement_exit_actions() -> list:
+    """Orient's actions once only the acceptance witness is stale."""
+    from tests.change_impact_verify_helpers import verify_scope
+
+    actions = execute(ops.Orient(feature=FEATURE)).next_actions
+    assert verify_scope(actions[0].action) == "acceptance", [
+        item.command for item in actions
+    ]
+    return actions
+
+
+def test_ac14_formatting_only_change_lets_the_owner_accept_the_earlier_witness(
+    tmp_path, monkeypatch
+) -> None:
+    from tests.change_impact_verify_helpers import (
+        implement_exit_host,
+        journal_waiver,
+        propose_waiver,
+        resolve_waiver,
+        waiver_manifest_reference,
+    )
+
+    host = implement_exit_host(tmp_path, monkeypatch)
+    # The formatter-shaped form of the passing source: redundant parentheses.
+    (host.root / "src/example.py").write_text("VALUE = (7)\n")
+    # m1 reruns on the new bytes, so only the acceptance witness is stale.
+    verify(host.state, "m1")
+    _readiness, row = _row(host.root, "acceptance", "implement")
+    assert row.status == "content-stale"
+    reasons = [item.reason for item in _implement_exit_actions()]
+    assert any("witness-waiver" in reason for reason in reasons), (
+        "FAIL AC-14: implement exit offers no witness-waiver beside the rerun "
+        f"after a formatting-only change: {reasons}"
+    )
+
+    added = propose_waiver()
+    assert added.ok, (
+        "FAIL AC-14: a witness-waiver proposal at implement must succeed when "
+        f"every change is formatting-only: {added.to_envelope()}"
+    )
+    decision = read(host.state)["decisions"][-1]
+    binding = decision["witness_waiver"]
+    reference = waiver_manifest_reference(binding)
+    assert reference["source_sha256"] == binding["source_sha256"], reference
+    assert (host.state.parent / reference["artifact"]).is_file(), reference
+    resolved = resolve_waiver(decision["id"])
+    assert resolved.ok, resolved.to_envelope()
+    journal_waiver(host.root, host.state, decision["id"])
+    status = execute(ops.Status(feature=FEATURE))
+    assert status.data["decision_journal_audit"] == "complete", status.data
+
+    exited = execute(ops.PhaseExit(feature=FEATURE))
+    assert exited.ok, exited.to_envelope()
+    assert read(host.state)["stage"] == "peer-review"
+
+
+@pytest.mark.parametrize("change", ["content", "membership"])
+def test_ac14_other_changes_refuse_the_proposal_naming_the_paths(
+    tmp_path, monkeypatch, change: str
+) -> None:
+    from tests.change_impact_verify_helpers import implement_exit_host
+
+    host = implement_exit_host(tmp_path, monkeypatch)
+    if change == "content":
+        changed = "src/example.py"
+        # A new comment: a real content change under the Python rule.
+        (host.root / changed).write_text("VALUE = 7  # behaviour note\n")
+        verify(host.state, "m1")
+    else:
+        changed = "src/extra.py"
+        _own(host.root, host.state, changed)
+        verify(host.state, "m2")
+    reasons = [item.reason for item in _implement_exit_actions()]
+    assert not any("witness-waiver" in reason for reason in reasons), reasons
+    before = host.state.read_bytes()
+
+    refused = _propose("acceptance")
+
+    assert not refused.ok and host.state.read_bytes() == before
+    assert changed in json.dumps(refused.to_envelope()), (
+        f"FAIL AC-14: the implement refusal must name the {change} path "
+        f"{changed}: {refused.to_envelope()}"
+    )
+    exited = execute(ops.PhaseExit(feature=FEATURE))
+    assert not exited.ok and host.state.read_bytes() == before, exited.to_envelope()
+    assert "acceptance" in exited.error.message, exited.to_envelope()
+
+
+def test_ac14_a_witness_that_never_passed_is_never_acceptable(
+    tmp_path, monkeypatch
+) -> None:
+    """Survivor pin: failed witness evidence is never waivable, even at implement."""
+    from tests.change_impact_verify_helpers import implement_exit_host
+
+    host = implement_exit_host(tmp_path, monkeypatch)
+    value = read(host.state)
+    value["commands"]["acceptance_test"] = "python3 -c 'raise SystemExit(1)'"
+    write(host.state, value)
+    execute(ops.Verify(feature=FEATURE, scope="acceptance"))
+    assert read(host.state)["verifications"][-1]["exit_code"] != 0
+    (host.root / "src/example.py").write_text("VALUE = (7)\n")
+    before = host.state.read_bytes()
+
+    refused = _propose("acceptance")
+
+    assert not refused.ok, refused.to_envelope()
+    assert host.state.read_bytes() == before
+    # Refused today because implement is not a waiver stage; refused after the
+    # change because the evidence failed. Never because of what changed.
+    message = refused.error.message
+    assert "failed" in message or "pre-review witness run is mandatory" in message

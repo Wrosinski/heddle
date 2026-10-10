@@ -100,3 +100,76 @@ class TestCommandManifestActivation:
                 f"{envelope['error']['code']} — implemented commands must not "
                 "return the unavailable-command stub"
             )
+
+
+# Help for change-impact rebinding (AC-16, with AC-8). Activation seams: the
+# `--stale` verify flag, optional reaffirm `--role`/`--scope` with exit 4, and
+# the `feature baseline set` command.
+
+
+def _flag_line(help_text: str, flag: str) -> str:
+    return next(
+        (line for line in help_text.splitlines() if line.strip().startswith(flag)),
+        "",
+    )
+
+
+def test_ac16_verify_help_describes_stale_and_its_exclusion(run_cli):
+    code, out, _err = run_cli(["verify", "--help"])
+    assert code == 0
+    line = _flag_line(out, "--stale")
+    assert line, f"FAIL AC-16: `heddle verify --help` lists no --stale flag:\n{out}"
+    assert "--scope" in line, (
+        f"FAIL AC-16: the --stale help must say it excludes --scope: {line!r}"
+    )
+
+
+def test_ac16_reaffirm_help_names_optional_role_and_scope_and_exit_4(run_cli):
+    code, out, _err = run_cli(["review", "reaffirm", "--help"])
+    assert code == 0
+    for flag in ("--role", "--scope"):
+        line = _flag_line(out, flag).casefold()
+        assert "optional" in line or "omit" in line, (
+            f"FAIL AC-16: reaffirm help must say {flag} is optional: {line!r}"
+        )
+    assert "exit codes: 0, 1, 2, 3, 4, 5" in out, (
+        f"FAIL AC-16: reaffirm help must list exit 4:\n{out}"
+    )
+
+
+def test_ac16_feature_baseline_set_help_lists_its_flags(run_cli):
+    code, out, _err = run_cli(["feature", "baseline", "set", "--help"])
+    assert code == 0, f"FAIL AC-16: `heddle feature baseline set --help` failed:\n{out}"
+    for flag in ("--commit", "--reason", "--expect-revision", "--dry-run"):
+        assert _flag_line(out, flag), (
+            f"FAIL AC-16: baseline set help lists no {flag}:\n{out}"
+        )
+    assert "--dry-run supported" in out, out
+
+
+def test_ac8_feature_baseline_set_reaches_its_live_handler(
+    run_cli, envelope_tools, tmp_path, monkeypatch
+):
+    outside = tmp_path / "elsewhere"
+    outside.mkdir()
+    monkeypatch.chdir(outside)
+    _code, out, _err = run_cli(
+        [
+            "feature",
+            "baseline",
+            "set",
+            "--commit",
+            "abc1234",
+            "--reason",
+            "rebased onto dev",
+            "--json",
+        ]
+    )
+    error = envelope_tools.parse(out)["error"]
+    assert "recognized verb" not in error["message"], (
+        f"FAIL AC-8: `heddle feature baseline set` is not a command: {error}"
+    )
+    # Well-formed flags outside a project reach resolution, not usage or a stub.
+    assert error["code"] not in {"usage", "not-implemented"}, (
+        f"FAIL AC-8: the re-point must reach its live handler: {error}"
+    )

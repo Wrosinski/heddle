@@ -88,7 +88,7 @@ def test_ac14_installed_review_drift_restore_completion_and_terminal_retry(tmp_p
             reference = fact["evidence"]["before"]
             artifact = path.parent / reference["artifact"]
             manifest = read(artifact)
-            assert manifest["schema"] == "heddle.source-evidence/v1"
+            assert manifest["schema"] == "heddle.source-evidence/v2"
             assert manifest["source_sha256"] == reference["source_sha256"]
 
     review = (

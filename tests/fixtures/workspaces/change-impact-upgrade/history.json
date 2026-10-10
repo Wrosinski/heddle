@@ -1,0 +1,108 @@
+{
+ "schema": "heddle-test.recorded-history/v1",
+ "branch": "main",
+ "commits": [
+  {
+   "message": "fixture baseline",
+   "date": "2026-09-06T10:00:00+00:00",
+   "oid": "603b42b71a885a98a60b5d64894357d1db9f43bb",
+   "files": {
+    ".heddle.lock": {
+     "mode": 436,
+     "sha256": "c883f6694c1574ddbcedf018abbe57076435283f18360ecb634e849e1b08975e"
+    },
+    ".heddle.yaml": {
+     "mode": 436,
+     "sha256": "40873f16ab94b75579dbf8dadd9f5378135a4fa699bc32218c650944a9c895e0"
+    },
+    "AGENTS.md": {
+     "mode": 436,
+     "sha256": "114adc7928acab91652fdb06bc565685b29df6471c6c66cc3cb885a5b3a152e8"
+    },
+    "docs/features/runtime/operational-example.md": {
+     "mode": 436,
+     "sha256": "6091e34207cfd1fb92c0fb2f74b6460504f026f40931ac7a10329a010e1e6881"
+    },
+    "docs/other-feature-origin.md": {
+     "mode": 436,
+     "sha256": "eaf777f0b04ca37464ac4e44c8633c72c8b6f3353d44a101de9bd6d9c82d4024"
+    },
+    "docs/workflow/engineering-principles.md": {
+     "mode": 436,
+     "sha256": "92282013b4c45f246985c475a2766cb9cf5acbe786695c764e0b13de3308ef3f"
+    },
+    "plans/operational-example/plan.md": {
+     "mode": 436,
+     "sha256": "ab83bd91682566cff7b8df3c46394ab99787577ecacd4542c1b6773e67316a61"
+    },
+    "src/example.py": {
+     "mode": 436,
+     "sha256": "f40984649caa6bf7bc818863f0e210b68e3b00f16dfc99997f1bd226c34b9c34"
+    },
+    "tests/check.py": {
+     "mode": 436,
+     "sha256": "595d4680cb28c0e173cec25b93a3ba1b75fe42070a9fef0445dca21560ef1fb7"
+    },
+    "tools/smoke_check.py": {
+     "mode": 436,
+     "sha256": "f39e1a4e01f0b36032a55a4b246f74aac4fcd54886f8754e13f54cf1e0f67344"
+    }
+   }
+  },
+  {
+   "message": "work committed after admission",
+   "date": "2026-09-06T11:00:00+00:00",
+   "oid": "ee21bb734f376038c896959bc0d6c7149470ed91",
+   "files": {
+    ".heddle.lock": {
+     "mode": 436,
+     "sha256": "c883f6694c1574ddbcedf018abbe57076435283f18360ecb634e849e1b08975e"
+    },
+    ".heddle.yaml": {
+     "mode": 436,
+     "sha256": "40873f16ab94b75579dbf8dadd9f5378135a4fa699bc32218c650944a9c895e0"
+    },
+    "AGENTS.md": {
+     "mode": 436,
+     "sha256": "114adc7928acab91652fdb06bc565685b29df6471c6c66cc3cb885a5b3a152e8"
+    },
+    "docs/features/runtime/operational-example.md": {
+     "mode": 436,
+     "sha256": "6091e34207cfd1fb92c0fb2f74b6460504f026f40931ac7a10329a010e1e6881"
+    },
+    "docs/other-feature-origin.md": {
+     "mode": 436,
+     "sha256": "eaf777f0b04ca37464ac4e44c8633c72c8b6f3353d44a101de9bd6d9c82d4024"
+    },
+    "docs/other-feature.md": {
+     "mode": 436,
+     "sha256": "007679891bebaf8c25c0650ea274a270e6363af4b7b39d176cec703af96ae08c"
+    },
+    "docs/workflow/engineering-principles.md": {
+     "mode": 436,
+     "sha256": "92282013b4c45f246985c475a2766cb9cf5acbe786695c764e0b13de3308ef3f"
+    },
+    "plans/operational-example/plan.md": {
+     "mode": 436,
+     "sha256": "ab83bd91682566cff7b8df3c46394ab99787577ecacd4542c1b6773e67316a61"
+    },
+    "src/example.py": {
+     "mode": 436,
+     "sha256": "f40984649caa6bf7bc818863f0e210b68e3b00f16dfc99997f1bd226c34b9c34"
+    },
+    "tests/check.py": {
+     "mode": 436,
+     "sha256": "595d4680cb28c0e173cec25b93a3ba1b75fe42070a9fef0445dca21560ef1fb7"
+    },
+    "tests/extra_check.py": {
+     "mode": 436,
+     "sha256": "d96519fbb06001b33d04ebc952c28c92193e17590230c807fef938a21d00f072"
+    },
+    "tools/smoke_check.py": {
+     "mode": 436,
+     "sha256": "f39e1a4e01f0b36032a55a4b246f74aac4fcd54886f8754e13f54cf1e0f67344"
+    }
+   }
+  }
+ ]
+}

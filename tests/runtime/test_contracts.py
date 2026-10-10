@@ -94,7 +94,33 @@ def _revision_guard_operations():
             "d1", "disposition", "resolved", "docs/decision.md", expect_revision=7
         ),
         ops.RecordPolicy((), expect_revision=7),
+        *(
+            (cls(commit="abc1234", reason="rebased", expect_revision=7),)
+            if (cls := _baseline_set_type()) is not None
+            else ()
+        ),
     )
+
+
+def _baseline_set_type():
+    """The `feature baseline set` operation type, once it is registered."""
+    from heddle.contracts import operations as ops
+
+    found = next(
+        (
+            cls
+            for cls in get_args(ops.Operation.__value__)
+            if ops.operation_type_name(cls) == "feature baseline set"
+        ),
+        None,
+    )
+    if found is not None:
+        names = {field.name for field in fields(found)}
+        assert {"commit", "reason", "expect_revision", "dry_run"} <= names, (
+            "FAIL AC-8: the baseline re-point takes commit, reason, "
+            f"expect_revision and dry_run; it has {sorted(names)}"
+        )
+    return found
 
 
 def test_every_typed_revision_guard_renders_exactly_once():
@@ -174,7 +200,7 @@ EXPECTED_SURFACE = [
         "review reaffirm",
         True,
         True,
-        [0, 1, 2, 3, 5],
+        [0, 1, 2, 3, 4, 5],
         [],
         {"--json", "--role", "--scope", "--dry-run", "--feature", "--expect-revision"},
     ),
@@ -266,6 +292,21 @@ EXPECTED_SURFACE = [
         [0, 1, 2, 3, 5],
         [],
         {"--expect-revision", "--from-file", "--feature", "--json"},
+    ),
+    (
+        "feature baseline set",
+        True,
+        True,
+        [0, 1, 2, 3, 5],
+        [],
+        {
+            "--commit",
+            "--reason",
+            "--expect-revision",
+            "--dry-run",
+            "--feature",
+            "--json",
+        },
     ),
     ("kickoff", False, False, [0, 1, 2, 3], [], {"--feature", "--json"}),
     (
@@ -372,7 +413,7 @@ EXPECTED_SURFACE = [
         True,
         [0, 1, 2, 3, 5],
         [],
-        {"--dry-run", "--json", "--scope", "--feature", "--expect-revision"},
+        {"--dry-run", "--json", "--scope", "--stale", "--feature", "--expect-revision"},
     ),
     (
         "session log",
@@ -446,6 +487,14 @@ MANIFEST_ENTRY_KEYS = {
 }
 
 
+# Contracts this feature changes, with the acceptance criterion pinning each.
+_CHANGED_CONTRACT_AC = {
+    "verify": "AC-16",
+    "review reaffirm": "AC-16",
+    "feature baseline set": "AC-16",
+}
+
+
 @pytest.fixture(scope="module")
 def manifest() -> dict:
     return build_manifest()
@@ -477,10 +526,16 @@ class TestAC2ManifestShape:
 
     def test_current_leaf_commands_in_table_order(self, manifest):
         # command alias: one entry per leaf verb; serialized in COMMAND_SURFACE order.
-        assert [entry["name"] for entry in manifest["commands"]] == EXPECTED_NAMES
+        assert [entry["name"] for entry in manifest["commands"]] == EXPECTED_NAMES, (
+            "FAIL AC-16: the manifest lists the command surface out of table order "
+            "or without `feature baseline set`"
+        )
 
     def test_command_surface_matches_manifest_order(self, manifest):
-        assert [contract.name for contract in COMMAND_SURFACE] == EXPECTED_NAMES
+        assert [contract.name for contract in COMMAND_SURFACE] == EXPECTED_NAMES, (
+            "FAIL AC-16: COMMAND_SURFACE is out of table order or lacks "
+            "`feature baseline set`"
+        )
 
     def test_every_entry_has_exactly_the_eight_manifest_fields(self, manifest):
         for entry in manifest["commands"]:
@@ -514,14 +569,20 @@ class TestAC2PerCommandPayloadLock:
     def test_pinned_values(
         self, entries_by_name, name, mutating, dry_run, exit_codes, args, flags
     ):
-        entry = entries_by_name[name]
+        ac = _CHANGED_CONTRACT_AC.get(name, "AC-2")
+        entry = entries_by_name.get(name)
+        assert entry is not None, f"FAIL {ac}: `heddle {name}` is not in the manifest"
         assert entry["mutating"] is mutating
         assert entry["dry_run"] is dry_run
         # Direct order + exact-type lock (review): sorted() would
         # accept wire reordering, and bool compares equal to int.
-        assert entry["exit_codes"] == exit_codes
+        assert entry["exit_codes"] == exit_codes, (
+            f"FAIL {ac}: `heddle {name}` exit codes {entry['exit_codes']}"
+        )
         assert all(type(code) is int for code in entry["exit_codes"])
-        assert {flag["name"] for flag in entry["flags"]} == flags
+        assert {flag["name"] for flag in entry["flags"]} == flags, (
+            f"FAIL {ac}: `heddle {name}` flags differ from {sorted(flags)}"
+        )
         assert [(arg["name"], arg["required"]) for arg in entry["args"]] == args
         # Output schema identifiers are pinned for commands that return a public
         # payload; commands without a payload keep a null schema.
@@ -580,7 +641,11 @@ class TestAC2PerCommandPayloadLock:
     ):
         # AC-2 locks structure (non-empty); prose fidelity is review-verified,
         # not mechanical (manifest lockstep).
-        entry = entries_by_name[name]
+        entry = entries_by_name.get(name)
+        assert entry is not None, (
+            f"FAIL {_CHANGED_CONTRACT_AC.get(name, 'AC-2')}: `heddle {name}` is "
+            "not in the manifest"
+        )
         assert isinstance(entry["summary"], str) and entry["summary"].strip()
         for arg in entry["args"]:
             assert arg["summary"].strip()
@@ -843,3 +908,102 @@ class TestSchemaValidatorConformance:
         item["context"] = "Retired unpersisted field"
         code, result = apply_item(item)
         assert code == 2 and not result["ok"], result
+
+
+# Contract surface for change-impact rebinding (AC-16, with AC-8, AC-10 and
+# AC-12). Activation seams: `ops.Verify.stale`, optional `ReaffirmReview.role`
+# and `.scope`, and the `feature baseline set` operation (`_baseline_set_type`).
+
+
+def test_ac16_verify_stale_renders_without_a_scope():
+    from heddle.contracts import operations as ops
+    from tests.change_impact_verify_helpers import stale_operation
+
+    argv = shlex.split(ops.operation_command(stale_operation(expect_revision=7)))
+    assert argv[:3] == ["heddle", "verify", "--stale"], argv
+    assert "--scope" not in argv and argv.count("--expect-revision") == 1, argv
+    single = shlex.split(ops.operation_command(ops.Verify("m1", feature="f")))
+    assert "--stale" not in single, (
+        f"FAIL AC-12: a single-scope verify renders --stale: {single}"
+    )
+
+
+def test_ac16_verify_contract_describes_stale_as_exclusive_with_scope():
+    contract = next(c for c in COMMAND_SURFACE if c.name == "verify")
+    flags = {flag.name: flag.summary for flag in contract.flags}
+    assert "--stale" in flags, (
+        f"FAIL AC-16: the verify contract has no --stale flag: {sorted(flags)}"
+    )
+    assert "--scope" in flags["--stale"], (
+        f"FAIL AC-16: --stale must say it excludes --scope: {flags['--stale']!r}"
+    )
+    assert contract.exit_codes == (0, 1, 2, 3, 5)
+
+
+def test_ac16_reaffirm_role_and_scope_are_optional_together():
+    from heddle.contracts import operations as ops
+
+    defaults = {
+        field.name: field.default
+        for field in fields(ops.ReaffirmReview)
+        if field.name in {"role", "scope"}
+    }
+    assert defaults == {"role": None, "scope": None}, (
+        f"FAIL AC-10: reaffirm role and scope must be optional, got {defaults}"
+    )
+    argv = shlex.split(ops.operation_command(ops.ReaffirmReview(feature="f")))
+    assert argv[:3] == ["heddle", "review", "reaffirm"], argv
+    assert "--role" not in argv and "--scope" not in argv, argv
+    contract = next(c for c in COMMAND_SURFACE if c.name == "review reaffirm")
+    assert 4 in contract.exit_codes, (
+        f"FAIL AC-16: reaffirm exit codes gain 4: {contract.exit_codes}"
+    )
+
+
+@pytest.mark.parametrize("given", ["--role", "--scope"])
+def test_ac16_reaffirm_refuses_one_of_role_and_scope_alone(
+    run_cli, tmp_path, monkeypatch, given
+):
+    """Survivor pin: role and scope name one assignment only together."""
+    monkeypatch.chdir(tmp_path)
+    code, out, _err = run_cli(["review", "reaffirm", given, "x", "--json"])
+    envelope = json.loads(out)
+    assert code == 2 and envelope["error"]["code"] == "usage", envelope
+    message = envelope["error"]["message"]
+    assert "--role" in message and "--scope" in message, message
+
+
+def test_ac10_reaffirm_without_role_and_scope_is_not_a_usage_error(
+    run_cli, tmp_path, monkeypatch
+):
+    monkeypatch.chdir(tmp_path)
+    code, out, _err = run_cli(["review", "reaffirm", "--json"])
+    envelope = json.loads(out)
+    assert envelope["error"]["code"] != "usage", (
+        "FAIL AC-10: `heddle review reaffirm` without --role and --scope must "
+        f"reach the all-assignment path, got {envelope['error']}"
+    )
+    assert code != 2, envelope
+
+
+def test_ac16_feature_baseline_set_is_a_registered_guarded_command():
+    from heddle.contracts import operations as ops
+
+    contract = next(
+        (c for c in COMMAND_SURFACE if c.name == "feature baseline set"), None
+    )
+    assert contract is not None, (
+        "FAIL AC-16: `heddle feature baseline set` has no command contract"
+    )
+    assert contract.mutating and contract.dry_run and contract.cli_binding, contract
+    cls = _baseline_set_type()
+    assert cls is not None, "FAIL AC-8: no `feature baseline set` operation type"
+    argv = shlex.split(
+        ops.operation_command(
+            cls(commit="abc1234", reason="rebased onto dev", expect_revision=7)
+        )
+    )
+    assert argv[:4] == ["heddle", "feature", "baseline", "set"], argv
+    assert argv[argv.index("--commit") + 1] == "abc1234", argv
+    assert argv[argv.index("--reason") + 1] == "rebased onto dev", argv
+    assert argv.count("--expect-revision") == 1, argv

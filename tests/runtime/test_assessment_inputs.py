@@ -190,10 +190,16 @@ def test_ac6_assessment_keeps_causal_identity_on_each_evidence_row():
 
     explanation_type = getattr(readiness, "EvidenceExplanation", None)
     assert explanation_type is not None
-    assert {field.name for field in fields(explanation_type)} == {
+    names = {field.name for field in fields(explanation_type)}
+    assert "changes" in names, (
+        "FAIL AC-6: EvidenceExplanation carries no typed `changes` beside "
+        "changed_dependencies"
+    )
+    assert names == {
         "subject",
         "cause",
         "changed_dependencies",
+        "changes",
         "failed_reference",
         "remedy",
         "detail_limit",

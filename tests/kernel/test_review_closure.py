@@ -385,3 +385,194 @@ def test_ac3_malformed_pure_fact_relationships_refuse(bad):
         resolutions = (resolution(("unknown-run", "SP-I1")),)
     with pytest.raises(ValueError, match="slot|round|origin|reference"):
         assess(rounds=rounds, obligations=(obligation(),), resolutions=resolutions)
+
+
+EQUIVALENT = "c" * 64
+
+
+def equivalence_facts(*, resolutions, equivalent_bases):
+    """Closure facts carrying the runtime's per-basis currency as plain data."""
+    from dataclasses import fields
+
+    c = api()
+    assert "equivalent_bases" in {row.name for row in fields(c.ReviewClosureFacts)}, (
+        "FAIL AC-3: closure facts cannot carry runtime-assessed equivalent bases"
+    )
+    return c.ReviewClosureFacts(
+        policy=entry("spec-review"),
+        rounds=(round_fact(),),
+        obligations=(obligation(), obligation(SECONDARY)),
+        resolutions=resolutions,
+        decisions=(),
+        current_basis=BASIS,
+        equivalent_bases=frozenset(equivalent_bases),
+    )
+
+
+def test_ac3_runtime_assessed_equivalent_basis_closes_like_the_current_basis():
+    closure = api("heddle.kernel.review_closure").assess_review_closure
+    mixed = (resolution(evidence_basis=EQUIVALENT), resolution(SECONDARY))
+    closed = closure(
+        equivalence_facts(resolutions=mixed, equivalent_bases={EQUIVALENT})
+    )
+    assert closed.closed and closed.open_refs == ()
+    # The kernel never infers currency from basis strings the runtime did not assess.
+    unassessed = closure(equivalence_facts(resolutions=mixed, equivalent_bases=()))
+    assert unassessed.open_refs == (REF,)
+    other = closure(
+        equivalence_facts(
+            resolutions=(resolution(evidence_basis=OLD), resolution(SECONDARY)),
+            equivalent_bases={EQUIVALENT},
+        )
+    )
+    assert other.open_refs == (REF,)
+    # Equivalence only replaces the basis comparison; an open row stays open.
+    retained = closure(
+        equivalence_facts(
+            resolutions=(
+                resolution(status="retained", evidence_basis=EQUIVALENT),
+                resolution(SECONDARY),
+            ),
+            equivalent_bases={EQUIVALENT},
+        )
+    )
+    assert retained.open_refs == (REF,)
+
+
+VERIFIER = "verification-primary"
+
+
+def material_progress_state(*, status="addressed", evidence_basis):
+    """A parsed state whose verification round re-checks one original concern."""
+    from pathlib import Path
+
+    from heddle.contracts.review_assignments import (
+        ArtifactRef,
+        AssignmentDisposition,
+        AssignmentRound,
+        AssignmentSource,
+        AttemptInvocation,
+        CanonicalReview,
+        FindingFact,
+        ReviewAssignment,
+        ReviewAssignments,
+        ReviewAttempt,
+        ReviewerSlot,
+    )
+    from heddle.kernel.state import GateFact, GateRun, parse_state_document
+    from tests.operational_model_helpers import STAMP, document
+
+    state = parse_state_document(document(), source=Path("state.yaml"))
+    slots = (ReviewerSlot("primary", entry("spec-review").primary),)
+    assignment = ReviewAssignment(
+        "spec-review-feature",
+        "spec-review",
+        "feature",
+        1,
+        (
+            AssignmentRound(1, 1, "initial", "Review.", "contract-A", (), slots),
+            AssignmentRound(
+                2, 1, "verification", "Re-check.", "contract-A", (REF,), slots
+            ),
+        ),
+    )
+    findings = {REF[0]: (FindingFact(REF[1], "important", "implement"),)}
+    attempts = tuple(
+        ReviewAttempt(
+            run_id,
+            assignment.id,
+            number,
+            "primary",
+            AttemptInvocation(
+                "codex", "m", "high", "read-only", BASIS, BASIS, "1", OLD
+            ),
+            CanonicalReview(ArtifactRef(f"reviews/{run_id}.json", OLD, "canonical")),
+            STAMP,
+            source=AssignmentSource(
+                assignment.id,
+                run_id,
+                number,
+                "primary",
+                findings.get(run_id, ()),
+                len(findings.get(run_id, ())),
+                coverage_required=False,
+            ),
+        )
+        for number, run_id in ((1, REF[0]), (2, VERIFIER))
+    )
+    runs = tuple(
+        GateRun(
+            run_id,
+            (),
+            STAMP,
+            "codex",
+            f"reviews/{run_id}.json",
+            BASIS,
+            {},
+            {},
+            execution_config={"cli": "codex", "model": "m", "reasoning_effort": "high"},
+        )
+        for run_id in (REF[0], VERIFIER)
+    )
+    row = AssignmentDisposition(
+        *REF,
+        status,
+        "inspection",
+        (("tests/proof.py", BASIS),),
+        evidence_basis,
+        "The bound proof corrects the original counterexample",
+        False,
+        None,
+        None,
+        None,
+        STAMP,
+    )
+    ledger = ReviewAssignments(
+        assignments=(assignment,), attempts=attempts, dispositions=(row,)
+    )
+    return (
+        replace(
+            state,
+            gates=(GateFact("spec-review", "feature", runs),),
+            review_assignments=ledger,
+        ),
+        assignment,
+    )
+
+
+def test_ac3_closure_facts_count_equivalent_basis_rows_as_resolved():
+    """Material progress counts a row at an equivalent basis like the current one."""
+    import inspect
+
+    closure_facts = api("heddle.kernel.review_assignments").closure_facts
+
+    def progress(state_and_assignment, **kw):
+        state, assignment = state_and_assignment
+        facts = closure_facts(
+            state, assignment, current_basis=BASIS, policy=entry("spec-review"), **kw
+        )
+        return facts.rounds[-1].material_progress
+
+    assert progress(material_progress_state(evidence_basis=BASIS)) == (REF,)
+    assert progress(material_progress_state(evidence_basis=EQUIVALENT)) == ()
+    assert "equivalent_bases" in inspect.signature(closure_facts).parameters, (
+        "FAIL AC-3: closure_facts cannot take runtime-assessed equivalent bases, so "
+        "material progress compares raw bases only"
+    )
+    equivalent = frozenset({EQUIVALENT})
+    assert progress(
+        material_progress_state(evidence_basis=EQUIVALENT), equivalent_bases=equivalent
+    ) == (REF,), "FAIL AC-3: a row at an equivalent basis is not counted as resolved"
+    assert (
+        progress(
+            material_progress_state(evidence_basis=OLD), equivalent_bases=equivalent
+        )
+        == ()
+    )
+    assert (
+        progress(
+            material_progress_state(status="retained", evidence_basis=EQUIVALENT),
+            equivalent_bases=equivalent,
+        )
+        == ()
+    )

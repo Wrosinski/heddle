@@ -1,0 +1,341 @@
+{
+ "schema": "heddle-test.recorded-host/v1",
+ "feature": "operational-example",
+ "head": "ee21bb734f376038c896959bc0d6c7149470ed91",
+ "git_status": [
+  " M docs/features/runtime/operational-example.md",
+  " M src/example.py",
+  "?? plans/operational-example/reviews/.gitignore",
+  "?? plans/operational-example/reviews/review-test-scaffolding.codex.3ff61c3db404387a281939d32550eac7548929d32ab3cb5cb239abee2e0f0863.md",
+  "?? plans/operational-example/reviews/review-test-scaffolding.codex.3ff61c3db404387a281939d32550eac7548929d32ab3cb5cb239abee2e0f0863.review.gate-summary.json",
+  "?? plans/operational-example/reviews/review-test-scaffolding.codex.3ff61c3db404387a281939d32550eac7548929d32ab3cb5cb239abee2e0f0863.review.json",
+  "?? plans/operational-example/reviews/review-test-scaffolding.codex.cf43b440a6c6c7ef1ea35c98d9f448034f3d6ea34efd4d8cf9c9f29f9e226b37.log",
+  "?? plans/operational-example/reviews/review-test-scaffolding.codex.gate-summary.json",
+  "?? plans/operational-example/reviews/review-test-scaffolding.codex.log",
+  "?? plans/operational-example/reviews/spec-review.codex.4cb32336d9ec1dacd67d887eb6005413852f1864d4a51793f4355cb4657365ef.md",
+  "?? plans/operational-example/reviews/spec-review.codex.4cb32336d9ec1dacd67d887eb6005413852f1864d4a51793f4355cb4657365ef.review.gate-summary.json",
+  "?? plans/operational-example/reviews/spec-review.codex.4cb32336d9ec1dacd67d887eb6005413852f1864d4a51793f4355cb4657365ef.review.json",
+  "?? plans/operational-example/reviews/spec-review.codex.e8b140a9d90110591295535cbbd07a1a43b87b4e6ab5d4c5517b2367db1a8fde.log",
+  "?? plans/operational-example/reviews/spec-review.codex.gate-summary.json",
+  "?? plans/operational-example/reviews/spec-review.codex.log",
+  "?? plans/operational-example/state.yaml"
+ ],
+ "files": {
+  ".heddle.lock": {
+   "mode": 436,
+   "sha256": "c883f6694c1574ddbcedf018abbe57076435283f18360ecb634e849e1b08975e"
+  },
+  ".heddle.yaml": {
+   "mode": 436,
+   "sha256": "40873f16ab94b75579dbf8dadd9f5378135a4fa699bc32218c650944a9c895e0"
+  },
+  "AGENTS.md": {
+   "mode": 436,
+   "sha256": "114adc7928acab91652fdb06bc565685b29df6471c6c66cc3cb885a5b3a152e8"
+  },
+  "docs/features/runtime/operational-example.md": {
+   "mode": 436,
+   "sha256": "484c0d5f68d85697cb8927ace8f352cb0086607897938402d53f795a0091e01a"
+  },
+  "docs/other-feature-origin.md": {
+   "mode": 436,
+   "sha256": "eaf777f0b04ca37464ac4e44c8633c72c8b6f3353d44a101de9bd6d9c82d4024"
+  },
+  "docs/other-feature.md": {
+   "mode": 436,
+   "sha256": "007679891bebaf8c25c0650ea274a270e6363af4b7b39d176cec703af96ae08c"
+  },
+  "docs/workflow/engineering-principles.md": {
+   "mode": 436,
+   "sha256": "92282013b4c45f246985c475a2766cb9cf5acbe786695c764e0b13de3308ef3f"
+  },
+  "plans/.gate-locks/.gitignore": {
+   "mode": 384,
+   "sha256": "cdbcae15105d6b781e620813c79c7e868740d4e9cc53ce6f5fcbbc12387adf4b"
+  },
+  "plans/.gate-locks/operational-example.review-test-scaffolding.lock": {
+   "mode": 436,
+   "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "plans/.gate-locks/operational-example.spec-review.lock": {
+   "mode": 436,
+   "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "plans/operational-example/plan.md": {
+   "mode": 436,
+   "sha256": "ab83bd91682566cff7b8df3c46394ab99787577ecacd4542c1b6773e67316a61"
+  },
+  "plans/operational-example/reviews/.gitignore": {
+   "mode": 436,
+   "sha256": "c4577707f75f805aeff26ab17bc01334a716000e0380f21265c84dd8db95a0aa"
+  },
+  "plans/operational-example/reviews/review-test-scaffolding.codex.3ff61c3db404387a281939d32550eac7548929d32ab3cb5cb239abee2e0f0863.md": {
+   "mode": 384,
+   "sha256": "20f4ad4da95b0e488ea3403cfe8979628b61b40c5d1417ada5ec822f3e78d9b1"
+  },
+  "plans/operational-example/reviews/review-test-scaffolding.codex.3ff61c3db404387a281939d32550eac7548929d32ab3cb5cb239abee2e0f0863.review.gate-summary.json": {
+   "mode": 384,
+   "sha256": "68ed554dc5b3cc5e1ae80a464453edee2c17136e0434708c97fdbc5bccf7f487"
+  },
+  "plans/operational-example/reviews/review-test-scaffolding.codex.3ff61c3db404387a281939d32550eac7548929d32ab3cb5cb239abee2e0f0863.review.json": {
+   "mode": 384,
+   "sha256": "3ff61c3db404387a281939d32550eac7548929d32ab3cb5cb239abee2e0f0863"
+  },
+  "plans/operational-example/reviews/review-test-scaffolding.codex.cf43b440a6c6c7ef1ea35c98d9f448034f3d6ea34efd4d8cf9c9f29f9e226b37.log": {
+   "mode": 384,
+   "sha256": "cf43b440a6c6c7ef1ea35c98d9f448034f3d6ea34efd4d8cf9c9f29f9e226b37"
+  },
+  "plans/operational-example/reviews/review-test-scaffolding.codex.gate-summary.json": {
+   "mode": 384,
+   "sha256": "68ed554dc5b3cc5e1ae80a464453edee2c17136e0434708c97fdbc5bccf7f487"
+  },
+  "plans/operational-example/reviews/review-test-scaffolding.codex.log": {
+   "mode": 436,
+   "sha256": "cf43b440a6c6c7ef1ea35c98d9f448034f3d6ea34efd4d8cf9c9f29f9e226b37"
+  },
+  "plans/operational-example/reviews/spec-review.codex.4cb32336d9ec1dacd67d887eb6005413852f1864d4a51793f4355cb4657365ef.md": {
+   "mode": 384,
+   "sha256": "989aefbdab1d2a9cd1ad427c708db7a5cb2e5592eb36d494d045ac33f1c8f1e2"
+  },
+  "plans/operational-example/reviews/spec-review.codex.4cb32336d9ec1dacd67d887eb6005413852f1864d4a51793f4355cb4657365ef.review.gate-summary.json": {
+   "mode": 384,
+   "sha256": "eda47ffc2e09e58a1f2f1d24e61396d352f77e2e9f74d93aa19b328dbf02569e"
+  },
+  "plans/operational-example/reviews/spec-review.codex.4cb32336d9ec1dacd67d887eb6005413852f1864d4a51793f4355cb4657365ef.review.json": {
+   "mode": 384,
+   "sha256": "4cb32336d9ec1dacd67d887eb6005413852f1864d4a51793f4355cb4657365ef"
+  },
+  "plans/operational-example/reviews/spec-review.codex.e8b140a9d90110591295535cbbd07a1a43b87b4e6ab5d4c5517b2367db1a8fde.log": {
+   "mode": 384,
+   "sha256": "e8b140a9d90110591295535cbbd07a1a43b87b4e6ab5d4c5517b2367db1a8fde"
+  },
+  "plans/operational-example/reviews/spec-review.codex.gate-summary.json": {
+   "mode": 384,
+   "sha256": "eda47ffc2e09e58a1f2f1d24e61396d352f77e2e9f74d93aa19b328dbf02569e"
+  },
+  "plans/operational-example/reviews/spec-review.codex.log": {
+   "mode": 436,
+   "sha256": "e8b140a9d90110591295535cbbd07a1a43b87b4e6ab5d4c5517b2367db1a8fde"
+  },
+  "plans/operational-example/state.yaml": {
+   "mode": 384,
+   "sha256": "7b2de87eb4808e2123725481094ba9cf96dc0e4f0bb4d18376e80cdb2d51ed70"
+  },
+  "src/example.py": {
+   "mode": 436,
+   "sha256": "76b26c40fd1de8995c9a5457c2bd4cf363c42d1f88a66f4d583bc10295f2062a"
+  },
+  "tests/check.py": {
+   "mode": 436,
+   "sha256": "595d4680cb28c0e173cec25b93a3ba1b75fe42070a9fef0445dca21560ef1fb7"
+  },
+  "tests/extra_check.py": {
+   "mode": 436,
+   "sha256": "d96519fbb06001b33d04ebc952c28c92193e17590230c807fef938a21d00f072"
+  },
+  "tools/smoke_check.py": {
+   "mode": 436,
+   "sha256": "f39e1a4e01f0b36032a55a4b246f74aac4fcd54886f8754e13f54cf1e0f67344"
+  }
+ },
+ "recorded": {
+  "status": {
+   "stage": "scaffold",
+   "blocking_conditions": [
+    "gate-not-converged"
+   ],
+   "gate_convergence_phase": "rerun-recommended",
+   "review_closure": [
+    {
+     "assignment_id": "operational-example:spec-review:feature:p1",
+     "role": "spec-review",
+     "scope": "feature",
+     "closed": true,
+     "open_refs": [],
+     "rounds_used": 1,
+     "calls_completed": 1,
+     "missing_slots": [],
+     "next_step": "closed",
+     "stop_reason": null,
+     "decision_ids": [],
+     "evidence_state": "accepted",
+     "evidence_basis": "62dc1e59b8dbe7c8c271b1e4503bca77e6454abd060cb3f1f3e3c7473b98ec91",
+     "acceptance": {
+      "boundary": "spec-review",
+      "scope": null,
+      "source_identity": "62dc1e59b8dbe7c8c271b1e4503bca77e6454abd060cb3f1f3e3c7473b98ec91",
+      "revision": 5
+     },
+     "explanations": []
+    },
+    {
+     "assignment_id": "operational-example:plan-review:feature:p1",
+     "role": "plan-review",
+     "scope": "feature",
+     "closed": true,
+     "open_refs": [],
+     "rounds_used": 0,
+     "calls_completed": 0,
+     "missing_slots": [],
+     "next_step": "closed",
+     "stop_reason": null,
+     "decision_ids": [],
+     "evidence_state": "not-applicable",
+     "evidence_basis": null,
+     "acceptance": null,
+     "explanations": []
+    },
+    {
+     "assignment_id": "operational-example:review-test-scaffolding:feature:p1",
+     "role": "review-test-scaffolding",
+     "scope": "feature",
+     "closed": false,
+     "open_refs": [
+      [
+       "ba8f33e0-bdce-4cbc-9a07-7c88528ccb0e",
+       "SC-I2"
+      ],
+      [
+       "ba8f33e0-bdce-4cbc-9a07-7c88528ccb0e",
+       "@coverage"
+      ]
+     ],
+     "rounds_used": 1,
+     "calls_completed": 1,
+     "missing_slots": [],
+     "next_step": "disposition",
+     "stop_reason": null,
+     "decision_ids": [],
+     "evidence_state": "current",
+     "evidence_basis": "0d51e25b9578ac8c3264ffd432af550ef138f144e312686a1c1d85282e893994",
+     "acceptance": null,
+     "explanations": []
+    },
+    {
+     "assignment_id": "operational-example:milestone-review:m1:p1",
+     "role": "milestone-review",
+     "scope": "m1",
+     "closed": false,
+     "open_refs": [],
+     "rounds_used": 0,
+     "calls_completed": 0,
+     "missing_slots": [],
+     "next_step": "run",
+     "stop_reason": null,
+     "decision_ids": [],
+     "evidence_state": "scope-not-defined",
+     "evidence_basis": null,
+     "acceptance": null,
+     "explanations": []
+    },
+    {
+     "assignment_id": "operational-example:peer-review-sequential:feature:p1",
+     "role": "peer-review-sequential",
+     "scope": "feature",
+     "closed": false,
+     "open_refs": [],
+     "rounds_used": 0,
+     "calls_completed": 0,
+     "missing_slots": [],
+     "next_step": "run",
+     "stop_reason": null,
+     "decision_ids": [],
+     "evidence_state": "scope-not-defined",
+     "evidence_basis": null,
+     "acceptance": null,
+     "explanations": []
+    },
+    {
+     "assignment_id": "operational-example:behavior-review:feature:p1",
+     "role": "behavior-review",
+     "scope": "feature",
+     "closed": true,
+     "open_refs": [],
+     "rounds_used": 0,
+     "calls_completed": 0,
+     "missing_slots": [],
+     "next_step": "closed",
+     "stop_reason": null,
+     "decision_ids": [],
+     "evidence_state": "scope-not-defined",
+     "evidence_basis": null,
+     "acceptance": null,
+     "explanations": []
+    },
+    {
+     "assignment_id": "operational-example:complexity-review:feature:p1",
+     "role": "complexity-review",
+     "scope": "feature",
+     "closed": true,
+     "open_refs": [],
+     "rounds_used": 0,
+     "calls_completed": 0,
+     "missing_slots": [],
+     "next_step": "closed",
+     "stop_reason": null,
+     "decision_ids": [],
+     "evidence_state": "scope-not-defined",
+     "evidence_basis": null,
+     "acceptance": null,
+     "explanations": []
+    },
+    {
+     "assignment_id": "operational-example:robustness-analysis:feature:p1",
+     "role": "robustness-analysis",
+     "scope": "feature",
+     "closed": false,
+     "open_refs": [],
+     "rounds_used": 0,
+     "calls_completed": 0,
+     "missing_slots": [],
+     "next_step": "run",
+     "stop_reason": null,
+     "decision_ids": [],
+     "evidence_state": "scope-not-defined",
+     "evidence_basis": null,
+     "acceptance": null,
+     "explanations": []
+    }
+   ],
+   "review_status": [
+    {
+     "gate": "spec-review",
+     "scope": "feature",
+     "run_id": "b0dbcee6-1f21-4064-8be3-bf28f35ae7d1",
+     "execution": "completed",
+     "disposition": "settled",
+     "applicability": "accepted",
+     "evidence_state": "accepted",
+     "evidence_basis": "62dc1e59b8dbe7c8c271b1e4503bca77e6454abd060cb3f1f3e3c7473b98ec91"
+    },
+    {
+     "gate": "review-test-scaffolding",
+     "scope": "feature",
+     "run_id": "ba8f33e0-bdce-4cbc-9a07-7c88528ccb0e",
+     "execution": "completed",
+     "disposition": "open",
+     "applicability": "unavailable",
+     "evidence_state": "current",
+     "evidence_basis": "0d51e25b9578ac8c3264ffd432af550ef138f144e312686a1c1d85282e893994"
+    }
+   ],
+   "verification_status": [],
+   "next_actions": [
+    "heddle review disposition --input-json - --expect-revision 8 --feature operational-example"
+   ]
+  },
+  "assignment_bases": {
+   "operational-example:spec-review:feature:p1": "62dc1e59b8dbe7c8c271b1e4503bca77e6454abd060cb3f1f3e3c7473b98ec91",
+   "operational-example:plan-review:feature:p1": null,
+   "operational-example:review-test-scaffolding:feature:p1": "0d51e25b9578ac8c3264ffd432af550ef138f144e312686a1c1d85282e893994",
+   "operational-example:milestone-review:m1:p1": null,
+   "operational-example:peer-review-sequential:feature:p1": null,
+   "operational-example:behavior-review:feature:p1": null,
+   "operational-example:complexity-review:feature:p1": null,
+   "operational-example:robustness-analysis:feature:p1": null
+  },
+  "validation_codes": [
+   "explicit-record-dependency"
+  ]
+ }
+}

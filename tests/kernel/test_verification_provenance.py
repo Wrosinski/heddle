@@ -41,7 +41,10 @@ def test_ac01_normalization_and_raw_manifest_observation(tmp_path: Path) -> None
 
     definition = SourceDefinition("milestone-owns", paths, paths)
     first = observe_source(tmp_path, definition)
-    assert first.schema == "heddle.source-evidence/v1"
+    # Writers always emit source evidence v2; v1 artifacts only decode.
+    assert first.schema == "heddle.source-evidence/v2", (
+        f"FAIL AC-15: new source evidence is written as v2, got {first.schema}"
+    )
     assert first.definition.paths == paths and len(first.source_sha256) == 64
 
     other = tmp_path / "other"
@@ -424,3 +427,72 @@ def test_ac05_freshness_matrix_uses_latest_fact_and_one_precedence() -> None:
     assert status(fact(), observed=different_content) == "content-stale"
     assert status(fact()) == "fresh"
     assert status(fact(exit_code=1)) == "failed"
+
+
+def _python_evidence(content: bytes):
+    from heddle.kernel.source_manifest import (
+        ObservedPath,
+        SourceDefinition,
+        build_source_evidence,
+    )
+
+    definition = SourceDefinition("milestone-owns", ("src/a.py",), ("src/a.py",))
+    return build_source_evidence(
+        definition, (ObservedPath("src/a.py", "file", False, content),)
+    )
+
+
+# A source and its pinned ruff format: requoted strings and a space after the
+# comma. The syntax tree and comments are unchanged.
+_SOURCE = b"values = ['a','b']\n"
+_FORMATTED = b'values = ["a", "b"]\n'
+
+
+def _fact(before, after):
+    from heddle.kernel.source_manifest import evidence_reference
+    from heddle.kernel.state import VerificationEvidence, VerificationFact
+
+    return VerificationFact(
+        scope="m1",
+        command="pytest -q",
+        exit_code=0,
+        at="2026-10-10T00:00Z",
+        log="verification/m1.log",
+        evidence=VerificationEvidence(
+            schema="heddle.verification-evidence/v1",
+            before=evidence_reference(before),
+            after=evidence_reference(after),
+        ),
+    )
+
+
+def test_ac5_review_equivalent_change_after_a_run_is_content_stale() -> None:
+    """Survivor pin: freshness compares raw identity, never review equivalence."""
+    from heddle.kernel.verification import assess_verification_fact
+
+    recorded, current = _python_evidence(_SOURCE), _python_evidence(_FORMATTED)
+    status = assess_verification_fact(
+        _fact(recorded, recorded),
+        scope="m1",
+        command="pytest -q",
+        before=recorded,
+        after=recorded,
+        current=current,
+    )
+    assert status.status == "content-stale" and not status.authorizes
+
+
+def test_ac5_review_equivalent_change_during_a_run_is_unstable() -> None:
+    """Survivor pin: stability compares raw identity, never review equivalence."""
+    from heddle.kernel.verification import assess_verification_fact
+
+    before, after = _python_evidence(_SOURCE), _python_evidence(_FORMATTED)
+    status = assess_verification_fact(
+        _fact(before, after),
+        scope="m1",
+        command="pytest -q",
+        before=before,
+        after=after,
+        current=after,
+    )
+    assert status.status == "unstable" and not status.authorizes

@@ -83,3 +83,57 @@ def test_ac7_completion_briefing_advertises_acceptance_and_retention_barrier():
 def test_local_history_completion_briefing_describes_optional_record_commits():
     """Feature-specific binding for the local-retention contract."""
     test_ac7_completion_briefing_advertises_acceptance_and_retention_barrier()
+
+
+def test_ac9_completion_retains_every_manifest_a_disposition_names(
+    run_cli, tmp_path, monkeypatch
+):
+    """AC-9 red: completion retains each named basis manifest and requires it."""
+    from tests.change_impact_explanation_helpers import (
+        basis_manifest,
+        disposition_rows,
+    )
+    from tests.tiering_completion_helpers import final_host
+    from tests.tiering_helpers import entry
+    from tests.tiering_review_helpers import (
+        dispose,
+        disposition,
+        gate_command,
+        provider_transport,
+        review_content,
+        runs,
+    )
+
+    host = final_host(
+        tmp_path,
+        monkeypatch,
+        overrides={"behavior-review": entry("behavior-review")},
+    )
+    calls = provider_transport(monkeypatch, review_content("behavior-review"))
+    code, result = gate_command(run_cli, "run-gate", "behavior-review")
+    assert code in (0, 4) and result["ok"], result
+    [origin] = [row["run_id"] for row in runs(host.state)]
+    assert dispose(host.state, [disposition(origin, "@coverage", status="settled")]).ok
+    [row] = disposition_rows(host.state)
+    reference = basis_manifest(host.state, row)
+
+    preview = host.complete(dry_run=True)
+    assert preview.ok, preview.to_envelope()
+    retained = {
+        item["path"]: item for item in preview.data["retained_evidence"]["artifacts"]
+    }
+    assert reference["artifact"] in retained, (
+        "FAIL AC-9: completion does not retain the basis manifest a disposition names"
+    )
+    assert retained[reference["artifact"]]["sha256"] == reference["artifact_sha256"]
+
+    (host.state.parent / reference["artifact"]).unlink()
+    refused = host.complete()
+    assert not refused.ok, (
+        "FAIL AC-9: completion accepted without a manifest a disposition names"
+    )
+    assert reference["artifact"] in json.dumps(refused.to_envelope()), (
+        f"FAIL AC-9: the refusal does not name the missing manifest: "
+        f"{refused.to_envelope()['error']}"
+    )
+    assert len(calls) == 1

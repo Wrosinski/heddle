@@ -17,6 +17,8 @@ from __future__ import annotations
 import json
 from typing import Any
 
+import pytest
+
 import heddle.driver.loop as loop_mod
 from tests.driver.constants import AUTO_TIER2_SLUG as SLUG
 
@@ -270,4 +272,144 @@ def test_verify_attempt_limit_is_a_small_bound():
     assert loop_mod.VERIFY_ATTEMPT_LIMIT == 3, (
         "the cap exists to stop a ~2-facts/second runaway; keep it small "
         "and change it deliberately (M4A Decision Log)"
+    )
+
+
+def _arm_stale_implement_exit(auto_tier2_workspace):
+    """Implement exit: both milestones done, milestone review Off."""
+
+    def _mutate(state: dict[str, Any]) -> None:
+        for milestone in state["milestones"]:
+            source = milestone["owns"][0]
+            milestone["status"] = "done"
+            for task in milestone.get("tasks", []):
+                task["status"] = "done"
+            milestone["verification"] = {
+                "command": f"grep -q good {source}",
+                "expected": "exit 0",
+            }
+        state["commands"]["acceptance_test"] = "grep -q good src/example/cli.py"
+        for entry in state["feature_policy"]["entries"]:
+            if entry["role"] == "milestone-review":
+                entry.update(mode="off", limit=None, minimum_rounds=0)
+
+    return auto_tier2_workspace(
+        chdir=False,
+        stage="implement",
+        authorized_through="implement",
+        mutate=_mutate,
+    )
+
+
+def _write_once_during(monkeypatch, marker: str, write) -> None:
+    """Land ``write`` once, while the verification command naming ``marker`` runs."""
+    from heddle.runtime import write_path
+
+    original = write_path.run_verification_command
+    fired: list[str] = []
+
+    def wrapped(root, command, log_path):
+        if marker in command and not fired:
+            fired.append(command)
+            write()
+        return original(root, command, log_path)
+
+    monkeypatch.setattr(write_path, "run_verification_command", wrapped)
+
+
+@pytest.mark.parametrize(
+    ("case", "edits", "capped", "failing"),
+    [
+        # Every selected run records a failing fact: each row counts once.
+        (
+            "failing-rows",
+            {"demo.py": "bad", "cli.py": "bad"},
+            "m1",
+            {"m1": loop_mod.VERIFY_ATTEMPT_LIMIT, "m2": 1, "acceptance": 1},
+        ),
+        # The first batch records m1 fresh, then stops at a conflict in m2;
+        # m2's refused write and the unrun acceptance never count.
+        (
+            "stop",
+            {"demo.py": "good, reworded", "cli.py": "bad"},
+            "m2",
+            {"m1": 0, "m2": loop_mod.VERIFY_ATTEMPT_LIMIT, "acceptance": 1},
+        ),
+    ],
+    ids=["failing-rows", "stop"],
+)
+def test_ac12_drive_counts_each_recorded_verify_stale_row_toward_its_cap(
+    run_json,
+    driver_corpus,
+    monkeypatch,
+    auto_tier2_workspace,
+    case,
+    edits,
+    capped,
+    failing,
+):
+    from heddle.contracts import operations as ops
+
+    host = _arm_stale_implement_exit(auto_tier2_workspace)
+    _no_sessions(monkeypatch)
+    monkeypatch.chdir(host)
+    sources = {name: host / "src/example" / name for name in ("demo.py", "cli.py")}
+    for source in sources.values():
+        source.parent.mkdir(parents=True, exist_ok=True)
+        source.write_text("VALUE = 'good'\n", encoding="utf-8")
+    for scope in ("m1", "m2", "acceptance"):
+        code, envelope, _out, _err = run_json(
+            ["verify", "--scope", scope, "--feature", SLUG, "--json"]
+        )
+        assert code == 0, envelope
+    # Every required scope is now content-stale.
+    for name, value in edits.items():
+        sources[name].write_text(f"VALUE = '{value}'\n", encoding="utf-8")
+
+    executed: list[object] = []
+    real_execute = loop_mod.application.execute
+    if case == "stop":
+        _write_once_during(
+            monkeypatch,
+            "src/example/cli.py",
+            lambda: real_execute(ops.CommandsSet("lint_command", "true", feature=SLUG)),
+        )
+
+    def record(operation):
+        executed.append(operation)
+        return real_execute(operation)
+
+    monkeypatch.setattr(loop_mod.application, "execute", record)
+    code, envelope, _out, _err = run_json(["drive", "--feature", SLUG, "--json"])
+
+    batches = [
+        operation
+        for operation in executed
+        if isinstance(operation, ops.Verify) and getattr(operation, "stale", False)
+    ]
+    assert batches, (
+        "FAIL AC-12: the driver never ran the one `verify --stale` readiness "
+        f"routes for several stale scopes; ran {executed!r}"
+    )
+    assert code != 0 and envelope["error"]["code"] == "attempt-cap", (
+        "FAIL AC-12: a failing verify --stale batch is a counted retry, not a "
+        f"halt; got exit {code} with {envelope!r}"
+    )
+    state = driver_corpus.read_yaml(driver_corpus.state(host, SLUG))
+    (pause,) = [
+        decision
+        for decision in state.get("decisions", [])
+        if decision.get("status") == "pending"
+    ]
+    assert f"scope {capped} " in pause["question"], pause["question"]
+    observed = {
+        scope: sum(
+            fact["scope"] == scope and fact["exit_code"] != 0
+            for fact in state["verifications"]
+        )
+        for scope in ("m1", "m2", "acceptance")
+    }
+    assert observed == failing, (
+        "FAIL AC-12: only recorded batch rows count toward a scope's cap; "
+        f"failing facts {observed}, expected {failing}"
     )

@@ -397,3 +397,113 @@ def test_ac05_in_memory_search_is_fresh_and_writes_nothing(
     assert connection_targets and set(connection_targets) == {":memory:"}, (
         f"FAIL AC-5: search opened a persistent SQLite target: {connection_targets}"
     )
+
+
+# Change-impact identity: the Markdown rule takes its verbatim block line ranges
+# from this module's CommonMark parser (activation seam
+# ``knowledge_search.markdown_block_ranges``, through
+# ``tests/change_impact_identity_helpers.py``).
+
+_BLOCK_RANGE_DOCUMENT = (
+    "---\n"  # 0: front matter is the identity rule's own concern
+    "title: Ranges\n"
+    "---\n"
+    "\n"
+    "Intro <span>inline</span> html.\n"  # 4: a paragraph, not an HTML block
+    "\n"
+    "```\n"  # 6: fence, file lines after the front matter
+    "aaa\n"
+    "    ```\n"  # 8: four-space run does not close the fence
+    "still  code\n"
+    "```\n"  # 10
+    "\n"
+    "    indented  code\n"  # 12: code_block
+    "\n"
+    "<!--\n"  # 14: html_block through a blank line
+    "note\n"
+    "\n"
+    "-->\n"  # 17
+    "\n"
+    "<div>\n"  # 19: html_block ending at the blank line
+    "body\n"
+    "</div>\n"
+    "\n"
+    "- <pre>\n"  # 23: html_block inside a list item
+    "  alpha\n"
+    "  </pre>\n"
+    "-   ```\n"  # 26: fence three spaces after a list marker
+    "    y  =  2\n"
+    "    ```\n"
+    "-     list  code\n"  # 29: list-item indented code
+    "\n"
+    "> ```\n"  # 31: fence inside a blockquote
+    "> quoted\n"
+    "> ```\n"
+    "\n"
+    "| a | b |\n"  # 35: a table is not a verbatim block
+    "|---|---|\n"
+    "\n"
+    "~~~\n"  # 38: an unclosed fence runs to the end of the document
+    "unclosed\n"
+)
+
+
+def test_ac2_markdown_block_ranges_follow_commonmark_containers() -> None:
+    """AC-2: fence, code_block and html_block file-line ranges in any container."""
+    from tests.change_impact_identity_helpers import block_ranges_api
+
+    ranges = block_ranges_api()(_BLOCK_RANGE_DOCUMENT)
+    assert sorted(tuple(pair) for pair in ranges) == [
+        (6, 11),
+        (12, 13),
+        (14, 18),
+        (19, 22),
+        (23, 26),
+        (26, 29),
+        (29, 30),
+        (31, 34),
+        (38, 40),
+    ], f"FAIL AC-2: Markdown block ranges do not follow CommonMark: {ranges}"
+
+
+def test_ac2_search_sections_ignore_headings_inside_commonmark_blocks(
+    tmp_path: Path,
+) -> None:
+    """Survivor pin: search keeps the shared parser's HTML and code blocks.
+
+    The identity rule reuses this module's parser; reconfiguring it (for
+    example disabling HTML blocks) would turn block-hidden lines into sections.
+    """
+    host = _make_host(tmp_path)
+    _write(
+        host / "docs" / "features" / "blocks.md",
+        "---\ntype: feature-spec\n---\n# Blocks\n\n## Real section\n\n"
+        "blockmarker before\n<div>\n## Inside div\n</div>\n\n"
+        "    ## Indented code heading\n\n"
+        "- ```\n  ## Fenced in list\n  ```\n\n"
+        "<!--\n\n## Commented heading\n-->\n\n"
+        "## Second real\n\nblockmarker after\n",
+    )
+    module = _search_module()
+
+    assert set(_search(host, "blockmarker")) == {
+        module.SearchHit(
+            kind="feature-spec-section",
+            path="docs/features/blocks.md",
+            anchor="real-section",
+            title="Real section",
+            body=(
+                "\nblockmarker before\n<div>\n## Inside div\n</div>\n\n"
+                "    ## Indented code heading\n\n"
+                "- ```\n  ## Fenced in list\n  ```\n\n"
+                "<!--\n\n## Commented heading\n-->\n\n"
+            ),
+        ),
+        module.SearchHit(
+            kind="feature-spec-section",
+            path="docs/features/blocks.md",
+            anchor="second-real",
+            title="Second real",
+            body="\nblockmarker after\n",
+        ),
+    }

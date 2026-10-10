@@ -1,8 +1,13 @@
-"""Complete command, authoring, and decision action contracts."""
+"""Complete command, authoring, and decision action contracts.
+
+change-impact-rebinding-v1 activation seam: ``action_command`` renders the
+``review-reaffirm`` authoring work (today it refuses that work as unknown).
+"""
 
 from __future__ import annotations
 
 import inspect
+import shlex
 from types import SimpleNamespace
 
 import pytest
@@ -626,3 +631,42 @@ def test_ac11_driver_obeys_command_authoring_and_decision_boundaries(
     row = review_status(path)
     assert [origin, "SP-I1"] in row["open_refs"]
     assert row["stop_reason"] == "round-limit"
+
+
+def _rendered(action) -> str:
+    try:
+        return ops.action_command(action)
+    except ValueError as error:
+        raise AssertionError(
+            f"FAIL AC-11: review-reaffirm authoring work renders no command: {error}"
+        ) from error
+
+
+def test_ac11_review_reaffirm_authoring_work_renders_the_reaffirm_command():
+    """change-impact-rebinding-v1 AC-11 red: the new authoring work renders one
+    guarded reaffirm command in every consumer that renders actions."""
+    # The reaffirm command reads no authored input; the schema field is
+    # carried through the action unchanged and never rendered.
+    action = ops.AuthoringAction("demo", "review-reaffirm", ("run-1#finding-1",), "", 8)
+    command = _rendered(action)
+    argv = shlex.split(command)
+    assert argv[:3] == ["heddle", "review", "reaffirm"], (
+        f"FAIL AC-11: review-reaffirm must render heddle review reaffirm: {command}"
+    )
+    assert argv[argv.index("--feature") + 1] == "demo", command
+    assert argv[argv.index("--expect-revision") + 1] == "8", command
+    assert "--input-json" not in argv, (
+        f"FAIL AC-11: review reaffirm takes no authored input: {command}"
+    )
+    row = HeddleResult.success(
+        {}, next_actions=(NextAction(action, "reaffirm the qualifying rows"),)
+    ).to_envelope()["next_actions"][0]
+    assert row["command"] == command
+    assert row["action"]["work"] == "review-reaffirm"
+    assert ops.action_from_payload(row["action"]) == action
+
+
+def test_ac11_unknown_authoring_work_still_renders_no_command():
+    """Survivor pin: only declared authoring work renders a command."""
+    with pytest.raises(ValueError, match="unknown authoring work"):
+        ops.action_command(ops.AuthoringAction("demo", "review-unknown", (), "", 8))

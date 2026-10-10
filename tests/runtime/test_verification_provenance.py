@@ -2208,3 +2208,133 @@ def test_ac09_canonical_documents_name_five_axes_and_close_order() -> None:
         text = " ".join(path.read_text(encoding="utf-8").casefold().split())
         for anchor in anchors:
             assert anchor in text, f"FAIL W5/AC-9: {path} lacks {anchor!r}"
+
+
+def _ac5_host(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Path, Path]:
+    """One milestone owning two Python files."""
+    from tests.change_impact_verify_helpers import PYTHON_SOURCES
+
+    host, state_path = _v2_host(tmp_path)
+    state = yaml.safe_load(state_path.read_text(encoding="utf-8"))
+    state["milestones"][0]["owns"] = sorted(PYTHON_SOURCES)
+    _write_yaml(state_path, state)
+    for name, content in PYTHON_SOURCES.items():
+        (host / name).write_bytes(content)
+    monkeypatch.chdir(host)
+    return host, state_path
+
+
+def _verify_m1(run_cli) -> tuple[int, dict]:
+    code, out, _err = run_cli(
+        ["verify", "--scope", "m1", "--feature", "sample-feature", "--json"]
+    )
+    return code, json.loads(out)
+
+
+def test_ac5_formatting_only_change_never_makes_a_fact_fresh(
+    run_cli, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Survivor pin: verification freshness stays raw under review equivalence."""
+    from heddle.contracts import operations as ops
+    from heddle.runtime.application import execute
+    from tests.change_impact_verify_helpers import FORMATTED_SRC, status_rows
+
+    host, _state_path = _ac5_host(tmp_path, monkeypatch)
+    code, envelope = _verify_m1(run_cli)
+    assert code == 0, envelope
+    (host / "src.py").write_bytes(FORMATTED_SRC)
+
+    for orient in (False, True):
+        row = status_rows(orient=orient, feature="sample-feature")["m1"]
+        assert row["freshness"] == "content-stale", row
+        assert row["evidence_state"] == "stale" and row["action"], row
+    actions = execute(ops.Orient(feature="sample-feature")).next_actions
+    assert any(
+        isinstance(item.action, ops.CommandAction)
+        and isinstance(item.action.operation, ops.Verify)
+        and item.action.operation.scope == "m1"
+        for item in actions
+    ), [item.command for item in actions]
+
+
+def test_ac5_content_stale_explanation_names_formatting_only_changes(
+    run_cli, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from tests.change_impact_explanation_helpers import typed_changes
+    from tests.change_impact_verify_helpers import FORMATTED_SRC, status_rows
+
+    host, _state_path = _ac5_host(tmp_path, monkeypatch)
+    code, envelope = _verify_m1(run_cli)
+    assert code == 0, envelope
+    (host / "src.py").write_bytes(FORMATTED_SRC)
+
+    for orient in (False, True):
+        row = status_rows(orient=orient, feature="sample-feature")["m1"]
+        assert row["freshness"] == "content-stale", row
+        assert typed_changes(row, ac="AC-5") == {("formatting-only", "src.py")}, row
+        assert "formatting-only" in (row["cause"] or ""), (
+            f"FAIL AC-5: the explanation must say the change is formatting-only: {row}"
+        )
+
+    (host / "helper.py").write_bytes(b"LIMIT = 2\n")
+    row = status_rows(feature="sample-feature")["m1"]
+    assert row["freshness"] == "content-stale", row
+    assert typed_changes(row, ac="AC-5") == {
+        ("content", "helper.py"),
+        ("formatting-only", "src.py"),
+    }, f"FAIL AC-5: each path keeps its own change kind: {row}"
+
+
+def test_ac5_legacy_fact_stays_fresh_on_unchanged_source(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Survivor pin: a fact recorded before equivalence compares raw, as before."""
+    from tests.change_impact_verify_helpers import legacy_host, status_rows
+
+    legacy_host(tmp_path, monkeypatch)
+    rows = status_rows()
+    assert rows["m1"]["freshness"] == rows["acceptance"]["freshness"] == "fresh"
+
+
+def test_ac5_legacy_fact_reports_content_with_equivalence_unavailable(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from tests.change_impact_explanation_helpers import typed_changes
+    from tests.change_impact_verify_helpers import (
+        legacy_host,
+        reflow_legacy_source,
+        status_rows,
+    )
+
+    host = legacy_host(tmp_path, monkeypatch)
+    reflow_legacy_source(host.root)
+
+    row = status_rows()["m1"]
+    assert row["freshness"] == "content-stale", row
+    assert typed_changes(row, ac="AC-5") == {("content", "src/example.py")}, (
+        f"FAIL AC-5: a legacy fact has no equivalence, so the path is content: {row}"
+    )
+    assert "equivalence unavailable" in json.dumps(row), (
+        f"FAIL AC-5: a legacy fact's explanation says equivalence is unavailable: {row}"
+    )
+
+
+def test_ac5_equivalent_change_during_a_run_still_makes_the_fact_unstable(
+    run_cli, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Survivor pin: stability compares raw bytes, never review equivalence."""
+    host, state_path = _ac5_host(tmp_path, monkeypatch)
+    state = yaml.safe_load(state_path.read_text(encoding="utf-8"))
+    # The check passes but reflows its own source while it runs.
+    state["milestones"][0]["verification"]["command"] = (
+        'python3 -c "from pathlib import Path; '
+        'Path(\'src.py\').write_text(\'values = [\\"a\\", \\"b\\"]\\n\')"'
+    )
+    _write_yaml(state_path, state)
+
+    code, envelope = _verify_m1(run_cli)
+
+    assert (host / "src.py").read_bytes() == b'values = ["a", "b"]\n'
+    assert code == 3 and envelope["error"]["code"] == "verification-failed", envelope
+    assert envelope["error"]["details"]["status"] == "unstable", envelope
+    assert envelope["error"]["details"]["recorded"] is True

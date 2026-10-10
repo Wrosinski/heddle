@@ -17,6 +17,7 @@ import stat
 import subprocess
 import textwrap
 import venv
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -356,6 +357,64 @@ def write_claude_shim(bin_dir: Path, event: str, log_path: Path) -> Path:
                 )
                 stream.write("\\n")
             sys.stdout.write({event!r})
+            """
+        ),
+    )
+
+
+def write_scripted_claude_shim(
+    bin_dir: Path, events: Sequence[str], log_path: Path
+) -> Path:
+    """A claude double that answers its n-th call with ``events[n]``.
+
+    Calls are numbered by the records already in ``log_path``, and each call
+    logs like ``write_claude_shim``. A call beyond the script still logs, then
+    exits 3 with no output, so an unexpected launch fails its gate instead of
+    receiving a canned review.
+    """
+    return write_executable(
+        bin_dir / "claude",
+        textwrap.dedent(
+            f"""\
+            #!/usr/bin/env python3
+            import json
+            import os
+            import sys
+            from pathlib import Path
+
+            EVENTS = {list(events)!r}
+            LOG = Path({str(log_path)!r})
+            stdin = "" if sys.stdin.isatty() else sys.stdin.read()
+            environment = {{
+                key: os.environ.get(key)
+                for key in (
+                    "CLAUDECODE",
+                    "HEDDLE_AGENT_SESSION",
+                    "CLAUDE_CODE_EFFORT_LEVEL",
+                    "BASH_DEFAULT_TIMEOUT_MS",
+                    "BASH_MAX_TIMEOUT_MS",
+                )
+            }}
+            index = (
+                len(LOG.read_text(encoding="utf-8").splitlines())
+                if LOG.exists()
+                else 0
+            )
+            with LOG.open("a", encoding="utf-8") as stream:
+                stream.write(
+                    json.dumps(
+                        {{
+                            "argv": sys.argv[1:],
+                            "environment": environment,
+                            "stdin": stdin,
+                        }}
+                    )
+                )
+                stream.write("\\n")
+            if index >= len(EVENTS):
+                sys.stderr.write(f"unscripted provider call {{index + 1}}\\n")
+                sys.exit(3)
+            sys.stdout.write(EVENTS[index])
             """
         ),
     )

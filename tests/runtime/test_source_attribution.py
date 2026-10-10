@@ -281,3 +281,58 @@ def test_attribution_does_not_supply_missing_completion_verification(host):
     assert not result.ok
     assert result.error.code == "verification-missing", result
     assert read_state_file(state_path).completion is None
+
+
+def test_ac15_v1_attribution_reads_exactly_as_before_against_v2_observations(host):
+    """AC-15: a pre-feature v1 attribution stays current and still compares raw.
+
+    The v1 row is frozen pre-feature evidence from
+    ``tests/change_impact_identity_helpers.py``; the activation seam is the
+    ``EvidenceObservation.equivalence`` field the current writer must record.
+    """
+    from tests.change_impact_identity_helpers import (
+        V1_OUTSIDE_ORIGIN_MD,
+        V1_OUTSIDE_ORIGIN_MD_SHA256,
+        V1_OUTSIDE_VENDORED_PY,
+        V1_OUTSIDE_VENDORED_PY_SHA256,
+        frozen_v1,
+        recorded_equivalence,
+    )
+    from tests.runtime.verification_provenance_helpers import write_yaml
+
+    root, state_path = host
+    (root / "vendored.py").write_bytes(b"VALUE = 'x'\n")
+    assert attribute("outside.txt", "another.txt").ok
+    written = read_state_file(state_path).source_attributions[-1].references
+    assert written.schema == "heddle.source-evidence/v2", (
+        "FAIL AC-15: attribution evidence is still written as v1"
+    )
+    assert recorded_equivalence(written.observations[0]) is not None, (
+        "FAIL AC-15: the cited origin.md carries no equivalence identity"
+    )
+
+    document = yaml.safe_load(state_path.read_text())
+    document["source_attributions"].insert(
+        0,
+        {
+            "reason": "Vendored by an independently accepted feature.",
+            "at": "2026-10-01T00:00:00Z",
+            "source": json.loads(
+                frozen_v1(V1_OUTSIDE_VENDORED_PY, V1_OUTSIDE_VENDORED_PY_SHA256)
+            ),
+            "references": json.loads(
+                frozen_v1(V1_OUTSIDE_ORIGIN_MD, V1_OUTSIDE_ORIGIN_MD_SHA256)
+            ),
+        },
+    )
+    write_yaml(state_path, document)
+    assert coverage(root, state_path).status == "complete", (
+        "FAIL AC-15: a v1 attribution reads stale against v2 observations"
+    )
+
+    (root / "vendored.py").write_bytes(b'VALUE = "x"\n')
+    with pytest.raises(KernelError, match="attribution is stale") as raised:
+        coverage(root, state_path)
+    assert raised.value.details["changed_paths"] == ["vendored.py"], (
+        "FAIL AC-15: attributed sources must stay raw across a formatting change"
+    )

@@ -210,3 +210,67 @@ def test_dirty_deleted_and_renamed_owned_inputs_keep_exact_endpoints(
         "prompt_version",
         "effective_prompt_sha256",
     }
+
+
+PLAN = "plans/operational-example/plan.md"
+
+
+def _synced_plan_review_host(tmp_path, monkeypatch, capsys):
+    """A committed plan-status region that `heddle sync` then rewrites."""
+    from tests.proof_continuity_helpers import command
+
+    root, path = current_host(
+        tmp_path,
+        monkeypatch,
+        stage="plan-review",
+        overrides={"plan-review": entry("plan-review")},
+    )
+    plan = root / PLAN
+    plan.write_text(
+        plan.read_text() + "\n<!-- heddle:begin plan-status -->\nCommitted status.\n"
+        "<!-- heddle:end plan-status -->\n"
+    )
+    git(root, "add", "--", PLAN)
+    git(root, "commit", "-qm", "Synthetic plan-status region")
+    code, synced = command(capsys, "sync")
+    assert code == 0 and synced["ok"], synced
+    assert git(root, "status", "--porcelain", "--", PLAN).strip(), (
+        "test setup: sync must leave the plan-status rewrite uncommitted"
+    )
+    return root, path, plan
+
+
+def _launch_plan_review(monkeypatch, capsys):
+    before_dispatch = []
+
+    def transport(_cli, _prompt):
+        before_dispatch.append(capsys.readouterr().err)
+        return review_content("plan-review")
+
+    calls = provider_transport(monkeypatch, transport)
+    code, result = launch(capsys, role="plan-review")
+    assert code == 0 and result["data"]["accepted"] and len(calls) == 1, result
+    return diagnostics(result), "".join(before_dispatch)
+
+
+def test_ac9_plan_status_only_change_gives_no_uncommitted_plan_advice(
+    tmp_path, monkeypatch, capsys
+):
+    """AC-9 red: a sync rewrite of the managed region is not an authored change."""
+    _root, _path, _plan = _synced_plan_review_host(tmp_path, monkeypatch, capsys)
+    advice, before_dispatch = _launch_plan_review(monkeypatch, capsys)
+    assert PLAN not in advice and PLAN not in before_dispatch, (
+        "FAIL AC-9: review preparation advises committing a plan whose only "
+        f"change is the plan-status region: {advice}"
+    )
+
+
+def test_ac9_authored_plan_change_beside_a_status_rewrite_is_still_advised(
+    tmp_path, monkeypatch, capsys
+):
+    """Survivor pin: an authored plan edit is still advised next to a sync rewrite."""
+    _root, _path, plan = _synced_plan_review_host(tmp_path, monkeypatch, capsys)
+    plan.write_text(plan.read_text() + "\nAuthored design correction.\n")
+    advice, before_dispatch = _launch_plan_review(monkeypatch, capsys)
+    assert PLAN in advice and PLAN in before_dispatch, advice
+    assert "format" in advice.lower() and "commit" in advice.lower(), advice

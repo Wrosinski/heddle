@@ -1120,3 +1120,202 @@ def test_run_gates_help_and_changelog_describe_the_launch_rule(run_cli) -> None:
     assert "reviews.launch" in unreleased and "run-gates" in unreleased, (
         "FAIL AC-12: the [Unreleased] changelog does not announce the launch rule"
     )
+
+
+# change-impact-rebinding-v1 AC-16: review equivalence, partial reaffirm,
+# `verify --stale` and implement-exit witness acceptance in the guidance, help
+# and maintained documentation. Anchors are co-occurrences inside one passage
+# (a blank-line separated block), so a keyword elsewhere cannot satisfy them.
+DISPOSITION_STAGE_BRIEFINGS = tuple(
+    f"{stage}.briefing.md"
+    for stage in (
+        "spec-review",
+        "plan-review",
+        "scaffold",
+        "implement",
+        "peer-review",
+        "robustness",
+    )
+)
+WITNESS_GUIDANCE = (
+    RESOURCES / "implement.briefing.md",
+    REPO_ROOT / "docs/workflow/testing-strategy.md",
+    REPO_ROOT / "docs/workflow/workflow.md",
+    REPO_ROOT / "docs/design/workflow-model.md",
+)
+IDENTITY_DOCS = (
+    REPO_ROOT / "docs/workflow/workflow.md",
+    REPO_ROOT / "docs/design/workflow-model.md",
+    REPO_ROOT / "docs/design/architecture.md",
+    REPO_ROOT / "docs/workflow/document-structure.md",
+)
+EQUIVALENCE_RULES = ("python-tree/1", "markdown-text/1")
+# Folded like `_normalized`: hyphens and underscores read as spaces.
+RETIRED_IDENTITY_AND_WITNESS_TEXT = (
+    "source identity is the declared raw working content",
+    "identity is raw everywhere",
+    "implement exit run is never waivable",
+    "implement exit run never can",
+    "implement exit run can never be accepted",
+    "never applies at implement exit",
+    "never satisfies implement exit",
+)
+
+
+def _folded(text: str) -> str:
+    return re.sub(r"[\s_\-]+", " ", text.casefold())
+
+
+def _has_passage(text: str, *anchors: str | tuple[str, ...]) -> bool:
+    """One blank-line separated block holds every anchor; a tuple is any-of."""
+    options = [(anchor,) if isinstance(anchor, str) else anchor for anchor in anchors]
+    return any(
+        all(any(option in folded for option in choice) for choice in options)
+        for folded in map(_folded, re.split(r"\n[ \t]*\n", text))
+    )
+
+
+def _unreleased(changelog: str) -> str:
+    return changelog.split("## [Unreleased]", 1)[1].split("\n## [", 1)[0]
+
+
+def _help_commands(run_cli) -> dict[str, dict]:
+    code, stdout, stderr = run_cli(["help", "--json"])
+    assert code == 0, stderr
+    return {row["name"]: row for row in json.loads(stdout)["data"]["commands"]}
+
+
+@pytest.mark.parametrize("name", DISPOSITION_STAGE_BRIEFINGS)
+def test_ac16_disposition_briefings_name_partial_reaffirm(name) -> None:
+    """AC-16: each stage that records dispositions explains partial reaffirm."""
+    assert _has_passage(_text(name), "review reaffirm", "qualif", "exit 4"), (
+        f"FAIL AC-16: {name} has no passage saying that `heddle review "
+        "reaffirm` writes the rows that still qualify and exits 4 while others "
+        "remain"
+    )
+
+
+@pytest.mark.parametrize("name", ["implement.briefing.md", "peer-review.briefing.md"])
+def test_ac16_implement_and_peer_review_name_verify_stale(name) -> None:
+    """AC-16: the stages that refresh proof name the one-step refresh."""
+    assert "heddle verify stale" in _normalized(name), (
+        f"FAIL AC-16: {name} does not name `heddle verify --stale`"
+    )
+
+
+@pytest.mark.parametrize(
+    "path", WITNESS_GUIDANCE, ids=[path.name for path in WITNESS_GUIDANCE]
+)
+def test_ac16_witness_guidance_accepts_earlier_witness_only_for_formatting(
+    path,
+) -> None:
+    """AC-16: implement-exit acceptance of an earlier witness, formatting only."""
+    assert _has_passage(
+        path.read_text(encoding="utf-8"),
+        "implement exit",
+        "accept",
+        ("formatting only", "only formatting"),
+    ), (
+        f"FAIL AC-16: {path.name} does not state that the owner may accept an "
+        "earlier witness at implement exit only for formatting-only changes"
+    )
+
+
+@pytest.mark.parametrize(
+    "path", IDENTITY_DOCS, ids=[path.name for path in IDENTITY_DOCS]
+)
+def test_ac16_docs_describe_dual_identity_and_what_stays_raw(path) -> None:
+    """AC-16: both rules by id, and review equivalence beside raw verification."""
+    text = path.read_text(encoding="utf-8")
+    missing = [rule for rule in EQUIVALENCE_RULES if rule not in text]
+    assert not missing, f"FAIL AC-16: {path.name} does not name the rules {missing}"
+    assert _has_passage(text, "review equivalen", "raw", "verification"), (
+        f"FAIL AC-16: {path.name} has no passage separating review equivalence "
+        "from the raw identity verification keeps"
+    )
+
+
+def test_ac16_verify_help_describes_stale(run_cli) -> None:
+    """AC-16: `--stale` is a described verify flag; exit codes are unchanged."""
+    verify = _help_commands(run_cli)["verify"]
+    flags = {flag["name"]: flag["summary"] for flag in verify["flags"]}
+    assert "--stale" in flags, "FAIL AC-16: verify help has no --stale flag"
+    assert "scope" in flags["--stale"].lower(), (
+        f"FAIL AC-16: the --stale summary does not describe scopes: {flags['--stale']}"
+    )
+    assert verify["exit_codes"] == [0, 1, 2, 3, 5]
+
+
+def test_ac16_reaffirm_help_describes_optional_assignment_and_exit_4(run_cli) -> None:
+    """AC-16: `--role`/`--scope` are optional together and exit 4 is declared."""
+    reaffirm = _help_commands(run_cli)["review reaffirm"]
+    assert 4 in reaffirm["exit_codes"], (
+        f"FAIL AC-16: reaffirm declares exits {reaffirm['exit_codes']}, not 4"
+    )
+    flags = {flag["name"]: flag["summary"] for flag in reaffirm["flags"]}
+    described = " ".join(
+        (reaffirm["summary"], flags["--role"], flags["--scope"])
+    ).lower()
+    assert "optional" in described or "omit" in described, (
+        f"FAIL AC-16: reaffirm help does not say --role/--scope are optional: "
+        f"{described!r}"
+    )
+
+
+def test_ac16_help_lists_feature_baseline_set(run_cli) -> None:
+    """AC-16: the baseline re-point is a mutating command with its flags."""
+    command = _help_commands(run_cli).get("feature baseline set")
+    assert command is not None, "FAIL AC-16: help lists no `feature baseline set`"
+    assert command["mutating"] and command["dry_run"], command
+    flags = {flag["name"] for flag in command["flags"]}
+    missing = {"--commit", "--reason", "--expect-revision", "--dry-run"} - flags
+    assert not missing, f"FAIL AC-16: `feature baseline set` lacks {sorted(missing)}"
+
+
+def test_ac16_changelog_lists_the_change_impact_changes() -> None:
+    """AC-16: the unreleased changelog announces the user-visible changes."""
+    changelog = (REPO_ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
+    unreleased = " ".join(_unreleased(changelog).split())
+    missing = [
+        token
+        for token in (
+            "verify --stale",
+            "review reaffirm",
+            "feature baseline set",
+            "formatting",
+        )
+        if token not in unreleased
+    ]
+    assert not missing, f"FAIL AC-16: [Unreleased] does not mention {missing}"
+
+
+def test_ac16_no_retained_text_keeps_raw_identity_or_a_never_accepted_exit() -> None:
+    """AC-16: no packaged or maintained text keeps the retired claims.
+
+    Released changelog sections are history and stay as written; the unreleased
+    section is current guidance and is scanned.
+    """
+    sources = [
+        path
+        for pattern in ("*.md", "*.yaml")
+        for path in sorted(RESOURCES.rglob(pattern))
+    ]
+    for directory in ("docs/workflow", "docs/design", "docs/testing"):
+        sources.extend(sorted((REPO_ROOT / directory).glob("*.md")))
+    sources.extend((REPO_ROOT / "README.md", REPO_ROOT / "docs/tour.md"))
+    texts = [
+        (path.relative_to(REPO_ROOT).as_posix(), path.read_text(encoding="utf-8"))
+        for path in sources
+    ]
+    changelog = (REPO_ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
+    texts.append(("CHANGELOG.md [Unreleased]", _unreleased(changelog)))
+    offenders = [
+        f"{label}: {phrase!r}"
+        for label, text in texts
+        for phrase in RETIRED_IDENTITY_AND_WITNESS_TEXT
+        if phrase in _folded(text)
+    ]
+    assert not offenders, (
+        "FAIL AC-16: retained text says identity is raw everywhere or that the "
+        f"implement-exit run can never be accepted: {offenders}"
+    )

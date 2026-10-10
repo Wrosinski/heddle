@@ -257,6 +257,12 @@ scripts/install-repository-hooks.py
 scripts/pre-push
 scripts/qualify-public-repository.sh
 scripts/run-complete-test-band.py
+tests/change_impact_explanation_helpers.py
+tests/change_impact_identity_helpers.py
+tests/change_impact_routing_helpers.py
+tests/change_impact_subject_helpers.py
+tests/change_impact_upgrade_helpers.py
+tests/change_impact_verify_helpers.py
 tests/completion_helpers.py
 tests/concurrent_review_helpers.py
 tests/conftest.py
@@ -289,6 +295,7 @@ tests/driver/test_acceptance_autopilot.py
 tests/driver/test_authorization_seam.py
 tests/driver/test_blocked_envelope_context.py
 tests/driver/test_boundaries_driver.py
+tests/driver/test_change_impact_routing.py
 tests/driver/test_completion.py
 tests/driver/test_driver_loop.py
 tests/driver/test_escalations.py
@@ -328,6 +335,12 @@ tests/fixtures/source-manifest/tree/nested/c.txt
 tests/fixtures/toolchains/prettier-3.9.6/package-lock.json
 tests/fixtures/toolchains/prettier-3.9.6/package.json
 tests/fixtures/workspaces/README.md
+tests/fixtures/workspaces/change-impact-upgrade/blobs.json
+tests/fixtures/workspaces/change-impact-upgrade/history.json
+tests/fixtures/workspaces/change-impact-upgrade/robustness-open.json
+tests/fixtures/workspaces/change-impact-upgrade/scaffold-attempt-only.json
+tests/fixtures/workspaces/change-impact-upgrade/scaffold-partial.json
+tests/fixtures/workspaces/change-impact-upgrade/scaffold-unopened.json
 tests/fixtures/workspaces/completed-boundary/.heddle.yaml
 tests/fixtures/workspaces/completed-boundary/docs/features/example/complete-boundary.md
 tests/fixtures/workspaces/completed-boundary/plans/complete-boundary/plan.md
@@ -496,6 +509,7 @@ tests/kernel/test_knowledge_search.py
 tests/kernel/test_primary_test_bindings.py
 tests/kernel/test_project_config.py
 tests/kernel/test_review_closure.py
+tests/kernel/test_review_equivalence.py
 tests/kernel/test_sealed_review_boundaries.py
 tests/kernel/test_secondary_rounds.py
 tests/kernel/test_staleness_note.py
@@ -549,7 +563,9 @@ tests/runtime/test_dispatch.py
 tests/runtime/test_disposition_reaffirm.py
 tests/runtime/test_distinct_gate_concurrency.py
 tests/runtime/test_document_altitude.py
+tests/runtime/test_equivalence_upgrade.py
 tests/runtime/test_evidence_explanations.py
+tests/runtime/test_feature_baseline.py
 tests/runtime/test_fixtures.py
 tests/runtime/test_gate_cache_resume.py
 tests/runtime/test_gate_default_cli.py
@@ -589,10 +605,12 @@ tests/runtime/test_review_allowance_core.py
 tests/runtime/test_review_allowance_integration.py
 tests/runtime/test_review_attempt_authority.py
 tests/runtime/test_review_coverage.py
+tests/runtime/test_review_equivalence_currency.py
 tests/runtime/test_review_freshness.py
 tests/runtime/test_review_launch.py
 tests/runtime/test_review_recommendations.py
 tests/runtime/test_review_retention.py
+tests/runtime/test_reviewed_test_subject.py
 tests/runtime/test_revision_guards.py
 tests/runtime/test_run_gate_envelope.py
 tests/runtime/test_scaffold_binding_admission.py
@@ -624,6 +642,7 @@ tests/runtime/test_verification_provenance.py
 tests/runtime/test_verification_provenance_acceptance.py
 tests/runtime/test_verification_rounds.py
 tests/runtime/test_verify_shell_semantics.py
+tests/runtime/test_verify_stale.py
 tests/runtime/test_wheel_harness.py
 tests/runtime/test_witness_waiver.py
 tests/runtime/test_workflow_authoring.py
