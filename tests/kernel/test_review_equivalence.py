@@ -127,6 +127,15 @@ MARKDOWN_EQUAL = {
         "Intro text\n\n| a | b |\n|---|---|\n",
     ),
     "inline-html-paragraph": ("<span>x</span> a  b\n", "<span>x</span> a b\n"),
+    # Spacing outside a verbatim angle-bracket span still normalises.
+    "spacing-outside-an-angle-bracket-span": (
+        "See <https://example.com/a b> today.\n",
+        "See  <https://example.com/a b>  today.\n",
+    ),
+    "spacing-around-an-autolink": (
+        "Visit <https://example.com/x> now.\n",
+        "Visit  <https://example.com/x>   now.\n",
+    ),
     "prose-after-front-matter": (
         "---\ntitle: x\n---\n\nprose  here \n",
         "---\ntitle: x\n---\n\nprose here\n",
@@ -172,6 +181,11 @@ MARKDOWN_DIFFERENT = {
     "code-span-across-lines": ("a `b  c\nd` e\n", "a `b c\nd` e\n"),
     "front-matter": ("---\ntitle:  x\n---\nbody\n", "---\ntitle: x\n---\nbody\n"),
     "link-destination": ("[guide](<docs/a b.md>)\n", "[guide](<docs/a  b.md>)\n"),
+    # An inline angle-bracket span is kept verbatim, spacing included.
+    "angle-bracket-span-spacing": (
+        "See <https://example.com/a b> today.\n",
+        "See <https://example.com/a  b> today.\n",
+    ),
     "image-title": ('![logo](img.png "A  title")\n', '![logo](img.png "A title")\n'),
     "link-reference-definition": ('[ref]: /url "a  b"\n', '[ref]: /url "a b"\n'),
     "rewrap": ("one two three\n", "one two\nthree\n"),

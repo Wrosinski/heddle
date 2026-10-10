@@ -487,8 +487,15 @@ def _follow_current_verification_guidance(journey: Journey) -> dict:
         operation = status["next_actions"][0]["action"].get("operation", {})
         if operation.get("name") != "verify":
             return status
-        verified = _run_emitted(journey, status)
-        assert verified["data"]["verification"]["exit_code"] == 0
+        # Two failed scopes keep one verify action each; follow the leading one.
+        leading = {**status, "next_actions": status["next_actions"][:1]}
+        verified = _run_emitted(journey, leading)
+        rows = (
+            verified["data"]["verifications"]
+            if operation.get("arguments", {}).get("stale")
+            else [verified["data"]["verification"]]
+        )
+        assert rows and all(row["exit_code"] == 0 for row in rows), verified
     raise AssertionError("verification guidance did not converge within six scopes")
 
 
@@ -505,10 +512,13 @@ def test_installed_guidance_blocks_then_resumes_after_proof_repair(
     (journey.root / "src/other.py").write_text("OTHER = 8\n", encoding="utf-8")
 
     stale = journey.run("status")
-    assert stale["next_actions"]
-    assert all(
-        row["action"]["operation"]["name"] == "verify" for row in stale["next_actions"]
-    )
+    # Acceptance and smoke both went content-stale, so readiness offers one
+    # verify --stale in place of their two verify actions.
+    assert len(stale["next_actions"]) == 1, stale["next_actions"]
+    batch = stale["next_actions"][0]
+    assert batch["action"]["operation"]["name"] == "verify"
+    assert batch["action"]["operation"]["arguments"].get("stale") is True, batch
+    assert "--stale" in shlex.split(batch["command"]), batch
     refused = _run_emitted(journey, captured, expected=3)
     assert refused["error"]["code"] == "verification-missing"
     assert journey.read() == before_drift
@@ -520,10 +530,17 @@ def test_installed_guidance_blocks_then_resumes_after_proof_repair(
     assert failed_drive["error"]["code"] == "attempt-cap"
     failed_state = journey.read()
     failing = [row for row in failed_state["verifications"] if row["exit_code"] != 0]
-    assert len(failing) == 3
-    assert len({row["scope"] for row in failing}) == 1
+    # The batch records one failing row per scope, then acceptance, the
+    # leading failed scope, reruns alone until its attempt cap.
+    assert [row["scope"] for row in failing] == [
+        "acceptance",
+        "smoke",
+        "acceptance",
+        "acceptance",
+    ]
     pending = [row for row in failed_state["decisions"] if row["status"] == "pending"]
     assert len(pending) == 1
+    assert "scope acceptance " in pending[0]["question"], pending[0]
     assert failed_state["stage"] == "robustness" and failed_state["completion"] is None
     assert probe_log.read_text().count("--help") == 1
     assert journey.count(journey.providers) == 0

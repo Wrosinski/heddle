@@ -141,6 +141,58 @@ def basis_manifest(state_path, row, *, ac="AC-9"):
     return reference
 
 
+def reviewer_basis_manifest(state_path, run_id, *, ac="AC-6"):
+    """Decode the reviewer-basis manifest a recorded attempt carries."""
+    from heddle.kernel.source_manifest import decode_source_evidence
+
+    attempts = yaml.safe_load(state_path.read_text())["review_assignments"]["attempts"]
+    matches = [row for row in attempts if row["attempt_id"] == run_id]
+    assert len(matches) == 1, f"test setup: no single attempt for run {run_id}"
+    manifests = []
+    attempt = matches[0]
+    for artifact in attempt["artifacts"]:
+        if artifact["role"] != "evidence":
+            continue
+        content = (state_path.parent / artifact["path"]).read_bytes()
+        if yaml.safe_load(content).get("schema") == SOURCE_EVIDENCE_V2:
+            manifests.append(decode_source_evidence(content))
+    assert len(manifests) == 1, (
+        f"FAIL {ac}: attempt {run_id} carries {len(manifests)} reviewer-basis "
+        f"manifests ({SOURCE_EVIDENCE_V2} evidence artifacts), expected one"
+    )
+    return manifests[0]
+
+
+def _component_digests(manifest, ac):
+    components = getattr(manifest, "components", None)
+    assert components is not None, f"FAIL {ac}: source evidence has no components"
+    digests = {}
+    for item in components:
+        name, digest = (
+            (item.name, item.digest) if hasattr(item, "name") else tuple(item)
+        )
+        digests[name] = digest
+    return digests
+
+
+def changed_components(state_path, before_run, after_run, *, ac="AC-6"):
+    """Component names whose digest differs between two recorded attempts.
+
+    Requires both reviewer-basis manifests to observe the same paths, so the
+    difference is in non-path basis records only.
+    """
+    before = reviewer_basis_manifest(state_path, before_run, ac=ac)
+    after = reviewer_basis_manifest(state_path, after_run, ac=ac)
+    assert before.observations == after.observations, (
+        "test setup: the two reviewed bases must observe identical paths"
+    )
+    left = _component_digests(before, ac)
+    right = _component_digests(after, ac)
+    return {
+        name for name in left.keys() | right.keys() if left.get(name) != right.get(name)
+    }
+
+
 def evidence_files(state_path):
     """Every file under the feature workspace's ``verification/`` directory."""
     root = state_path.parent / "verification"

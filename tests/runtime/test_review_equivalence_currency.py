@@ -39,6 +39,7 @@ from heddle.kernel.project_config import KernelError, load_project_config
 from heddle.kernel.state import read_state_file
 from heddle.runtime.application import execute
 from heddle.runtime.verification import reconcile_current_source, workflow_control_paths
+from tests.change_impact_explanation_helpers import basis_manifest
 from tests.content_identity_helpers import git
 from tests.operational_model_helpers import SPEC
 from tests.runtime.verification_provenance_helpers import make_current_host
@@ -710,10 +711,7 @@ def test_ac4_sealing_rebinds_exactly_the_equivalence_current_rows(
         k: v for k, v in rebinding_source.items() if k not in excluded
     }, "same resolution, evidence and citations"
     assert rebound["evidence_basis"] == current_basis
-    assert rebound.get("basis_evidence") not in [
-        None,
-        rebinding_source.get("basis_evidence"),
-    ], "FAIL AC-4: the re-binding row names no manifest for the current basis"
+    basis_manifest(path, rebound, ac="AC-4")
     [receipt] = value["review_assignments"]["acceptances"]
     accepted = receipt["assignments"][0]
     assert accepted["source_identity"] == current_basis
@@ -774,8 +772,8 @@ def test_ac15_a_missing_or_altered_disposition_manifest_is_an_integrity_error(
 ):
     """The reflow makes currency read the manifest instead of the raw basis."""
     host, path, _calls, _refs = _closed_scaffolding(tmp_path, monkeypatch, run_cli)
-    row = yaml.safe_load(path.read_text())["review_assignments"]["dispositions"][-1]
-    reference = row.get("basis_evidence")
+    rows = yaml.safe_load(path.read_text())["review_assignments"]["dispositions"]
+    reference = rows[-1].get("basis_evidence")
     assert reference, (
         "FAIL AC-15: a disposition recorded by this build names no basis manifest"
     )
@@ -787,7 +785,9 @@ def test_ac15_a_missing_or_altered_disposition_manifest_is_an_integrity_error(
     _commit(host, "format the test and the plan", CHECK, PLAN)
     assert _assignment(execute(ops.Status(feature=V7_FEATURE)))["closed"]
 
-    names = (row["assignment_id"], row["finding_id"])
+    findings = {
+        row["finding_id"] for row in rows if row.get("basis_evidence") == reference
+    }
     for damaged in (None, content + b"\n"):
         artifact.unlink()
         if damaged is not None:
@@ -798,8 +798,8 @@ def test_ac15_a_missing_or_altered_disposition_manifest_is_an_integrity_error(
             f"failure, not a fallback: {result.to_envelope()}"
         )
         text = json.dumps(result.to_envelope()["error"])
-        assert reference["artifact"] in text and any(n in text for n in names), (
-            f"FAIL AC-15: the integrity failure names the row and artifact: {text}"
+        assert reference["artifact"] in text and any(f in text for f in findings), (
+            f"FAIL AC-15: the integrity failure names the finding and artifact: {text}"
         )
         artifact.unlink(missing_ok=True)
         artifact.write_bytes(content)

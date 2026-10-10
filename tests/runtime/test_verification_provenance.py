@@ -5,6 +5,7 @@ from __future__ import annotations
 import inspect
 import io
 import json
+import shlex
 import subprocess
 from copy import deepcopy
 from pathlib import Path
@@ -1550,11 +1551,27 @@ def test_ac06_phase_exit_lists_all_stale_scopes_then_accepts_reruns(
     assert code == 3 and envelope["error"]["code"] == "verification-missing"
     assert envelope.get("data") is None
     revision = yaml.safe_load(state_path.read_text())["revision"]
-    assert [action["command"] for action in envelope["next_actions"]] == [
-        f"heddle verify --scope {scope} --expect-revision {revision} "
-        "--feature sample-feature"
-        for scope in ("m1", "acceptance")
-    ]
+    guidance = [action["command"] for action in envelope["next_actions"]]
+    # One batch refresh replaces the m1 and acceptance reruns it covers.
+    assert len(guidance) == 1, (
+        "FAIL AC-12: phase exit offers one `verify --stale` in place of the "
+        f"m1 and acceptance reruns: {guidance}"
+    )
+    argv = shlex.split(guidance[0])
+    assert argv[:3] == ["heddle", "verify", "--stale"] and "--scope" not in argv, (
+        f"FAIL AC-12: the stale-scope refusal routes `verify --stale`: {argv}"
+    )
+    assert argv[argv.index("--expect-revision") + 1] == str(revision), argv
+    assert argv[argv.index("--feature") + 1] == "sample-feature", argv
+    reason = envelope["next_actions"][0]["reason"]
+    assert "m1" in reason and "acceptance" in reason, (
+        f"FAIL AC-12: the batch guidance names every stale scope it covers: {reason}"
+    )
+    code, output, _error = run_cli(["orient", "--feature", "sample-feature", "--json"])
+    orient = envelope_tools.parse(output)
+    assert [action["command"] for action in orient["next_actions"]] == guidance, (
+        "FAIL AC-12: orient and the phase-exit refusal route the same batch"
+    )
 
     for scope in ("m1", "acceptance"):
         code, output, _error = run_cli(

@@ -158,6 +158,12 @@ def _expected_roles(state: dict) -> dict[str, set[str]]:
     close_suite = state["completion"].get("close_suite")
     if close_suite is not None:
         roles.setdefault(close_suite["log"], set()).add("close-suite-log")
+    # Completion retains the basis manifest each disposition names; its report
+    # role is not pinned here, so it expects an empty set.
+    for row in state["review_assignments"]["dispositions"]:
+        for value in row.values():
+            if isinstance(value, dict) and "artifact" in value:
+                roles.setdefault(value["artifact"], set())
     return roles
 
 
@@ -300,7 +306,11 @@ def test_completion_feedback_contract_installed(
     assert {row["path"] for row in report["artifacts"]} == set(expected_roles)
     for row in report["artifacts"]:
         path = journey.state.parent / row["path"]
-        assert row["roles"] == sorted(expected_roles[row["path"]])
+        expected = expected_roles[row["path"]]
+        if expected:
+            assert row["roles"] == sorted(expected)
+        else:
+            assert row["roles"], row
         assert len(row["roles"]) == len(set(row["roles"]))
         assert row["kind"] == "file"
         assert row["sha256"] == sha256(path.read_bytes()).hexdigest()

@@ -252,6 +252,38 @@ def test_ac12_continues_past_a_failing_run_and_reports_every_row(
     assert all(row["recorded"] is True for row in rows.values())
 
 
+def test_ac12_continues_past_a_passing_run_whose_source_changed_during_it(
+    tmp_path, monkeypatch, run_cli
+) -> None:
+    host = _stale_host(tmp_path, monkeypatch)
+    count = len(read(host.state)["verifications"])
+
+    def edit_m2_source():
+        # A passing edit lands while m2's check runs, so m2's fact is unstable.
+        (host.root / "src/other.py").write_text("OTHER = 7  # edited mid-run\n")
+
+    _on_command(monkeypatch, "src/other.py", edit_m2_source)
+    code, envelope = run_stale(run_cli)
+
+    facts = _new_facts(host.state, count)
+    assert [fact["scope"] for fact in facts] == ["m1", "m2", "acceptance"], (
+        "FAIL AC-12: the batch must continue past a recorded unstable run; "
+        f"recorded {[fact['scope'] for fact in facts]}"
+    )
+    assert all(fact["exit_code"] == 0 for fact in facts), facts
+    assert code == 3 and not envelope["ok"], (
+        f"FAIL AC-12: a recorded non-fresh row fails the batch with exit 3: {envelope}"
+    )
+    assert envelope["error"]["code"] == "verification-failed", envelope
+    rows = {row["scope"]: row for row in batch_rows(envelope)["verifications"]}
+    assert list(rows) == ["m1", "m2", "acceptance"], rows
+    assert rows["m2"]["recorded"] is True and rows["m2"]["exit_code"] == 0, rows
+    assert rows["m2"]["status"] == "unstable", (
+        f"FAIL AC-12: the m2 row reports its recorded unstable status: {rows['m2']}"
+    )
+    assert rows["m1"]["status"] == rows["acceptance"]["status"] == "fresh", rows
+
+
 def test_ac12_reassesses_each_scope_before_running_it(
     tmp_path, monkeypatch, run_cli
 ) -> None:

@@ -301,31 +301,35 @@ def _arm_stale_implement_exit(auto_tier2_workspace):
     )
 
 
-def _write_once_during(monkeypatch, marker: str, write) -> None:
-    """Land ``write`` once, while the verification command naming ``marker`` runs."""
+def _after_first_run(monkeypatch, marker: str, effect) -> None:
+    """Run ``effect`` once, right after the verification command naming ``marker``."""
     from heddle.runtime import write_path
 
     original = write_path.run_verification_command
     fired: list[str] = []
 
     def wrapped(root, command, log_path):
+        exit_code = original(root, command, log_path)
         if marker in command and not fired:
             fired.append(command)
-            write()
-        return original(root, command, log_path)
+            effect()
+        return exit_code
 
     monkeypatch.setattr(write_path, "run_verification_command", wrapped)
 
 
+_LIMIT = loop_mod.VERIFY_ATTEMPT_LIMIT
+
+
 @pytest.mark.parametrize(
-    ("case", "edits", "capped", "failing"),
+    ("case", "edits", "capped", "passes"),
     [
         # Every selected run records a failing fact: each row counts once.
         (
             "failing-rows",
             {"demo.py": "bad", "cli.py": "bad"},
             "m1",
-            {"m1": loop_mod.VERIFY_ATTEMPT_LIMIT, "m2": 1, "acceptance": 1},
+            {"m1": [False] * _LIMIT, "m2": [False], "acceptance": [False]},
         ),
         # The first batch records m1 fresh, then stops at a conflict in m2;
         # m2's refused write and the unrun acceptance never count.
@@ -333,10 +337,22 @@ def _write_once_during(monkeypatch, marker: str, write) -> None:
             "stop",
             {"demo.py": "good, reworded", "cli.py": "bad"},
             "m2",
-            {"m1": 0, "m2": loop_mod.VERIFY_ATTEMPT_LIMIT, "acceptance": 1},
+            {"m1": [True], "m2": [False] * _LIMIT, "acceptance": [False]},
+        ),
+        # m2's first run passes but its source changes during it: the
+        # recorded unstable row counts, so two later failures reach the cap.
+        (
+            "unstable",
+            {"demo.py": "good, reworded", "cli.py": "good, reworded"},
+            "m2",
+            {
+                "m1": [True],
+                "m2": [True] + [False] * (_LIMIT - 1),
+                "acceptance": [False],
+            },
         ),
     ],
-    ids=["failing-rows", "stop"],
+    ids=["failing-rows", "stop", "unstable"],
 )
 def test_ac12_drive_counts_each_recorded_verify_stale_row_toward_its_cap(
     run_json,
@@ -346,7 +362,7 @@ def test_ac12_drive_counts_each_recorded_verify_stale_row_toward_its_cap(
     case,
     edits,
     capped,
-    failing,
+    passes,
 ):
     from heddle.contracts import operations as ops
 
@@ -362,6 +378,8 @@ def test_ac12_drive_counts_each_recorded_verify_stale_row_toward_its_cap(
             ["verify", "--scope", scope, "--feature", SLUG, "--json"]
         )
         assert code == 0, envelope
+    state_path = driver_corpus.state(host, SLUG)
+    before = len(driver_corpus.read_yaml(state_path)["verifications"])
     # Every required scope is now content-stale.
     for name, value in edits.items():
         sources[name].write_text(f"VALUE = '{value}'\n", encoding="utf-8")
@@ -369,10 +387,16 @@ def test_ac12_drive_counts_each_recorded_verify_stale_row_toward_its_cap(
     executed: list[object] = []
     real_execute = loop_mod.application.execute
     if case == "stop":
-        _write_once_during(
+        _after_first_run(
             monkeypatch,
             "src/example/cli.py",
             lambda: real_execute(ops.CommandsSet("lint_command", "true", feature=SLUG)),
+        )
+    elif case == "unstable":
+        _after_first_run(
+            monkeypatch,
+            "src/example/cli.py",
+            lambda: sources["cli.py"].write_text("VALUE = 'bad'\n", encoding="utf-8"),
         )
 
     def record(operation):
@@ -395,7 +419,7 @@ def test_ac12_drive_counts_each_recorded_verify_stale_row_toward_its_cap(
         "FAIL AC-12: a failing verify --stale batch is a counted retry, not a "
         f"halt; got exit {code} with {envelope!r}"
     )
-    state = driver_corpus.read_yaml(driver_corpus.state(host, SLUG))
+    state = driver_corpus.read_yaml(state_path)
     (pause,) = [
         decision
         for decision in state.get("decisions", [])
@@ -403,13 +427,14 @@ def test_ac12_drive_counts_each_recorded_verify_stale_row_toward_its_cap(
     ]
     assert f"scope {capped} " in pause["question"], pause["question"]
     observed = {
-        scope: sum(
-            fact["scope"] == scope and fact["exit_code"] != 0
-            for fact in state["verifications"]
-        )
+        scope: [
+            fact["exit_code"] == 0
+            for fact in state["verifications"][before:]
+            if fact["scope"] == scope
+        ]
         for scope in ("m1", "m2", "acceptance")
     }
-    assert observed == failing, (
+    assert observed == passes, (
         "FAIL AC-12: only recorded batch rows count toward a scope's cap; "
-        f"failing facts {observed}, expected {failing}"
+        f"recorded passes {observed}, expected {passes}"
     )

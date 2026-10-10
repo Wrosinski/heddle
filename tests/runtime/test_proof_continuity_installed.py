@@ -385,7 +385,7 @@ def test_installed_proof_continuity_journey(installed, tmp_path):
     original_test = test.read_bytes()
     test.write_bytes(original_test + b"\n# Changed evidence bytes.\n")
     before = snapshot_tree(root)
-    rejected = journey.run(*reaffirm, expected=(2, 3))
+    rejected = journey.run(*reaffirm, expected=1)
     assert origin in json.dumps(rejected) and "PC-I1" in json.dumps(rejected)
     assert snapshot_tree(root) == before
     test.write_bytes(original_test)

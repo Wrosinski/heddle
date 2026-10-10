@@ -593,7 +593,8 @@ def test_ac07_ac08_ac15_red_populate_then_zero_diff_dogfood_equivalent(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """AC-3/5/7/8/15 red discriminator: populate + zero-diff rerun."""
+    """Survivor pin: populate, then a zero-diff rerun, of the orient-derived
+    plan-status body."""
     _sync_module()
     host = _created_demo_host(
         run_cli,

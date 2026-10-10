@@ -14,6 +14,7 @@ proven in the driver routing tests.
 
 from __future__ import annotations
 
+import re
 from dataclasses import replace
 
 import pytest
@@ -51,6 +52,8 @@ from tests.tiering_review_helpers import (
 EXTRA_TEST = "tests/test_extra.py"
 REASON_WORDS = {"missing": ("missing",), "diverged": ("diverged", "not an ancestor")}
 REPOINT_COMMAND = "heddle feature baseline set"
+# Any wording that the feature holds no baseline; "unavailable" does not match.
+ABSENCE = re.compile(r"\b(?:no|none|without|lacks|missing|absent|not recorded)\b")
 
 
 def _names_reason(text: str, reason: str) -> bool:
@@ -235,17 +238,28 @@ def test_ac8_baseline_set_refuses_without_writing(tmp_path, monkeypatch, run_cli
     assert host.state.read_bytes() == before, (
         f"FAIL AC-8: a refused re-point ({case}) wrote state"
     )
-    text = f"{result['error']['message']} {result['error']['hint']}".lower()
     if case == "stale-revision":
         assert code == 5 and result["error"]["code"] == "conflict", result
         return
     assert code not in (0, 2, 5), result
+    # The message names the reason; the hint may name the remedy command.
+    message = result["error"]["message"].lower()
     if case == "available":
-        assert "available" in text, text
+        assert re.search(r"\bavailable\b", message), (
+            f"FAIL AC-8: the refusal does not say the baseline is still available: "
+            f"{message}"
+        )
+        assert "unavailable" not in message, message
     elif case == "not-ancestor":
-        assert "ancestor" in text, text
+        assert "not an ancestor" in message, (
+            f"FAIL AC-8: the refusal does not say the commit is not an ancestor: "
+            f"{message}"
+        )
     else:
-        assert "baseline" in text, text
+        assert "baseline" in message and ABSENCE.search(message), (
+            f"FAIL AC-8: the refusal does not name the missing recorded baseline: "
+            f"{message}"
+        )
 
 
 def test_ac8_baseline_set_dry_run_writes_nothing(tmp_path, monkeypatch, run_cli):

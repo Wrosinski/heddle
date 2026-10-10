@@ -19,6 +19,7 @@ from tests.change_impact_explanation_helpers import (
     assert_names_exactly,
     assignment_row,
     basis_manifest,
+    changed_components,
     disposition_rows,
     evidence_files,
     explanation_for,
@@ -640,25 +641,31 @@ def test_ac6_stale_verification_scope_names_its_typed_changes(
     if freshness == "content-stale":
         assert_names_exactly(row, {("content", "src/helper.py")})
         return
-    # A leaf deleted under an owned directory leaves the expanded path set
-    # (membership) unless the manifest keeps it as a missing observation
-    # (removed); either reading names the same path, which is what is pinned.
-    changes = typed_changes(row)
-    assert len(changes) == 1 and changes <= {
-        ("membership", "src/helper.py"),
-        ("removed", "src/helper.py"),
-    }, f"FAIL AC-6: source-set-stale names {sorted(changes)}"
-    assert row["changed_dependencies"] == ["src/helper.py"], row
+    # A leaf deleted under an owned directory leaves the expanded path set, so it
+    # is in only the recorded manifest: a membership change.
+    assert_names_exactly(row, {("membership", "src/helper.py")})
 
 
 def test_ac6_review_backed_row_names_the_changed_reviewer_component(
     tmp_path, monkeypatch, run_cli
 ):
-    """AC-6 red: review evidence names a changed basis component and is stale."""
+    """AC-6 red: review evidence names the changed basis component and is stale.
+
+    Reads never publish, so the current reviewer-basis manifest is not on disk.
+    The expected component comes from the two recorded attempts instead: a first
+    milestone title change between the rounds is their only basis difference.
+    A second title change then makes the review-backed row stale.
+    """
     from tests.operational_model_helpers import read, write
     from tests.structured_review_helpers import disposition as reviewer_disposition
     from tests.structured_review_helpers import finding_ref
     from tests.tiering_review_helpers import dispose, disposition
+
+    def retitle(title):
+        # The milestone title is a reviewer-basis fact, not a source path.
+        value = read(path)
+        value["milestones"][0]["title"] = title
+        write(path, value)
 
     _host, path = _milestone_review_host(
         tmp_path, monkeypatch, owns=("src/example.py", "tests/check.py")
@@ -682,6 +689,7 @@ def test_ac6_review_backed_row_names_the_changed_reviewer_component(
         ],
     ).ok
     assert open_milestone_round(path).ok
+    retitle("Declared value, first retitle")
     content["prior_dispositions"] = [
         reviewer_disposition(finding_ref(origin, "@coverage"), action="addressed")
     ]
@@ -703,17 +711,18 @@ def test_ac6_review_backed_row_names_the_changed_reviewer_component(
         ],
     ).ok
     assert assignment_row("milestone-review", "m1")["closed"]
-    # The milestone title is a reviewer-basis fact, not a source path.
-    value = read(path)
-    value["milestones"][0]["title"] = "Declared value, retitled"
-    write(path, value)
+    title_components = changed_components(path, origin, later)
+    assert len(title_components) == 1, (
+        f"FAIL AC-6: a title change alters reviewer-basis components "
+        f"{sorted(title_components)}, expected exactly one"
+    )
+    retitle("Declared value, second retitle")
 
     row = assignment_row("milestone-review", "m1")
     assert row["open_refs"] == [[origin, "@coverage"]], row
-    changes = typed_changes(explanation_for(row, f"{origin}#@coverage"))
-    assert len(changes) == 1 and {kind for kind, _name in changes} == {"component"}, (
-        f"FAIL AC-6: review evidence names {sorted(changes)}, not exactly the "
-        "one changed reviewer-basis component"
+    assert_names_exactly(
+        explanation_for(row, f"{origin}#@coverage"),
+        {("component", name) for name in title_components},
     )
     assert row["evidence_state"] == "stale", (
         f"FAIL AC-6: changed review evidence reads {row['evidence_state']}, not stale"

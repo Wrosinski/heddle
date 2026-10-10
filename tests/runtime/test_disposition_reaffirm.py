@@ -20,6 +20,7 @@ import json
 import pytest
 
 from heddle.cli import main
+from tests.change_impact_explanation_helpers import basis_manifest, evidence_files
 from tests.change_impact_routing_helpers import (
     PEER_CITATIONS,
     SPEC_CITATIONS,
@@ -28,6 +29,7 @@ from tests.change_impact_routing_helpers import (
     disposed_peer_reviews,
     disposed_spec_review,
     listed_with,
+    missing_slot_with_recorded_rows,
     refused_changes,
     run_review,
     stale_basis,
@@ -117,6 +119,9 @@ def reaffirm(capsys, *flags):
 def test_reaffirm_preserves_captured_evidence_and_checks_latest_rows_before_noop(
     tmp_path, monkeypatch, capsys
 ):
+    """Survivor pin: reaffirm copies only stale effective rows, keeps their
+    resolution and citations, replays as a no-op and refuses a changed citation.
+    """
     root, path, _origin, calls = resolved(tmp_path, monkeypatch, capsys)
     (root / "docs/superseded.md").write_text(
         "Invalid old citation must not poison its replacement.\n"
@@ -386,7 +391,15 @@ def test_settled_report_and_awaiting_decision_rows_keep_their_original_authority
     assert len(calls) == 1
 
 
-@pytest.mark.parametrize("fault", ["stale-review", "wrong-evidence-kind"])
+@pytest.mark.parametrize(
+    "fault",
+    [
+        # AC-10: the refused review-backed row is listed, the other row written.
+        "stale-review",
+        # Survivor pin: inspection evidence never qualifies through a review.
+        "wrong-evidence-kind",
+    ],
+)
 def test_required_inspection_is_requalified_and_never_demoted(
     tmp_path, monkeypatch, capsys, fault
 ):
@@ -460,9 +473,7 @@ def test_required_inspection_is_requalified_and_never_demoted(
             f"FAIL AC-10: a refused row must not block the qualifying rows, "
             f"got exit {code}: {refused}"
         )
-        assert [
-            (r["run_id"], r["finding_id"]) for r in appended_rows(prior, read(path))
-        ] == [(second["data"]["run_id"], "@coverage")]
+        assert _written(path, prior) == [(second["data"]["run_id"], "@coverage")]
         # The review it cites judged the old spec, so the spec is named.
         assert ("content", SPEC) in refused_changes(
             refused["data"], origin, "@coverage"
@@ -479,8 +490,13 @@ def reaffirm_all(capsys, *flags):
     return command(capsys, "review", "reaffirm", *flags)
 
 
-def _written(before, after):
-    return [(r["run_id"], r["finding_id"]) for r in appended_rows(before, after)]
+def _written(path, prior):
+    """Rows reaffirm appended since ``prior``; each names the published
+    manifest of its new basis."""
+    rows = appended_rows(prior, read(path))
+    for row in rows:
+        basis_manifest(path, row, ac="AC-10")
+    return [(r["run_id"], r["finding_id"]) for r in rows]
 
 
 def test_ac10_reaffirm_without_role_writes_every_qualifying_row_across_assignments(
@@ -500,13 +516,17 @@ def test_ac10_reaffirm_without_role_writes_every_qualifying_row_across_assignmen
     )
     assert snapshot(root) == before
 
+    published = evidence_files(path)
     code, preview = reaffirm_all(capsys, "--dry-run")
     assert code == 4 and preview["ok"], (
         f"FAIL AC-10: a dry run must preview the partial outcome, got exit {code}: "
         f"{preview}"
     )
+    assert evidence_files(path) == published, (
+        "FAIL AC-10: a reaffirm dry run published a basis manifest"
+    )
     assert preview["data"]["wrote"] is False and snapshot(root) == before, (
-        "FAIL AC-10: a reaffirm dry run wrote or published a file"
+        "FAIL AC-10: a reaffirm dry run wrote a file"
     )
 
     prior = read(path)
@@ -520,7 +540,7 @@ def test_ac10_reaffirm_without_role_writes_every_qualifying_row_across_assignmen
         "FAIL AC-10: every qualifying row must be written in one compare-and-swap "
         "transaction"
     )
-    written = _written(prior, after)
+    written = _written(path, prior)
     assert sorted(written) == sorted(
         [
             (behavior, "BR-I1"),
@@ -591,22 +611,20 @@ def test_ac10_reaffirm_without_role_lists_a_missing_slot_assignment_with_its_rea
     )
     complexity = origins["complexity-review"]
     waiting = review_status(path, role="behavior-review")["assignment_id"]
+    # The missing-slot assignment holds no rows, and every other stale row is
+    # writable, so nothing remains (contrast: the case with recorded rows).
     stale_basis(root)
-    change_citation(root, "docs/second.md")
     prior = read(path)
     code, result = reaffirm_all(capsys)
-    assert code == 4 and result["ok"], (
-        f"FAIL AC-10: a missing-slot assignment must not block the other "
-        f"assignment's qualifying rows, got exit {code}: {result}"
+    assert code == 0 and result["ok"], (
+        f"FAIL AC-10: a missing-slot assignment holding no stale rows leaves "
+        f"nothing remaining, so reaffirm must exit 0, got exit {code}: {result}"
     )
-    assert sorted(_written(prior, read(path))) == sorted(
-        [(complexity, "CR-I1"), (complexity, "@coverage")]
+    assert sorted(_written(path, prior)) == sorted(
+        (complexity, finding_id) for finding_id in PEER_CITATIONS["complexity-review"]
     )
     assert listed_with(result["data"], waiting, "slot"), (
         "FAIL AC-10: the missing-slot assignment must be listed with its reason"
-    )
-    assert ("content", "docs/second.md") in refused_changes(
-        result["data"], complexity, "CR-I2"
     )
     assert review_status(path, role="behavior-review")["missing_slots"] == ["secondary"]
     assert len(calls) == 2
@@ -648,7 +666,7 @@ def test_ac10_reaffirm_without_role_skips_a_sealed_assignment(
         f"FAIL AC-10: reaffirm without a role must skip the sealed assignment and "
         f"write the open one, got exit {code}: {result}"
     )
-    assert sorted(_written(prior, read(path))) == sorted(
+    assert sorted(_written(path, prior)) == sorted(
         [(plan_origin, "PR-I1"), (plan_origin, "@coverage")]
     ), "FAIL AC-10: only the unsealed assignment's rows may be written"
     assert review_status(path, role="plan-review")["closed"]
@@ -672,7 +690,7 @@ def test_ac10_role_scoped_reaffirm_applies_the_same_partial_rule(
         f"FAIL AC-10: role-scoped reaffirm must write the qualifying rows and list "
         f"the rest, got exit {code}: {result}"
     )
-    assert sorted(_written(prior, read(path))) == sorted(
+    assert sorted(_written(path, prior)) == sorted(
         [(origin, "PC-I1"), (origin, "@coverage")]
     )
     assert ("content", "docs/second.md") in refused_changes(
@@ -769,4 +787,73 @@ def test_ac11_sync_renders_the_review_reaffirm_command_in_plan_status(
     )
     code, oriented = command(capsys, "orient")
     assert code == 0 and oriented["next_actions"][0]["command"] in routed[0]
+    assert len(calls) == 1
+
+
+def test_ac10_stale_rows_of_a_missing_slot_assignment_remain_and_return_exit_4(
+    tmp_path, monkeypatch, capsys
+):
+    root, path, origins, calls = missing_slot_with_recorded_rows(tmp_path, monkeypatch)
+    complexity = origins[("complexity-review", "primary")]
+    held = [
+        [origins[("behavior-review", slot)], "@coverage"]
+        for slot in ("primary", "secondary")
+    ]
+    stale_basis(root)
+    waiting = review_status(path, role="behavior-review")
+    # Precondition: the missing-slot assignment holds stale recorded rows.
+    assert all(ref in waiting["open_refs"] for ref in held), waiting
+    assert waiting["evidence_state"] == "stale", waiting
+    prior = read(path)
+    code, result = reaffirm_all(capsys)
+    assert code == 4 and result["ok"], (
+        f"FAIL AC-10: the missing-slot assignment's stale rows remain, so reaffirm "
+        f"must return exit 4 although every other row was written, got exit "
+        f"{code}: {result}"
+    )
+    assert _written(path, prior) == [(complexity, "@coverage")], (
+        "FAIL AC-10: only the complete assignment's stale row may be written"
+    )
+    assert listed_with(result["data"], waiting["assignment_id"], "slot"), (
+        "FAIL AC-10: the missing-slot assignment must be listed with its reason"
+    )
+    assert review_status(path, role="complexity-review")["closed"]
+    assert len(calls) == 4
+
+
+# The pinned ruff format output for the host's cited check: requoted strings
+# and one blank line after the import.
+CHECK_SOURCE = (
+    "from pathlib import Path\n"
+    "assert 'VALUE = 7' in Path('src/example.py').read_text()\n"
+)
+REFLOWED_CHECK = (
+    "from pathlib import Path\n\n"
+    'assert "VALUE = 7" in Path("src/example.py").read_text()\n'
+)
+
+
+def test_ac10_reaffirmed_row_stays_current_across_a_reflow_of_its_citation(
+    tmp_path, monkeypatch, capsys
+):
+    root, path, origin, calls = disposed_spec_review(tmp_path, monkeypatch)
+    check = root / SPEC_CITATIONS["@coverage"]
+    assert check.read_text() == CHECK_SOURCE
+    stale_basis(root)
+    prior = read(path)
+    code, result = reaffirm(capsys)
+    assert code == 0 and result["ok"], result
+    assert sorted(_written(path, prior)) == sorted(
+        (origin, finding_id) for finding_id in SPEC_CITATIONS
+    )
+    check.write_text(REFLOWED_CHECK)
+    current = review_status(path)
+    assert current["closed"] and current["evidence_state"] == "current", (
+        f"FAIL AC-10: a review-equivalent reflow of a reaffirmed row's citation "
+        f"must keep the row current: {current}"
+    )
+    check.write_text(REFLOWED_CHECK.replace("VALUE = 7", "VALUE = 8"))
+    assert review_status(path)["open_refs"] == [[origin, "@coverage"]], (
+        "a behaviour edit to the citation must make exactly that row stale"
+    )
     assert len(calls) == 1

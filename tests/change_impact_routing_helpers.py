@@ -16,9 +16,13 @@ from heddle.contracts import operations as ops
 from tests.concurrent_review_helpers import (
     PRIMARY,
     SECONDARY,
+    dual,
     full_peer_host,
     gate_runs,
+    off,
     run_slot,
+    set_launch,
+    single,
 )
 from tests.operational_model_helpers import SPEC, read, session, write
 from tests.structured_review_helpers import finding
@@ -28,6 +32,7 @@ from tests.tiering_review_helpers import (
     current_host,
     dispose,
     disposition,
+    open_round,
     provider_transport,
     review_content,
     review_status,
@@ -150,6 +155,73 @@ def disposed_peer_reviews(tmp_path, monkeypatch, *, behavior_secondary=False):
     if behavior_secondary:
         waiting = review_status(path, role="behavior-review")
         assert waiting["missing_slots"] == [SECONDARY], waiting
+    return root, path, origins, calls
+
+
+def install_engine(monkeypatch) -> list[tuple[str, str]]:
+    """An in-process double at the gate-engine seam.
+
+    Each call binds a valid canonical review for its prepared run, accounting
+    for a verification round's targets, exactly as the concurrent-review
+    double does; preparation, recording and closure stay real.
+    """
+    from tests.concurrent_review_helpers import canonical_outcome
+
+    calls: list[tuple[str, str]] = []
+
+    def run(gate_type, context, *, feature, **_kwargs):
+        calls.append((gate_type.name, context.prepared_run.reviewer_slot))
+        return canonical_outcome(gate_type, context, feature)
+
+    monkeypatch.setattr("heddle.gate.entry.run_gate_for_runtime", run)
+    return calls
+
+
+def missing_slot_with_recorded_rows(tmp_path, monkeypatch):
+    """A dual behavior review whose closed round 1 holds disposition rows and
+    whose round 2 is missing its secondary, beside a closed complexity review.
+
+    The secondary serves every round, so round 2 freezes both slots.
+    """
+    root, path = current_host(
+        tmp_path,
+        monkeypatch,
+        stage="peer-review",
+        overrides={
+            "peer-review-sequential": off("peer-review-sequential"),
+            "behavior-review": dual("behavior-review", window="all"),
+            "complexity-review": single("complexity-review"),
+        },
+    )
+    set_launch(root, "sequential")
+    calls = install_engine(monkeypatch)
+    origins = {}
+    for role, slot in (
+        ("behavior-review", PRIMARY),
+        ("behavior-review", SECONDARY),
+        ("complexity-review", PRIMARY),
+    ):
+        result = run_slot(role, slot)
+        assert result.ok, result.to_envelope()
+        origins[(role, slot)] = gate_runs(path)[-1]["run_id"]
+    recorded = dispose(
+        path,
+        [
+            disposition(
+                run_id, "@coverage", status="settled", references=["tests/check.py"]
+            )
+            for run_id in origins.values()
+        ],
+    )
+    assert recorded.ok, recorded.to_envelope()
+    for role in PEER_CITATIONS:
+        assert review_status(path, role=role)["closed"], role
+    opened = open_round(path, role="behavior-review")
+    assert opened.ok, opened.to_envelope()
+    later = run_slot("behavior-review", PRIMARY)
+    assert later.ok, later.to_envelope()
+    waiting = review_status(path, role="behavior-review")
+    assert waiting["missing_slots"] == [SECONDARY], waiting
     return root, path, origins, calls
 
 
