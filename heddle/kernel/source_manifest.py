@@ -313,17 +313,25 @@ def compare_source_evidence(
     both is ``added`` or ``removed`` when it flips between missing and present,
     ``kind`` when file, symlink or directory differ, ``mode`` when the
     executable bit differs, and otherwise ``formatting-only`` when the two
-    observations are review-equivalent, else ``content``. Each named component
-    whose digest differs is ``component:<name>``. The manifests are equivalent
-    only when every change is formatting-only. Equivalence needs identity on
-    both sides, so a current read is stamped against the record first.
+    observations are review-equivalent, else ``content``. A path declared or
+    selected by only one definition is also a ``membership`` change unless an
+    observation change already names it, so every difference in
+    ``source_sha256`` is named. Each named component whose digest differs is
+    ``component:<name>``. The manifests are equivalent only when every change
+    is formatting-only. Equivalence needs identity on both sides, so a current
+    read is stamped against the record first.
     """
     before = {row.path: row for row in recorded.observations}
     after = {row.path: row for row in current.observations}
+    redefined = _definition_membership(recorded.definition, current.definition)
     changes = [
         SourceChange(kind, path)
-        for path in sorted(before.keys() | after.keys(), key=byte_sort_key)
-        if (kind := _path_change(before.get(path), after.get(path))) is not None
+        for path in sorted(before.keys() | after.keys() | redefined, key=byte_sort_key)
+        if (
+            kind := _path_change(before.get(path), after.get(path))
+            or ("membership" if path in redefined else None)
+        )
+        is not None
     ]
     left = {component.name: component.digest for component in recorded.components}
     right = {component.name: component.digest for component in current.components}
@@ -344,6 +352,20 @@ def changed_paths(changes: Iterable[SourceChange]) -> tuple[str, ...]:
             {change.path for change in changes if change.path is not None},
             key=byte_sort_key,
         )
+    )
+
+
+def _definition_membership(
+    recorded: SourceDefinition, current: SourceDefinition
+) -> set[str]:
+    """Paths whose declared or selected membership differs between definitions.
+
+    Under another source-set kind every declaration belongs to a different set.
+    """
+    if recorded.kind != current.kind:
+        return {*recorded.declaration_paths, *current.declaration_paths}
+    return (set(recorded.declaration_paths) ^ set(current.declaration_paths)) | (
+        set(recorded.paths) ^ set(current.paths)
     )
 
 

@@ -755,3 +755,71 @@ def test_ac9_disposition_write_publishes_its_named_manifest_and_dry_run_none(
     assert evidence_files(path) - before == {reference["artifact"]}, (
         "FAIL AC-9: the disposition write published files it does not name"
     )
+
+
+def test_ac6_every_source_identity_difference_names_a_typed_change():
+    """AC-6: a differing source identity always names its changes; a declaration
+    or selection difference over the same observed paths is a membership change,
+    so it is never equivalent."""
+    from itertools import product
+
+    from heddle.kernel.source_manifest import (
+        ObservedPath,
+        SourceChange,
+        SourceDefinition,
+        build_source_evidence,
+        compare_source_evidence,
+    )
+
+    directory = ObservedPath("src", "directory", False, b"")
+    leaves = (
+        ObservedPath("src/a.py", "file", False, b"a = 1\n"),
+        ObservedPath("src/a.py", "file", False, b"a = 2\n"),
+        ObservedPath("src/a.py", "file", True, b"a = 1\n"),
+        ObservedPath("src/a.py", "missing", False, b""),
+    )
+    definitions = (
+        SourceDefinition("milestone-owns", ("src",), ("src", "src/a.py")),
+        SourceDefinition("milestone-owns", ("src", "src/a.py"), ("src", "src/a.py")),
+        SourceDefinition("milestone-owns", ("src", "src/a.py"), ("src",)),
+        SourceDefinition("feature-inputs", ("src",), ("src", "src/a.py")),
+        SourceDefinition("milestone-owns", ("src/a.py",), ("src/a.py",)),
+    )
+    manifests = [
+        build_source_evidence(
+            definition,
+            [
+                row
+                for row in (directory, leaf)
+                if row.path in {*definition.declaration_paths, *definition.paths}
+            ],
+        )
+        for definition, leaf in product(definitions, leaves)
+    ]
+    unnamed = [
+        (left.definition, right.definition)
+        for left, right in product(manifests, repeat=2)
+        if (left.source_sha256 != right.source_sha256)
+        != bool(compare_source_evidence(left, right).changes)
+    ]
+    assert not unnamed, (
+        "FAIL AC-6: a source identity difference names no typed change, or an "
+        f"unchanged identity names one: {unnamed[:3]}"
+    )
+
+    declared_dir, declared_both = (
+        build_source_evidence(definition, (directory, leaves[0]))
+        for definition in definitions[:2]
+    )
+    for recorded, current in (
+        (declared_dir, declared_both),
+        (declared_both, declared_dir),
+    ):
+        comparison = compare_source_evidence(recorded, current)
+        assert recorded.source_sha256 != current.source_sha256
+        assert comparison.changes == (SourceChange("membership", "src/a.py"),), (
+            f"FAIL AC-6: a declaration-only change is not named: {comparison}"
+        )
+        assert not comparison.equivalent, (
+            "FAIL AC-6: a declaration-only change compared as equivalent"
+        )
