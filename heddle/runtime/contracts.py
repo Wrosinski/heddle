@@ -1248,10 +1248,19 @@ COMMAND_SURFACE: tuple[CommandContract, ...] = (
             _FEATURE,
             _DRY_RUN,
             _EXPECT_REVISION,
-            FlagSpec("--role", "existing review assignment role"),
-            FlagSpec("--scope", "feature or milestone assignment scope"),
+            FlagSpec(
+                "--role",
+                "optional, with --scope: one existing assignment's role; omit both "
+                "for every unsealed assignment",
+            ),
+            FlagSpec(
+                "--scope",
+                "optional, with --role: feature or milestone assignment scope",
+            ),
         ),
-        exit_codes=_EXIT_CAS,
+        # Rows that do not qualify are listed, not written: exit 4 when some
+        # remain beside those written, exit 1 when none is writable.
+        exit_codes=_EXIT_TRANSITION,
         output_schema=None,
     ),
     CommandContract(

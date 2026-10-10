@@ -86,7 +86,11 @@ from heddle.kernel.source_manifest import (
 from heddle.kernel.state import StateFile, parse_state_document
 from heddle.kernel.verification import VerificationFreshness
 from heddle.runtime.clock import utc_now_minutes
-from heddle.runtime.diagnostics import conflict_failure, write_failure
+from heddle.runtime.diagnostics import (
+    conflict_failure,
+    kernel_error_result,
+    write_failure,
+)
 from heddle.runtime.feature_context import (
     ResolveFeatureFailure,
     resolve_snapshot_from_cwd,
@@ -1185,9 +1189,19 @@ class _Qualification:
             )
         return self.stamped_bases[assignment.id]
 
-    def basis_reference(self, assignment: ReviewAssignment) -> ManifestReference:
-        """The reference a written row names; a dry run computes it unpublished."""
-        reference = evidence_reference(self.stamped_basis(assignment))
+    def basis_reference(
+        self, assignment: ReviewAssignment, *, stamped: bool = True
+    ) -> ManifestReference:
+        """The reference a written row names; a dry run computes it unpublished.
+
+        Unstamped, it names the basis as this frame observed it, so a read
+        that only judges a reaffirm candidate never stamps.
+        """
+        reference = evidence_reference(
+            self.stamped_basis(assignment)
+            if stamped
+            else self.basis_evidence(assignment)
+        )
         return ManifestReference(
             reference.schema,
             reference.artifact,
@@ -1852,9 +1866,18 @@ def projection(
                 row["next_step"] = "policy"
             explained: tuple[tuple[EvidenceExplanation, bool], ...] = ()
             if receipt is None and basis_applies and closed.open_refs:
-                explained = frame.explain_open(
-                    assignment, closed.open_refs, next_action(snapshot, row).action
-                )
+                remedy = next_action(snapshot, row).action
+                if (
+                    isinstance(remedy, ops.AuthoringAction)
+                    and remedy.work == "review-disposition"
+                    and (references := _reaffirm_references(frame, assignment))
+                ):
+                    # A stale row reaffirm would write routes reaffirm first;
+                    # its references mark the rows it would refuse.
+                    row["next_step"] = "reaffirm"
+                    row["reaffirm_references"] = list(references)
+                    remedy = next_action(snapshot, row).action
+                explained = frame.explain_open(assignment, closed.open_refs, remedy)
             row["evidence_explanations"] = []
             for explanation, _stale in explained:
                 payload = ops.decoded_payload(explanation)
@@ -2080,6 +2103,19 @@ def next_action(snapshot: FeatureSnapshot, row: dict[str, Any]) -> NextAction:
                 )
             ),
             f"complete {row['role']} {row['scope']} slot {slot.name}",
+        )
+    if row["next_step"] == "reaffirm":
+        return NextAction(
+            ops.AuthoringAction(
+                snapshot.feature,
+                "review-reaffirm",
+                tuple(row["reaffirm_references"]),
+                "",
+                snapshot.state.revision,
+            ),
+            f"Inspect whether each resolution of {row['role']} {row['scope']} still "
+            "applies, then run review reaffirm: it re-records the rows that still "
+            "qualify and lists those marked refused, which need new dispositions.",
         )
     return NextAction(
         ops.AuthoringAction(
@@ -2529,73 +2565,221 @@ def _publish_basis_manifests(
             raise Conflict("review source changed while it was recorded; retry")
 
 
-def _reaffirmations(
-    config: ProjectConfig, snapshot: FeatureSnapshot, operation: ops.ReaffirmReview
-) -> tuple[ReviewAssignment, list[dict[str, Any]]]:
-    assignment = next(
-        (
-            a
-            for a in snapshot.state.review_assignments.assignments
-            if (a.role, a.scope) == (operation.role, operation.scope)
-        ),
-        None,
-    )
-    if assignment is None:
-        raise core.invalid("reaffirm requires an existing review assignment")
-    if core.assignment_sealed(snapshot.state, assignment):
-        raise core.invalid("sealed acceptance cannot gain reaffirmed dispositions")
-    frame = _Qualification(config, snapshot)
-    if frame.assess(assignment).missing_slots:
-        raise core.invalid("complete missing reviewer slots before reaffirming")
+@dataclass(frozen=True)
+class _Reaffirmation:
+    """One assignment's reaffirm: the copies it writes and the rows it refuses.
+
+    Each entry keeps the ledger index of the effective row it judged.
+    """
+
+    assignment: ReviewAssignment
+    written: tuple[tuple[int, AssignmentDisposition], ...]
+    refused: tuple[tuple[int, AssignmentDisposition, _EvidenceQualification], ...]
+
+
+def _reaffirmation(
+    frame: _Qualification, assignment: ReviewAssignment
+) -> _Reaffirmation:
+    """Requalify each effective resolution at the assignment's current basis.
+
+    The command and readiness share it. A candidate names the unstamped
+    current manifest, because qualification reads only that one is named; the
+    command stamps the rows it writes.
+    """
     basis = frame.basis(assignment)
-    additions = []
-    failures = []
-    now = utc_now_minutes()
+    reference: ManifestReference | None = None
+    written: list[tuple[int, AssignmentDisposition]] = []
+    refused: list[tuple[int, AssignmentDisposition, _EvidenceQualification]] = []
     for index, old in frame.effective_dispositions(assignment):
         if old.status not in {"addressed", "settled"}:
             continue
+        if reference is None:
+            reference = frame.basis_reference(assignment, stamped=False)
         candidate = replace(
-            old,
-            evidence_basis=basis,
-            basis_evidence=frame.basis_reference(assignment),
-            rebound_by=None,
-            at=now,
+            old, evidence_basis=basis, basis_evidence=reference, rebound_by=None
         )
         qualification = _qualify_resolution(
             frame, candidate, basis, assignment=assignment
         )
         if not qualification.qualifies:
-            failures.append(
-                _row_failure(
-                    index,
-                    ops.decoded_payload(old),
-                    cast(str, qualification.predicate),
-                    qualification.remedy or "supply current qualifying evidence",
-                    field=qualification.field,
-                    reference=qualification.reference,
-                    verification_scope=qualification.verification_scope,
-                    status=qualification.status,
-                )
-            )
+            refused.append((index, old, qualification))
         elif old.evidence_basis != basis:
-            additions.append(ops.decoded_payload(candidate))
-    if failures:
+            written.append((index, candidate))
+    return _Reaffirmation(assignment, tuple(written), tuple(refused))
+
+
+def _stale_resolutions(
+    frame: _Qualification, assignment: ReviewAssignment
+) -> tuple[AssignmentDisposition, ...]:
+    """Effective resolutions that no longer qualify as recorded."""
+    frame.assess(assignment)
+    current = set(frame.qualified_disposition_indexes[assignment.id])
+    return tuple(
+        old
+        for index, old in frame.effective_dispositions(assignment)
+        if old.status in {"addressed", "settled"} and index not in current
+    )
+
+
+def _reaffirm_references(
+    frame: _Qualification, assignment: ReviewAssignment
+) -> tuple[str, ...]:
+    """The rows reaffirm would write, then those it would refuse with why.
+
+    Empty unless it would write a stale row, so disposition work stays the
+    remedy when every stale row needs new evidence.
+    """
+    plan = _reaffirmation(frame, assignment)
+    stale = {(d.run_id, d.finding_id) for d in _stale_resolutions(frame, assignment)}
+    if not any((row.run_id, row.finding_id) in stale for _i, row in plan.written):
+        return ()
+    return (
+        *(f"{row.run_id}#{row.finding_id}" for _i, row in plan.written),
+        *(
+            f"{old.run_id}#{old.finding_id} (refused: {_refusal(result)})"
+            for _i, old, result in plan.refused
+        ),
+    )
+
+
+def _refusal(result: _EvidenceQualification) -> str:
+    return ", ".join(
+        f"{change.kind} {change.path}" if change.path is not None else change.kind
+        for change in result.changes
+    ) or cast(str, result.predicate)
+
+
+def _refused_row(
+    assignment: ReviewAssignment,
+    index: int,
+    old: AssignmentDisposition,
+    result: _EvidenceQualification,
+) -> dict[str, Any]:
+    """A refused row as reaffirm lists it, with what changed since it was recorded."""
+    return {
+        **_row_failure(
+            index,
+            ops.decoded_payload(old),
+            cast(str, result.predicate),
+            result.remedy or "supply current qualifying evidence",
+            field=result.field,
+            reference=result.reference,
+            verification_scope=result.verification_scope,
+            status=result.status,
+        ),
+        "assignment_id": assignment.id,
+        "cause": result.cause,
+        "changed_dependencies": list(result.changed_dependencies),
+        "changes": [asdict(change) for change in result.changes],
+        "detail_limit": result.detail_limit,
+    }
+
+
+_NOTHING_REAFFIRMED = "nothing-reaffirmed"
+
+
+def _reaffirmations(
+    config: ProjectConfig, snapshot: FeatureSnapshot, operation: ops.ReaffirmReview
+) -> tuple[list[dict[str, Any]], dict[str, Any], bool]:
+    """Write every qualifying row of the selected assignments, listing the rest.
+
+    Without a role every unsealed assignment is selected, and sealed ones are
+    skipped; a named sealed assignment refuses. An assignment missing a slot
+    is listed with its reason, and its stale rows remain. Returns the rows to
+    append, the listing, and whether rows remain.
+    """
+    state = snapshot.state
+    if operation.role is None:
+        selected = tuple(
+            a
+            for a in state.review_assignments.assignments
+            if not core.assignment_sealed(state, a)
+        )
+    else:
+        assignment = next(
+            (
+                a
+                for a in state.review_assignments.assignments
+                if (a.role, a.scope) == (operation.role, operation.scope)
+            ),
+            None,
+        )
+        if assignment is None:
+            raise core.invalid("reaffirm requires an existing review assignment")
+        if core.assignment_sealed(state, assignment):
+            raise core.invalid("sealed acceptance cannot gain reaffirmed dispositions")
+        selected = (assignment,)
+    frame = _Qualification(config, snapshot)
+    plans: list[_Reaffirmation] = []
+    skipped: list[dict[str, Any]] = []
+    for assignment in selected:
+        missing = frame.assess(assignment).missing_slots
+        if missing:
+            skipped.append(
+                {
+                    "assignment_id": assignment.id,
+                    "role": assignment.role,
+                    "scope": assignment.scope,
+                    "reason": "complete missing reviewer slots before reaffirming: "
+                    + ", ".join(missing),
+                    "missing_slots": list(missing),
+                    "rows": [
+                        f"{d.run_id}#{d.finding_id}"
+                        for d in _stale_resolutions(frame, assignment)
+                    ],
+                }
+            )
+        else:
+            plans.append(_reaffirmation(frame, assignment))
+    refused = [
+        _refused_row(plan.assignment, index, old, result)
+        for plan in plans
+        for index, old, result in plan.refused
+    ]
+    remaining = bool(refused) or any(row["rows"] for row in skipped)
+    written = [plan for plan in plans if plan.written]
+    if remaining and not written:
         raise KernelError(
             code="disposition-batch-invalid",
-            message="reaffirmation refused: original evidence no longer qualifies",
-            hint="inspect each original concern and submit corrected evidence; "
-            "no rows were written",
+            message="reaffirmation wrote nothing: no remaining row qualifies at "
+            "the current basis",
+            hint="inspect each listed row and record new evidence with review "
+            "disposition; complete missing reviewer slots before reaffirming "
+            "their assignments; no rows were written",
+            reason=_NOTHING_REAFFIRMED,
             details={
                 "feature": snapshot.feature,
-                "revision": snapshot.state.revision,
+                "revision": state.revision,
                 "dry_run": operation.dry_run,
                 "wrote": False,
-                "rows": failures,
+                "rows": refused,
+                "skipped": skipped,
             },
         )
-    if additions and not operation.dry_run:
-        _publish_basis_manifests(frame, (assignment,))
-    return assignment, additions
+    if written and not operation.dry_run:
+        _publish_basis_manifests(frame, (plan.assignment for plan in written))
+    now = utc_now_minutes()
+    additions: list[dict[str, Any]] = []
+    for plan in written:
+        stamped = frame.basis_reference(plan.assignment)
+        additions.extend(
+            ops.decoded_payload(replace(row, basis_evidence=stamped, at=now))
+            for _index, row in plan.written
+        )
+    listing = {
+        "reaffirmed": [
+            {
+                "assignment_id": plan.assignment.id,
+                "run_id": row.run_id,
+                "finding_id": row.finding_id,
+            }
+            for plan in written
+            for _index, row in plan.written
+        ],
+        "refused": refused,
+        "skipped": skipped,
+    }
+    return additions, listing, remaining
 
 
 def _scope_change(
@@ -2764,10 +2948,10 @@ def _operate(
         ):
             raise conflict
         response: dict[str, Any] = {}
-        stopped = False
+        stopped = remaining = False
 
         def transform(document: dict[str, Any]) -> dict[str, Any]:
-            nonlocal response, stopped
+            nonlocal response, stopped, remaining
             current = replace(
                 snapshot, state=parse_state_document(document, source=path)
             )
@@ -2776,11 +2960,12 @@ def _operate(
                 "review_assignments",
                 ops.decoded_payload(current.state.review_assignments),
             )
-            reaffirmed_id = None
             if isinstance(operation, ops.ReaffirmReview):
-                assignment, additions = _reaffirmations(config, current, operation)
-                reaffirmed_id = assignment.id
+                additions, listing, remaining = _reaffirmations(
+                    config, current, operation
+                )
                 ledger["dispositions"].extend(additions)
+                response.update(listing)
             elif opening:
                 response, stopped = _apply_round_open(
                     config, current, updated, ledger, operation.payload
@@ -2798,13 +2983,15 @@ def _operate(
             after = replace(snapshot, state=parse_state_document(updated, source=path))
             observed = projection(config, after)
             response.update(observed)
-            if reaffirmed_id is not None:
-                response["closure"] = next(
-                    row
-                    for row in observed["review_closure"]["assignments"]
-                    if row["assignment_id"] == reaffirmed_id
-                )
-            elif not opening and not isinstance(operation, ops.ReaffirmReview):
+            if isinstance(operation, ops.ReaffirmReview):
+                if operation.role is not None:
+                    response["closure"] = next(
+                        row
+                        for row in observed["review_closure"]["assignments"]
+                        if (row["role"], row["scope"])
+                        == (operation.role, operation.scope)
+                    )
+            elif not opening:
                 origins = {
                     row["run_id"]
                     for row in cast(dict[str, Any], operation.payload)["dispositions"]
@@ -2852,10 +3039,20 @@ def _operate(
                     preview=operation.dry_run,
                 ),
             )
+        if remaining:
+            # Rows that no longer qualify are listed beside those written; the
+            # advisory exit says they still need new evidence.
+            return HeddleResult.success(response, exit_code=ExitCode.ADVISORY)
         return HeddleResult.success(response)
     except Conflict as error:
         return conflict_failure(error)
     except KernelError as error:
+        if error.reason == _NOTHING_REAFFIRMED:
+            # Every remaining row needs new evidence: reaffirm's own exit 1,
+            # distinct from a refused operation.
+            return kernel_error_result(
+                error, exit_codes={error.code: ExitCode.INTERNAL}
+            )
         return write_failure(error)
     except (OSError, ValueError, TypeError) as error:
         return write_failure(core.invalid(str(error)))
@@ -2866,6 +3063,8 @@ def record_disposition(operation: ops.RecordReviewDisposition) -> HeddleResult:
 
 
 def reaffirm_review(operation: ops.ReaffirmReview) -> HeddleResult:
+    if (operation.role is None) != (operation.scope is None):
+        return usage_failure(_ROLE_AND_SCOPE, "use review reaffirm --help")
     return _operate(operation, opening=False)
 
 
@@ -3082,6 +3281,12 @@ def _render(result: HeddleResult) -> None:
                     f"{row.get('predicate')}: {row.get('remedy')}",
                     file=stream,
                 )
+        for skipped in result.error.details.get("skipped", ()):
+            if isinstance(skipped, dict):
+                print(
+                    f"  {skipped.get('assignment_id')}: {skipped.get('reason')}",
+                    file=stream,
+                )
         print(f"  hint: {result.error.hint}", file=stream)
         return
     print(json.dumps(result.to_envelope(), indent=2), file=stream)
@@ -3099,6 +3304,12 @@ def run_interpret(args: list[str], json_mode: bool) -> int:
     return _run_input(args, json_mode, opening=False, interpreting=True)
 
 
+_ROLE_AND_SCOPE = (
+    "--role and --scope name one assignment together; give both, or neither "
+    "for every unsealed assignment"
+)
+
+
 def run_reaffirm(args: list[str], json_mode: bool) -> int:
     parsed, values, _, failure = parse_write_args(
         args,
@@ -3106,16 +3317,15 @@ def run_reaffirm(args: list[str], json_mode: bool) -> int:
             flag: (f"{flag} requires a value", "use review reaffirm --help")
             for flag in ("--role", "--scope")
         },
-        unknown_hint="use --role <role> --scope <feature|mN> and --feature <slug>",
+        unknown_hint="use --role <role> --scope <feature|mN>, or neither, and "
+        "--feature <slug>",
         allow_positionals=False,
     )
     if failure is None:
         assert parsed is not None
         role, scope = values["--role"], values["--scope"]
-        if not role or not scope:
-            failure = usage_failure(
-                "--role and --scope are required", "use review reaffirm --help"
-            )
+        if (role is None) != (scope is None) or "" in (role, scope):
+            failure = usage_failure(_ROLE_AND_SCOPE, "use review reaffirm --help")
         else:
             from heddle.runtime.application import execute
 

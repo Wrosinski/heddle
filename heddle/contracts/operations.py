@@ -81,8 +81,10 @@ class ReviewRoundOpen:
 
 @dataclass(frozen=True)
 class ReaffirmReview:
-    role: str
-    scope: str
+    # Role and scope name one assignment together; neither covers every
+    # unsealed assignment.
+    role: str | None = None
+    scope: str | None = None
     feature: str | None = None
     expect_revision: int | None = None
     dry_run: bool = False
@@ -529,7 +531,12 @@ def operation_command(operation: Operation) -> str:
                 )
             )
         case ReaffirmReview():
-            arguments.extend(("--role", operation.role, "--scope", operation.scope))
+            for flag, value in (
+                ("--role", operation.role),
+                ("--scope", operation.scope),
+            ):
+                if value is not None:
+                    arguments.extend((flag, value))
         case RunGate() | ShowPrompt():
             arguments.append(operation.gate)
             for flag, value in (
@@ -714,6 +721,12 @@ def action_command(action: Action) -> str:
                     feature=feature,
                     payload={},
                     expect_revision=revision,
+                )
+            elif work == "review-reaffirm":
+                # Reaffirm reads no authored input: the lead's judgment is the
+                # inspection, and the command requalifies every row itself.
+                authored_operation = ReaffirmReview(
+                    feature=feature, expect_revision=revision
                 )
             else:
                 raise ValueError(f"unknown authoring work {work!r}")
