@@ -472,34 +472,80 @@ def test_ac3_a_non_equivalent_edit_stales_exactly_the_rows_that_depend_on_it(
 def test_ac3_equivalent_change_during_the_provider_call_records_the_launch_basis(
     tmp_path, monkeypatch, run_cli
 ):
+    """The reflowed run is the later round, so it also serves as review evidence."""
+    import hashlib
+
+    from heddle.kernel.managed_regions import authored_plan
+    from heddle.kernel.review_equivalence import equivalence_identity
+    from heddle.kernel.source_manifest import decode_source_evidence
+
     host, path = _authored_host(
         tmp_path, monkeypatch, stage="scaffold", role=SCAFFOLDING
     )
+    _first, origin = _first_round(monkeypatch, run_cli, path)
+    assert open_round(path, role=SCAFFOLDING).ok
     launch = _show_identity(run_cli)
+    launched = {
+        CHECK: (host / CHECK).read_bytes(),
+        PLAN: authored_plan((host / PLAN).read_text()).encode(),
+    }
+    content = review_content(SCAFFOLDING)
+    content["prior_dispositions"] = [
+        reviewer_disposition(finding_ref(origin, "TS-I1"), action="addressed"),
+        reviewer_disposition(finding_ref(origin, "@coverage"), action="addressed"),
+    ]
 
     def reflow_while_reviewing(_cli, _prompt):
         _write(host, CHECK, _CHECK_FORMATTED)
         _write(host, PLAN, _PLAN_FORMATTED)
-        return review_content(SCAFFOLDING)
+        return content
 
     calls = provider_transport(monkeypatch, reflow_while_reviewing)
     code, result = gate_command(run_cli, "run-gate", SCAFFOLDING)
 
     recorded = runs(path)
-    assert len(calls) == 1 and len(recorded) == 1
-    assert recorded[0].get("failure_reason") != "reviewed-source-changed", (
+    assert len(calls) == 1 and len(recorded) == 2
+    assert recorded[-1].get("failure_reason") != "reviewed-source-changed", (
         "FAIL AC-3: a review-equivalent source change during the provider call "
         "rejected the completed review"
     )
     assert code in (0, 4) and result["ok"] and result["data"]["accepted"], result
-    assert recorded[0]["review_basis_hash"] == launch["review_basis_hash"]
-    assert recorded[0]["input_hash"] == launch["input_hash"]
+    assert recorded[-1]["review_basis_hash"] == launch["review_basis_hash"]
+    assert recorded[-1]["input_hash"] == launch["input_hash"]
     attempts = yaml.safe_load(path.read_text())["review_assignments"]["attempts"]
-    assert len(attempts) == 1 and attempts[0]["source"] is not None
+    assert len(attempts) == 2 and attempts[-1]["source"] is not None
     after = _show_identity(run_cli)
     assert after["review_basis_hash"] != launch["review_basis_hash"], (
         "the recorded basis stays raw; equivalence never replaces it"
     )
+
+    [artifact] = [
+        item
+        for item in attempts[-1]["artifacts"]
+        if item["role"] == "evidence"
+        and item["path"].startswith("verification/source-evidence.")
+    ]
+    manifest = decode_source_evidence((path.parent / artifact["path"]).read_bytes())
+    observed = {row.path: row for row in manifest.observations}
+    for relative, launch_bytes in launched.items():
+        row = observed[relative]
+        assert row.content_sha256 == hashlib.sha256(launch_bytes).hexdigest()
+        identity = row.equivalence
+        assert identity is not None and (identity.rule, identity.digest) == (
+            equivalence_identity(relative, launch_bytes)
+        ), (
+            f"FAIL AC-3: the attempt's manifest names no identity of the reviewed "
+            f"bytes of {relative}; it was stamped from the post-reflow re-read"
+        )
+
+    verifier = result["data"]["run_id"]
+    _recorded(path, _review_backed_rows(origin, verifier))
+    row = review_status(path, role=SCAFFOLDING)
+    assert row["closed"] and row["evidence_explanations"] == [], (
+        "FAIL AC-3: the run reviewed across the reflow does not serve as review "
+        f"evidence: {row['open_refs']} {row['evidence_explanations']}"
+    )
+    assert _provider_calls((_first, calls)) == 2
 
 
 def test_ac3_survivor_behaviour_edit_during_the_provider_call_still_rejects(
@@ -755,6 +801,67 @@ def test_ac4_sealing_rebinds_exactly_the_equivalence_current_rows(
     )
     assert not refused.ok and snapshot(host) == sealed_bytes
     assert _provider_calls(calls) == 2
+
+
+def test_ac4_milestone_advance_rebinds_an_equivalence_current_milestone_review_row(
+    tmp_path, monkeypatch, run_cli
+):
+    """A milestone receipt re-binds in the advance write, as phase exit does."""
+    role = "milestone-review"
+    host, path = current_host(
+        tmp_path, monkeypatch, stage="implement", overrides=_policy_for(role)
+    )
+    calls = provider_transport(monkeypatch, review_content(role))
+    origin = _run(run_cli, role)
+    _recorded(path, [disposition(origin, "@coverage", status="settled")])
+    # Trailing whitespace only: review-equivalent, and m1's check still passes.
+    (host / "src/example.py").write_text("VALUE = 7 \n")
+    code, verified = gate_command(run_cli, "verify", "--scope", "m1")
+    assert code == 0 and verified["ok"], verified
+    status = execute(ops.Status(feature=V7_FEATURE))
+    [review] = [
+        row
+        for row in status.data["review_closure"]["assignments"]
+        if (row["role"], row["scope"]) == (role, "m1")
+    ]
+    assert review["closed"] and review["evidence_explanations"] == [], review
+    before = yaml.safe_load(path.read_text())
+    rows_before = before["review_assignments"]["dispositions"]
+
+    unchanged = snapshot(host)
+    preview = execute(
+        ops.MilestoneAdvance(
+            feature=V7_FEATURE, expect_revision=before["revision"], dry_run=True
+        )
+    )
+    assert preview.ok, preview.to_envelope()
+    assert snapshot(host) == unchanged, "a dry run writes and publishes nothing"
+    reported = _rebinding_preview(preview.data)
+    assert reported is not None and len(reported) == 1, preview.data
+    assert origin in json.dumps(reported[0])
+
+    advanced = execute(ops.MilestoneAdvance(feature=V7_FEATURE))
+
+    assert advanced.ok, advanced.to_envelope()
+    value = yaml.safe_load(path.read_text())
+    assert value["revision"] == before["revision"] + 1, "one sealing write"
+    rows = value["review_assignments"]["dispositions"]
+    assert rows[: len(rows_before)] == rows_before
+    [rebound] = rows[len(rows_before) :]
+    assert (rebound["run_id"], rebound["finding_id"]) == (origin, "@coverage")
+    assert rebound["rebound_by"] == "review-equivalence"
+    receipt = value["review_assignments"]["acceptances"][-1]
+    assert (receipt["boundary"], receipt["scope"]) == ("milestone", "m1")
+    [accepted] = receipt["assignments"]
+    assert accepted["source_identity"] == rebound["evidence_basis"]
+    assert {
+        item["index"]
+        for item in accepted["records"]
+        if item["family"] == "dispositions"
+    } == {len(rows_before)}, "the receipt seals the re-binding row"
+    validated = execute(ops.Validate(feature=V7_FEATURE))
+    assert validated.ok, validated.to_envelope()
+    assert len(calls) == 1
 
 
 def test_ac3_attribution_references_use_equivalence_while_the_source_stays_exact(
