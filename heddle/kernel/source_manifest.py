@@ -12,14 +12,22 @@ from typing import Any, Literal, get_args
 import yaml
 
 from heddle.kernel.project_config import KernelError
+from heddle.kernel.review_equivalence import equivalence_identity
 
 SOURCE_MANIFEST_SCHEMA = "heddle.verification-source/v2"
-SOURCE_EVIDENCE_SCHEMA = "heddle.source-evidence/v1"
+SOURCE_EVIDENCE_V1_SCHEMA = "heddle.source-evidence/v1"
+# Writers emit v2; v1 artifacts recorded before it still decode byte-exactly.
+SOURCE_EVIDENCE_SCHEMA = "heddle.source-evidence/v2"
+SOURCE_EVIDENCE_SCHEMAS = (SOURCE_EVIDENCE_V1_SCHEMA, SOURCE_EVIDENCE_SCHEMA)
 SOURCE_EVIDENCE_REFERENCE_SCHEMA = "heddle.source-evidence-ref/v1"
 SourceSetKind = Literal[
     "milestone-owns", "feature-owned-union", "feature-inputs", "outside-feature"
 ]
 SOURCE_SET_KINDS: frozenset[str] = frozenset(get_args(SourceSetKind))
+_EVIDENCE_FIELDS = frozenset({"schema", "definition", "observations", "source_sha256"})
+_V2_EVIDENCE_FIELDS = frozenset({"components"})
+_OBSERVATION_FIELDS = frozenset({"path", "kind", "executable", "content_sha256"})
+_V2_OBSERVATION_FIELDS = frozenset({"equivalence"})
 HEDDLE_OWNED_ROOTS = ("plans",)
 _HEDDLE_OWNED_ROOTS = tuple(tuple(root.split("/")) for root in HEDDLE_OWNED_ROOTS)
 
@@ -49,11 +57,29 @@ class ObservedPath:
 
 
 @dataclass(frozen=True)
+class EquivalenceIdentity:
+    """A review-equivalence identity: a rule id and its canonical digest."""
+
+    rule: str
+    digest: str
+
+
+@dataclass(frozen=True)
 class EvidenceObservation:
     path: str
     kind: Literal["file", "symlink", "directory", "missing"]
     executable: bool
     content_sha256: str
+    # Recorded beside raw identity (v2 only); never part of source_sha256.
+    equivalence: EquivalenceIdentity | None = None
+
+
+@dataclass(frozen=True)
+class EvidenceComponent:
+    """One named non-file digest of a basis manifest."""
+
+    name: str
+    digest: str
 
 
 @dataclass(frozen=True)
@@ -62,6 +88,8 @@ class SourceEvidence:
     definition: SourceDefinition
     observations: tuple[EvidenceObservation, ...]
     source_sha256: str
+    # Ordered named digests (v2 only); never part of source_sha256.
+    components: tuple[EvidenceComponent, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -75,6 +103,15 @@ class EvidenceReference:
 def byte_sort_key(value: str) -> bytes:
     """Order paths by UTF-8 bytes so source identities stay portable."""
     return value.encode("utf-8")
+
+
+def raw_observation(row: EvidenceObservation) -> tuple[str, str, bool, str]:
+    """Return the raw fields a source-evidence comparer binds.
+
+    Comparers use these, never whole observations, so a v1 record without an
+    equivalence identity compares exactly as before against v2 observations.
+    """
+    return row.path, row.kind, row.executable, row.content_sha256
 
 
 def normalize_paths(paths: Iterable[str]) -> tuple[str, ...]:
@@ -189,12 +226,18 @@ def build_source_evidence(
                 f"unknown source observation kind: {observation.kind!r}"
             )
         seen.add(path)
+        identity = (
+            equivalence_identity(path, observation.content)
+            if observation.kind == "file"
+            else None
+        )
         rows.append(
             EvidenceObservation(
                 path,
                 observation.kind,
                 observation.executable,
                 hashlib.sha256(observation.content).hexdigest(),
+                None if identity is None else EquivalenceIdentity(*identity),
             )
         )
     rows.sort(key=lambda row: byte_sort_key(row.path))
@@ -212,24 +255,21 @@ def build_source_evidence(
 def encode_source_evidence(evidence: SourceEvidence) -> bytes:
     """Return one deterministic UTF-8 representation for evidence identity."""
     _validate_source_evidence(evidence)
-    payload = {
+    payload: dict[str, Any] = {
         "schema": evidence.schema,
         "definition": {
             "kind": evidence.definition.kind,
             "declaration_paths": list(evidence.definition.declaration_paths),
             "paths": list(evidence.definition.paths),
         },
-        "observations": [
-            {
-                "path": row.path,
-                "kind": row.kind,
-                "executable": row.executable,
-                "content_sha256": row.content_sha256,
-            }
-            for row in evidence.observations
-        ],
+        "observations": [_encode_observation(row) for row in evidence.observations],
         "source_sha256": evidence.source_sha256,
     }
+    if evidence.components:
+        payload["components"] = [
+            {"name": component.name, "digest": component.digest}
+            for component in evidence.components
+        ]
     return (
         json.dumps(
             payload,
@@ -247,17 +287,16 @@ def decode_source_evidence(content: bytes) -> SourceEvidence:
         payload = yaml.safe_load(content.decode("utf-8"))
     except (UnicodeDecodeError, yaml.YAMLError) as error:
         raise _invalid_evidence(f"malformed source evidence: {error}") from error
-    if not isinstance(payload, dict) or set(payload) != {
-        "schema",
-        "definition",
-        "observations",
-        "source_sha256",
-    }:
+    if not isinstance(payload, dict) or not _EVIDENCE_FIELDS <= set(payload):
         raise _invalid_evidence("source evidence has unsupported fields")
-    if payload["schema"] != SOURCE_EVIDENCE_SCHEMA:
-        raise _invalid_evidence(
-            f"unsupported source evidence schema: {payload['schema']!r}"
-        )
+    schema = payload["schema"]
+    if schema not in SOURCE_EVIDENCE_SCHEMAS:
+        raise _invalid_evidence(f"unsupported source evidence schema: {schema!r}")
+    current = schema == SOURCE_EVIDENCE_SCHEMA
+    if not set(payload) <= _EVIDENCE_FIELDS | (
+        _V2_EVIDENCE_FIELDS if current else frozenset()
+    ):
+        raise _invalid_evidence("source evidence has unsupported fields")
     definition_value = payload["definition"]
     if not isinstance(definition_value, dict) or set(definition_value) != {
         "kind",
@@ -280,13 +319,15 @@ def decode_source_evidence(content: bytes) -> SourceEvidence:
         raise _invalid_evidence("source evidence observations must be a list")
     rows: list[EvidenceObservation] = []
     seen: set[str] = set()
+    allowed_row_fields = _OBSERVATION_FIELDS | (
+        _V2_OBSERVATION_FIELDS if current else frozenset()
+    )
     for value in rows_value:
-        if not isinstance(value, dict) or set(value) != {
-            "path",
-            "kind",
-            "executable",
-            "content_sha256",
-        }:
+        if (
+            not isinstance(value, dict)
+            or not _OBSERVATION_FIELDS <= set(value)
+            or not set(value) <= allowed_row_fields
+        ):
             raise _invalid_evidence("source evidence observation is malformed")
         try:
             path = normalize_paths((value["path"],))[0]
@@ -305,13 +346,35 @@ def decode_source_evidence(content: bytes) -> SourceEvidence:
         if not isinstance(executable, bool):
             raise _invalid_evidence("observation executable must be a boolean")
         _require_digest(digest, "observation content")
-        rows.append(EvidenceObservation(path, kind, executable, digest))
+        equivalence = (
+            _decode_named_digest(
+                value["equivalence"], "rule", "observation equivalence"
+            )
+            if "equivalence" in value
+            else None
+        )
+        rows.append(
+            EvidenceObservation(
+                path,
+                kind,
+                executable,
+                digest,
+                None if equivalence is None else EquivalenceIdentity(*equivalence),
+            )
+        )
     if tuple(rows) != tuple(sorted(rows, key=lambda row: byte_sort_key(row.path))):
         raise _invalid_evidence("source evidence observations are not canonical")
     source_sha256 = payload["source_sha256"]
     _require_digest(source_sha256, "source evidence identity")
+    components_value = payload.get("components", [])
+    if not isinstance(components_value, list):
+        raise _invalid_evidence("source evidence components must be a list")
+    components = tuple(
+        EvidenceComponent(*_decode_named_digest(value, "name", "evidence component"))
+        for value in components_value
+    )
     evidence = SourceEvidence(
-        SOURCE_EVIDENCE_SCHEMA, definition, tuple(rows), source_sha256
+        schema, definition, tuple(rows), source_sha256, components
     )
     _validate_source_evidence(evidence)
     if encode_source_evidence(evidence) != content:
@@ -362,11 +425,33 @@ def decode_evidence_reference(value: object) -> EvidenceReference:
     return reference
 
 
+def _encode_observation(row: EvidenceObservation) -> dict[str, Any]:
+    value: dict[str, Any] = {
+        "path": row.path,
+        "kind": row.kind,
+        "executable": row.executable,
+        "content_sha256": row.content_sha256,
+    }
+    if row.equivalence is not None:
+        value["equivalence"] = {
+            "rule": row.equivalence.rule,
+            "digest": row.equivalence.digest,
+        }
+    return value
+
+
+def _decode_named_digest(value: object, key: str, label: str) -> tuple[str, str]:
+    if not isinstance(value, dict) or set(value) != {key, "digest"}:
+        raise _invalid_evidence(f"{label} is malformed")
+    return value[key], value["digest"]
+
+
 def _validate_source_evidence(evidence: SourceEvidence) -> None:
-    if evidence.schema != SOURCE_EVIDENCE_SCHEMA:
+    if evidence.schema not in SOURCE_EVIDENCE_SCHEMAS:
         raise _invalid_evidence(
             f"unsupported source evidence schema: {evidence.schema!r}"
         )
+    _validate_v2_columns(evidence)
     paths = tuple(row.path for row in evidence.observations)
     if len(set(paths)) != len(paths):
         raise _invalid_evidence("duplicate source evidence observation")
@@ -386,6 +471,41 @@ def _validate_source_evidence(evidence: SourceEvidence) -> None:
     )
     if evidence.source_sha256 != expected:
         raise _invalid_evidence("source evidence identity contradicts its observations")
+
+
+def _validate_v2_columns(evidence: SourceEvidence) -> None:
+    """Equivalence and components exist only in v2, and only in their shapes."""
+    current = evidence.schema == SOURCE_EVIDENCE_SCHEMA
+    for row in evidence.observations:
+        if row.equivalence is None:
+            continue
+        if not current:
+            raise _invalid_evidence(
+                f"{evidence.schema} observations carry no equivalence identity"
+            )
+        if row.kind != "file":
+            raise _invalid_evidence(
+                f"only a file observation carries an equivalence identity: {row.path}"
+            )
+        if not isinstance(row.equivalence.rule, str) or not row.equivalence.rule:
+            raise _invalid_evidence("observation equivalence rule must be a string")
+        _require_digest(row.equivalence.digest, "observation equivalence")
+    if not isinstance(evidence.components, tuple):
+        raise _invalid_evidence("source evidence components must be a tuple")
+    if evidence.components and not current:
+        raise _invalid_evidence(f"{evidence.schema} evidence carries no components")
+    names: set[str] = set()
+    for component in evidence.components:
+        if (
+            not isinstance(component, EvidenceComponent)
+            or not isinstance(component.name, str)
+            or not component.name
+        ):
+            raise _invalid_evidence("evidence component must have a name")
+        if component.name in names:
+            raise _invalid_evidence(f"duplicate evidence component: {component.name}")
+        names.add(component.name)
+        _require_digest(component.digest, "evidence component")
 
 
 def _source_identity_from_evidence(

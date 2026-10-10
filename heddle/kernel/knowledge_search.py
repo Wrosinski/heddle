@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Literal
 
 from markdown_it import MarkdownIt
+from markdown_it import __version__ as _MARKDOWN_IT_VERSION
 from markdown_it.token import Token
 
 from heddle.kernel.knowledge import (
@@ -46,6 +47,7 @@ class _SearchDocument:
 
 
 _MARKDOWN = MarkdownIt("commonmark")
+_VERBATIM_BLOCK_TOKENS = frozenset({"fence", "code_block", "html_block"})
 _CREATE_SEARCH_TABLE = """
 CREATE VIRTUAL TABLE search_documents USING fts5(
   title,
@@ -56,6 +58,26 @@ CREATE VIRTUAL TABLE search_documents USING fts5(
   tokenize = 'porter unicode61 remove_diacritics 1'
 )
 """
+
+
+def markdown_parser_version() -> tuple[int, int]:
+    """Return the major and minor version of the shared CommonMark parser."""
+    major, minor = _MARKDOWN_IT_VERSION.split(".")[:2]
+    return int(major), int(minor)
+
+
+def markdown_block_ranges(text: str) -> tuple[tuple[int, int], ...]:
+    """Return the line ranges of every fence, code and HTML block in ``text``.
+
+    Ranges are the parser's half-open, zero-based ``Token.map`` pairs, in
+    document order, for blocks inside any container (list items and
+    blockquotes included). Lines are counted at ``\\r\\n``, ``\\r`` and ``\\n``.
+    """
+    return tuple(
+        (token.map[0], token.map[1])
+        for token in _MARKDOWN.parse(text)
+        if token.type in _VERBATIM_BLOCK_TOKENS and token.map is not None
+    )
 
 
 def search_knowledge(

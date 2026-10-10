@@ -11,6 +11,7 @@ from heddle.kernel.source_manifest import (
     decode_source_evidence,
     encode_source_evidence,
     normalize_paths,
+    raw_observation,
 )
 
 
@@ -37,12 +38,25 @@ def attribution_error(message: str) -> KernelError:
 _LISTED_PATHS = 10
 
 
+def raw_observations(
+    rows: tuple[EvidenceObservation, ...],
+) -> tuple[tuple[str, str, bool, str], ...]:
+    """Attributions bind raw identity only; equivalence never applies to them."""
+    return tuple(raw_observation(row) for row in rows)
+
+
+def same_raw_evidence(left: SourceEvidence, right: SourceEvidence) -> bool:
+    return left.definition == right.definition and raw_observations(
+        left.observations
+    ) == raw_observations(right.observations)
+
+
 def changed_observation_paths(
     expected: tuple[EvidenceObservation, ...],
     current: tuple[EvidenceObservation, ...],
 ) -> tuple[str, ...]:
-    before = {item.path: item for item in expected}
-    after = {item.path: item for item in current}
+    before = {item.path: raw_observation(item) for item in expected}
+    after = {item.path: raw_observation(item) for item in current}
     return tuple(
         sorted(
             path

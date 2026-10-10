@@ -67,6 +67,7 @@ heddle/kernel/recording.py
 heddle/kernel/resources.py
 heddle/kernel/review_assignments.py
 heddle/kernel/review_closure.py
+heddle/kernel/review_equivalence.py
 heddle/kernel/reviews.py
 heddle/kernel/smoke_disposition.py
 heddle/kernel/source_attribution.py

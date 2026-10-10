@@ -16,6 +16,8 @@ from heddle.kernel.source_attribution import (
     changed_observation_paths,
     overlaps_ownership,
     parse_attribution_input,
+    raw_observations,
+    same_raw_evidence,
     stale_attribution_error,
     validate_attribution_evidence,
 )
@@ -73,7 +75,7 @@ def qualified_attribution_paths(
         checked.extend(paths)
         current = observe_attribution(root, paths, plan_path=None)
         expected = tuple(item for item in row.source.observations if item.path in paths)
-        if current.observations != expected:
+        if raw_observations(current.observations) != raw_observations(expected):
             stale.update(
                 changed_observation_paths(expected, current.observations) or paths
             )
@@ -81,7 +83,7 @@ def qualified_attribution_paths(
         references = observe_attribution(
             root, row.references.definition.paths, plan_path=plan_path
         )
-        if references != row.references:
+        if not same_raw_evidence(references, row.references):
             changed_evidence.update(
                 changed_observation_paths(
                     row.references.observations, references.observations
