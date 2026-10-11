@@ -512,6 +512,51 @@ def test_ac6_disposition_basis_explanation_names_every_change_by_kind(
     assert oriented["evidence_explanations"] == row["evidence_explanations"]
 
 
+def test_ac6_disposition_basis_names_a_declaration_change_beside_a_reflow(
+    tmp_path, monkeypatch, run_cli
+):
+    """AC-6: declaring a file the basis already covered, while that file is only
+    reformatted, names the membership change and leaves the rows not current."""
+    from tests.operational_model_helpers import read, write
+    from tests.tiering_review_helpers import dispose, disposition, runs
+
+    host, path = _milestone_review_host(
+        tmp_path, monkeypatch, owns=("src/example.py", "tests/check.py", "src")
+    )
+    (host / "src/a.py").write_text("x='a'\n")
+    provider_transport(
+        monkeypatch,
+        review_content(
+            "milestone-review",
+            findings=[finding("MI-I1", classification="implement")],
+        ),
+    )
+    code, result = gate_command(run_cli, "run-gate", "milestone-review")
+    assert code == 4 and result["ok"], result
+    origin = runs(path)[0]["run_id"]
+    assert dispose(
+        path,
+        [
+            disposition(origin, "MI-I1"),
+            disposition(origin, "@coverage", status="settled"),
+        ],
+    ).ok
+    assert assignment_row("milestone-review", "m1")["closed"]
+
+    (host / "src/a.py").write_text('x = "a"\n')
+    value = read(path)
+    value["milestones"][0]["owns"].append("src/a.py")
+    write(path, value)
+
+    row = assignment_row("milestone-review", "m1")
+    assert not row["closed"] and row["evidence_state"] == "stale", (
+        f"FAIL AC-6: a declaration change beside a reflow left the basis current: {row}"
+    )
+    expected = {("formatting-only", "src/a.py"), ("membership", "src/a.py")}
+    for finding_id in ("MI-I1", "@coverage"):
+        assert_names_exactly(explanation_for(row, f"{origin}#{finding_id}"), expected)
+
+
 @pytest.mark.parametrize("recorded", ["with-manifest", "before-manifests"])
 def test_ac6_document_basis_explanation_or_its_unavailable_detail(
     tmp_path, monkeypatch, run_cli, recorded
@@ -760,7 +805,7 @@ def test_ac9_disposition_write_publishes_its_named_manifest_and_dry_run_none(
 def test_ac6_every_source_identity_difference_names_a_typed_change():
     """AC-6: a differing source identity always names its changes; a declaration
     or selection difference over the same observed paths is a membership change,
-    so it is never equivalent."""
+    so it is never equivalent, even beside a reflow of that same path."""
     from itertools import product
 
     from heddle.kernel.source_manifest import (
@@ -769,6 +814,7 @@ def test_ac6_every_source_identity_difference_names_a_typed_change():
         SourceDefinition,
         build_source_evidence,
         compare_source_evidence,
+        stamp_equivalence,
     )
 
     directory = ObservedPath("src", "directory", False, b"")
@@ -777,6 +823,8 @@ def test_ac6_every_source_identity_difference_names_a_typed_change():
         ObservedPath("src/a.py", "file", False, b"a = 2\n"),
         ObservedPath("src/a.py", "file", True, b"a = 1\n"),
         ObservedPath("src/a.py", "missing", False, b""),
+        ObservedPath("src/a.py", "file", False, b"x='a'\n"),
+        ObservedPath("src/a.py", "file", False, b'x = "a"\n'),
     )
     definitions = (
         SourceDefinition("milestone-owns", ("src",), ("src", "src/a.py")),
@@ -785,14 +833,18 @@ def test_ac6_every_source_identity_difference_names_a_typed_change():
         SourceDefinition("feature-inputs", ("src",), ("src", "src/a.py")),
         SourceDefinition("milestone-owns", ("src/a.py",), ("src/a.py",)),
     )
+    # Written records carry identity, so a reflow can compare equivalent.
     manifests = [
-        build_source_evidence(
-            definition,
-            [
-                row
-                for row in (directory, leaf)
-                if row.path in {*definition.declaration_paths, *definition.paths}
-            ],
+        stamp_equivalence(
+            build_source_evidence(
+                definition,
+                [
+                    row
+                    for row in (directory, leaf)
+                    if row.path in {*definition.declaration_paths, *definition.paths}
+                ],
+            ),
+            {leaf.path: (leaf.content,)},
         )
         for definition, leaf in product(definitions, leaves)
     ]
@@ -805,6 +857,16 @@ def test_ac6_every_source_identity_difference_names_a_typed_change():
     assert not unnamed, (
         "FAIL AC-6: a source identity difference names no typed change, or an "
         f"unchanged identity names one: {unnamed[:3]}"
+    )
+    redefined_equivalent = [
+        (left.definition, right.definition, compare_source_evidence(left, right))
+        for left, right in product(manifests, repeat=2)
+        if left.definition != right.definition
+        and compare_source_evidence(left, right).equivalent
+    ]
+    assert not redefined_equivalent, (
+        "FAIL AC-6: a declaration or selection difference compared as "
+        f"equivalent: {redefined_equivalent[:2]}"
     )
 
     declared_dir, declared_both = (
@@ -822,4 +884,24 @@ def test_ac6_every_source_identity_difference_names_a_typed_change():
         )
         assert not comparison.equivalent, (
             "FAIL AC-6: a declaration-only change compared as equivalent"
+        )
+
+    declared_dir, declared_both = (
+        stamp_equivalence(
+            build_source_evidence(definition, (directory, leaf)),
+            {leaf.path: (leaf.content,)},
+        )
+        for definition, leaf in zip(definitions[:2], leaves[4:], strict=True)
+    )
+    for recorded, current in (
+        (declared_dir, declared_both),
+        (declared_both, declared_dir),
+    ):
+        comparison = compare_source_evidence(recorded, current)
+        assert comparison.changes == (
+            SourceChange("formatting-only", "src/a.py"),
+            SourceChange("membership", "src/a.py"),
+        ), f"FAIL AC-6: a reflow masks the declaration change: {comparison}"
+        assert not comparison.equivalent, (
+            "FAIL AC-6: a declaration change beside a reflow compared as equivalent"
         )

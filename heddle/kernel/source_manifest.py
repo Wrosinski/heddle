@@ -314,9 +314,10 @@ def compare_source_evidence(
     ``kind`` when file, symlink or directory differ, ``mode`` when the
     executable bit differs, and otherwise ``formatting-only`` when the two
     observations are review-equivalent, else ``content``. A path declared or
-    selected by only one definition is also a ``membership`` change unless an
-    observation change already names it, so every difference in
-    ``source_sha256`` is named. Each named component whose digest differs is
+    selected by only one definition is also a ``membership`` change, named
+    beside any change to its observation, so a reflow never masks it and every
+    difference in ``source_sha256`` is named; one path can therefore carry two
+    changes. Each named component whose digest differs is
     ``component:<name>``. The manifests are equivalent only when every change
     is formatting-only. Equivalence needs identity on both sides, so a current
     read is stamped against the record first.
@@ -324,15 +325,13 @@ def compare_source_evidence(
     before = {row.path: row for row in recorded.observations}
     after = {row.path: row for row in current.observations}
     redefined = _definition_membership(recorded.definition, current.definition)
-    changes = [
-        SourceChange(kind, path)
-        for path in sorted(before.keys() | after.keys() | redefined, key=byte_sort_key)
-        if (
-            kind := _path_change(before.get(path), after.get(path))
-            or ("membership" if path in redefined else None)
-        )
-        is not None
-    ]
+    changes: list[SourceChange] = []
+    for path in sorted(before.keys() | after.keys() | redefined, key=byte_sort_key):
+        observed = _path_change(before.get(path), after.get(path))
+        if observed is not None:
+            changes.append(SourceChange(observed, path))
+        if path in redefined and observed != "membership":
+            changes.append(SourceChange("membership", path))
     left = {component.name: component.digest for component in recorded.components}
     right = {component.name: component.digest for component in current.components}
     changes.extend(
