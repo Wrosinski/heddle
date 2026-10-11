@@ -75,8 +75,9 @@ from another reviewer is not the required inspection. The native decision and
 qualified disposition are authority, not an edited Markdown review.
 
 For source-bound evidence, finish edits, sync, format, inspect, then record
-dispositions. Formatting is an authored byte change when an explicit raw-file
-reference observes it; future formatting is never invisible to evidence.
+dispositions. Review evidence for Python and Markdown survives a later
+reformat that leaves the syntax tree, or the text apart from table padding and
+spacing, unchanged; every other byte change to a cited or reviewed file counts.
 
 ## Follow-up review and evidence reuse
 
@@ -98,8 +99,9 @@ of the new `@coverage` obligation.
 The launch advisory identifies changed selected source paths. Consider formatter
 and commit hooks before spending a review call. Staged, unstaged and untracked
 inputs remain reviewable without acknowledgement; an unavailable Git observation
-is disclosed. Ignored records are still strict inputs when selected, and later
-formatting can invalidate reviewed bytes. Early coverage advice helps resolve
+is disclosed. Ignored records are still strict inputs when selected, and a
+later reformat of a file other than Python or Markdown invalidates reviewed
+bytes. Early coverage advice helps resolve
 ownership or evidenced outside-feature attribution; final coverage is compulsory.
 Settle ownership of every path a review fix adds before the post-review runs and
 before recording dispositions: an `owns` change afterwards stales the final
@@ -108,15 +110,21 @@ retained Footprint plus widenings the owner accepted) first gets one class-2
 question naming the path, the reason and a route that stays inside; widen
 `owns` only after the owner accepts.
 
-Invoke `heddle review reaffirm --role <role> --scope feature --feature <slug>`
-only after judging that the original resolutions apply to the current source.
-Preview with `--dry-run`, or bind the transaction with `--expect-revision`.
-The operation selects effective addressed/settled rows, preserves evidence hashes
-and inspection/decision bindings, and qualifies the whole batch before copying
-changed basis/time values. It checks current rows before returning a no-op.
-Superseded and unresolved rows remain untouched. Stale proof, edited citations
-or a missing required originating review need new qualifying evidence; no test,
-provider call, decision resolution or missing coverage acceptance is implicit.
+A review fix often stales rows whose resolutions still hold. Readiness then
+routes `review-reaffirm` authoring work, never a command the driver runs:
+its references name the rows the operation would copy and the rows it would
+refuse. Invoke `heddle review reaffirm --feature <slug>` only after judging that
+those resolutions apply to the current source; add
+`--role <role> --scope feature` to limit it to one assignment. Each stale effective
+addressed/settled row whose citations and supporting evidence still qualify is
+copied with a new basis and time, preserving evidence hashes and
+inspection/decision bindings; superseded and unresolved rows stay untouched and
+sealed assignments are skipped. The result lists every refused row with its
+changed paths and returns exit 4 while any remain, or exit 1 having written
+nothing when none qualifies. Stale proof, edited citations or a missing
+required originating review need new qualifying evidence; no test, provider
+call, decision resolution or missing coverage acceptance is implicit. Preview
+with `--dry-run`, or bind the transaction with `--expect-revision`.
 
 ## Verification evidence
 
@@ -127,6 +135,11 @@ run), **command adequacy** (the right checks were selected), **semantic quality*
 and reporting). A fresh provenance fact proves the first claim and recorded
 process outcome only. Changed relevant source makes affected
 proof stale; follow the native `heddle verify` remedy before the next boundary.
+Proof stays bound to raw bytes, so a formatter rewrite also stales it, with an
+explanation that names the change formatting-only. After a fix batch that
+stales several scopes, `heddle verify --stale` reruns the ones readiness would
+route next, one recorded fact each, and lists the scopes it skipped with their
+reasons; it never runs live, which keeps its separate authority.
 
 Source inspection and inspected assertions are not observed execution. A planned
 command, known prerequisite, or review grant does not authorize broad suites,
@@ -166,8 +179,9 @@ source. File it with `heddle decisions add` (see `--help`). An opt-out ruled at
 the specification checkpoint is a standing grant: the lead files that decision
 citing the ruling and resolves it where the session allows; a driven session
 cannot resolve, so the
-pending decision halts the driver until the owner does. Any later relevant edit
-restores the rerun, and the close records each waiver. A lane whose evidence is
+pending decision halts the driver until the owner does. The waiver survives a
+later formatting-only change to its covered Python or Markdown files; any other
+relevant edit restores the rerun, and the close records each waiver. A lane whose evidence is
 still current needs neither. A disposition citing a waived lane as verification
 evidence still needs a fresh run. With R Off, discharge declared live via
 `heddle verify --scope live` or its waiver before handoff even though the native

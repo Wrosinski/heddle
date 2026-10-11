@@ -113,8 +113,15 @@ MVP turns the confirmation off, it still covers a change to scope, the approved
 concept or a witness grant.
 
 For source-bound evidence, finish edits, sync, format, inspect, then record
-dispositions. Formatting is an authored byte change when an explicit raw-file
-reference observes it; future formatting is never invisible to evidence.
+dispositions. The plan's managed status region and a later reformat that only
+re-pads Markdown tables and spacing leave those rows current; a rewrap or an
+authored plan correction stales the rows whose basis or citations it changes.
+For those, readiness offers `review-reaffirm` work naming the rows it would
+write and refuse. After checking that each recorded resolution still holds for
+the corrected plan, run `heddle review reaffirm`. It writes every stale row
+whose citations and evidence still qualify across the stage's unsealed
+assignments and lists the others with their changed paths. Exit 4 leaves
+listed rows to re-dispose from fresh inspection; exit 1 means none qualified.
 
 Run `heddle validate` after changes. Follow native next actions for targeted
 review, stops, and explicit budget decisions; do not invent another fixed pass

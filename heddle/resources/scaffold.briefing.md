@@ -280,8 +280,9 @@ whatever its exit: exit 4 says findings, decisions or a retained response still
 need you, and only `ok: false` reports a failed call. Native evidence-bound
 lead dispositions own closure; there is no synthesis gate. Finish scaffold fixes and run the host's
 formatters, as its commit hooks would, over every file a row will cite before
-inspecting and recording dispositions; a later reformat of a cited file stops
-that row counting. Preserve exact original finding/decision references, coverage
+inspecting and recording dispositions. A later reformat keeps a row counting
+only when it leaves a Python syntax tree, or Markdown text apart from table
+padding and spacing, unchanged. Preserve exact original finding/decision references, coverage
 gaps, and originating inspection duties. Use the remaining round allowance and
 explicit stop/budget decisions, not a hardcoded tier sequence or a new lower
 cap. At a reached confirmed cap, `heddle review allowance` can raise an
@@ -290,6 +291,19 @@ resolve a stop or open a round; follow the separate native actions in their
 emitted order. To check structural scaffold fixes in a round no native action
 requires, request the boundary-owned `review round-open` with purpose
 `verification` while allowance remains; its `--help` lists the payload fields.
+
+The reviewed tests are the declared tests, `Verified-by:` bindings and their
+helpers, plus every test under the tests root whose content differs from the
+feature baseline beyond formatting, untracked and deleted ones included. A
+commit and its revert therefore change nothing, while a scratch test left in
+that root joins the review. A scaffold fix after dispositions stales the rows
+it touches. When readiness offers `review-reaffirm` work, inspect whether each
+listed resolution still applies, then run `heddle review reaffirm`: it covers
+every unsealed assignment at this boundary, appends the stale rows that still
+qualify, and reports the others with their changed paths and exit 4, which
+leaves those to re-dispose. If readiness reports `baseline-unavailable`, the
+review cannot select its tests until the owner re-points the baseline with the
+command readiness names.
 
 The stage is ready for **implement** when the AC coverage matrix is complete,
 the confirmed e2e and declared live commands are bound within their grants,

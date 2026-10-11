@@ -73,8 +73,10 @@ questions naming the original ruling. The proposal itself grants no execution.)_
 _(Finishing needs current milestone, acceptance and smoke proof under existing
 smoke-disposition rules, plus declared live proof and alignment assessment.
 Live does not replace acceptance; an unrun required lane stays pending. The
-owner may waive one lane's post-review rerun with a class-5 witness waiver;
-the implement-exit run is never waivable.
+owner may waive one lane's post-review rerun with a class-5 witness waiver.
+At implement exit the owner may accept an earlier passing witness the same way
+only when every change since it is formatting-only; any other change needs the
+rerun.
 For existing active work, reconcile design and prior grants without fabricating
 a retrospective checkpoint or restarting completed stages.)_
 

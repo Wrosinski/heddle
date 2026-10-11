@@ -102,6 +102,15 @@ for evidence-bound closure and native next actions for another round or an
 explicit stop/budget decision. Do not invent fixed passes, a lower cap, a
 synthesis, or a reset after a policy/model amendment.
 
+Hardening edits can stale dispositions already recorded here. When you judge
+their recorded resolutions still sound after the change,
+`heddle review reaffirm` (routed by readiness as `review-reaffirm` work)
+re-records every row whose citations and supporting proof still qualify,
+across this boundary's unsealed assignments, and names the rest with what
+changed. Its exit 4 leaves those named rows for a fresh disposition; exit 1
+means it wrote nothing. A reformat that only re-lays out Python code or
+re-pads Markdown tables and spacing stales no row.
+
 ## Smoke ownership during hardening
 
 Apply three smoke classifications during hardening: feature-caused,
@@ -152,8 +161,9 @@ lead cites when filing that decision. A driven
 session never resolves it: the pending question stops the driver until the
 owner rules, while an interactive lead may resolve it on that cited grant. The
 waiver binds the latest passing pre-review run to the current source; a later
-relevant edit restores the rerun. A waiver made at peer review
-stays valid here while that source is unchanged. Verification evidence for a
+relevant edit restores the rerun unless it only reformats covered Python or
+Markdown files. A waiver made at peer review stays valid here while that source
+is unchanged apart from such formatting. Verification evidence for a
 finding disposition needs a fresh run even when the lane's rerun is waived. A
 declined lane retains its owner-confirmed reason and concrete fallback. Deferring execution
 leaves required proof pending; changing the obligation requires an explicit

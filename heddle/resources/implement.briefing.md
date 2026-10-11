@@ -155,8 +155,9 @@ formal gate artifacts retain their required structure and non-narration rules.
    reports before remediation; Minor findings are audit-only. Apply supported
    Critical/Important IMPLEMENT fixes, rerun affected milestone/consumer proof,
    and commit the remediation. Record dispositions only after that commit, once
-   its hooks have rewritten what they will, since a later change to a cited
-   file stops the row counting. If a fix changes a shared contract, refresh the
+   its hooks have rewritten what they will: a later change to a cited file
+   stops the row counting unless it only re-lays out Python or re-pads
+   Markdown tables and spacing. If a fix changes a shared contract, refresh the
    consumer census before choosing that proof and record inspected consumers,
    exact witnesses, and required pending witnesses. A neighboring failure's
    location alone does not establish that it is unrelated. Record exact original findings and coverage
@@ -223,7 +224,13 @@ Keep five claims separate whenever you report or act on verification:
 A fresh provenance row establishes the first claim and a process result; it
 does not establish the other four. Changed relevant source makes affected proof stale: rerun
 stale evidence through `heddle verify`, and evaluate test meaning and runtime
-quality separately.
+quality separately. Verification compares raw bytes, because a check may read
+them, so a formatter rewrite stales a fact too; its explanation then labels the
+change formatting-only. When two or more scopes lead readiness as stale,
+`heddle verify --stale` reruns them in readiness order, each admitted afresh
+and recorded as its own fact. It continues past a failing run, stops at a
+conflict, and never runs live, missing, failed or command-stale scopes, which
+keep their own remedies.
 
 `heddle run-gate` records eligible REPORT findings. Do not duplicate those
 facts. While an implement milestone is open, they accumulate in the
@@ -260,14 +267,20 @@ coverage duty: inspect and disposition it normally. Sealed acceptance, off roles
 missing slots, pending stop decisions and caps still constrain the sequence;
 follow their native remedies and preserve originating inspection duties.
 
-After personally inspecting applicability, use `heddle review reaffirm --role
-<role> --scope <feature|mN> --feature <slug>` to reaffirm the assignment's latest
-addressed/settled dispositions. `--dry-run` previews and `--expect-revision <n>`
-binds the write. Reaffirmation preserves captured citations and all evidence
-bindings, checks every selected row before appending any, and changes only basis
-and recording time. Even a current no-op rechecks its evidence. Changed citations,
-stale proof or missing originating inspection require repair; this operation runs
-no tests or provider, resolves no decision and closes no missing obligation.
+When a later edit stales recorded rows, readiness offers `review-reaffirm`
+authoring work whose references list the rows reaffirm would write and those it
+would refuse. Personally inspect that each resolution still applies, then run
+`heddle review reaffirm --feature <slug>`. Without `--role` and `--scope` it
+covers every unsealed assignment at the current boundary; with both it covers
+one. It appends a copy of each stale latest addressed/settled row whose
+citations and supporting evidence still qualify, keeping citations and evidence
+bindings and changing only basis and recording time. Refused rows are listed
+with their changed paths, an assignment missing a slot is listed with its
+reason, and sealed assignments are skipped. Exit 4 means listed rows remain:
+re-dispose them with new evidence. Exit 1 means no row was writable and nothing
+was written; exit 0 means nothing remains. `--dry-run` previews and
+`--expect-revision <n>` binds the write. It runs no tests or provider, resolves
+no decision and closes no missing obligation.
 
 Validate, status, milestone advance and phase-exit give early source-coverage
 advice. Declare actual feature product paths, after the owner accepts any
@@ -432,6 +445,14 @@ Run the live scope only when the confirmed witness declares it. Phase exit to
 peer review refuses until every declared lane passes on current content, so no
 review spends effort on a feature the witness has not shown to work. Follow
 native applicable scopes and repair instructions.
+
+A witness lane that passed and then went stale only through formatting-only
+changes need not rerun at implement exit if the owner agrees: readiness offers
+a class-5 `witness_waiver` question beside the rerun. Propose it through
+`heddle decisions add` (see `--help`); resolved with accept-prior-witness, it
+lets the owner accept the earlier witness, and phase exit passes. Any other
+change, an ownership change, or a witness that never passed leaves the rerun as
+the only route.
 
 Smoke and the post-review rerun belong to the final proof boundary: peer review
 when Overlay R is off and robustness when it is on. There, after the last relevant review fix,

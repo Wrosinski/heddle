@@ -90,8 +90,15 @@ independent inspection requirement. Do not silently treat absence in a later
 report as settlement.
 
 For source-bound evidence, finish edits, sync, format, inspect, then record
-dispositions. Formatting is an authored byte change when an explicit raw-file
-reference observes it; future formatting is never invisible to evidence.
+dispositions. A later reformat that only re-pads Markdown tables and spacing,
+or only re-lays out Python, keeps those rows current; a rewrap or any other
+edit stales the rows whose basis or citations it changes. Readiness then offers
+`review-reaffirm` work listing the rows it would write and refuse. Once you
+judge the recorded resolutions still apply, run `heddle review reaffirm`: it
+writes every stale row whose citations and evidence still qualify across the
+stage's unsealed assignments and lists the rest with the paths that changed.
+Exit 4 means listed rows remain, so re-dispose them from fresh inspection;
+exit 1 means no row could be written.
 
 Use the runtime's next action for a necessary targeted round or cap/stop
 decision; a limit is not a fixed number of required passes and is not closure.
