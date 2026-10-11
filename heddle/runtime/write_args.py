@@ -62,6 +62,8 @@ class ParsedCommon:
     feature: str | None
     expect_revision: int | None
     dry_run: bool
+    # The command's own boolean flags that were passed.
+    switches: frozenset[str] = frozenset()
 
 
 def usage_failure(message: str, hint: str) -> HeddleResult:
@@ -101,6 +103,7 @@ def parse_write_args(
     value_flags: Mapping[str, tuple[str, str]],
     unknown_hint: str,
     allow_positionals: bool,
+    bool_flags: frozenset[str] = frozenset(),
 ) -> tuple[
     ParsedCommon | None,
     dict[str, str | None],
@@ -110,6 +113,7 @@ def parse_write_args(
     feature: str | None = None
     expect_revision: int | None = None
     dry_run = False
+    switches: set[str] = set()
     values: dict[str, str | None] = {flag: None for flag in value_flags}
     positionals: list[str] = []
     index = 0
@@ -168,6 +172,10 @@ def parse_write_args(
             dry_run = True
             index += 1
             continue
+        if token in bool_flags:
+            switches.add(token)
+            index += 1
+            continue
         if token in value_flags:
             message, hint = value_flags[token]
             if index + 1 >= len(args):
@@ -192,6 +200,7 @@ def parse_write_args(
             feature=feature,
             expect_revision=expect_revision,
             dry_run=dry_run,
+            switches=frozenset(switches),
         ),
         values,
         positionals,
@@ -211,15 +220,26 @@ def parse_verify(
             ),
         },
         unknown_hint=(
-            "supported flags: --feature <slug>, --scope <scope>, "
+            "supported flags: --feature <slug>, --scope <scope> or --stale, "
             "--expect-revision <n>, --dry-run"
         ),
         allow_positionals=False,
+        bool_flags=frozenset({"--stale"}),
     )
     if failure is not None:
         return None, None, None, failure
     assert parsed is not None
+    if "--stale" in parsed.switches and values["--scope"] is not None:
+        return None, None, None, stale_scope_usage()
     return parsed, values["--scope"], parsed.expect_revision, None
+
+
+def stale_scope_usage() -> HeddleResult:
+    return usage_failure(
+        "--stale and --scope are mutually exclusive",
+        "pass --scope <scope> to rerun one scope, or --stale to rerun the stale "
+        "scopes readiness leads with",
+    )
 
 
 def parse_commands_set(

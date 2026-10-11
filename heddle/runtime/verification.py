@@ -39,6 +39,7 @@ from heddle.kernel.smoke_disposition import (
 from heddle.kernel.source_manifest import (
     EvidenceReference,
     ObservedPath,
+    SourceChange,
     SourceDefinition,
     SourceEvidence,
     byte_sort_key,
@@ -77,10 +78,13 @@ from heddle.kernel.verification import (
     verification_command_for_scope,
 )
 from heddle.kernel.witness_waiver import (
+    IMPLEMENT_EXIT_STAGE,
     WAIVABLE_STATUSES,
-    WAIVER_STAGES,
-    WITNESS_SCOPES,
+    WAIVER_EVIDENCE_KEY,
+    acceptable_prior_witness,
     validate_witness_waiver_proposal,
+    waivable_witness_rerun,
+    waiver_source_evidence,
 )
 
 
@@ -312,17 +316,15 @@ def assess_current_verifications(
                     status, action=None, accepted_decision=decision.id
                 )
                 break
-    if state.stage in WAIVER_STAGES:
-        for index, status in enumerate(statuses):
-            if status.scope not in WITNESS_SCOPES or (
-                status.status not in WAIVABLE_STATUSES
-            ):
-                continue
-            waiver = _current_witness_waiver(
-                root, state, status.scope, source_observations
-            )
-            if waiver is not None:
-                statuses[index] = replace(status, action=None, waived_by=waiver)
+    for index, status in enumerate(statuses):
+        if not (
+            waivable_witness_rerun(state.stage, status)
+            or acceptable_prior_witness(state.stage, status)
+        ):
+            continue
+        waiver = _current_witness_waiver(root, state, status.scope, source_observations)
+        if waiver is not None:
+            statuses[index] = replace(status, action=None, waived_by=waiver)
     return tuple(
         replace(
             status,
@@ -356,16 +358,23 @@ def _stale_explanation(
     detail_limit = (
         "only the verification source-set identity is retained"
         if source_set and not dependencies
-        else None
+        else _equivalence_unavailable(recorded, changes)
+    )
+    formatting_only = bool(changes) and all(
+        change.kind == "formatting-only" for change in changes
     )
     return replace(
         status,
-        detail_limit=detail_limit if source_set else status.detail_limit,
+        detail_limit=(
+            detail_limit if source_set or detail_limit else status.detail_limit
+        ),
         explanation=EvidenceExplanation(
             subject=f"verification:{scope}",
             cause=(
                 "declared verification source set changed"
                 if source_set
+                else "formatting-only change to relevant content"
+                if formatting_only
                 else "relevant content changed"
             ),
             changed_dependencies=dependencies,
@@ -374,6 +383,32 @@ def _stale_explanation(
             detail_limit=detail_limit,
             changes=changes,
         ),
+    )
+
+
+def _equivalence_unavailable(
+    recorded: SourceEvidence, changes: tuple[SourceChange, ...]
+) -> str | None:
+    """Name content changes the run's manifest cannot tell from formatting.
+
+    A run recorded before review equivalence, or under another rule, carries no
+    identity to compare, so its rule-bearing changes stay content.
+    """
+    prior = {row.path: row for row in recorded.observations}
+    paths = []
+    for change in changes:
+        if change.kind != "content" or change.path is None:
+            continue
+        rule = rule_id_for(change.path)
+        identity = prior[change.path].equivalence
+        if rule is not None and (identity is None or identity.rule != rule):
+            paths.append(change.path)
+    if not paths:
+        return None
+    return (
+        "equivalence unavailable: the run recorded no review-equivalence "
+        "identity under the current rule for " + ", ".join(paths) + ", so a "
+        "formatting-only change there cannot be told from a content change"
     )
 
 
@@ -427,14 +462,26 @@ def prepare_smoke_disposition(
     return {**proposal, "ownership": list(ownership), "bindings": bindings}
 
 
+@dataclass(frozen=True)
+class PreparedWitnessWaiver:
+    """A waiver's exact binding and the current raw manifest of its source."""
+
+    binding: dict[str, Any]
+    manifest: SourceEvidence
+
+
 def prepare_witness_waiver(
     root: Path,
     state: StateFile,
     value: object,
     *,
     source_observations: dict[str, ObservedPath] | None = None,
-) -> dict:
-    """Bind a waived rerun to the latest passing fact and current source."""
+) -> PreparedWitnessWaiver:
+    """Bind a waived rerun to the latest passing fact and current source.
+
+    At implement exit the earlier witness stands in only when every change
+    since its run is formatting-only.
+    """
     proposal = validate_witness_waiver_proposal(state, value)
     scope = proposal["scope"]
     declaration = resolve_source_declaration(state, scope)
@@ -467,12 +514,81 @@ def prepare_witness_waiver(
             f"cannot waive a rerun of {status.status} evidence; only a stable "
             "passing run with the current command can stand in for a rerun",
         )
-    return {
-        **proposal,
-        "fact": verification_fact_identity(state.verifications[status.fact_index]),
-        "ownership": list(declaration.paths),
-        "source_sha256": manifest.source_sha256,
-    }
+    fact_index = status.fact_index
+    if state.stage == IMPLEMENT_EXIT_STAGE:
+        assert after is not None
+        status = _stale_explanation(root, scope, status, after, manifest)
+        if not acceptable_prior_witness(state.stage, status):
+            changes = status.explanation.changes if status.explanation else ()
+            named = ", ".join(
+                f"{change.kind} {change.path}" if change.path else change.kind
+                for change in changes
+                if change.kind != "formatting-only"
+            )
+            raise _source_error(
+                scope,
+                "cannot accept the earlier witness at implement exit: only "
+                f"formatting-only changes qualify, and its source has {named}",
+                hint=f"rerun the lane with `heddle verify --scope {scope}`",
+            )
+    return PreparedWitnessWaiver(
+        {
+            **proposal,
+            "fact": verification_fact_identity(state.verifications[fact_index]),
+            "ownership": list(declaration.paths),
+            "source_sha256": manifest.source_sha256,
+        },
+        manifest,
+    )
+
+
+def bind_witness_waiver(
+    root: Path, prepared: PreparedWitnessWaiver
+) -> tuple[dict[str, Any], SourceEvidence]:
+    """The binding a new waiver records and the stamped manifest it names.
+
+    Naming the manifest lets the waiver stay current across a review-equivalent
+    change; the caller publishes the manifest before recording the decision.
+    """
+    manifest = stamp_recorded_equivalence(root, prepared.manifest)
+    reference = asdict(evidence_reference(manifest))
+    return {**prepared.binding, WAIVER_EVIDENCE_KEY: reference}, manifest
+
+
+def witness_waiver_current(
+    root: Path,
+    state: StateFile,
+    waiver: Mapping[str, Any],
+    prepared: PreparedWitnessWaiver,
+    *,
+    subject: str,
+) -> bool:
+    """Whether a recorded binding still holds for the prepared evidence.
+
+    Lane, fact and ownership compare exactly. The source holds when it is
+    raw-equal, or review-equivalent to the manifest the binding names; a
+    binding recorded without one compares exactly.
+    """
+    current = prepared.binding
+    if any(waiver[key] != current[key] for key in ("scope", "fact", "ownership")):
+        return False
+    if waiver["source_sha256"] == current["source_sha256"]:
+        return True
+    reference = waiver_source_evidence(waiver)
+    if reference is None:
+        return False
+    workspace = root / load_project_config(root).layout.plans / state.feature
+    recorded = read_named_source_evidence(
+        workspace,
+        reference.artifact,
+        reference.artifact_sha256,
+        subject=subject,
+        source_sha256=reference.source_sha256,
+    )
+    assert recorded is not None
+    return compare_source_evidence(
+        recorded, stamp_changed_equivalence(root, prepared.manifest, recorded)
+    ).equivalent
 
 
 def _current_witness_waiver(
@@ -481,7 +597,7 @@ def _current_witness_waiver(
     scope: str,
     source_observations: dict[str, ObservedPath] | None,
 ) -> str | None:
-    """Return the latest user waiver still bound to this exact evidence."""
+    """Return the latest user waiver still bound to this lane's evidence."""
     for decision in reversed(state.decisions):
         waiver = decision.witness_waiver
         if (
@@ -503,7 +619,13 @@ def _current_witness_waiver(
             )
         except KernelError:
             return None
-        return decision.id if current == dict(waiver) else None
+        return (
+            decision.id
+            if witness_waiver_current(
+                root, state, waiver, current, subject=f"witness waiver {decision.id}"
+            )
+            else None
+        )
     return None
 
 
@@ -920,7 +1042,15 @@ def publish_source_evidence(
             f"has no enclosing Heddle project: {workspace}",
             hint="publish source evidence from a workspace inside a Heddle project",
         )
-    evidence = stamp_recorded_equivalence(project, evidence, observed=observed)
+    return publish_stamped_evidence(
+        workspace, stamp_recorded_equivalence(project, evidence, observed=observed)
+    )
+
+
+def publish_stamped_evidence(
+    workspace: Path, evidence: SourceEvidence
+) -> tuple[EvidenceReference, bool]:
+    """Publish an already stamped manifest create-only, exactly as given."""
     content = encode_source_evidence(evidence)
     reference = evidence_reference(evidence)
     target = _evidence_path(workspace, reference.artifact)

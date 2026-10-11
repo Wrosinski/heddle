@@ -226,6 +226,9 @@ DECISION_OPTIONAL_KEYS = (
     "target_blocker",
     "supersedes",
 )
+# A witness-waiver binding may name the manifest of its bound source; one
+# recorded before review equivalence carries only the exact keys.
+WITNESS_WAIVER_OPTIONAL_KEYS = ("source_evidence",)
 
 RESOLUTION_PAYLOAD_KEYS = {
     "disposition": ("kind",),

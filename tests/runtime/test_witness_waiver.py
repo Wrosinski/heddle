@@ -606,6 +606,32 @@ def test_ac13_resolution_tolerates_a_review_equivalent_change(
     assert row.waived_by == decision_id
 
 
+def test_ac13_completion_retains_the_manifest_a_waiver_names(
+    tmp_path, monkeypatch
+) -> None:
+    from tests.change_impact_verify_helpers import waiver_manifest_reference
+
+    host = final_host(tmp_path, monkeypatch)
+    _review_fix(host.root, 8)
+    verify(host.state, "smoke")
+    decision_id = _waive(host.state, "acceptance")
+    waiver = read(host.state)["decisions"][-1]["witness_waiver"]
+    reference = waiver_manifest_reference(waiver)
+    _journal(host.root, decision_id, "acceptance", waiver["fact"])
+
+    preview = host.complete(dry_run=True)
+    assert preview.ok, preview.to_envelope()
+    retained = {
+        item["path"]: item for item in preview.data["retained_evidence"]["artifacts"]
+    }
+    assert reference["artifact"] in retained, (
+        "FAIL AC-13: completion does not retain the manifest a waiver names"
+    )
+    # The bound source may equal a fact's manifest, so the roles can be shared.
+    assert "waiver-evidence" in retained[reference["artifact"]]["roles"]
+    assert retained[reference["artifact"]]["sha256"] == reference["artifact_sha256"]
+
+
 def test_ac13_lane_waived_across_an_equivalent_change_never_qualifies_evidence(
     tmp_path, monkeypatch, run_cli
 ) -> None:

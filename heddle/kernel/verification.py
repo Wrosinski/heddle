@@ -101,6 +101,16 @@ class VerificationFreshness:
         """
         return self.authorizes or self.waived_by is not None
 
+    @property
+    def formatting_only(self) -> bool:
+        """Whether every change since a passing, stable run is formatting-only."""
+        changes = getattr(self.explanation, "changes", ())
+        return (
+            self.status == "content-stale"
+            and bool(changes)
+            and all(change.kind == "formatting-only" for change in changes)
+        )
+
 
 def milestone_for_scope(state: StateFile, scope: str) -> Milestone | None:
     """Return the milestone named by a milestone-like scope, if present."""

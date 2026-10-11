@@ -44,8 +44,11 @@ from heddle.runtime.state_store import (
     mutation_fields,
 )
 from heddle.runtime.verification import (
+    bind_witness_waiver,
     prepare_smoke_disposition,
     prepare_witness_waiver,
+    publish_stamped_evidence,
+    witness_waiver_current,
 )
 from heddle.runtime.write_args import parse_common_with_positionals, usage_failure
 
@@ -184,10 +187,23 @@ def resolve_decision(operation: ops.ResolveDecision) -> HeddleResult:
         ):
             assert proposed.witness_waiver is not None
             try:
-                evidence_binding = prepare_witness_waiver(
+                prepared = prepare_witness_waiver(
                     target.root,
                     target.state,
                     {"scope": proposed.witness_waiver["scope"]},
+                )
+                # A review-equivalent change since the proposal leaves the
+                # proposed binding current; any other change refuses below.
+                evidence_binding = (
+                    dict(proposed.witness_waiver)
+                    if witness_waiver_current(
+                        target.root,
+                        target.state,
+                        proposed.witness_waiver,
+                        prepared,
+                        subject=f"witness waiver {proposed.id}",
+                    )
+                    else prepared.binding
                 )
             except KernelError as error:
                 return kernel_error_result(error, exit_codes=_RESOLUTION_EXITS)
@@ -340,6 +356,7 @@ def decisions_add(operation: ops.DecisionsAdd) -> HeddleResult:
         )
     smoke_bindings = {}
     witness_bindings = {}
+    witness_manifests = []
     for index, item in enumerate(operation.decisions):
         if item.kind == "witness-waiver":
             try:
@@ -351,11 +368,13 @@ def decisions_add(operation: ops.DecisionsAdd) -> HeddleResult:
                     _usage_error(error.message), exit_codes=_RESOLUTION_EXITS
                 )
             try:
-                witness_bindings[index] = prepare_witness_waiver(
-                    target.root, target.state, waiver
+                witness_bindings[index], manifest = bind_witness_waiver(
+                    target.root,
+                    prepare_witness_waiver(target.root, target.state, waiver),
                 )
             except KernelError as error:
                 return kernel_error_result(error, exit_codes=_RESOLUTION_EXITS)
+            witness_manifests.append(manifest)
             continue
         if item.kind != "smoke-disposition":
             continue
@@ -434,6 +453,13 @@ def decisions_add(operation: ops.DecisionsAdd) -> HeddleResult:
         ]
         return document
 
+    if not operation.dry_run:
+        # A waiver names its manifest, so the manifest is published first.
+        try:
+            for manifest in witness_manifests:
+                publish_stamped_evidence(target.state_path.parent, manifest)
+        except KernelError as error:
+            return kernel_error_result(error, exit_codes=_RESOLUTION_EXITS)
     added: dict[str, Any] = {}
     return _mutate(target, operation.dry_run, "decisions add", transform, added)
 

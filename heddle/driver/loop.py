@@ -173,8 +173,12 @@ def run_loop(config: ProjectConfig, slug: str, *, until: str | None) -> HeddleRe
                         f"{next_action.reason}\n"
                         f"Authoring work: {action.work}\n"
                         f"References: {', '.join(action.references)}\n"
-                        f"Input schema: {action.input_schema}\n"
-                        f"Expected revision: {action.expected_revision}\n"
+                        + (
+                            f"Input schema: {action.input_schema}\n"
+                            if action.input_schema
+                            else ""
+                        )
+                        + f"Expected revision: {action.expected_revision}\n"
                         "Observation purpose: driver"
                     )
                 )
@@ -219,6 +223,22 @@ def run_loop(config: ProjectConfig, slug: str, *, until: str | None) -> HeddleRe
                     return driver_results.kernel_failure(error)
                 return result
 
+            if isinstance(action.operation, ops.Verify) and action.operation.stale:
+                # Each recorded batch row counts toward its scope's cap, even
+                # when the batch then stops; refused or unrun scopes never do.
+                body = result.data if result.error is None else result.error.details
+                for row in (body or {}).get("verifications", ()):
+                    if row.get("recorded") is True:
+                        halted = _count_verification(config, slug, row, verify_failures)
+                        if halted is not None:
+                            return halted
+                if exit_code != int(ExitCode.CONFLICT):
+                    if result.error is not None and (
+                        result.error.code != "verification-failed"
+                    ):
+                        return result
+                    conflict_retries = 0
+                    continue
             if exit_code == int(ExitCode.CONFLICT):
                 # A CAS conflict is retryable, but a competing writer that
                 # keeps winning the race must not spin the loop forever. Bound the
@@ -276,60 +296,71 @@ def run_loop(config: ProjectConfig, slug: str, *, until: str | None) -> HeddleRe
                 # remains a normal bounded driver retry. Consume it before the
                 # generic nonzero halt or the first attempt would bypass the
                 # existing per-scope cap.
-                scope = str(verification.get("scope", ""))
-                try:
-                    current_snapshot = resolve_snapshot(config, slug)
-                    fact_index = verification.get("fact_index")
-                    assessment = (
-                        runtime_verification.assess_recorded_verification(
-                            config.root,
-                            current_snapshot.state,
-                            scope,
-                            fact_index,
-                        )
-                        if type(fact_index) is int
-                        else runtime_verification.assess_current_verification(
-                            config.root, current_snapshot.state, scope
-                        )
-                    )
-                    if scope == "smoke" and type(fact_index) is int:
-                        current_assessment = (
-                            runtime_verification.assess_current_verification(
-                                config.root, current_snapshot.state, scope
-                            )
-                        )
-                        if current_assessment.fact_index == fact_index:
-                            assessment = current_assessment
-                    freshness_status = (
-                        "fresh" if assessment.authorizes else assessment.status
-                    )
-                except KernelError as error:
-                    return driver_results.kernel_failure(error)
-                if freshness_status != "fresh":
-                    verify_failures[scope] = verify_failures.get(scope, 0) + 1
-                    if verify_failures[scope] >= VERIFY_ATTEMPT_LIMIT:
-                        detail = (
-                            f"verification for scope {scope} remained "
-                            f"{freshness_status} for "
-                            f"{verify_failures[scope]} consecutive times "
-                            f"(latest exit {verification.get('exit_code')}, "
-                            f"log {verification.get('log')}); fix the stored "
-                            "verification command or the failing check, then "
-                            "resolve and re-run drive"
-                        )
-                        return _raise_decision_batch(
-                            slug,
-                            current_snapshot,
-                            "attempt-cap",
-                            detail=detail,
-                            verification_failure=True,
-                        )
-                else:
-                    verify_failures.pop(scope, None)
+                halted = _count_verification(
+                    config, slug, verification, verify_failures
+                )
+                if halted is not None:
+                    return halted
                 if verification_error is not None:
                     continue
             if exit_code != 0:
                 return result
+
+
+def _count_verification(
+    config: ProjectConfig,
+    slug: str,
+    verification: dict[str, Any],
+    verify_failures: dict[str, int],
+) -> HeddleResult | None:
+    """Count one recorded attempt toward its scope's cap; halt at the cap."""
+    scope = str(verification.get("scope", ""))
+    try:
+        current_snapshot = resolve_snapshot(config, slug)
+        fact_index = verification.get("fact_index")
+        assessment = (
+            runtime_verification.assess_recorded_verification(
+                config.root,
+                current_snapshot.state,
+                scope,
+                fact_index,
+            )
+            if type(fact_index) is int
+            else runtime_verification.assess_current_verification(
+                config.root, current_snapshot.state, scope
+            )
+        )
+        if scope == "smoke" and type(fact_index) is int:
+            current_assessment = runtime_verification.assess_current_verification(
+                config.root, current_snapshot.state, scope
+            )
+            if current_assessment.fact_index == fact_index:
+                assessment = current_assessment
+        freshness_status = "fresh" if assessment.authorizes else assessment.status
+    except KernelError as error:
+        return driver_results.kernel_failure(error)
+    if freshness_status == "fresh":
+        verify_failures.pop(scope, None)
+        return None
+    verify_failures[scope] = verify_failures.get(scope, 0) + 1
+    if verify_failures[scope] < VERIFY_ATTEMPT_LIMIT:
+        return None
+    detail = (
+        f"verification for scope {scope} remained "
+        f"{freshness_status} for "
+        f"{verify_failures[scope]} consecutive times "
+        f"(latest exit {verification.get('exit_code')}, "
+        f"log {verification.get('log')}); fix the stored "
+        "verification command or the failing check, then "
+        "resolve and re-run drive"
+    )
+    return _raise_decision_batch(
+        slug,
+        current_snapshot,
+        "attempt-cap",
+        detail=detail,
+        verification_failure=True,
+    )
 
 
 def _execute_session_step(

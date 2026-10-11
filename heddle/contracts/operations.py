@@ -295,6 +295,8 @@ class Verify:
     feature: str | None = None
     expect_revision: int | None = None
     dry_run: bool = False
+    # Rerun the actionable stale scopes readiness leads with; excludes scope.
+    stale: bool = False
 
 
 @dataclass(frozen=True)
@@ -591,7 +593,9 @@ def operation_command(operation: Operation) -> str:
         case TaskEdit():
             arguments.extend((operation.task_id, "--text", operation.text))
         case Verify():
-            if operation.scope is not None:
+            if operation.stale:
+                arguments.append("--stale")
+            elif operation.scope is not None:
                 arguments.extend(("--scope", operation.scope))
         case PhaseExit():
             if operation.through is not None:

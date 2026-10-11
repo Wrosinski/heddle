@@ -144,6 +144,8 @@ def test_ac11_driver_session_names_every_row_of_the_one_review_reaffirm(
     # The work's own references, not the session's list of open obligations.
     references = lines[lines.index("Authoring work: review-reaffirm") + 1]
     assert references.startswith("References: "), prompts[0]
+    # The work takes no input document, so the prompt names no input schema.
+    assert "Input schema:" not in prompts[0], prompts[0]
     for role, citations in PEER_CITATIONS.items():
         for finding_id in citations:
             assert f"{origins[role]}#{finding_id}" in references, (

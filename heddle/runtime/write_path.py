@@ -8,6 +8,7 @@ from collections.abc import Callable, Mapping
 from contextlib import suppress
 from copy import deepcopy
 from dataclasses import dataclass, replace
+from functools import partial
 from pathlib import Path
 from secrets import token_hex
 from typing import Any
@@ -54,6 +55,7 @@ from heddle.kernel.state import (
     parse_state_document,
     validate_state_transition,
 )
+from heddle.kernel.verification import VerificationFreshness
 from heddle.kernel.write_path import (
     add_milestone,
     advance_milestone,
@@ -86,9 +88,13 @@ from heddle.runtime.flow_changes import (
 from heddle.runtime.locking import state_recording_lock
 from heddle.runtime.output import emit_envelope
 from heddle.runtime.readiness import (
+    actionable_stale,
     assess_current_readiness,
+    composed_readiness,
+    leading_verify_scopes,
     readiness_failure,
     readiness_status_block,
+    stale_batch_scopes,
     unavailable_baseline,
 )
 from heddle.runtime.state_store import (
@@ -99,6 +105,7 @@ from heddle.runtime.state_store import (
 )
 from heddle.runtime.verification import (
     assess_current_verification,
+    assess_current_verifications,
     assess_recorded_verification,
     observe_current_source,
     proven_selector_rebinds,
@@ -124,6 +131,7 @@ from heddle.runtime.write_args import (
     parse_session_log,
     parse_task_edit,
     parse_verify,
+    stale_scope_usage,
     usage_failure,
     validate_milestone_payload,
 )
@@ -557,6 +565,8 @@ def task(
 def verify(operation: ops.Verify) -> HeddleResult:
     parsed = operation
     scope = operation.scope
+    if parsed.stale and scope is not None:
+        return stale_scope_usage()
     # Resolve and schema-validate the write context (resolve_snapshot)
     # before any stored-command lookup, so a schema-ahead state.yaml fails
     # workspace-invalid (exit 3) rather than masking as a usage error.
@@ -567,6 +577,8 @@ def verify(operation: ops.Verify) -> HeddleResult:
     block = _not_authorized_block(context.snapshot)
     if block is not None:
         return block
+    if parsed.stale:
+        return _verify_stale(context, dry_run=parsed.dry_run)
 
     resolved_scope = scope
     if resolved_scope is None:
@@ -576,7 +588,13 @@ def verify(operation: ops.Verify) -> HeddleResult:
                 ops.VERIFICATION_SCOPE_GUIDANCE,
             )
         resolved_scope = context.snapshot.current_milestone.id
+    return _verify_scope(context, resolved_scope, dry_run=parsed.dry_run)
 
+
+def _verify_scope(
+    context: ResolvedSnapshotContext, resolved_scope: str, *, dry_run: bool
+) -> HeddleResult:
+    """Run one admitted scope's command and record its fact in one write."""
     try:
         command = verification_command_for_scope(context.snapshot.state, resolved_scope)
         declaration = resolve_source_declaration(context.snapshot.state, resolved_scope)
@@ -587,7 +605,7 @@ def verify(operation: ops.Verify) -> HeddleResult:
         )
     except KernelError as error:
         return write_failure(error, context.diagnostics)
-    if parsed.dry_run:
+    if dry_run:
         return HeddleResult.success(
             {
                 "feature": context.feature,
@@ -836,6 +854,215 @@ def _verification_attempt_details(
     if evidence is not None:
         details["evidence"] = evidence
     return details
+
+
+def _verify_stale(context: ResolvedSnapshotContext, *, dry_run: bool) -> HeddleResult:
+    """Rerun the actionable stale scopes readiness leads with, one write each.
+
+    Each scope is re-admitted against the revision this batch last wrote and
+    reassessed before it runs. A recorded failing or unstable run is reported
+    and the batch continues; a conflict, lost authority or integrity failure
+    stops it, keeping the rows recorded before the stop.
+    """
+    try:
+        assessment = composed_readiness(
+            context.config,
+            context.snapshot,
+            purpose="verify-stale",
+            assess=partial(assess_current_readiness, project_stale=False),
+        ).assessment
+    except KernelError as error:
+        return write_failure(error, context.diagnostics)
+    leading = leading_verify_scopes(assessment.next_actions)
+    selected = stale_batch_scopes(assessment.next_actions, assessment.verifications)
+    skipped = [
+        {
+            "scope": row.scope,
+            "status": row.status,
+            "reason": _stale_skip_reason(row, leading),
+        }
+        for row in assessment.verifications
+        if row.scope not in selected
+    ]
+    state = context.snapshot.state
+    if dry_run:
+        planned = []
+        for scope in selected:
+            declaration = resolve_source_declaration(state, scope)
+            planned.append(
+                {
+                    "scope": scope,
+                    "command": verification_command_for_scope(state, scope),
+                    "source_set_kind": declaration.kind,
+                    "declaration_paths": list(declaration.paths),
+                }
+            )
+        return HeddleResult.success(
+            {
+                "feature": context.feature,
+                "command": "verify",
+                "dry_run": True,
+                "revision": state.revision + len(selected),
+                "wrote": False,
+                "mutation_summary": {
+                    "command": "verify",
+                    "would_write": bool(selected),
+                },
+                "verifications": planned,
+                "skipped": skipped,
+                "unrun": [],
+            },
+            diagnostics=context.diagnostics,
+        )
+
+    rows: list[dict[str, Any]] = []
+    revision, wrote = state.revision, False
+
+    def stop(
+        result: HeddleResult, unrun: tuple[str, ...], *, ran: bool
+    ) -> HeddleResult:
+        assert result.error is not None
+        # A scope that ran carries its own attempt detail in its row.
+        details: dict[str, Any] = (
+            {"feature": context.feature} if ran else dict(result.error.details)
+        )
+        details.update(
+            verifications=rows,
+            skipped=skipped,
+            unrun=[{"scope": scope} for scope in unrun],
+        )
+        return replace(result, error=replace(result.error, details=details))
+
+    for position, scope in enumerate(selected):
+        admitted = resolve_write_context(context.feature, revision)
+        if isinstance(admitted, HeddleResult):
+            return stop(admitted, selected[position:], ran=False)
+        block = _not_authorized_block(admitted.snapshot)
+        if block is not None:
+            return stop(block, selected[position:], ran=False)
+        try:
+            [row] = assess_current_verifications(
+                admitted.config.root, admitted.snapshot.state, (scope,)
+            )
+        except KernelError as error:
+            return stop(
+                write_failure(error, admitted.diagnostics),
+                selected[position:],
+                ran=False,
+            )
+        if not actionable_stale(row):
+            skipped.append(
+                {
+                    "scope": scope,
+                    "status": row.status,
+                    "reason": "reassessed before its run: "
+                    + _stale_skip_reason(row, leading),
+                }
+            )
+            continue
+        result = _verify_scope(admitted, scope, dry_run=False)
+        rows.append(_stale_batch_row(scope, result))
+        if result.ok:
+            assert result.data is not None
+            revision, wrote = result.data["revision"], True
+            continue
+        assert result.error is not None
+        if result.error.code == "verification-failed" and result.error.details.get(
+            "recorded"
+        ):
+            revision, wrote = result.error.details["revision"], True
+            continue
+        return stop(result, selected[position + 1 :], ran=True)
+
+    body = {"verifications": rows, "skipped": skipped, "unrun": []}
+    failed = [row["scope"] for row in rows if row["status"] != "fresh"]
+    if not failed:
+        return _mutation_success(
+            context, command_name="verify", revision=revision, wrote=wrote, extra=body
+        )
+    return HeddleResult.failure(
+        HeddleError(
+            code="verification-failed",
+            message=(
+                "verification produced unusable evidence for " + ", ".join(failed)
+            ),
+            hint=(
+                "inspect each listed row's log, repair the check or command, then "
+                "retry verification for each listed scope"
+            ),
+            details={"feature": context.feature, "revision": revision, **body},
+        ),
+        exit_code=ExitCode.FATAL,
+        diagnostics=context.diagnostics,
+        next_actions=tuple(
+            NextAction(
+                action=ops.CommandAction(ops.Verify(scope, feature=context.feature)),
+                reason=(
+                    f"repair the check or command before retrying verification "
+                    f"for {scope}"
+                ),
+            )
+            for scope in failed
+        ),
+    )
+
+
+def _stale_batch_row(scope: str, result: HeddleResult) -> dict[str, Any]:
+    """One attempted scope's row, from its single-scope result."""
+    if result.ok:
+        assert result.data is not None
+        fact = result.data["verification"]
+        return {
+            "scope": scope,
+            "command": fact["command"],
+            "recorded": True,
+            "status": fact["status"],
+            "fact_index": fact["fact_index"],
+            "exit_code": fact["exit_code"],
+            "log": fact["log"],
+            "counts": result.data["counts"],
+        }
+    assert result.error is not None
+    details = result.error.details
+    row = {
+        "scope": scope,
+        "command": details.get("command"),
+        "recorded": bool(details.get("recorded")),
+        "status": details.get("status"),
+        "fact_index": details.get("fact_index"),
+        "exit_code": details.get("child_exit_code"),
+        "log": details.get("log"),
+        "counts": details.get("counts"),
+    }
+    if result.error.code != "verification-failed":
+        row["error"] = result.error.code
+    return row
+
+
+def _stale_skip_reason(row: VerificationFreshness, leading: tuple[str, ...]) -> str:
+    """Why ``verify --stale`` does not run a scope."""
+    if row.waived_by is not None:
+        return f"{row.status}; the owner waived this rerun ({row.waived_by})"
+    if row.accepted_decision is not None:
+        return (
+            f"{row.status}; the owner accepted this run as degraded "
+            f"({row.accepted_decision})"
+        )
+    if row.status == "fresh":
+        return "fresh; no rerun is needed"
+    if row.action is None:
+        return f"{row.status}; no rerun is routed"
+    if row.status not in {"content-stale", "source-set-stale"}:
+        return (
+            f"{row.status}; --stale reruns only content-stale and "
+            f"source-set-stale scopes, so run `heddle verify --scope {row.scope}`"
+        )
+    if row.scope == "live":
+        return (
+            f"{row.status}; the live lane reruns only by `heddle verify --scope live`"
+        )
+    assert row.scope not in leading
+    return f"{row.status}; its rerun waits behind work readiness routes first"
 
 
 def record_session(operation: ops.RecordSession) -> HeddleResult:
@@ -1954,6 +2181,7 @@ def run_verify(args: list[str], json_mode: bool) -> int:
                 feature=parsed.feature,
                 expect_revision=expected_revision,
                 dry_run=parsed.dry_run,
+                stale="--stale" in parsed.switches,
             )
         ),
         json_mode,

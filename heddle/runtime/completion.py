@@ -37,6 +37,7 @@ from heddle.kernel.feature_policy import effective_policy
 from heddle.kernel.model import is_terminal, resolve_snapshot
 from heddle.kernel.project_config import KernelError, ProjectConfig
 from heddle.kernel.readiness import Boundary, BoundaryAssessment
+from heddle.kernel.source_manifest import EvidenceReference
 from heddle.kernel.spec_lifecycle import render_lifecycle
 from heddle.kernel.state import (
     CompletionFact,
@@ -44,6 +45,7 @@ from heddle.kernel.state import (
     StateFile,
     VerificationFact,
 )
+from heddle.kernel.witness_waiver import waiver_source_evidence
 from heddle.kernel.write_path import accept_completion
 from heddle.runtime.auto_close import (
     CompletionRepairObservation,
@@ -543,6 +545,16 @@ def _disposition_manifests(state: StateFile) -> tuple[ManifestReference, ...]:
     return tuple(references.values())
 
 
+def _waiver_manifests(state: StateFile) -> tuple[EvidenceReference, ...]:
+    """Each distinct source manifest a witness waiver names, in ledger order."""
+    references: dict[str, EvidenceReference] = {}
+    for decision in state.decisions:
+        reference = waiver_source_evidence(decision.witness_waiver)
+        if reference is not None:
+            references.setdefault(reference.artifact, reference)
+    return tuple(references.values())
+
+
 def retained_evidence_paths(
     facts: tuple[VerificationFact, ...],
 ) -> tuple[str, ...]:
@@ -675,6 +687,8 @@ def _retained_evidence_snapshot(
                 )
         for manifest in _disposition_manifests(state):
             register(manifest.artifact, manifest.artifact_sha256)
+        for waiver_manifest in _waiver_manifests(state):
+            register(waiver_manifest.artifact, waiver_manifest.artifact_sha256)
         for name in sorted(_retained_paths(state)):
             parsed = PurePosixPath(name)
             if (
@@ -749,6 +763,8 @@ def _retained_evidence_report(
         add(fact.evidence.after.artifact, "verification-evidence")
     for manifest in _disposition_manifests(state):
         add(manifest.artifact, "disposition-evidence")
+    for waiver_manifest in _waiver_manifests(state):
+        add(waiver_manifest.artifact, "waiver-evidence")
     if state.completion is not None and state.completion.close_suite is not None:
         add(state.completion.close_suite.log, "close-suite-log")
 
@@ -1142,6 +1158,7 @@ def _retained_paths(state: StateFile) -> set[str]:
         )
     paths.update(retained_evidence_paths(state.verifications))
     paths.update(manifest.artifact for manifest in _disposition_manifests(state))
+    paths.update(manifest.artifact for manifest in _waiver_manifests(state))
     if state.completion is not None and state.completion.close_suite is not None:
         paths.add(state.completion.close_suite.log)
     return paths
@@ -1179,6 +1196,7 @@ def optional_retained_paths(state: StateFile) -> frozenset[str]:
         optional.add(fact.log)
         required.update((fact.evidence.before.artifact, fact.evidence.after.artifact))
     required.update(manifest.artifact for manifest in _disposition_manifests(state))
+    required.update(manifest.artifact for manifest in _waiver_manifests(state))
     if state.completion is not None and state.completion.close_suite is not None:
         optional.add(state.completion.close_suite.log)
     return frozenset(optional - required)

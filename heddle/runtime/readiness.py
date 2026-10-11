@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import hashlib
-from collections.abc import Callable
-from dataclasses import dataclass
+from collections.abc import Callable, Iterable, Sequence
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, cast
 
@@ -39,8 +39,10 @@ from heddle.kernel.reviews import (
 from heddle.kernel.source_manifest import ObservedPath
 from heddle.kernel.verification import VerificationFreshness
 from heddle.kernel.witness_waiver import (
+    acceptable_prior_witness,
     verification_refresh_reason,
     waivable_witness_rerun,
+    witness_offer,
 )
 from heddle.runtime.flow_changes import phase_exit_grant_blockers
 from heddle.runtime.review_launch import LaunchMember, launch_set
@@ -136,11 +138,14 @@ def assess_current_readiness(
     assignment_projection: dict[str, Any] | None = None,
     purpose: str = "boundary",
     project_launch: bool = True,
+    project_stale: bool = True,
 ) -> BoundaryAssessment:
     """Observe canonical authority and current source in an invocation-local frame.
 
     ``project_launch=False`` keeps each review slot's own ``RunGate`` action
-    instead of the ``RunGates`` action that joins a launch set.
+    instead of the ``RunGates`` action that joins a launch set, and
+    ``project_stale=False`` keeps each stale scope's own ``Verify`` action
+    instead of the ``verify --stale`` action that covers them.
     """
     boundary = boundary or Boundary(
         snapshot.stage,
@@ -159,6 +164,7 @@ def assess_current_readiness(
         assignment_projection,
         purpose=purpose,
         project_launch=project_launch,
+        project_stale=project_stale,
     )
 
 
@@ -171,6 +177,7 @@ def _assignment_readiness(
     *,
     purpose: str,
     project_launch: bool,
+    project_stale: bool,
 ) -> BoundaryAssessment:
     from heddle.contracts.review_assignments import ROLE_STAGES
     from heddle.contracts.schemas import STAGES
@@ -349,16 +356,110 @@ def _assignment_readiness(
         and isinstance(derived[0].action, ops.SessionAction)
     ):
         actions = [derived[0], *(item for item in actions if item != derived[0])]
+    routed = tuple(actions) or derived
+    if project_stale:
+        # Projected over the final order, so the batch covers exactly the
+        # leading scopes `verify --stale` selects from the unprojected actions.
+        routed = tuple(
+            project_stale_verify_actions(routed, verifications, boundary.stage)
+        )
     return BoundaryAssessment(
         boundary,
         tuple(rows),
         verifications,
         tuple(blockers),
-        tuple(actions) or derived,
+        routed,
         purpose,
         obligations,
         identity,
     )
+
+
+def actionable_stale(row: VerificationFreshness) -> bool:
+    """Whether ``verify --stale`` reruns this scope.
+
+    Content- and source-set-stale scopes with a routed rerun qualify; a waived
+    or accepted scope routes none, and the live lane reruns only on its own.
+    """
+    return (
+        row.status in {"content-stale", "source-set-stale"}
+        and row.action is not None
+        and row.scope != "live"
+    )
+
+
+def leading_verify_scopes(actions: Iterable[NextAction]) -> tuple[str, ...]:
+    """Scopes of the single-scope verify actions readiness routes first."""
+    scopes: list[str] = []
+    for item in actions:
+        action = item.action
+        if not (
+            isinstance(action, ops.CommandAction)
+            and isinstance(action.operation, ops.Verify)
+            and not action.operation.stale
+            and action.operation.scope is not None
+        ):
+            break
+        scopes.append(action.operation.scope)
+    return tuple(scopes)
+
+
+def stale_batch_scopes(
+    actions: Iterable[NextAction], verifications: Iterable[VerificationFreshness]
+) -> tuple[str, ...]:
+    """The leading verify scopes a ``verify --stale`` batch reruns, in order."""
+    rows = {row.scope: row for row in verifications}
+    return tuple(
+        scope
+        for scope in leading_verify_scopes(actions)
+        if scope in rows and actionable_stale(rows[scope])
+    )
+
+
+def project_stale_verify_actions(
+    actions: Sequence[NextAction],
+    verifications: Iterable[VerificationFreshness],
+    stage: str,
+) -> list[NextAction]:
+    """Route one ``verify --stale`` in place of two or more stale reruns it covers."""
+    rows = {row.scope: row for row in verifications}
+    covered = stale_batch_scopes(actions, rows.values())
+    if len(covered) < 2:
+        return list(actions)
+    items = [
+        (index, item)
+        for index, item in enumerate(actions)
+        if isinstance(item.action, ops.CommandAction)
+        and isinstance(item.action.operation, ops.Verify)
+        and item.action.operation.scope in covered
+    ]
+    first, lead = items[0]
+    assert isinstance(lead.action, ops.CommandAction)
+    operation = lead.action.operation
+    assert isinstance(operation, ops.Verify)
+    named = [f"{scope} ({rows[scope].status})" for scope in covered]
+    reason = (
+        "refresh "
+        + (", ".join(named[:-1]) + " and " + named[-1])
+        + " verification in one batch"
+        + "".join(
+            witness_offer(stage, rows[scope], lane=f"the {scope}") for scope in covered
+        )
+    )
+    batch = NextAction(
+        action=ops.CommandAction(replace(operation, scope=None, stale=True)),
+        reason=reason,
+    )
+    skipped = {index for index, _item in items}
+    return [
+        *actions[:first],
+        batch,
+        *(
+            item
+            for index, item in enumerate(actions)
+            if index > first and index not in skipped
+        ),
+    ]
 
 
 def unavailable_baseline(
@@ -736,6 +837,11 @@ def verification_status_block(
     hint = "rerun every listed verification action and retry the transition"
     if any(waivable_witness_rerun(stage, status) for status in stale):
         hint += "; the owner may instead waive a witness lane's post-review rerun"
+    elif any(acceptable_prior_witness(stage, status) for status in stale):
+        hint += (
+            "; only formatting changed since a witness lane passed, so the owner "
+            "may instead accept that earlier witness"
+        )
     return HeddleResult.failure(
         HeddleError(
             code="verification-missing",
@@ -747,11 +853,17 @@ def verification_status_block(
         exit_code=ExitCode.FATAL,
         diagnostics=diagnostics,
         next_actions=tuple(
-            NextAction(
-                action=status.action,
-                reason=verification_refresh_reason(stage, status),
+            project_stale_verify_actions(
+                [
+                    NextAction(
+                        action=status.action,
+                        reason=verification_refresh_reason(stage, status),
+                    )
+                    for status in stale
+                    if status.action is not None
+                ],
+                stale,
+                stage,
             )
-            for status in stale
-            if status.action is not None
         ),
     )

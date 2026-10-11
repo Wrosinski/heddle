@@ -1738,6 +1738,11 @@ COMMAND_SURFACE: tuple[CommandContract, ...] = (
                 "--scope",
                 ops.VERIFICATION_SCOPE_GUIDANCE,
             ),
+            FlagSpec(
+                "--stale",
+                "rerun the actionable stale scopes readiness leads with, in "
+                "order; excludes --scope",
+            ),
             _EXPECT_REVISION,
             _DRY_RUN,
         ),
