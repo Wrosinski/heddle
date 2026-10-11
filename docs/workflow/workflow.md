@@ -387,8 +387,13 @@ separately from mechanical cleanup using the repository's commit procedure.
 After the last milestone, run every declared witness lane with `heddle verify
 --scope acceptance` and, when live is declared, `--scope live`. Phase exit to
 peer review refuses until each lane passes on current content, so reviews start
-from a feature the witness has shown to work. The lead performs any declared
-alignment assessment on this pre-review run, so reviewers can inspect it.
+from a feature the witness has shown to work. When a lane passed and then went
+stale only through formatting-only changes, readiness also offers the owner a
+class-5 `witness-waiver` question: resolved as `accept-prior-witness`, it
+accepts the earlier witness at implement exit instead of a rerun. A content,
+membership or ownership change, or a witness that never passed, still needs
+the rerun. The lead performs any declared alignment assessment on this
+pre-review run, so reviewers can inspect it.
 
 Milestone ownership may name another feature's Heddle records when a migration
 explicitly changes or deletes those exact paths. It may not name the active
@@ -427,6 +432,56 @@ Changed bindings block coverage until explicitly re-inspected and attributed
 again; new unclassified paths still block. Later ownership takes precedence and
 requires normal source-bound proof. Attribution never rewrites the baseline,
 shrinks ownership or supplies verification evidence.
+
+### Formatting, Review Equivalence and Refresh
+
+Every recorded source path keeps its raw identity: the digest of its exact
+bytes, kind and executable mode. Review equivalence adds a versioned rule
+digest beside it for two file kinds, so a formatter reflow stops reopening
+reviews:
+
+- `python-tree/1` for `.py` files compares the syntax tree, comments and
+  cleaned docstrings, so quotes, trailing commas, line splits and blank lines
+  do not count. Its rule id names the interpreter's major and minor version.
+- `markdown-text/1` for `.md` files ignores table padding, delimiter dash
+  counts, internal runs of spaces, trailing whitespace that is not a hard break
+  and line endings. Code, HTML blocks, front matter, link targets and every
+  rewrap still count. Its rule id names the CommonMark parser's version.
+
+Every other file, and a record made before source evidence v2, compares raw.
+Review evidence (disposition bases, reviewer bases, cited references) and
+witness waivers stay current across review-equivalent changes. Verification
+stays raw, because a stored command may read the exact bytes: a reflow makes a
+fact `content-stale`, and its explanation names each path `formatting-only`.
+Content delivered to reviewers and commands is always the raw working bytes.
+Phase exit and milestone advance re-bind dispositions that are current only by
+equivalence, then seal the current raw basis.
+
+Stale explanations carry typed `changes` naming each changed path or
+component and its kind. Refresh in one step per kind of evidence:
+
+- `heddle verify --stale` reruns the actionable stale scopes readiness leads
+  with, each recorded as its own fact, and lists the scopes it skips with their
+  reasons; with nothing to run it exits 0. It never runs `live`, missing,
+  failed or command-stale scopes. It continues past a recorded failing run and
+  then exits 3 with every row, and stops at anything else, such as a conflict
+  (exit 5) or an integrity failure, keeping the rows already recorded and
+  listing the unrun scopes.
+- `heddle review reaffirm`, after the lead judges that recorded resolutions
+  still apply, writes every stale row of the unsealed assignments at the
+  current boundary whose citations and evidence still qualify. It lists the
+  rest with their changed paths and exits 4 while any remain, 1 when none was
+  writable, and 0 when nothing remains. `--role` with `--scope` narrows it to
+  one assignment. Readiness routes it as `review-reaffirm` authoring work, so
+  the driver opens a session rather than running it.
+
+The scaffolding review judges the declared tests and bindings plus every test
+under the tests root that differs from the feature baseline under review
+equivalence, so a commit and its revert change nothing. If a rebase drops the
+baseline, readiness reports `baseline-unavailable` and the driver blocks; the
+owner re-points it with
+`heddle feature baseline set --commit <rev> --reason <text>`, which no agent
+session may run.
 
 ### Document Reconciliation
 
@@ -512,9 +567,9 @@ any declared alignment assessment. Live never replaces acceptance. Rerunning a
 witness lane that review changes made stale is the default. The owner may waive
 one lane's rerun with a class-5 `witness-waiver` decision resolved as
 `accept-prior-witness`; it binds the latest passing pre-review fact and current
-source, so any later relevant edit restores the rerun. Failed, missing,
-unstable or command-stale evidence cannot be waived, and the implement-exit run
-never can. With R Off,
+source. A later formatting-only change keeps it; any other relevant edit
+restores the rerun. Failed, missing, unstable or command-stale evidence cannot
+be waived. With R Off,
 the lead still owes declared live proof here although native enforcement starts
 at robustness, which is traversed even with R Off, and applies again at complete.
 After the last relevant fix and final applicable pass, refresh the assessment

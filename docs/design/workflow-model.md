@@ -200,12 +200,17 @@ the lane still blocks exit. A user-resolved
 class-5 `witness-waiver` decision with resolution `accept-prior-witness` can
 instead waive one lane's rerun. It binds the identity of the latest scoped fact,
 which must be stable, passing and on the current command, plus the ownership
-union and current source digest. While those bindings hold, the boundary and
-`complete` accept the content-stale or source-set-stale fact; any later
-relevant edit or new run makes the waiver inert. The waiver never applies at
-implement exit, never qualifies review-disposition evidence, and is named by
-the completion fact. Like accepted degraded smoke, it needs a matching decision
-journal entry at close.
+union and current source manifest. While those bindings hold, the boundary and
+`complete` accept the content-stale or source-set-stale fact. A later change
+that is review-equivalent for every changed path keeps the waiver current; any
+other relevant edit or a new run makes it inert, and a waiver recorded before
+source evidence v2 stays exact. At implement exit the owner may accept an
+earlier passing witness the same way only when every change since that run is
+formatting-only: readiness then offers the waiver beside the rerun, and a
+content, membership or ownership change leaves only the rerun. The waiver never
+qualifies review-disposition evidence, and is named by the completion fact.
+Like accepted degraded smoke, it needs a matching decision journal entry at
+close.
 Checkpoint witness questions use existing decisions, and unresolved questions
 block progression. Recorded grants remain separate from design and prerequisites.
 
@@ -220,6 +225,40 @@ source can be reconciled with declared ownership.
 Observations include applicable file bytes, kinds, executable modes, symlinks
 and missing paths. They are point samples, not an atomic filesystem snapshot or
 protection against changes restored between observations.
+
+Each observation has a raw identity, the digest of its exact bytes with its
+kind and executable mode, which keeps its meaning in every record. Review
+equivalence adds a versioned rule digest beside it for two file kinds:
+`python-tree/1` for `.py` files covers the syntax tree, comments and cleaned
+docstrings under the running interpreter's major and minor version, and
+`markdown-text/1` for `.md` files ignores table padding, delimiter dash counts,
+internal spacing, trailing whitespace that is not a hard break and line endings
+outside code, HTML blocks, front matter and link targets, under the CommonMark
+parser's version. Two observations of one path, kind and mode are
+review-equivalent when their raw digests match or both carry equal digests
+under the same rule id; every other file compares raw. Review evidence and
+witness-waiver bindings accept review-equivalent changes. Verification
+freshness and stability stay raw, because a stored command may read the raw
+bytes: a formatter rewrite makes a fact `content-stale`, and its explanation
+lists each such path as `formatting-only`. A fact recorded before source
+evidence v2 lists the path as `content` with the equivalence detail
+unavailable. Every stale explanation carries typed `changes` (`content`,
+`formatting-only`, `added`, `removed`, `kind`, `mode`, `membership` or a named
+component) beside its path list.
+
+`heddle verify --stale`, exclusive with `--scope`, reruns the actionable stale
+scopes readiness leads with, in its order. Each is admitted, reassessed and
+recorded as its own fact, with the expected revision rebound after each write.
+It never runs `live`, missing, failed or command-stale scopes, a lane whose
+rerun is waived or accepted degraded smoke, or acceptance that readiness places
+behind open review work; each skipped scope is listed with its reason, and
+with nothing to run the batch returns `ok: true`, exit 0. It continues past a
+recorded failing or unstable run and then returns `ok: false` with exit 3 and
+every row. Anything else stops it, such as a conflict (exit 5), lost authority
+or an integrity failure (exit 3), keeping the rows recorded before the stop and
+listing the unrun scopes. Readiness offers one `verify --stale` action in place of two or
+more leading verify actions it covers, and the driver counts each recorded row
+toward that scope's attempt cap.
 
 Ownership is an explicit proof dependency, separate from source coverage.
 Unowned bookkeeping edits do not invalidate verification. Intentionally owned
@@ -263,7 +302,27 @@ report alone does not settle an earlier finding or coverage obligation.
 
 Readiness checks execution, disposition and applicability separately. Relevant
 changes to an assignment's subject or cited evidence can invalidate its current
-closure. Repairing evidence does not automatically require another provider call;
+closure; a change that is review-equivalent for every changed path does not.
+Phase exit and milestone advance append one re-binding row, marked
+`rebound_by`, for each disposition current only by equivalence, before the
+receipt seals the current raw basis.
+
+The scaffolding review's test subject is the declared tests, `Verified-by:`
+bindings and their helpers, plus every test under the tests root that differs
+from the feature baseline under review equivalence, with deleted tests kept as
+missing observations; history alone never changes it. One resolver serves the
+reviewer basis and the assignment basis. A scaffolding assignment opened
+before this rule (any attempt or disposition row recorded without a manifest)
+keeps the earlier `HEAD`-relative selection through sealing, as does a feature
+without a recorded baseline. When the recorded baseline no
+longer resolves or is no longer an ancestor of `HEAD`, readiness reports
+`baseline-unavailable` with the reason, and orient, plan-status and the driver
+stop there, with scaffolding and milestone gates refusing behind it. The owner
+re-points it with `heddle feature baseline set --commit <rev> --reason <text>`,
+which refuses while the baseline is available, requires an ancestor of `HEAD`,
+keeps the previous value in history and is on no agent session allowlist.
+
+Repairing evidence does not automatically require another provider call;
 follow the returned action. When every open concern is an addressed or settled
 disposition whose cited evidence changed, that action is a fresh disposition, not
 a mandatory stop, even at the round limit. The same holds at the round limit when
@@ -293,14 +352,21 @@ for formatting/commit hooks before paid review, without a new flag or refusal
 solely for dirtiness. Failed Git observation is unknown. Actual review inputs
 remain hash-bound, including ignored records selected by the review contract.
 
-`heddle review reaffirm --role <role> --scope <feature|mN>` expresses the lead's
-current applicability judgment for latest affirmative dispositions. It preserves
-captured references, reasons and evidence/inspection bindings and qualifies the
-whole selection before appending basis/time changes. Current rows are checked
-before no-op; superseded or unresolved rows are not resurrected. Changed citations,
-stale supporting proof and sealed assignments refuse. Dry-run is read-only and
-expected-revision enforces CAS. No missing duty, test, review or decision is
-completed implicitly.
+`heddle review reaffirm` expresses the lead's current applicability judgment
+for latest affirmative dispositions. Without `--role` and `--scope` it covers
+every unsealed assignment at the current boundary and skips sealed ones; with
+both it covers one assignment, and a sealed one refuses. In one CAS write it
+appends a copy of each stale row whose citations and supporting evidence still
+qualify, preserving captured references, reasons and evidence/inspection
+bindings and changing only the basis, its manifest and the time. It lists every
+other stale row with its typed changes, and an assignment missing a slot with
+its reason. It exits 0 when nothing remains, 4 when rows remain beside those
+written, and 1, writing nothing, when no row is writable. Superseded or
+unresolved rows are not resurrected. Readiness routes it as `review-reaffirm`
+authoring work whose references list the rows it would write and refuse; the
+driver opens a stage session for that work and never runs the command itself.
+Dry-run is read-only and expected-revision enforces CAS. No missing duty, test,
+review or decision is completed implicitly.
 
 Exact replay is distinct from closure. The reuse owner validates original
 identity and artifact integrity before returning retained output without a new

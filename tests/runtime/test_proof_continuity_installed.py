@@ -7,8 +7,8 @@ external reviewer executable is controlled. No provider credentials or network.
 rebinding witness for AC-3, AC-4, AC-5, AC-7, AC-10, AC-11 and AC-12. A
 scripted claude double answers exactly two reviews and fails any further
 launch; the formatter is a fixed rewrite to known reflowed bytes. It reaches
-behaviour that is not built yet only through the installed CLI, so collection
-never depends on it. Its activation seams, each asserted where the journey
+the change-impact behaviour only through the installed CLI, so collection
+never depends on it. The surfaces it pins, each asserted where the journey
 reaches it:
 
 - review evidence current across a review-equivalent rewrite (closure rows and

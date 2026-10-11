@@ -162,14 +162,28 @@ evidenced outside-feature work. Before a paid review, act on selected dirty-inpu
 advice by formatting and running applicable commit hooks when appropriate;
 ignored selected records still bind review identity.
 
+Spec and plan prose is review evidence under review equivalence. Raw identity,
+the digest of a file's exact bytes, stays recorded for every path; beside it,
+`markdown-text/1` makes a `.md` file's table re-padding, delimiter dash counts,
+internal spacing, non-break trailing whitespace and line endings irrelevant to
+review evidence, and `python-tree/1` does the same for a `.py` file's layout
+under its syntax tree. A rewrap, a list or emphasis marker, a blank line, or any
+change inside code, front matter or a link target still counts, as does every
+change to other file types. Verification facts stay raw: an owned document
+reflowed after a run makes that fact `content-stale`, explained as
+formatting-only. The plan-status region is excluded before either identity is
+computed, so `heddle sync` changes neither.
+
 Use `review round-open --input-json` with the versioned role/scope/purpose/reason
 payload for an eligible verification follow-up, then run the confirmed gate and
 disposition its new coverage. Lead closure does not seal a boundary or waive caps,
 stops, missing slots or originating inspection. The reviewer must account for
-all frozen targets. `review reaffirm --role <role> --scope <feature|mN>` records
-explicit lead applicability judgment for latest addressed/settled rows while
-preserving citations and rechecking current evidence atomically; it does not
-rerun proof, recapture edited citations or create missing resolutions.
+all frozen targets. `review reaffirm` records explicit lead applicability
+judgment for latest addressed/settled rows across the unsealed assignments at
+the current boundary, or one assignment with `--role` and `--scope`. It writes
+the stale rows whose citations and evidence still qualify in one atomic write,
+lists the rest with their changed paths and exits 4 while any remain; it does
+not rerun proof, recapture edited citations or create missing resolutions.
 
 Completion preview shows the configured close suite; accepted write/retry/read
 results preserve the recorded close-suite fact and command when configuration

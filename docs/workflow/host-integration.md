@@ -366,6 +366,39 @@ the specify, spec-review, plan-review, implement, peer-review, robustness or
 complete briefing, of the spec-review or plan-review prompt, or of
 `decision-routing.md` shadow this guidance until reconciled.
 
+## Adopting review equivalence and one-step refresh
+
+Updating mid-feature stales nothing. Records made by an earlier Heddle carry no
+equivalence identity and compare raw exactly as before, and a scaffolding
+review opened earlier keeps its earlier test selection through sealing. Records
+written afterwards use `heddle.source-evidence/v2`, so a formatter reflow of
+Python or Markdown files keeps dispositions, review evidence and witness
+waivers current, while verification facts still go stale and name the change
+formatting-only. The rule ids name the Python interpreter's and the CommonMark
+parser's major and minor versions; after either changes, a reflow of a file
+recorded under the old version reads as a change until its evidence is
+refreshed.
+
+The update adds these surfaces:
+
+- `heddle verify --stale` reruns the actionable stale scopes readiness leads
+  with, never `live`, and needs no authority beyond what each stored command
+  already carries;
+- `heddle review reaffirm` without `--role` and `--scope` covers every unsealed
+  assignment at the current boundary, writes the rows that still qualify and
+  exits 4 while others remain; readiness routes it as `review-reaffirm`
+  authoring work;
+- `heddle feature baseline set --commit <rev> --reason <text>` re-points a
+  feature baseline that a rebase or history rewrite made unavailable; it is
+  owner-run and on no agent session allowlist;
+- at implement exit, the owner may accept an earlier passing witness through a
+  class-5 `witness-waiver` decision when only formatting-only changes made it
+  stale.
+
+Overrides of the spec-review, plan-review, scaffold, implement, peer-review or
+robustness briefing, or of the plan scaffold, keep the earlier reaffirm and
+witness guidance until reconciled.
+
 ## Shared decision policy
 
 Kickoff and reviewer preparation both capture `decision-routing.md` through

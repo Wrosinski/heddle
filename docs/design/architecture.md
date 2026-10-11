@@ -140,9 +140,15 @@ requirements.
 
 Current state is `heddle.state/v10`, with `heddle.review-assignments/v3` as the
 single review-attempt and boundary-acceptance authority and
-`heddle.source-evidence/v1` as the immutable verification-manifest format. The
-v10 ledger records the source baseline captured from the initial source commit
-at admission; a later record commit for workflow files is optional. The
+`heddle.source-evidence/v2` as the immutable source-manifest format; v1
+manifests stay readable unchanged. The v10 ledger records the source baseline
+captured from the initial source commit at admission; a later record commit for
+workflow files is optional. Only `heddle feature baseline set`
+(`runtime/feature_baseline.py`) changes it afterwards, and only while the
+recorded baseline is unavailable, appending the previous value and reason to
+`source_baseline_history`. The scaffolding reviewer basis and assignment basis
+share one subject resolver in `gate/preparation.py`, which selects the tests
+that differ from that baseline under review equivalence. The
 current runtime reads active v9 ledgers through their state-add compatibility
 baseline and rejects older or future schemas without mutation; unfinished older
 work remains recoverable with the compatible runtime that created it rather than
@@ -182,11 +188,43 @@ provider execution holds the gate lock while leaving the state lock available.
 
 Readiness separates execution, disposition and applicability at existing boundaries.
 Verification separates content identity, command adequacy, semantic quality,
-operational reliability and tool behavior. Source identity is the declared raw
-working content, including established byte/mode/symlink/missing-path semantics;
-Git may discover tracked leaves and provide diagnostics, but HEAD is not freshness
-authority. Observations are before/after point samples, not an atomic filesystem
-snapshot or protection against change-and-restore between samples.
+operational reliability and tool behavior. Raw source identity covers the
+declared working content, including established byte/mode/symlink/missing-path
+semantics; Git may discover tracked leaves and provide diagnostics, but HEAD is
+not freshness authority. Observations are before/after point samples, not an
+atomic filesystem snapshot or protection against change-and-restore between
+samples.
+
+A review-equivalence identity sits beside raw identity and never replaces it.
+`kernel/review_equivalence.py` owns both rules and the comparison:
+`python-tree/1` for `.py` files hashes the syntax tree, comments and cleaned
+docstrings, and its rule id names the interpreter's major and minor version;
+`markdown-text/1` for `.md` files ignores table padding, delimiter dash counts,
+internal space runs, trailing whitespace that is not a hard break and line
+endings outside code, HTML blocks, front matter and link targets, and its rule
+id names the CommonMark parser version that `knowledge_search.py` supplies.
+Other files have raw identity only, and a rule this Heddle cannot compute gives
+no equivalence. Source evidence v2 records each observation's rule and digest
+beside its raw digest; `source_sha256` keeps its recipe and v1 artifacts decode
+and re-encode byte-exactly. Review evidence (disposition bases, the reviewer
+basis behind `review` evidence and recorded runs, cited references) and
+witness-waiver source bindings accept a path whose raw digest differs when both
+sides carry one rule id and equal digests. Verification freshness and
+stability, smoke-acceptance bindings, attributed sources, prompt identity, the
+gate input hash and retained review captures stay raw, and reviewers and
+commands always read the raw working bytes. The runtime computes per-basis
+currency and hands it to closure, sync and the kernel's derived actions as
+data. Phase exit and milestone advance append a re-binding row for each
+disposition current only by equivalence, then seal the current raw basis, so
+historical receipt validation still compares raw strings.
+
+Writes stamp the equivalence identity of every `.py` and `.md` file in the
+manifests they publish. Reads compute it only for a path whose raw identity
+differs from the record it is compared with, through one runtime helper in
+`runtime/verification.py`, and a re-read whose raw digest no longer matches gets
+none and compares raw. Status and orient therefore pay nothing for identity
+while sources match their records, and load the CommonMark parser only when a
+Markdown observation differs raw.
 
 `heddle feature complete` accepts one immutable typed completion fact after current
 qualification and the configured close suite, before stamping, archival or cleanup.

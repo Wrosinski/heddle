@@ -141,13 +141,21 @@ assessment. Live does not replace acceptance. Partial passes, skipped cases,
 timeouts and unrun required lanes remain unfinished.
 
 The implement-exit run is mandatory: phase exit to peer review refuses until
-every declared lane passes on current content. At the final boundary, a lane
-that review changes made stale reruns by default. The owner may waive one lane's
-rerun with a class-5 `witness-waiver` decision resolved as `accept-prior-witness`.
-It binds the latest stable passing fact and the current source, so any later
-relevant edit restores the rerun. Failed, missing, unstable and command-stale
-evidence is never waivable. The waiver satisfies the stage boundary and
-completion only; it is not verification evidence for a review disposition. The
+every declared lane passes on current content. One exception keeps a reflow
+from costing a paid rerun: when every change since a lane's passing run is
+formatting-only (review-equivalent Python or Markdown), readiness offers the
+owner a class-5 `witness-waiver` decision beside the rerun, and resolving it as
+`accept-prior-witness` accepts that earlier witness at implement exit. A content,
+membership or ownership change requires the rerun, and a witness that never
+passed is never acceptable. At the final boundary, a lane that review changes
+made stale reruns by default. The owner may waive one lane's rerun with the
+same decision. It binds the latest stable passing fact and the current source
+manifest: a later formatting-only change keeps it current, and any other
+relevant edit restores the rerun. Verification itself stays raw, so a
+formatting-only change still makes the fact stale until it reruns or is
+waived. Failed, missing, unstable and command-stale evidence is never waivable.
+The waiver satisfies the stage boundary and completion only; it is not
+verification evidence for a review disposition. The
 completion fact names it, and spec Outcomes state that the lane's evidence
 predates review changes. Execution deferral leaves
 proof pending; changing an obligation requires an explicit contract decision
@@ -318,7 +326,7 @@ execution evidence; imports and collection hooks must not launch external work.
 | Plan review and scaffolding | Review feasibility, realize the confirmed design, bind exact commands, and retain meaningful red/green expectations, costs and fixtures |
 | Task implementation | Run affected behavior and direct-consumer checks; include related slow cases for a concrete reason |
 | Milestone boundary | Execute the applicable recorded milestone proof within its authority; preserve required unrun obligations |
-| Implement exit | Run every declared e2e/live witness lane within its grant; reviews start only after each passes |
+| Implement exit | Run every declared e2e/live witness lane within its grant; reviews start only after each passes, or after the owner accepts an earlier passing witness that only formatting-only changes made stale |
 | Review and remediation | Reuse applicable evidence; rerun affected checks after fixes; reviewers retain their role limits |
 | Final verification / robustness | Complete required acceptance and authorized e2e/live proof against current relevant content; rerun stale lanes by default unless the owner waived that lane |
 | Completion | Account for all required evidence and explicit dispositions; do not add an automatic broad run |
@@ -429,6 +437,11 @@ never edit `state.yaml` directly. Preview an unfamiliar recorded command with
 `heddle verify --scope <scope> --dry-run` where available and inspect any nested
 launches. Required execution and provenance are recorded by `heddle verify`.
 An ad hoc focused pytest pass does not replace a broader required fact.
+`heddle verify --stale` runs the same stored commands readiness would route
+one scope at a time, for the actionable stale scopes it leads with, and never
+`live`; it adds no execution authority, so inspect each selected command as
+you would its single-scope action. Its `--dry-run` lists every command it
+would run.
 
 Before changing band defaults, map every required witness to a command that
 still executes it. Exact target lists and strict proof checks prevent default

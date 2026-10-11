@@ -149,6 +149,65 @@ authority for the installed version.
   re-dispositioned.
 - A driven specify session may edit the specs directory's `_index` table
   beside `_descriptions.yaml`.
+- Formatter reflows no longer reopen reviews. Beside each path's raw identity,
+  Heddle records a review-equivalence identity under one of two rules:
+  `python-tree/1` for `.py` files (the syntax tree, comments and cleaned
+  docstrings, under the interpreter's major and minor version) and
+  `markdown-text/1` for `.md` files (table padding, delimiter dashes, internal
+  spacing, non-break trailing whitespace and line endings ignored outside code,
+  HTML blocks, front matter and link targets, under the CommonMark parser's
+  version). Disposition bases, `review` evidence, recorded review runs and
+  cited references stay current across review-equivalent changes, and a gate
+  run whose sources change only that way during the provider call is recorded
+  with its launch-time basis. Verification stays raw: a formatting change still
+  makes a fact `content-stale`, and its explanation names the change
+  formatting-only. Content delivered to reviewers and commands is unchanged.
+- Source evidence is written as `heddle.source-evidence/v2`, adding the
+  equivalence identity per observation and named components per manifest;
+  v1 artifacts read and re-encode byte-exactly, and upgrading mid-feature
+  stales nothing. Dispositions name the manifest behind their basis, so a
+  missing or altered manifest is an integrity error.
+- Phase exit and milestone advance seal dispositions that are current only by
+  equivalence by appending a re-binding row (`rebound_by`) for each one before
+  the receipt seals the current raw basis; a dry run lists them as
+  `rebinding_rows`.
+- Stale explanations carry typed `changes` beside `changed_dependencies`, each
+  naming a path or component and its kind (`content`, `formatting-only`,
+  `added`, `removed`, `kind`, `mode` or `membership`), through dispositions
+  backed by verification or by a review too. A record made before this
+  release says its change detail is unavailable.
+- The scaffolding review judges the declared tests and bindings plus every test
+  under the tests root that differs in content from the feature baseline,
+  including untracked and deleted ones, so a commit followed by its revert, an
+  amend or a rebase no longer changes it. Assignments opened before this
+  release keep their earlier selection through sealing. When the baseline is
+  unavailable, readiness reports a `baseline-unavailable` blocking condition
+  naming the reason and `heddle feature baseline set`; orient, plan-status and
+  the driver stop there, and scaffolding and milestone gates refuse before any
+  provider call.
+- The rendered plan-status `next:` and `conditions:` now equal orient's first
+  action and blocking conditions, and a `heddle sync` rewrite of that region
+  no longer produces uncommitted-plan advice before a review.
+- `heddle review reaffirm` takes `--role` and `--scope` as optional together.
+  Without them it covers every unsealed assignment at the current boundary and
+  skips sealed ones. It writes the stale rows whose citations and evidence
+  still qualify in one transaction and lists the rest with their changed
+  paths, and an assignment missing a slot with its reason. It exits 0 when
+  nothing remains, 4 when rows remain beside those written, and 1, writing
+  nothing, when no row is writable. Readiness routes it as `review-reaffirm`
+  authoring work listing the rows it would write and refuse; the driver opens
+  a session for that work and never runs the command itself.
+- Stage briefings carry the new behaviour; no gate prompt changes:
+  - spec review, plan review, scaffold, implement, peer review and robustness
+    explain partial reaffirm and which reformatting keeps review evidence
+    current;
+  - implement and peer review name `heddle verify --stale` and explain that
+    verification stays raw;
+  - implement, the plan scaffold and the witness guidance let the owner accept
+    an earlier witness at implement exit only for formatting-only changes, and
+    peer review and robustness keep a waiver across such changes;
+  - scaffold explains the content-based reviewed tests and the
+    `baseline-unavailable` stop.
 
 ### Added
 
@@ -227,12 +286,35 @@ authority for the installed version.
   execution grants still go to the owner.
 - A class-5 `witness-waiver` decision, resolved with `accept-prior-witness`,
   lets the owner waive one lane's post-review rerun. It binds the latest stable
-  passing fact and the current source, so a later relevant edit or a new run
-  makes it inert. Failed, missing, unstable and command-stale evidence is never
-  waivable, and the waiver never satisfies implement exit or review-disposition
-  evidence. Completion records waived lanes in
+  passing fact and the current source manifest, so a later formatting-only
+  change keeps it while any other relevant edit or a new run makes it inert.
+  Failed, missing, unstable and command-stale evidence is never waivable, and
+  the waiver never qualifies review-disposition evidence. At implement exit
+  the same decision lets the owner accept an earlier passing witness only when
+  every change since it is formatting-only; readiness offers it beside the
+  rerun in that case alone. Completion records waived lanes in
   `completion.waived_witness_decision_ids`, and the close audit expects a
   matching decision-journal entry.
+- `heddle verify --stale` reruns, in readiness order, every actionable stale
+  scope readiness leads with: a required scope that is `content-stale` or
+  `source-set-stale`, whose rerun is not waived or accepted as degraded smoke,
+  and which is not `live`. Each scope is admitted, reassessed and recorded as
+  its own fact: `data.verifications` has one row per scope run, `skipped`
+  lists every other scope with its reason, and `unrun` the scopes a stop left.
+  With nothing to run it returns `ok: true`, exit 0. The batch continues past
+  a recorded failing or unstable run (`ok: false`, exit 3
+  `verification-failed`, every row in the error details) and stops at anything
+  else, such as a conflict (exit 5), lost authority or an integrity failure
+  (exit 3), keeping the rows recorded before the stop. `--stale` excludes
+  `--scope`, and `--dry-run` lists every command it would run. Orient shows
+  one `verify --stale` action in place of two or more leading verify actions,
+  and the driver counts each recorded row toward its scope's attempt cap.
+- `heddle feature baseline set --commit <rev> --reason <text>` re-points a
+  feature baseline that no longer resolves or is no longer an ancestor of
+  `HEAD`. It refuses while the recorded baseline is available, requires an
+  ancestor of `HEAD`, supports `--expect-revision` and `--dry-run`, appends the
+  previous value, reason and time to `source_baseline_history`, and is on no
+  agent session allowlist.
 
 ## [0.2.0] - 2026-09-29
 
