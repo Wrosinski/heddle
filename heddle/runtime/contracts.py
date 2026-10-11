@@ -339,7 +339,11 @@ _DECISION_KIND_SUMMARIES = {
     "stage-cap": "a reached stage error limit",
     "session-cap": "a reached session limit",
     "smoke-disposition": "an external failed smoke proposal",
-    "witness-waiver": "an owner waiver of one default post-review witness rerun",
+    "witness-waiver": (
+        "an owner waiver of one witness lane's default post-review rerun or, at "
+        "implement exit, the owner's acceptance of the lane's earlier passing "
+        "witness when every change since it is formatting-only"
+    ),
 }
 
 DECISION_BATCH_INPUT_SCHEMA: dict[str, Any] = {
@@ -392,10 +396,13 @@ DECISION_BATCH_INPUT_SCHEMA: dict[str, Any] = {
                         "type": "object",
                         "required": False,
                         "summary": (
-                            "class-5 waiver of one stale witness lane after "
-                            "implement: scope (acceptance or live); runtime binds "
-                            "the latest stable passing fact and current source; "
-                            "accept with exact resolution accept-prior-witness"
+                            "class-5 waiver of one stale witness lane's default "
+                            "post-review rerun or, at implement exit, acceptance "
+                            "of its earlier passing witness when every change "
+                            "since it is formatting-only: scope (acceptance or "
+                            "live); runtime binds the latest stable passing fact "
+                            "and the current source manifest; accept with exact "
+                            "resolution accept-prior-witness"
                         ),
                     },
                     "class": {

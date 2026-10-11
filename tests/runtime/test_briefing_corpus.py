@@ -1208,8 +1208,13 @@ def test_ac16_implement_and_peer_review_name_verify_stale(name) -> None:
 )
 def test_ac16_witness_guidance_accepts_earlier_witness_only_for_formatting(
     path,
+    run_cli,
 ) -> None:
-    """AC-16: implement-exit acceptance of an earlier witness, formatting only."""
+    """AC-16: implement-exit acceptance of an earlier witness, formatting only.
+
+    Readiness's offer and the implement briefing send the lead to the
+    `decisions add` help, so its witness-waiver text must say the same.
+    """
     assert _has_passage(
         path.read_text(encoding="utf-8"),
         "implement exit",
@@ -1218,6 +1223,36 @@ def test_ac16_witness_guidance_accepts_earlier_witness_only_for_formatting(
     ), (
         f"FAIL AC-16: {path.name} does not state that the owner may accept an "
         "earlier witness at implement exit only for formatting-only changes"
+    )
+    decisions = _help_commands(run_cli)["decisions add"]["input_schema"]["fields"]
+    decision = decisions["decisions"]["items"]["fields"]
+    summaries = {
+        "witness-waiver kind": next(
+            option["summary"]
+            for option in decision["kind"]["one_of"]
+            if option["value"] == "witness-waiver"
+        ),
+        "witness_waiver field": decision["witness_waiver"]["summary"],
+        "class 5": next(
+            option["summary"]
+            for option in decision["class"]["one_of"]
+            if option["value"] == 5
+        ),
+    }
+    post_review_only = {
+        label: summary
+        for label, summary in summaries.items()
+        if not _has_passage(
+            summary, "implement exit", ("formatting only", "only formatting")
+        )
+    }
+    assert not post_review_only, (
+        "FAIL AC-16: `decisions add` help does not describe implement-exit "
+        f"acceptance for formatting-only changes: {post_review_only}"
+    )
+    assert "source manifest" in summaries["witness_waiver field"], (
+        "FAIL AC-16: the witness_waiver help does not say the runtime binds the "
+        f"source manifest: {summaries['witness_waiver field']!r}"
     )
 
 

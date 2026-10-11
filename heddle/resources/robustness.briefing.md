@@ -109,7 +109,9 @@ re-records every row whose citations and supporting proof still qualify,
 across this boundary's unsealed assignments, and names the rest with what
 changed. Its exit 4 leaves those named rows for a fresh disposition; exit 1
 means it wrote nothing. A reformat that only re-lays out Python code or
-re-pads Markdown tables and spacing stales no row.
+re-pads Markdown tables and spacing stales no row backed by inspection,
+citations or a review. Verification stays raw, so a row backed by verification
+waits for `heddle verify --stale` and then qualifies again without reaffirm.
 
 ## Smoke ownership during hardening
 

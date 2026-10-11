@@ -157,7 +157,8 @@ formal gate artifacts retain their required structure and non-narration rules.
    and commit the remediation. Record dispositions only after that commit, once
    its hooks have rewritten what they will: a later change to a cited file
    stops the row counting unless it only re-lays out Python or re-pads
-   Markdown tables and spacing. If a fix changes a shared contract, refresh the
+   Markdown tables and spacing. Even such a reformat leaves a verification-backed
+   row stale until its scope reruns. If a fix changes a shared contract, refresh the
    consumer census before choosing that proof and record inspected consumers,
    exact witnesses, and required pending witnesses. A neighboring failure's
    location alone does not establish that it is unrelated. Record exact original findings and coverage

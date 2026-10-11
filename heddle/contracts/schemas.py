@@ -285,7 +285,8 @@ ESCALATION_CLASS_SUMMARIES: dict[int, str] = {
     4: "gate-recorded REPORT findings (run-gate records these, never decisions add)",
     5: (
         "live witness shape, prerequisite or execution grant not pre-authorized, "
-        "or a waived post-review witness rerun"
+        "or a waived witness rerun (post-review, or at implement exit when every "
+        "change since the passing witness is formatting-only)"
     ),
     6: "no progress across two sessions (driver-raised)",
     7: "session attempt cap or verification retry limit reached (driver-raised)",
