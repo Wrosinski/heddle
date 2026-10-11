@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 import sqlite3
 from dataclasses import dataclass
 from pathlib import Path
@@ -48,6 +49,10 @@ class _SearchDocument:
 
 _MARKDOWN = MarkdownIt("commonmark")
 _VERBATIM_BLOCK_TOKENS = frozenset({"fence", "code_block", "html_block"})
+# The verbatim blocks and the prose blocks the identity rule may normalise; a
+# non-blank line none of them holds is exact.
+_HELD_BLOCK_TOKENS = _VERBATIM_BLOCK_TOKENS | {"paragraph_open", "heading_open", "hr"}
+_LINE_BREAK = re.compile(r"\r\n|\r|\n")
 _CREATE_SEARCH_TABLE = """
 CREATE VIRTUAL TABLE search_documents USING fts5(
   title,
@@ -67,17 +72,35 @@ def markdown_parser_version() -> tuple[int, int]:
 
 
 def markdown_block_ranges(text: str) -> tuple[tuple[int, int], ...]:
-    """Return the line ranges of every fence, code and HTML block in ``text``.
+    """Return the line ranges the review-equivalence rule keeps exact.
 
-    Ranges are the parser's half-open, zero-based ``Token.map`` pairs, in
-    document order, for blocks inside any container (list items and
-    blockquotes included). Lines are counted at ``\\r\\n``, ``\\r`` and ``\\n``.
+    Ranges are half-open and zero-based, in document order. Every fence, code
+    and HTML block inside any container (list items and blockquotes included)
+    gives the parser's ``Token.map`` pair. Each run of non-blank lines that no
+    block holds gives one more range: CommonMark consumes link reference
+    definitions without a block, at any depth, across a multi-line label or
+    title and with a duplicate label, and bare container markers hold no
+    block either. Lines are counted at ``\\r\\n``, ``\\r`` and ``\\n``.
     """
-    return tuple(
+    tokens = _MARKDOWN.parse(text)
+    ranges = [
         (token.map[0], token.map[1])
-        for token in _MARKDOWN.parse(text)
+        for token in tokens
         if token.type in _VERBATIM_BLOCK_TOKENS and token.map is not None
-    )
+    ]
+    held: set[int] = set()
+    for token in tokens:
+        if token.type in _HELD_BLOCK_TOKENS and token.map is not None:
+            held.update(range(token.map[0], token.map[1]))
+    start: int | None = None
+    for index, line in enumerate([*_LINE_BREAK.split(text), ""]):
+        unheld = index not in held and bool(line.strip(" \t"))
+        if unheld and start is None:
+            start = index
+        elif not unheld and start is not None:
+            ranges.append((start, index))
+            start = None
+    return tuple(sorted(ranges))
 
 
 def search_knowledge(

@@ -466,6 +466,52 @@ def test_ac2_markdown_block_ranges_follow_commonmark_containers() -> None:
     ], f"FAIL AC-2: Markdown block ranges do not follow CommonMark: {ranges}"
 
 
+_DEFINITION_RANGE_DOCUMENT = (
+    '[top]: /url "t"\n'  # 0: a top-level definition
+    "\n"
+    '- [marker]: /url "a  b"\n'  # 2: on a list-marker line
+    "\n"
+    "1.  item\n"
+    "\n"
+    '    [indent]: /url "a  b"\n'  # 6: at the ordered item's content indent
+    "\n"
+    "- a\n"
+    "\n"
+    '  - [nested]: /url "a  b"\n'  # 10: inside a nested list
+    "\n"
+    "[two\n"  # 12: a label across two lines
+    'lines]: /url "t  t"\n'
+    "\n"
+    '- [top]: /dup "x  y"\n'  # 15: a duplicate label
+    "\n"
+    "[title]: /url\n"  # 17: the title on the next line
+    '"a  b"\n'
+    "\n"
+    "text\n"  # 20: a definition cannot interrupt a paragraph
+    '[late]: /url "a  b"\n'
+)
+
+
+def test_ac2_markdown_block_ranges_hold_every_link_reference_definition() -> None:
+    """AC-2: the parser's definition lines are exact at any depth.
+
+    Pins the shared parser: should a version start reading these lines as
+    prose, the identity rule would normalise whitespace inside definitions.
+    """
+    from tests.change_impact_identity_helpers import block_ranges_api
+
+    ranges = block_ranges_api()(_DEFINITION_RANGE_DOCUMENT)
+    assert sorted(tuple(pair) for pair in ranges) == [
+        (0, 1),
+        (2, 3),
+        (6, 7),
+        (10, 11),
+        (12, 14),
+        (15, 16),
+        (17, 19),
+    ], f"FAIL AC-2: link reference definition lines are not exact: {ranges}"
+
+
 def test_ac2_search_sections_ignore_headings_inside_commonmark_blocks(
     tmp_path: Path,
 ) -> None:

@@ -189,6 +189,40 @@ MARKDOWN_DIFFERENT = {
     "image-title": ('![logo](img.png "A  title")\n', '![logo](img.png "A title")\n'),
     "link-reference-definition": ('[ref]: /url "a  b"\n', '[ref]: /url "a b"\n'),
     "rewrap": ("one two three\n", "one two\nthree\n"),
+    # A link reference definition stays exact wherever CommonMark finds one.
+    "link-reference-definition-on-a-list-marker-line": (
+        '- [ref]: /url "a  b"\n',
+        '- [ref]: /url "a b"\n',
+    ),
+    "link-reference-definition-at-an-ordered-item-content-indent": (
+        '1.  item\n\n    [ref]: /url "a  b"\n',
+        '1.  item\n\n    [ref]: /url "a b"\n',
+    ),
+    "link-reference-definition-in-a-nested-list": (
+        '- a\n\n  - [ref]: /url "a  b"\n',
+        '- a\n\n  - [ref]: /url "a b"\n',
+    ),
+    "link-reference-definition-with-a-two-line-label": (
+        '[ref\nlabel]: /url "t  t"\n',
+        '[ref\nlabel]: /url "t t"\n',
+    ),
+    "duplicate-link-reference-definition-in-a-list-item": (
+        '[ref]: /a\n\n- [ref]: /b "x  y"\n',
+        '[ref]: /a\n\n- [ref]: /b "x y"\n',
+    ),
+    # A table row keeps code spans, link titles and hard breaks exact.
+    "pipe-spacing-inside-a-code-span-in-a-table-row": (
+        "| `a | b` |\n",
+        "| `a|b` |\n",
+    ),
+    "pipe-spacing-inside-a-link-title-in-a-table-row": (
+        '| [x](url "a | b") |\n',
+        '| [x](url "a|b") |\n',
+    ),
+    "hard-break-on-a-table-row": (
+        "| a | b |  \n| c | d |\n",
+        "| a | b |\n| c | d |\n",
+    ),
 }
 
 # Whitespace inside CommonMark blocks whose boundaries a hand-written scanner

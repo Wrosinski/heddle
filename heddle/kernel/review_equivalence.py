@@ -239,7 +239,7 @@ def _fields(node_type: type[ast.AST]) -> tuple[str, ...]:
 # Tokens per line: ``v<raw line>`` (verbatim, raw line ending kept), ``b``
 # (blank), ``p<prefix>`` then the normalised text and ``1``/``0`` for a hard
 # break, or ``t<lead>``/``d<lead>`` (table or delimiter row) then the cell
-# count and the cells.
+# count, the cells and ``h`` when the row ends in a hard break.
 
 _LINE = re.compile(r"[^\r\n]*(?:\r\n|\r|\n)|[^\r\n]+\Z")
 _TERMINATOR = re.compile(r"(?:\r\n|\r|\n)\Z")
@@ -322,18 +322,33 @@ def _front_matter_lines(bodies: list[str]) -> int:
 
 
 def _table_tokens(body: str) -> tuple[str, ...] | None:
-    """A table row as its leading whitespace and trimmed cells.
+    """A table row as its leading whitespace, trimmed cells and hard break.
 
-    None when the row leaves an inline construct open.
+    Only cell padding and delimiter dashes normalise: a pipe inside an escape,
+    code span, angle-bracket span or link tail does not split a cell. None
+    when the row leaves an inline construct open.
     """
-    if _inline_text(body) is None:
-        return None
+    content = body.rstrip(" \t")
+    trailing = body[len(content) :]
+    hard_break = ("h",) if len(trailing) - len(trailing.rstrip(" ")) >= 2 else ()
+    cells: list[str] = []
+    start = index = 0
+    while index < len(content):
+        if content[index] == "|":
+            cells.append(content[start:index].strip(" \t"))
+            start = index = index + 1
+            continue
+        end = _token_end(content, index)
+        if end is None:
+            return None
+        index = end
+    cells.append(content[start:].strip(" \t"))
     lead = body[: len(body) - len(body.lstrip(" "))]
-    cells = [cell.strip(" \t") for cell in re.split(r"(?<!\\)\|", body)]
     filled = [cell for cell in cells if cell]
     if filled and all(_DELIMITER_CELL.fullmatch(cell) for cell in filled):
-        return ("d" + lead, str(len(cells)), *(re.sub("-+", "-", c) for c in cells))
-    return ("t" + lead, str(len(cells)), *cells)
+        cells = [re.sub("-+", "-", cell) for cell in cells]
+        return ("d" + lead, str(len(cells)), *cells, *hard_break)
+    return ("t" + lead, str(len(cells)), *cells, *hard_break)
 
 
 def _prose_tokens(body: str) -> tuple[str, str, str] | None:

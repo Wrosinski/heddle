@@ -8,8 +8,10 @@ re-implemented here. Activation seams:
   returning ``(rule_id, digest)`` or None, and ``review_equivalent(left,
   right)`` over two ``EvidenceObservation`` values;
 - ``heddle.kernel.knowledge_search.markdown_block_ranges(text)``, returning
-  half-open zero-based ``(start, end)`` file-line pairs (``Token.map``) of the
-  fence, code_block and html_block tokens;
+  half-open zero-based ``(start, end)`` file-line pairs of the lines the
+  identity rule keeps exact: the fence, code_block and html_block tokens
+  (``Token.map``), and each run of non-blank lines no block holds, such as
+  link reference definitions at any depth;
 - ``EvidenceObservation.equivalence``, a ``(rule, digest)`` pair or a value
   with ``rule`` and ``digest`` attributes, None when absent;
 - ``heddle.kernel.source_manifest.stamp_equivalence(evidence, contents)``,
