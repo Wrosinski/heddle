@@ -398,18 +398,6 @@ def baseline_test_changes(
     return tuple(changes[path] for path in sorted(changes, key=str.encode))
 
 
-def baseline_test_paths(
-    repo_root: Path, feature_baseline: SourceBaseline, *, tests_root: str
-) -> tuple[str, ...]:
-    """The paths of ``baseline_test_changes``, byte-sorted."""
-    return tuple(
-        change.path
-        for change in baseline_test_changes(
-            repo_root, feature_baseline, tests_root=tests_root
-        )
-    )
-
-
 def extract_changed_files(diff_path: Path) -> list[str]:
     return extract_changed_files_text(diff_path.read_text(encoding="utf-8"))
 

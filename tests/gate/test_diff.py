@@ -4,8 +4,8 @@ Tests for authoritative diff resolution.
 Covers the diff cascade: provided-file, git-diff-head, git-diff-cached,
 git-diff-head-parent, git-diff-feature-baseline (milestone gates on native
 workspaces), none. Also covers changed-file extraction from diff content, and
-the baseline-relative test listing (activation seam: ``baseline_test_paths``
-in ``heddle/gate/diff.py``, reached through ``_baseline_test_paths``).
+the baseline-relative test listing (activation seam: ``baseline_test_changes``
+in ``heddle/gate/diff.py``, reached through ``_baseline_test_changes``).
 """
 
 from __future__ import annotations
@@ -619,14 +619,14 @@ class TestChangedFileExtraction:
         assert files == ["src/foo.py"]
 
 
-def _baseline_test_paths():
+def _baseline_test_changes():
     """Activation seam: the baseline-relative test listing in ``gate/diff.py``."""
     from heddle.gate import diff as diff_module
 
-    listing = getattr(diff_module, "baseline_test_paths", None)
+    listing = getattr(diff_module, "baseline_test_changes", None)
     assert callable(listing), (
         "FAIL AC-7: gate/diff.py has no baseline-relative test listing "
-        "(baseline_test_paths)"
+        "(baseline_test_changes)"
     )
     return listing
 
@@ -634,11 +634,11 @@ def _baseline_test_paths():
 class TestBaselineTestListing:
     """AC-7: tests that differ from the feature baseline, by content.
 
-    ``baseline_test_paths(repo_root, feature_baseline, *, tests_root)`` returns
-    every path under the tests root whose working content differs from the
-    baseline (both ends of a rename, deletions included) plus untracked files
-    under the root. History that leaves content equal to the baseline is
-    invisible.
+    ``baseline_test_changes(repo_root, feature_baseline, *, tests_root)`` lists
+    every path under the tests root whose working content or mode differs from
+    the baseline (both ends of a rename, deletions included) plus untracked
+    files under the root, each with Git's status and the path's mode at the
+    baseline. History that leaves content equal to the baseline is invisible.
     """
 
     def _host(self, tmp_path: Path) -> tuple[Path, str]:
@@ -651,12 +651,14 @@ class TestBaselineTestListing:
             "tests/test_c.py",
             "tests/test_d.py",
             "tests/unit/test_nested.py",
+            "tests/test_mode.py",
             "checks/test_x.py",
             "src/x.py",
         ):
             path = root / relative
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(f"# {relative}\nVALUE = 1\n")
+        (root / "tests/test_mode.py").chmod(0o755)
         _git(root, "add", "-A")
         _git(root, "commit", "-qm", "feature baseline")
         baseline = _git_output(root, "rev-parse", "HEAD")
@@ -670,6 +672,8 @@ class TestBaselineTestListing:
         _git(root, "commit", "-qm", "rename d")
         (root / "tests/test_c.py").unlink()
         (root / "tests/unit/test_nested.py").write_text("# dirty tracked\n")
+        # Same content, executable at the baseline only: a mode-only change.
+        (root / "tests/test_mode.py").chmod(0o644)
         (root / "tests/test_new.py").write_text("# untracked\n")
         (root / "checks/test_x.py").write_text("# other root\n")
         (root / "src/x.py").write_text("# product change\n")
@@ -681,24 +685,35 @@ class TestBaselineTestListing:
     ) -> None:
         from heddle.kernel.state import SourceBaseline
 
-        listing = _baseline_test_paths()
+        listing = _baseline_test_changes()
         root, baseline = self._host(tmp_path)
 
-        paths = listing(
+        changes = listing(
             root, SourceBaseline("git-commit", baseline), tests_root="tests"
         )
+        rows = [
+            (change.path, change.status, change.baseline_mode) for change in changes
+        ]
 
-        assert sorted(paths) == [
-            "tests/test_a.py",
-            "tests/test_c.py",
-            "tests/test_d.py",
-            "tests/test_e.py",
-            "tests/test_new.py",
-            "tests/unit/test_nested.py",
-        ], f"FAIL AC-7: baseline-relative test listing is wrong: {sorted(paths)}"
-        assert sorted(
-            listing(root, SourceBaseline("git-commit", baseline), tests_root="checks")
-        ) == ["checks/test_x.py"], "FAIL AC-7: the configured tests root is ignored"
+        # Byte order; a rename lists its deleted and added ends, and only a
+        # path the baseline held carries the baseline's mode.
+        assert rows == [
+            ("tests/test_a.py", "M", "100644"),
+            ("tests/test_c.py", "D", "100644"),
+            ("tests/test_d.py", "D", "100644"),
+            ("tests/test_e.py", "A", None),
+            ("tests/test_mode.py", "M", "100755"),
+            ("tests/test_new.py", "?", None),
+            ("tests/unit/test_nested.py", "M", "100644"),
+        ], f"FAIL AC-7: baseline-relative test listing is wrong: {rows}"
+        assert [
+            (change.path, change.status, change.baseline_mode)
+            for change in listing(
+                root, SourceBaseline("git-commit", baseline), tests_root="checks"
+            )
+        ] == [("checks/test_x.py", "M", "100644")], (
+            "FAIL AC-7: the configured tests root is ignored"
+        )
 
     def test_ac8_listing_refuses_an_unavailable_baseline_naming_the_repoint(
         self, tmp_path: Path
@@ -706,7 +721,7 @@ class TestBaselineTestListing:
         from heddle.kernel.project_config import KernelError
         from heddle.kernel.state import SourceBaseline
 
-        listing = _baseline_test_paths()
+        listing = _baseline_test_changes()
         root, _baseline = self._host(tmp_path)
 
         with pytest.raises(KernelError, match="baseline") as raised:
