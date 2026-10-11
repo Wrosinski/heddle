@@ -48,6 +48,7 @@ from heddle.runtime.verification import (
     prepare_smoke_disposition,
     prepare_witness_waiver,
     publish_stamped_evidence,
+    require_waiver_manifest,
     witness_waiver_current,
 )
 from heddle.runtime.write_args import parse_common_with_positionals, usage_failure
@@ -186,7 +187,12 @@ def resolve_decision(operation: ops.ResolveDecision) -> HeddleResult:
             and proposed.status != "resolved"
         ):
             assert proposed.witness_waiver is not None
+            subject = f"witness waiver {proposed.id}"
             try:
+                # The proposal's manifest is required evidence on every path.
+                require_waiver_manifest(
+                    target.root, target.state, proposed.witness_waiver, subject=subject
+                )
                 prepared = prepare_witness_waiver(
                     target.root,
                     target.state,
@@ -201,7 +207,7 @@ def resolve_decision(operation: ops.ResolveDecision) -> HeddleResult:
                         target.state,
                         proposed.witness_waiver,
                         prepared,
-                        subject=f"witness waiver {proposed.id}",
+                        subject=subject,
                     )
                     else prepared.binding
                 )

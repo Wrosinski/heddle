@@ -567,14 +567,15 @@ def witness_waiver_current(
 
     Lane, fact and ownership compare exactly. The source holds when it is
     raw-equal, or review-equivalent to the manifest the binding names; a
-    binding recorded without one compares exactly.
+    binding recorded without one compares exactly. A named manifest is
+    required evidence even when the source is raw-equal.
     """
+    reference = require_waiver_manifest(root, state, waiver, subject=subject)
     current = prepared.binding
     if any(waiver[key] != current[key] for key in ("scope", "fact", "ownership")):
         return False
     if waiver["source_sha256"] == current["source_sha256"]:
         return True
-    reference = waiver_source_evidence(waiver)
     if reference is None:
         return False
     workspace = root / load_project_config(root).layout.plans / state.feature
@@ -760,13 +761,13 @@ def verification_statuses(
 
 
 def verify_named_source_evidence(root: Path, state: StateFile) -> None:
-    """Every basis manifest a disposition row names is present and intact.
+    """Every manifest a disposition row or witness waiver names is intact.
 
     A verification fact's own manifests are read when its freshness is
-    assessed. Each disposition manifest is checked once per call, whatever the
-    number of rows naming it, and re-read only when its file changed since this
-    process last found it intact; a missing or altered one fails naming the
-    first row that names it.
+    assessed. Each named manifest is checked once per call, whatever the
+    number of records naming it, and re-read only when its file changed since
+    this process last found it intact; a missing or altered one fails naming
+    the first record that names it.
     """
     named = {}
     for row in state.review_assignments.dispositions:
@@ -776,25 +777,52 @@ def verify_named_source_evidence(root: Path, state: StateFile) -> None:
                 reference.artifact_sha256,
                 f"disposition {row.run_id}#{row.finding_id}",
             )
+    for decision in state.decisions:
+        waiver = waiver_source_evidence(decision.witness_waiver)
+        if waiver is not None and waiver.artifact not in named:
+            named[waiver.artifact] = (
+                waiver.artifact_sha256,
+                f"witness waiver {decision.id}",
+            )
     if not named:
         return
     workspace = root / load_project_config(root).layout.plans / state.feature
     for artifact, (artifact_sha256, subject) in named.items():
-        key = (str(workspace / artifact), artifact_sha256)
-        try:
-            metadata = (workspace / artifact).lstat()
-            stamp = (metadata.st_ino, metadata.st_size, metadata.st_mtime_ns)
-        except OSError:
-            stamp = None
-        if stamp is not None and _INTACT_EVIDENCE.get(key) == stamp:
-            continue
-        read_named_source_evidence(
-            workspace, artifact, artifact_sha256, subject=subject, decode=False
+        _require_named_evidence(workspace, artifact, artifact_sha256, subject)
+
+
+def require_waiver_manifest(
+    root: Path, state: StateFile, waiver: Mapping[str, Any], *, subject: str
+) -> EvidenceReference | None:
+    """Require the manifest a waiver binding names; None when it names none."""
+    reference = waiver_source_evidence(waiver)
+    if reference is not None:
+        workspace = root / load_project_config(root).layout.plans / state.feature
+        _require_named_evidence(
+            workspace, reference.artifact, reference.artifact_sha256, subject
         )
-        if stamp is not None:
-            if len(_INTACT_EVIDENCE) >= _INTACT_EVIDENCE_LIMIT:
-                _INTACT_EVIDENCE.clear()
-            _INTACT_EVIDENCE[key] = stamp
+    return reference
+
+
+def _require_named_evidence(
+    workspace: Path, artifact: str, artifact_sha256: str, subject: str
+) -> None:
+    """Check a named manifest's bytes unless this process found that file intact."""
+    key = (str(workspace / artifact), artifact_sha256)
+    try:
+        metadata = (workspace / artifact).lstat()
+        stamp = (metadata.st_ino, metadata.st_size, metadata.st_mtime_ns)
+    except OSError:
+        stamp = None
+    if stamp is not None and _INTACT_EVIDENCE.get(key) == stamp:
+        return
+    read_named_source_evidence(
+        workspace, artifact, artifact_sha256, subject=subject, decode=False
+    )
+    if stamp is not None:
+        if len(_INTACT_EVIDENCE) >= _INTACT_EVIDENCE_LIMIT:
+            _INTACT_EVIDENCE.clear()
+        _INTACT_EVIDENCE[key] = stamp
 
 
 # Named evidence this process found intact, by path and digest, with the file

@@ -720,6 +720,82 @@ def test_ac14_formatting_only_change_lets_the_owner_accept_the_earlier_witness(
     assert read(host.state)["stage"] == "peer-review"
 
 
+def _proposed_implement_waiver(tmp_path, monkeypatch):
+    """Implement exit after a formatting-only change, with a proposed waiver."""
+    from tests.change_impact_verify_helpers import (
+        implement_exit_host,
+        propose_waiver,
+        waiver_manifest_reference,
+    )
+
+    host = implement_exit_host(tmp_path, monkeypatch)
+    (host.root / "src/example.py").write_text("VALUE = (7)\n")
+    verify(host.state, "m1")
+    added = propose_waiver()
+    assert added.ok, added.to_envelope()
+    decision = read(host.state)["decisions"][-1]
+    artifact = waiver_manifest_reference(decision["witness_waiver"])["artifact"]
+    return host, decision["id"], artifact
+
+
+def _damage(path, damage: str) -> None:
+    if damage == "missing":
+        path.unlink()
+    else:
+        content = path.read_bytes()
+        path.unlink()
+        path.write_bytes(content + b"# altered\n")
+
+
+def _assert_names_the_manifest(result, decision_id: str, artifact: str) -> None:
+    assert not result.ok, result.to_envelope()
+    assert result.error.code == "workspace-invalid", result.to_envelope()
+    message = result.error.message
+    assert decision_id in message and artifact in message, (
+        "FAIL AC-13: a damaged waiver manifest is an integrity error naming the "
+        f"decision and the artifact: {result.to_envelope()}"
+    )
+
+
+@pytest.mark.parametrize("damage", ["missing", "altered"])
+def test_ac13_resolution_requires_the_manifest_the_proposal_names(
+    tmp_path, monkeypatch, damage: str
+) -> None:
+    from tests.change_impact_verify_helpers import resolve_waiver
+
+    host, decision_id, artifact = _proposed_implement_waiver(tmp_path, monkeypatch)
+    _damage(host.state.parent / artifact, damage)
+    before = host.state.read_bytes()
+
+    resolved = resolve_waiver(decision_id)
+
+    _assert_names_the_manifest(resolved, decision_id, artifact)
+    assert host.state.read_bytes() == before
+    exited = execute(ops.PhaseExit(feature=FEATURE))
+    assert not exited.ok and read(host.state)["stage"] == "implement"
+
+
+@pytest.mark.parametrize("damage", ["missing", "altered"])
+def test_ac13_resolved_waiver_requires_its_manifest_at_status_and_boundary(
+    tmp_path, monkeypatch, damage: str
+) -> None:
+    from tests.change_impact_verify_helpers import journal_waiver, resolve_waiver
+
+    host, decision_id, artifact = _proposed_implement_waiver(tmp_path, monkeypatch)
+    resolved = resolve_waiver(decision_id)
+    assert resolved.ok, resolved.to_envelope()
+    journal_waiver(host.root, host.state, decision_id)
+    _damage(host.state.parent / artifact, damage)
+    before = host.state.read_bytes()
+
+    for operation in (ops.Status(feature=FEATURE), ops.Orient(feature=FEATURE)):
+        _assert_names_the_manifest(execute(operation), decision_id, artifact)
+    _assert_names_the_manifest(
+        execute(ops.PhaseExit(feature=FEATURE)), decision_id, artifact
+    )
+    assert host.state.read_bytes() == before
+
+
 @pytest.mark.parametrize("change", ["content", "membership"])
 def test_ac14_other_changes_refuse_the_proposal_naming_the_paths(
     tmp_path, monkeypatch, change: str
