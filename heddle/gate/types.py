@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, Any, ClassVar, Literal, cast
 if TYPE_CHECKING:
     from heddle.gate.results import ReviewOutputContract, ReviewResult
     from heddle.gate.retained import CapturedReview
+    from heddle.kernel.source_manifest import SourceEvidence
     from heddle.kernel.state import SourceBaseline
 
 from heddle.contracts.review_assignments import (
@@ -404,6 +405,9 @@ class PreparedGateRun:
     round_number: int | None = None
     reviewer_slot: str | None = None
     required_prior_references: tuple[tuple[str, str], ...] | None = None
+    # An assignment launch's reviewer-basis manifest, from the capture that
+    # produced review_basis_hash; None for a launch outside an assignment.
+    reviewer_basis_manifest: SourceEvidence | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "runtime_sections", tuple(self.runtime_sections))

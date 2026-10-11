@@ -424,6 +424,89 @@ def test_ac15_scaffolding_assignment_opened_after_upgrade_gets_baseline_relative
     )
 
 
+def test_ac15_post_upgrade_attempt_names_its_launch_manifest_when_tests_change(
+    recorded, monkeypatch
+) -> None:
+    """Every attempt this build records names the manifest of its launch basis.
+
+    A test module created under the tests root after the launch prepared its
+    basis changes the selected tests, so the completed review is rejected. The
+    rejected attempt still names the reviewer-basis manifest of the basis it
+    launched, so the assignment keeps the baseline-relative recipe.
+    """
+    from heddle.gate import entry
+    from heddle.kernel.review_assignments import (
+        legacy_assignment,
+        reviewer_basis_artifacts,
+    )
+    from heddle.kernel.source_manifest import decode_source_evidence
+    from heddle.kernel.state import read_state_file
+
+    host = recorded("scaffold-unopened")
+    late = host.root / "tests" / "late_check.py"
+    prepare = entry.prepare_gate_run
+
+    def prepare_then_add_test(*args, **kwargs):
+        prepared = prepare(*args, **kwargs)
+        late.write_text("def test_late():\n    assert True\n")
+        return prepared
+
+    monkeypatch.setattr(entry, "prepare_gate_run", prepare_then_add_test)
+    calls = provider_transport(
+        monkeypatch,
+        review_content(
+            "review-test-scaffolding",
+            findings=[finding("SC-I1", classification="implement")],
+        ),
+    )
+    rejected = execute(
+        ops.RunGate("review-test-scaffolding", feature=FEATURE, **SOL_XHIGH)
+    )
+
+    assert not rejected.ok and len(calls) == 1, rejected.to_envelope()
+    state = read_state_file(host.state)
+    (attempt,) = [
+        row
+        for row in state.review_assignments.attempts
+        if row.assignment_id == SCAFFOLDING
+    ]
+    artifacts = reviewer_basis_artifacts(attempt)
+    assert len(artifacts) == 1, (
+        "FAIL AC-15: a post-upgrade scaffolding attempt was recorded without the "
+        "reviewer-basis manifest of its launch basis"
+    )
+    assert not legacy_assignment(state, SCAFFOLDING), (
+        "FAIL AC-15: a test created after preparation turned a post-upgrade "
+        "scaffolding assignment legacy"
+    )
+    manifest = decode_source_evidence((host.workspace / artifacts[0].path).read_bytes())
+    paths = {row.path for row in manifest.observations}
+    assert UNDECLARED_TEST in paths and "tests/late_check.py" not in paths, paths
+
+    monkeypatch.setattr(entry, "prepare_gate_run", prepare)
+    late.unlink()
+    _ok(execute(ops.RunGate("review-test-scaffolding", feature=FEATURE, **SOL_XHIGH)))
+    origin = _closure(_status(), SCAFFOLDING)["open_refs"][0][0]
+    _ok(
+        dispose(
+            host.state,
+            [
+                disposition(
+                    origin,
+                    "SC-I1",
+                    evidence_kind="contract",
+                    references=["tests/check.py"],
+                ),
+                disposition(origin, "@coverage", status="settled", references=[SPEC]),
+            ],
+        )
+    )
+    assert _closure(_status(), SCAFFOLDING)["closed"]
+    _change_undeclared_test(host)
+    closure = _closure(_status(), SCAFFOLDING)
+    assert not closure["closed"] and closure["evidence_state"] == "stale", closure
+
+
 def test_ac4_ac15_sealing_rebinds_only_equivalence_current_rows_beside_pre_feature_rows(
     recorded,
 ) -> None:

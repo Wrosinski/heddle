@@ -194,8 +194,10 @@ def _capture_review_inputs(
 ) -> _CapturedReviewInputs:
     """Capture stable sources once for both full and producer-basis preparation.
 
-    Basis-only preparation also names the reviewer-basis manifest and skips the
-    uncommitted-input advice, which only a launch reports.
+    Basis-only preparation and an assignment launch also name the reviewer-basis
+    manifest from this same capture, so it always describes the prepared basis.
+    Basis-only preparation skips the uncommitted-input advice, which only a
+    launch reports.
     """
     contract = input_contract_for(gate_type)
     exec_config = invocation.exec_config
@@ -320,7 +322,7 @@ def _capture_review_inputs(
                 owned_definition,
                 (*document_paths, *scaffold_paths),
             )
-            if basis_only
+            if basis_only or context.review_assignment is not None
             else None
         ),
     )
@@ -452,6 +454,7 @@ def _prepare_variant(
         else None,
         reviewer_slot=context.reviewer_slot,
         required_prior_references=context.required_prior_references,
+        reviewer_basis_manifest=captured.manifest,
         feature=context.feature,
         gate=gate_type.name,
         scope=captured.scope,

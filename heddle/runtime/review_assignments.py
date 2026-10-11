@@ -2574,16 +2574,12 @@ def _dispositions(
 def _publish_basis_manifests(
     frame: _Qualification, assignments: Iterable[ReviewAssignment]
 ) -> None:
-    """Publish each basis manifest the written rows name, before they commit."""
-    from heddle.runtime.verification import publish_source_evidence
+    """Publish exactly the stamped manifest each written row names, before commit."""
+    from heddle.runtime.verification import publish_stamped_evidence
 
     workspace = frame.config.root / frame.snapshot.workspace
     for assignment in assignments:
-        published, _created = publish_source_evidence(
-            workspace, frame.basis_evidence(assignment), root=frame.config.root
-        )
-        if asdict(published) != asdict(frame.basis_reference(assignment)):
-            raise Conflict("review source changed while it was recorded; retry")
+        publish_stamped_evidence(workspace, frame.stamped_basis(assignment))
 
 
 @dataclass(frozen=True)

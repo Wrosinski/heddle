@@ -548,6 +548,95 @@ def test_ac3_equivalent_change_during_the_provider_call_records_the_launch_basis
     assert _provider_calls((_first, calls)) == 2
 
 
+def test_ac3_formatting_edit_while_a_disposition_is_written_keeps_the_stamped_basis(
+    tmp_path, monkeypatch, run_cli
+):
+    """A write publishes exactly the basis manifest its rows name, stamped once.
+
+    A formatter rewriting a reviewed test after the write stamped its basis
+    neither fails the write nor changes the manifest the rows name.
+    """
+    import hashlib
+
+    from heddle.kernel.review_equivalence import equivalence_identity
+    from heddle.kernel.source_manifest import decode_source_evidence
+    from heddle.runtime import verification
+
+    host, path = _authored_host(
+        tmp_path, monkeypatch, stage="scaffold", role=SCAFFOLDING
+    )
+    provider_transport(
+        monkeypatch,
+        review_content(
+            SCAFFOLDING, findings=[finding("TS-I1", classification="implement")]
+        ),
+    )
+    origin = _run(run_cli, SCAFFOLDING)
+    authored = (host / CHECK).read_bytes()
+    stamp = verification.stamp_recorded_equivalence
+
+    def stamp_then_reflow(*args, **kwargs):
+        stamped = stamp(*args, **kwargs)
+        _write(host, CHECK, _CHECK_FORMATTED)
+        return stamped
+
+    monkeypatch.setattr(verification, "stamp_recorded_equivalence", stamp_then_reflow)
+    _recorded(
+        path,
+        [
+            disposition(origin, "TS-I1", status="retained", references=[CHECK]),
+            disposition(origin, "@coverage", status="settled", references=[PLAN]),
+        ],
+    )
+    monkeypatch.setattr(verification, "stamp_recorded_equivalence", stamp)
+
+    assert (host / CHECK).read_text() == _CHECK_FORMATTED
+    rows = yaml.safe_load(path.read_text())["review_assignments"]["dispositions"]
+    references = {basis_manifest(path, row, ac="AC-3")["artifact"] for row in rows}
+    assert len(rows) == 2 and len(references) == 1, rows
+    manifest = decode_source_evidence((path.parent / references.pop()).read_bytes())
+    [check] = [row for row in manifest.observations if row.path == CHECK]
+    assert check.content_sha256 == hashlib.sha256(authored).hexdigest()
+    assert check.equivalence is not None and (
+        check.equivalence.rule,
+        check.equivalence.digest,
+    ) == equivalence_identity(CHECK, authored)
+    row = review_status(path, role=SCAFFOLDING)
+    assert row["evidence_state"] == "current", row
+
+
+def test_ac15_assignment_launch_without_a_manifest_is_refused_before_the_provider(
+    tmp_path, monkeypatch, run_cli
+):
+    """No attempt is recorded without its reviewer-basis manifest.
+
+    Recorded without one, the attempt would read as opened before the upgrade.
+    A launch whose preparation names none is refused with a retry hint before
+    any provider call.
+    """
+    from dataclasses import replace
+
+    from heddle.gate import entry as gate_entry
+
+    _host, path = _authored_host(
+        tmp_path, monkeypatch, stage="scaffold", role=SCAFFOLDING
+    )
+    prepare = gate_entry.prepare_gate_run
+
+    def without_manifest(*args, **kwargs):
+        return replace(prepare(*args, **kwargs), reviewer_basis_manifest=None)
+
+    monkeypatch.setattr(gate_entry, "prepare_gate_run", without_manifest)
+    calls = provider_transport(monkeypatch, review_content(SCAFFOLDING))
+    code, refused = gate_command(run_cli, "run-gate", SCAFFOLDING)
+
+    assert code != 0 and not refused["ok"], refused
+    assert "retry" in refused["error"]["hint"], refused["error"]
+    assert calls == [] and runs(path) == []
+    ledger = yaml.safe_load(path.read_text())["review_assignments"]
+    assert not ledger.get("attempts"), ledger
+
+
 def test_ac3_survivor_behaviour_edit_during_the_provider_call_still_rejects(
     tmp_path, monkeypatch, run_cli
 ):

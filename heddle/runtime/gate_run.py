@@ -368,9 +368,6 @@ class _BatchMember:
     finished_at: str | None = None
     started_monotonic: float | None = None
     duration_s: int | None = None
-    # The reviewer-basis manifest of the launch basis, read from the launch
-    # captures; published on the recorded attempt.
-    basis_manifest: SourceEvidence | None = None
 
     @property
     def key(self) -> tuple[str, str, str]:
@@ -624,7 +621,22 @@ def _prepare_member(
             include_feature_switch_action=False,
         )
     context.prepared_run = prepared
-    manifest = _launch_manifest(context, invocation, prepared)
+    if prepared.assignment_id is not None and prepared.reviewer_basis_manifest is None:
+        # Recorded without one, the attempt would read as opened before
+        # review-equivalence records; refuse before any provider call.
+        return kernel_error_result(
+            KernelError(
+                code="workspace-invalid",
+                message=(
+                    f"{parsed.gate} prepared no reviewer-basis manifest for "
+                    f"review assignment {prepared.assignment_id}"
+                ),
+                hint="retry the launch; no provider was called",
+            ),
+            exit_codes=_RESOLUTION_EXITS,
+            diagnostics=resolved.diagnostics,
+            include_feature_switch_action=False,
+        )
     preparation_diagnostics = tuple(
         Diagnostic(
             severity=Severity.ADVISORY,
@@ -658,7 +670,6 @@ def _prepare_member(
             "recovered",
             preparation_diagnostics,
             recovered,
-            basis_manifest=manifest,
         )
     reuse = (
         Execute()
@@ -701,7 +712,6 @@ def _prepare_member(
             reuse.run.run_id,
             "exact",
             "completed",
-            basis_manifest=manifest,
         )
     return _BatchMember(
         parsed,
@@ -714,21 +724,7 @@ def _prepare_member(
         attempt,
         "none",
         preparation_diagnostics,
-        basis_manifest=manifest,
     )
-
-
-def _launch_manifest(
-    context: Any, invocation: ResolvedGateInvocation, prepared: PreparedGateRun
-) -> SourceEvidence | None:
-    """The launch basis's reviewer-basis manifest, from the launch captures.
-
-    Kept only when it describes exactly the prepared basis.
-    """
-    if prepared.assignment_id is None:
-        return None
-    basis, manifest = entry.prepare_current_review_manifest(context, invocation)
-    return manifest if basis.review_basis_hash == prepared.review_basis_hash else None
 
 
 def _unrecorded_completion(
@@ -1040,7 +1036,7 @@ def _accept_batch_outcome(
     outcome: GateOutcome,
 ) -> None:
     if member.policy.assignment is not None and outcome.gate_exit == 0:
-        outcome = _check_completed_source(
+        outcome, _current = _check_completed_source(
             resolved.snapshot,
             resolved.config,
             member.gate_type,
@@ -1048,7 +1044,7 @@ def _accept_batch_outcome(
             member.invocation,
             member.prepared.review_basis_hash,
             outcome,
-            launch=member.basis_manifest,
+            launch=member.prepared.reviewer_basis_manifest,
             launch_observations=member.context.source_observations,
         )
     member.completion = outcome
@@ -1154,7 +1150,7 @@ def _record_batch_member(
                 resolved.config.root,
                 resolved.config.root / resolved.snapshot.workspace,
                 outcome,
-                member.basis_manifest,
+                member.prepared.reviewer_basis_manifest,
                 member.context.source_observations,
             )
         accepted = _record(
@@ -1624,10 +1620,11 @@ def _with_basis_manifest(
 
     Identity is stamped from the launch captures, so a formatting edit made
     while the reviewer ran keeps the manifest's identities those of the
-    reviewed bytes.
+    reviewed bytes. An attempt is never recorded without its manifest, which
+    would read as one opened before review-equivalence records.
     """
     if manifest is None:
-        return outcome
+        raise ValueError("no reviewer-basis manifest describes the reviewed basis")
     from heddle.runtime.verification import publish_source_evidence
 
     reference, _reused = publish_source_evidence(
@@ -1650,11 +1647,13 @@ def _check_completed_source(
     *,
     launch: SourceEvidence | None = None,
     launch_observations: Mapping[str, ObservedPath] | None = None,
-) -> GateOutcome:
+) -> tuple[GateOutcome, SourceEvidence | None]:
     """Persist rejection through the ordinary error-event path, never as credit.
 
     A change while the reviewer ran is accepted only when it is review
     equivalent to the launch manifest; the run still records the launch basis.
+    The current reviewer-basis manifest is returned only when it describes
+    ``basis`` exactly, so a recovery can record it without preparing again.
     """
     try:
         context = entry.build_gate_context(
@@ -1668,7 +1667,7 @@ def _check_completed_source(
         )
         current, manifest = entry.prepare_current_review_manifest(context, invocation)
         if current.review_basis_hash == basis:
-            return outcome
+            return outcome, manifest
         if (
             launch is not None
             and manifest is not None
@@ -1676,41 +1675,20 @@ def _check_completed_source(
                 config.root, launch, manifest, launch_observations
             )
         ):
-            return outcome
+            return outcome, None
         reason = FailureReason.REVIEWED_SOURCE_CHANGED
         warnings = ("reviewed source changed while the reviewer was running",)
     except (KernelError, OSError, ValueError, MemoryError) as error:
         reason = FailureReason.REVIEWED_SOURCE_UNAVAILABLE
         warnings = (f"reviewed source could not be revalidated: {error}",)
-    return GateEngineFailure(
+    rejected = GateEngineFailure(
         gate_exit=1,
         reason=reason.value,
         rerun_recommended=None,
         structure_warnings=warnings,
         artifacts=outcome.artifacts,
     )
-
-
-def _current_review_manifest(
-    snapshot: FeatureSnapshot,
-    config: ProjectConfig,
-    gate_type: GateType,
-    scope: str,
-    invocation: ResolvedGateInvocation,
-    basis: str,
-) -> SourceEvidence | None:
-    """The current reviewer-basis manifest, when it still describes ``basis``."""
-    context = entry.build_gate_context(
-        snapshot,
-        config,
-        gate_type,
-        cli=invocation.exec_config.cli,
-        milestone_id=scope if gate_type.requires_milestone else None,
-        source_observations={},
-        basis_only=True,
-    )
-    current, manifest = entry.prepare_current_review_manifest(context, invocation)
-    return manifest if current.review_basis_hash == basis else None
+    return rejected, None
 
 
 def _equivalent_to_launch(
@@ -1770,7 +1748,7 @@ def _retained_reuse(
                     GateExecutionConfig(**asdict(capture.invocation.execution)),
                     frozenset(capture.overridden_axes),
                 )
-                checked = _check_completed_source(
+                checked, manifest = _check_completed_source(
                     snapshot,
                     resolved.config,
                     cast(GateType, GATES.get(parsed.gate)),
@@ -1787,14 +1765,7 @@ def _retained_reuse(
                         resolved.config.root,
                         resolved.config.root / snapshot.workspace,
                         orphan,
-                        _current_review_manifest(
-                            snapshot,
-                            resolved.config,
-                            cast(GateType, GATES.get(parsed.gate)),
-                            capture.invocation.scope,
-                            invocation,
-                            capture.invocation.review_basis_hash,
-                        ),
+                        manifest,
                         None,
                     ),
                     expected_revision=snapshot.state.revision,
