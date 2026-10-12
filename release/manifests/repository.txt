@@ -40,6 +40,7 @@ docs/patterns/content-bound-verification-authority.md
 docs/patterns/contract-value-citation-lock.md
 docs/patterns/crash-isolated-worker-result-pipes.md
 docs/patterns/derived-state-cache-on-fact-ledger.md
+docs/patterns/dual-identity-equivalence-evidence.md
 docs/patterns/event-anchored-fake-clock.md
 docs/patterns/fatal-advisory-by-reliance-test.md
 docs/patterns/fixtures-as-phase5-scaffolding.md
