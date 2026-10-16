@@ -205,25 +205,26 @@ def find_project_root_from_cwd() -> Path:
     root, boundary = _walk_to_project_root(cwd) if cwd is not None else (None, None)
     if root is not None:
         return root
+    hint = (
+        "run inside a Heddle project, or author "
+        f"{HEDDLE_CONFIG_FILENAME} at the project root"
+    )
     if boundary is None:
         message = (
             f"no {HEDDLE_CONFIG_FILENAME} from the working directory "
             "upward — not inside a Heddle project"
-        )
-        hint = (
-            "run inside a Heddle project, or author "
-            f"{HEDDLE_CONFIG_FILENAME} at the project root"
         )
     else:
         message = (
             f"no {HEDDLE_CONFIG_FILENAME} between the working directory and "
             f"its Git root {boundary} — not inside a Heddle project"
         )
-        hint = (
-            "if this is a linked worktree or submodule, copy its project's "
-            "untracked Heddle files into it; otherwise run inside a Heddle "
-            f"project, or author {HEDDLE_CONFIG_FILENAME} at its root"
-        )
+        if (boundary / ".git").is_file():
+            hint = (
+                "a linked worktree or submodule is its own checkout: copy its "
+                "project's untracked Heddle files into it, or author "
+                f"{HEDDLE_CONFIG_FILENAME} at its root"
+            )
     raise KernelError(
         code="workspace-invalid",
         message=message,

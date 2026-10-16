@@ -199,6 +199,12 @@ class TestAC2DefaultsDiagnosticsDiscovery:
         assert excinfo.value.reason == MISSING_PROJECT_ROOT
         assert str(nested.resolve()) in excinfo.value.message
         assert "worktree" in excinfo.value.hint
+        (nested / ".git").unlink()
+        (nested / ".git").mkdir()
+        with pytest.raises(KernelError) as excinfo:
+            find_project_root_from_cwd()
+        assert str(nested.resolve()) in excinfo.value.message
+        assert "worktree" not in excinfo.value.hint
 
     @pytest.mark.parametrize(
         ("variant", "offending_key"),
