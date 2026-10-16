@@ -329,11 +329,12 @@ authority for the installed version.
 
 ### Fixed
 
-- An outside-feature attribution no longer blocks coverage once its path
-  matches the feature baseline again, for example after a merge reverts it.
-  Such a path needs no coverage and could not be attributed again, so
-  validate stayed fatal with no way out. The attribution applies again,
-  bound to the bytes it recorded, if the path changes later.
+- An outside-feature attribution no longer blocks coverage while Git reports
+  no change to its path since the feature baseline, for example after a
+  merge reverts it. Such a path needs no coverage and could not be
+  attributed again, so validate stayed fatal with no way out. If the path
+  changes later, the attribution applies again, bound to the bytes and
+  evidence it recorded.
 
 ## [0.2.0] - 2026-09-29
 

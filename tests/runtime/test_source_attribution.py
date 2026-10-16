@@ -183,6 +183,45 @@ def test_attribution_is_moot_while_its_path_matches_the_baseline(host, revert):
     assert coverage(root, state_path).status == "complete"
 
 
+def test_moot_attribution_leaves_errors_but_keeps_evidence_and_unknown_baseline(
+    host,
+):
+    root, state_path = host
+    (root / "deleted.txt").write_text("other feature's edit\n")
+    assert attribute("outside.txt", "another.txt", "deleted.txt").ok
+    outside = root / "outside.txt"
+    attributed = outside.read_bytes()
+    outside.unlink()
+    (root / "another.txt").write_text("a later, unreviewed edit\n")
+    with pytest.raises(KernelError, match="stale") as raised:
+        coverage(root, state_path)
+    assert raised.value.details["changed_paths"] == ["another.txt"]
+    assert "outside.txt" not in raised.value.details["attributed_paths"]
+    assert attribute("another.txt").ok
+    assert coverage(root, state_path).status == "complete"
+    # Evidence edited while the path was moot binds once it differs again.
+    evidence = root / "origin.md"
+    original = evidence.read_bytes()
+    evidence.write_text("changed scope evidence\n")
+    with pytest.raises(KernelError, match="evidence changed") as raised:
+        coverage(root, state_path)
+    assert "outside.txt" not in raised.value.details["attributed_paths"]
+    outside.write_bytes(attributed)
+    with pytest.raises(KernelError, match="evidence changed") as raised:
+        coverage(root, state_path)
+    assert "outside.txt" in raised.value.details["attributed_paths"]
+    evidence.write_bytes(original)
+    outside.unlink()
+    assert coverage(root, state_path).status == "complete"
+    # Without a resolvable baseline every attribution is checked as before.
+    (root / ".git").rename(root / "git-away")
+    try:
+        with pytest.raises(KernelError, match="stale"):
+            coverage(root, state_path)
+    finally:
+        (root / "git-away").rename(root / ".git")
+
+
 def test_cited_orchestration_evidence_remains_byte_bound(host):
     root, state_path = host
     reference = "plans/sample-feature/orchestration/m1-feedback.md"
