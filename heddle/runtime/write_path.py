@@ -647,7 +647,7 @@ def _verify_scope(
             context.config.root, declaration, scope=resolved_scope
         )
         before_reference, _before_reused = publish_source_evidence(
-            context.state_path.parent, before_evidence
+            context.state_path.parent, before_evidence, root=context.config.root
         )
         exit_code = run_verification_command(context.config.root, command, log_path)
         counts = verification_log_counts(log_path)
@@ -658,7 +658,7 @@ def _verify_scope(
             scope=resolved_scope,
         )
         after_reference, _after_reused = publish_source_evidence(
-            context.state_path.parent, after_evidence
+            context.state_path.parent, after_evidence, root=context.config.root
         )
         evidence = VerificationEvidence(
             schema="heddle.verification-evidence/v1",

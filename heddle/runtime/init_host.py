@@ -436,16 +436,7 @@ def _find_git_root(start: Path) -> Path:
             hint="move to a readable Git working tree and retry",
         ) from error
     for candidate in (resolved, *resolved.parents):
-        git_entry = candidate / ".git"
-        try:
-            boundary = is_git_boundary(candidate)
-        except OSError as error:
-            raise KernelError(
-                code="workspace-invalid",
-                message=f"cannot inspect Git entry {git_entry}: {error}",
-                hint=f"make {git_entry} readable and retry",
-            ) from error
-        if boundary:
+        if is_git_boundary(candidate):
             return candidate
     raise KernelError(
         code="workspace-invalid",

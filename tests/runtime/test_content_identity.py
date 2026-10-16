@@ -146,6 +146,22 @@ def test_ac3_real_verify_preserves_process_and_sample_truth(
         assert (host / "src/example.py").read_bytes() == b"VALUE = 7\n"
 
 
+def test_verify_publishes_evidence_when_the_plans_directory_is_its_own_checkout(
+    tmp_path, monkeypatch
+):
+    require_current_state()
+    app, ops = application()
+    host, path = current_host(tmp_path, monkeypatch, stage="implement")
+    state = read(path)
+    state["milestones"][0]["verification"]["command"] = "python3 -c 'print(17)'"
+    write(path, state)
+    # A Git boundary between the feature workspace and the project root.
+    (host / "plans/.git").mkdir()
+    result = app.execute(ops.Verify(feature=FEATURE, scope="m1"))
+    assert result.ok, result
+    assert read(path)["verifications"][-1]["exit_code"] == 0
+
+
 @pytest.mark.parametrize(
     "operation", ["status", "orient", "verify", "run-gate", "phase-exit"]
 )

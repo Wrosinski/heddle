@@ -161,19 +161,27 @@ def is_git_boundary(directory: Path) -> bool:
     """True when ``directory`` holds a ``.git`` directory or regular file.
 
     A ``.git`` file marks a linked worktree or submodule, which is its own
-    checkout; a symlinked ``.git`` is not a boundary. ``OSError`` other than
-    a missing entry propagates to the caller."""
+    checkout; a symlinked ``.git`` is not a boundary. Raises ``KernelError``
+    when the entry exists but cannot be inspected."""
+    entry = directory / ".git"
     try:
-        mode = (directory / ".git").lstat().st_mode
+        mode = entry.lstat().st_mode
     except FileNotFoundError:
         return False
+    except OSError as error:
+        raise KernelError(
+            code="workspace-invalid",
+            message=f"cannot inspect Git entry {entry}: {error}",
+            hint=f"make {entry} readable and retry",
+        ) from error
     return stat.S_ISDIR(mode) or stat.S_ISREG(mode)
 
 
 def find_project_root(start: Path) -> Path | None:
     """Walk up from ``start`` to the nearest directory containing
     ``.heddle.yaml``; ``None`` when none exists up to the first Git
-    boundary."""
+    boundary. Raises ``KernelError`` when a ``.git`` entry cannot be
+    inspected."""
     return _walk_to_project_root(start)[0]
 
 
@@ -184,15 +192,7 @@ def _walk_to_project_root(start: Path) -> tuple[Path | None, Path | None]:
     for candidate in (resolved, *resolved.parents):
         if (candidate / HEDDLE_CONFIG_FILENAME).is_file():
             return candidate, None
-        try:
-            boundary = is_git_boundary(candidate)
-        except OSError as error:
-            raise KernelError(
-                code="workspace-invalid",
-                message=f"cannot inspect Git entry {candidate / '.git'}: {error}",
-                hint=f"make {candidate / '.git'} readable and retry",
-            ) from error
-        if boundary:
+        if is_git_boundary(candidate):
             return None, candidate
     return None, None
 
