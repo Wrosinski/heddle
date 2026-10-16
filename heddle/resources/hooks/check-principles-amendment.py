@@ -20,8 +20,7 @@ TRAILER = re.compile(r"^Principles-Amendment:\s*\S", re.MULTILINE)
 
 def _param(template: str) -> str:
     # A placeholder token ({{ ... }}) resolves to its default when unrendered;
-    # `heddle init` replaces the whole token with the host's `.heddle.yaml`
-    # value at projection time.
+    # a host adopting the hook replaces the whole token with its own value.
     if template.startswith("{{") and template.endswith("}}"):
         return template[2:-2].partition("|")[2]
     return template

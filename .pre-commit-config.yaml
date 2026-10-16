@@ -69,8 +69,7 @@ repos:
         name: check test deletions
         entry: python3 heddle/resources/hooks/check-test-deletions.py
         language: system
-        pass_filenames: false
-        always_run: true
+        stages: [commit-msg]
       - id: check-subprocess-handlers
         name: check subprocess handlers
         entry: .venv/bin/python scripts/check-subprocess-handlers.py

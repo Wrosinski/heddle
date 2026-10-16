@@ -841,9 +841,15 @@ def test_test_deletion_guard_uses_tests_layout(tmp_path: Path) -> None:
 
     test_file.write_text("# removed\n", encoding="utf-8")
     subprocess.run(["git", "add", str(test_file)], cwd=tmp_path, check=True)
+    message = tmp_path / "COMMIT_EDITMSG"
+    message.write_text("remove a test\n", encoding="utf-8")
 
     result = subprocess.run(
-        [sys.executable, str(PACKAGED_HOOKS / "check-test-deletions.py")],
+        [
+            sys.executable,
+            str(PACKAGED_HOOKS / "check-test-deletions.py"),
+            str(message),
+        ],
         cwd=tmp_path,
         capture_output=True,
         text=True,

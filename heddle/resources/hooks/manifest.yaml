@@ -2,14 +2,16 @@
 #
 # Each hook is a stdlib-only, standalone-executable Python file. Template
 # parameters use `{{name|default}}` placeholders: unrendered files run with
-# the default (the Heddle repository uses them this way); `heddle init` bakes
-# host `.heddle.yaml` values in at
-# projection time by replacing the whole token, projecting into the host's
-# `.heddle/hooks/` namespace. The `snippet` block is the source the init
-# projection renders into the generated `pre-commit-snippet.yaml` the host
-# operator splices into `.pre-commit-config.yaml` manually (managed
-# pre-commit entries remain host-owned.
+# the default (the Heddle repository uses them this way). `heddle init` does
+# not project hooks. A host adopting one copies it into `.heddle/hooks/`,
+# replaces each whole token with the value its `source` names, and adds the
+# `snippet` to its `.pre-commit-config.yaml`, which stays host-owned.
+#
+# Commit-msg hooks run only where Git has a commit-msg hook installed: the
+# host config needs the `default_install_hook_types` below, then
+# `pre-commit install`.
 version: 1
+default_install_hook_types: [pre-commit, commit-msg]
 hooks:
   - id: check-no-committed-gate-locks
     stage: pre-commit
@@ -39,11 +41,15 @@ hooks:
       language: system
       stages: [commit-msg]
   - id: check-test-deletions
-    stage: pre-commit
+    stage: commit-msg
     description: >-
-      Staged test-file deletions or removed test functions/classes under the
-      host tests root require ALLOW_TEST_DELETION=1 (paired with the
-      Bypass-Justification trailer contract).
+      Compares test ids (path::[Class::...]name) between HEAD and the index
+      for staged Python files under the host tests root. A test moved to
+      another file under its name passes; a rename passes with a
+      `Test-Renamed: <old id> -> <new id>` trailer. Any other removed test, or
+      a deleted file under the root whose tests did not all move, requires
+      ALLOW_TEST_DELETION=1 (paired with the Bypass-Justification trailer
+      contract).
     params:
       - name: layout_tests
         source: layout.tests
@@ -52,8 +58,7 @@ hooks:
       name: check test deletions
       entry: python3 .heddle/hooks/check-test-deletions.py
       language: system
-      pass_filenames: false
-      always_run: true
+      stages: [commit-msg]
   - id: check-skip-only-test-scaffolding
     stage: pre-commit
     description: >-

@@ -3,8 +3,8 @@ Packaged workflow-hook library tests (adoption host-tooling increment 1).
 
 Covers heddle/resources/hooks/: manifest conformance, the stdlib-only
 contract, the `{{name|default}}` placeholder mechanic (unrendered files
-must run with defaults — the heddle repo dogfoods them that way; `heddle
-init` bakes host values in at projection time), and per-hook pass/reject
+must run with defaults — the heddle repo dogfoods them that way; an adopting
+host replaces each token with its own value), and per-hook pass/reject
 behavior against throwaway git repos. Nothing here touches the real
 repository's index or worktree.
 """
@@ -12,11 +12,13 @@ repository's index or worktree.
 from __future__ import annotations
 
 import ast
+import importlib.util
 import os
 import re
 import subprocess
 import sys
 from pathlib import Path
+from types import ModuleType
 
 import pytest
 import yaml
@@ -79,7 +81,7 @@ def _run_hook(
 
 
 def _render(hook_id: str, target_dir: Path, values: dict[str, str]) -> Path:
-    """Simulate the init-time projection: replace whole placeholder tokens."""
+    """Simulate a host's adoption: replace whole placeholder tokens."""
     text = _hook_path(hook_id).read_text(encoding="utf-8")
 
     def _substitute(match: re.Match[str]) -> str:
@@ -306,7 +308,7 @@ def test_test_deletions_rejects_removed_function(tmp_path: Path) -> None:
     test_file.write_text("# removed\n", encoding="utf-8")
     subprocess.run(["git", "add", str(test_file)], cwd=tmp_path, check=True)
 
-    result = _run_hook(_hook_path("check-test-deletions"), cwd=tmp_path)
+    result = _deletions(tmp_path)
 
     assert result.returncode == 1
     assert "Test deletions detected" in result.stdout
@@ -320,11 +322,13 @@ def test_test_deletions_rejects_deleted_file_and_bypass_passes(
     subprocess.run(["git", "rm", "-q", str(test_file)], cwd=tmp_path, check=True)
     hook = _hook_path("check-test-deletions")
 
-    result = _run_hook(hook, cwd=tmp_path)
+    result = _run_hook(hook, _message(tmp_path), cwd=tmp_path)
     assert result.returncode == 1
     assert "Deleted test files" in result.stdout
 
-    bypassed = _run_hook(hook, cwd=tmp_path, env={"ALLOW_TEST_DELETION": "1"})
+    bypassed = _run_hook(
+        hook, _message(tmp_path), cwd=tmp_path, env={"ALLOW_TEST_DELETION": "1"}
+    )
     assert bypassed.returncode == 0
 
 
@@ -336,9 +340,380 @@ def test_test_deletions_rendered_tests_root(tmp_path: Path) -> None:
     subprocess.run(["git", "add", str(test_file)], cwd=tmp_path, check=True)
 
     # The unrendered default (tests/) does not see src/tests; the rendered
-    # hook does — the placeholder is the projection seam.
-    assert _run_hook(_hook_path("check-test-deletions"), cwd=tmp_path).returncode == 0
-    assert _run_hook(rendered, cwd=tmp_path).returncode == 1
+    # hook does — the placeholder is the adoption seam.
+    assert _deletions(tmp_path).returncode == 0
+    assert _run_hook(rendered, _message(tmp_path), cwd=tmp_path).returncode == 1
+
+
+def _load_hook(hook_id: str) -> ModuleType:
+    spec = importlib.util.spec_from_file_location(
+        hook_id.replace("-", "_"), _hook_path(hook_id)
+    )
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _message(root: Path, text: str = "change\n") -> str:
+    path = root / "COMMIT_EDITMSG"
+    path.write_text(text, encoding="utf-8")
+    return str(path)
+
+
+def _stage(root: Path, files: dict[str, str | None]) -> None:
+    """Write (or delete, for None) each file, then stage every change."""
+    for rel, text in files.items():
+        path = root / rel
+        if text is None:
+            path.unlink()
+        else:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(text, encoding="utf-8")
+    subprocess.run(["git", "add", "-A"], cwd=root, check=True)
+
+
+def _deletions(
+    root: Path, message: str = "change\n"
+) -> subprocess.CompletedProcess[str]:
+    return _run_hook(
+        _hook_path("check-test-deletions"), _message(root, message), cwd=root
+    )
+
+
+TWO_TESTS = "def test_a():\n    assert True\n\n\ndef test_b():\n    assert True\n"
+CLASS_TEST = "class TestOld:\n    def test_m(self):\n        assert True\n"
+
+
+def test_test_deletion_ids_follow_lexical_class_nesting() -> None:
+    hook = _load_hook("check-test-deletions")
+    source = (
+        b"import sys\n\n"
+        b"def test_top():\n    def test_inner():\n        pass\n\n"
+        b"async def test_async():\n    pass\n\n"
+        b"def helper():\n    pass\n\n"
+        b"class TestOuter:\n    def test_method(self):\n        pass\n\n"
+        b"    class TestNested:\n        def test_deep(self):\n            pass\n\n"
+        b"class Helpers:\n    def test_on_plain_class(self):\n        pass\n\n"
+        b"if sys.platform:\n    def test_conditional():\n        pass\n"
+    )
+
+    assert hook._test_ids("tests/test_a.py", source) == {
+        "tests/test_a.py::test_top",
+        "tests/test_a.py::test_async",
+        "tests/test_a.py::TestOuter",
+        "tests/test_a.py::TestOuter::test_method",
+        "tests/test_a.py::TestOuter::TestNested",
+        "tests/test_a.py::TestOuter::TestNested::test_deep",
+        "tests/test_a.py::Helpers::test_on_plain_class",
+        "tests/test_a.py::test_conditional",
+    }
+    assert hook._test_ids("tests/test_a.py", b"def test_broken(:\n") is None
+
+
+_A = "tests/test_a.py"
+_B = "tests/test_b.py"
+_C = "tests/test_c.py"
+
+
+@pytest.mark.parametrize(
+    ("removed", "added", "renames", "unaccounted", "unused"),
+    [
+        pytest.param(
+            {f"{_A}::test_old"},
+            {f"{_A}::test_new"},
+            [],
+            {f"{_A}::test_old"},
+            [],
+            id="rename-without-trailer",
+        ),
+        pytest.param(
+            {f"{_A}::test_old"},
+            {f"{_A}::test_new"},
+            [(f"{_A}::test_old", f"{_A}::test_new")],
+            set(),
+            [],
+            id="trailed-rename",
+        ),
+        pytest.param(
+            {f"{_A}::test_gone"},
+            set(),
+            [(f"{_A}::test_old", f"{_A}::test_new")],
+            {f"{_A}::test_gone"},
+            [(f"{_A}::test_old", f"{_A}::test_new")],
+            id="inherited-trailer-exempts-nothing",
+        ),
+        pytest.param(
+            {f"{_A}::test_old"},
+            set(),
+            [(f"{_A}::test_old", f"{_A}::test_kept")],
+            {f"{_A}::test_old"},
+            [(f"{_A}::test_old", f"{_A}::test_kept")],
+            id="new-id-already-in-head",
+        ),
+        pytest.param(
+            {f"{_A}::test_one", f"{_A}::test_two"},
+            {f"{_A}::test_new"},
+            [
+                (f"{_A}::test_one", f"{_A}::test_new"),
+                (f"{_A}::test_two", f"{_A}::test_new"),
+            ],
+            {f"{_A}::test_one", f"{_A}::test_two"},
+            [
+                (f"{_A}::test_one", f"{_A}::test_new"),
+                (f"{_A}::test_two", f"{_A}::test_new"),
+            ],
+            id="new-id-named-twice",
+        ),
+        pytest.param(
+            {f"{_A}::TestOld", f"{_A}::TestOld::test_kept", f"{_A}::TestOld::test_was"},
+            {f"{_A}::TestNew", f"{_A}::TestNew::test_kept", f"{_A}::TestNew::test_is"},
+            [(f"{_A}::TestOld", f"{_A}::TestNew")],
+            {f"{_A}::TestOld::test_was"},
+            [],
+            id="class-rename-covers-kept-members",
+        ),
+        pytest.param(
+            {f"{_A}::test_moved"}, {f"{_B}::test_moved"}, [], set(), [], id="move"
+        ),
+        pytest.param(
+            {f"{_A}::test_same", f"{_B}::test_same"},
+            {f"{_C}::test_same"},
+            [],
+            {f"{_B}::test_same"},
+            [],
+            id="one-move-per-added-test",
+        ),
+        pytest.param(
+            {f"{_A}::TestX::test_m"},
+            {f"{_B}::TestY::test_m"},
+            [],
+            {f"{_A}::TestX::test_m"},
+            [],
+            id="move-keeps-its-class",
+        ),
+    ],
+)
+def test_test_deletion_accounting_pairs_renames_and_moves(
+    removed: set[str],
+    added: set[str],
+    renames: list[tuple[str, str]],
+    unaccounted: set[str],
+    unused: list[tuple[str, str]],
+) -> None:
+    left, _unpaired, unused_entries = _load_hook("check-test-deletions")._account(
+        removed, added, renames
+    )
+
+    assert (left, unused_entries) == (unaccounted, unused)
+
+
+@pytest.mark.toolchain
+def test_test_deletions_census_passes_kept_moved_and_renamed_tests(
+    tmp_path: Path,
+) -> None:
+    _init_git_repo(tmp_path)
+    _stage(
+        tmp_path,
+        {
+            "tests/test_a.py": TWO_TESTS,
+            "tests/test_c.py": CLASS_TEST,
+        },
+    )
+    _commit_all(tmp_path)
+    _stage(
+        tmp_path,
+        {
+            # A signature change and a re-wrapped definition keep both names.
+            "tests/test_a.py": "def test_a(tmp_path):\n    assert True\n\n\n"
+            "def test_b(\n    tmp_path,\n):\n    assert True\n",
+            "tests/test_c.py": CLASS_TEST.replace("TestOld", "TestNew"),
+        },
+    )
+    assert _deletions(tmp_path).returncode == 1  # the class rename is untrailed
+
+    trailer = (
+        "change\n\nTest-Renamed: tests/test_c.py::TestOld -> tests/test_c.py::TestNew\n"
+    )
+    assert _deletions(tmp_path, trailer).returncode == 0
+
+    # test_b moves to another file under its own name.
+    _stage(
+        tmp_path,
+        {
+            "tests/test_a.py": "def test_a(tmp_path):\n    assert True\n",
+            "tests/test_moved.py": "def test_b():\n    assert True\n",
+        },
+    )
+    result = _deletions(tmp_path, trailer)
+    assert result.returncode == 0, result.stdout
+
+
+@pytest.mark.toolchain
+def test_test_deletions_rename_without_trailer_names_both_ids(tmp_path: Path) -> None:
+    _init_git_repo(tmp_path)
+    _stage(tmp_path, {"tests/test_a.py": TWO_TESTS})
+    _commit_all(tmp_path)
+    _stage(tmp_path, {"tests/test_a.py": TWO_TESTS.replace("test_a", "test_renamed")})
+
+    result = _deletions(tmp_path)
+
+    assert result.returncode == 1
+    assert "Removed tests:\n  tests/test_a.py::test_a\n" in result.stdout
+    assert "Added tests:\n  tests/test_a.py::test_renamed\n" in result.stdout
+    assert "Test-Renamed: <old id> -> <new id>" in result.stdout
+    trailed = _deletions(
+        tmp_path,
+        "rename\n\nTest-Renamed: tests/test_a.py::test_a -> "
+        "tests/test_a.py::test_renamed\n",
+    )
+    assert trailed.returncode == 0, trailed.stdout
+
+
+@pytest.mark.toolchain
+def test_test_deletions_flags_tests_removed_inside_a_renamed_file(
+    tmp_path: Path,
+) -> None:
+    _init_git_repo(tmp_path)
+    _stage(tmp_path, {"tests/test_a.py": TWO_TESTS})
+    _commit_all(tmp_path)
+    subprocess.run(
+        ["git", "mv", "tests/test_a.py", "tests/test_z.py"], cwd=tmp_path, check=True
+    )
+    assert _deletions(tmp_path).returncode == 0
+
+    _stage(tmp_path, {"tests/test_z.py": "def test_b():\n    assert True\n"})
+    result = _deletions(tmp_path)
+
+    assert result.returncode == 1
+    assert "tests/test_a.py::test_a" in result.stdout
+
+
+@pytest.mark.toolchain
+def test_test_deletions_flags_a_deleted_file_unless_its_tests_moved(
+    tmp_path: Path,
+) -> None:
+    _init_git_repo(tmp_path)
+    _stage(
+        tmp_path,
+        {"tests/conftest.py": "import pytest\n", "tests/test_a.py": TWO_TESTS},
+    )
+    _commit_all(tmp_path)
+
+    _stage(tmp_path, {"tests/conftest.py": None})
+    support = _deletions(tmp_path)
+    assert support.returncode == 1
+    assert "Deleted test files:\n  tests/conftest.py\n" in support.stdout
+
+    subprocess.run(["git", "reset", "-q", "--hard"], cwd=tmp_path, check=True)
+    _stage(tmp_path, {"tests/test_a.py": None, "tests/test_split.py": TWO_TESTS})
+    moved = _deletions(tmp_path)
+    assert moved.returncode == 0, moved.stdout
+
+
+@pytest.mark.toolchain
+def test_test_deletions_unparsable_file_falls_back_to_removed_lines(
+    tmp_path: Path,
+) -> None:
+    _init_git_repo(tmp_path)
+    _stage(tmp_path, {"tests/test_a.py": TWO_TESTS})
+    _commit_all(tmp_path)
+    _stage(tmp_path, {"tests/test_a.py": "def test_b(:\n    assert True\n"})
+
+    result = _deletions(tmp_path)
+
+    assert result.returncode == 1
+    assert "note: tests/test_a.py does not parse" in result.stdout
+    assert "tests/test_a.py: -def test_a():" in result.stdout
+
+
+@pytest.mark.toolchain
+def test_test_deletions_skips_a_merge_and_an_unborn_branch(tmp_path: Path) -> None:
+    _init_git_repo(tmp_path)
+    _stage(tmp_path, {"tests/test_a.py": TWO_TESTS})
+    assert _deletions(tmp_path).returncode == 0  # nothing to delete yet
+
+    _commit_all(tmp_path)
+    _stage(tmp_path, {"tests/test_a.py": None})
+    assert _deletions(tmp_path).returncode == 1
+    git_dir = tmp_path / ".git"
+    (git_dir / "MERGE_HEAD").write_text(
+        subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=tmp_path,
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout,
+        encoding="utf-8",
+    )
+    assert _deletions(tmp_path).returncode == 0
+
+
+@pytest.mark.toolchain
+def test_test_deletions_amend_ignores_an_inherited_trailer(tmp_path: Path) -> None:
+    _init_git_repo(tmp_path)
+    _stage(tmp_path, {"tests/test_a.py": TWO_TESTS})
+    _commit_all(tmp_path)
+    trailer = (
+        "rename\n\nTest-Renamed: tests/test_a.py::test_a -> "
+        "tests/test_a.py::test_renamed\n"
+    )
+    _stage(tmp_path, {"tests/test_a.py": TWO_TESTS.replace("test_a", "test_renamed")})
+    assert _deletions(tmp_path, trailer).returncode == 0
+    _commit_all(tmp_path, trailer)
+
+    # Amending with the same message: the inherited entry matches nothing.
+    _stage(tmp_path, {"README.md": "notes\n"})
+    assert _deletions(tmp_path, trailer).returncode == 0
+    _stage(tmp_path, {"tests/test_a.py": "def test_renamed():\n    assert True\n"})
+    result = _deletions(tmp_path, trailer)
+    assert result.returncode == 1
+    assert "tests/test_a.py::test_b" in result.stdout
+
+
+@pytest.mark.toolchain
+def test_test_deletions_fails_when_git_cannot_read_the_change(
+    tmp_path: Path,
+) -> None:
+    outside = tmp_path / "not-a-repo"
+    outside.mkdir()
+
+    result = _run_hook(
+        _hook_path("check-test-deletions"),
+        _message(outside),
+        cwd=outside,
+        env={"GIT_CEILING_DIRECTORIES": str(tmp_path)},
+    )
+
+    assert result.returncode == 1
+    assert "could not read the staged change" in result.stdout
+    usage = _run_hook(_hook_path("check-test-deletions"), cwd=outside)
+    assert usage.returncode == 1 and "Usage" in usage.stdout
+
+
+def test_test_deletion_guard_runs_at_commit_msg_where_it_is_wired() -> None:
+    manifest = _manifest()
+    hook = next(h for h in manifest["hooks"] if h["id"] == "check-test-deletions")
+    assert hook["stage"] == "commit-msg"
+    assert hook["snippet"]["stages"] == ["commit-msg"]
+    assert "pass_filenames" not in hook["snippet"]
+    assert manifest["default_install_hook_types"] == ["pre-commit", "commit-msg"]
+    assert {h["stage"] for h in manifest["hooks"]} == set(
+        manifest["default_install_hook_types"]
+    )
+
+    config = yaml.safe_load(
+        (REPO_ROOT / ".pre-commit-config.yaml").read_text(encoding="utf-8")
+    )
+    wired = next(
+        h
+        for repo in config["repos"]
+        for h in repo["hooks"]
+        if h["id"] == "check-test-deletions"
+    )
+    assert wired["stages"] == ["commit-msg"]
+    assert "pass_filenames" not in wired
 
 
 # ---------------------------------------------------------------------------
