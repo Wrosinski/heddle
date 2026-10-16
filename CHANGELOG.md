@@ -218,6 +218,11 @@ authority for the installed version.
 
 ### Added
 
+- `heddle init --no-session-entry` adopts a host without the `AGENTS.md`
+  session entry. The lock records only `.heddle.yaml` and the principles file,
+  and `heddle sync` and `heddle validate` then leave `AGENTS.md` alone. A
+  lock that records the session entry refuses the flag. Older Heddle builds
+  reject a lock without the `AGENTS.md` entry.
 - `heddle task edit <task-ref> --text <text>` corrects an open task's text on
   the current milestone, keeping its id and status; a done task is refused.
 - `heddle session log --help` publishes its payload schema,

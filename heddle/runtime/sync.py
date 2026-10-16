@@ -1,7 +1,8 @@
 """Managed projections for feature status and session entry.
 
 Two managed regions are projected: plan-status in the feature plan and
-session-entry in the root AGENTS.md."""
+session-entry in the root AGENTS.md. A host adopted with
+``heddle init --no-session-entry`` projects plan-status only."""
 
 from __future__ import annotations
 
@@ -405,7 +406,7 @@ def _preflight_targets(
     plan_path: Path,
     plan_display: str,
     plan_body: str,
-    agents_path: Path,
+    agents_path: Path | None,
     session_body: str,
 ) -> tuple[tuple[_Projection, ...], tuple[KernelError, ...]]:
     projections: list[_Projection] = []
@@ -421,10 +422,11 @@ def _preflight_targets(
         )
     except KernelError as error:
         errors.append(error)
-    try:
-        projections.append(_preflight_agents(agents_path, session_body))
-    except KernelError as error:
-        errors.append(error)
+    if agents_path is not None:
+        try:
+            projections.append(_preflight_agents(agents_path, session_body))
+        except KernelError as error:
+            errors.append(error)
     return tuple(projections), tuple(errors)
 
 
@@ -569,7 +571,14 @@ def sync(parsed: ops.Sync) -> HeddleResult:
     feature = resolved.feature
     plan_display = (Path(config.layout.plans) / feature / "plan.md").as_posix()
     plan_path = config.root / plan_display
-    agents_path = config.root / "AGENTS.md"
+    try:
+        from heddle.runtime.init_host import session_entry_adopted
+
+        agents_path = (
+            config.root / "AGENTS.md" if session_entry_adopted(config.root) else None
+        )
+    except KernelError as error:
+        return _kernel_failure(error, diagnostics=resolved.diagnostics)
     try:
         readiness = _plan_readiness(config, resolved.snapshot)
     except KernelError as error:

@@ -11,14 +11,18 @@ from heddle.kernel.managed_regions import begin_marker, end_marker
 from heddle.runtime.sync import SESSION_ENTRY_ID, render_session_entry
 
 
-def adopt_fixture_host(host: Path) -> None:
-    """Add a valid adoption footprint without changing existing host bytes."""
+def adopt_fixture_host(host: Path, *, session_entry: bool = True) -> None:
+    """Add a valid adoption footprint without changing existing host bytes.
+
+    ``session_entry=False`` records an adoption made with
+    ``heddle init --no-session-entry``: AGENTS.md is neither written nor
+    locked."""
     config = host / ".heddle.yaml"
     if not config.is_file():
         raise AssertionError(f"fixture host has no {config.name}: {host}")
 
     agents = host / "AGENTS.md"
-    if not agents.exists():
+    if session_entry and not agents.exists():
         agents.write_text(
             f"{begin_marker(SESSION_ENTRY_ID)}\n"
             f"{render_session_entry()}"
@@ -34,10 +38,14 @@ def adopt_fixture_host(host: Path) -> None:
             encoding="utf-8",
         )
 
-    rows = (
-        (".heddle.yaml", "scaffold-once"),
-        ("AGENTS.md", "managed-region"),
-        ("docs/workflow/engineering-principles.md", "scaffold-once"),
+    rows = tuple(
+        row
+        for row in (
+            (".heddle.yaml", "scaffold-once"),
+            ("AGENTS.md", "managed-region"),
+            ("docs/workflow/engineering-principles.md", "scaffold-once"),
+        )
+        if session_entry or row[0] != "AGENTS.md"
     )
     lines = ["schema: heddle.lock/v1", "targets:"]
     for relative, class_ in rows:

@@ -111,6 +111,14 @@ Review the resulting diff. Heddle writes its lock last and preserves host bytes
 outside its managed markers. The host must review and ratify the generated
 engineering-principles seed; `init` does not ratify it.
 
+To keep the session entry out of `AGENTS.md`, for example when the file is
+shared with people who do not use Heddle, adopt with
+`heddle init --no-session-entry`. The lock then records no `AGENTS.md` entry,
+and `heddle sync` and `heddle validate` leave the file alone. Your agents need
+another way to learn that sessions start with `heddle orient`. An existing lock
+fixes the choice: to change it, move `.heddle.lock` aside and adopt again with
+`--adopt-existing`.
+
 ## Configure the host repository
 
 `.heddle.yaml` is the repository-specific integration contract. Keep its values

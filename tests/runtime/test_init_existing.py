@@ -172,7 +172,11 @@ def test_adoption_rechecks_accepted_files_before_writing_lock(
 
 @pytest.mark.parametrize(
     "arguments",
-    [["--adopt-existing", "--adopt-existing"], ["--adopt-existing", "--unknown"]],
+    [
+        ["--adopt-existing", "--adopt-existing"],
+        ["--adopt-existing", "--unknown"],
+        ["--no-session-entry", "--no-session-entry"],
+    ],
 )
 def test_adoption_rejects_invalid_flags_without_writes(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, arguments: list[str]
@@ -188,6 +192,92 @@ def test_adoption_typed_command_renders_explicit_flag() -> None:
     assert ops.operation_command(ops.Init(dry_run=True, adopt_existing=True)) == (
         "heddle init --adopt-existing --dry-run"
     )
+    assert ops.operation_command(ops.Init(dry_run=True, session_entry=False)) == (
+        "heddle init --no-session-entry --dry-run"
+    )
+
+
+OPTED_OUT_TARGETS = [
+    ".heddle.yaml",
+    "docs/workflow/engineering-principles.md",
+    ".heddle.lock",
+]
+
+
+def bare_host(tmp_path: Path) -> Path:
+    root = tmp_path / "bare"
+    (root / ".git").mkdir(parents=True)
+    return root
+
+
+def test_no_session_entry_adopts_without_agents_and_the_lock_keeps_the_choice(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = bare_host(tmp_path)
+    monkeypatch.chdir(root)
+    assert init_host.run_init(["--no-session-entry", "--dry-run"], json_mode=True) == 0
+    preview = execute(ops.Init(dry_run=True, session_entry=False))
+    assert preview.ok and preview.data is not None, preview.to_envelope()
+    assert [row["path"] for row in preview.data["targets"]] == OPTED_OUT_TARGETS
+    applied = execute(ops.Init(session_entry=False))
+    assert applied.ok, applied.to_envelope()
+    assert not (root / "AGENTS.md").exists()
+    assert [entry.path.as_posix() for entry in init_host.read_init_lock(root)] == [
+        ".heddle.yaml",
+        "docs/workflow/engineering-principles.md",
+    ]
+    assert not init_host.session_entry_adopted(root)
+    assert execute(ops.Doctor()).ok
+    # A teammate later commits AGENTS.md: plain init follows the lock.
+    (root / "AGENTS.md").write_text("Team instructions.\n")
+    adopted = snapshot_tree(root)
+    rerun = execute(ops.Init())
+    assert rerun.ok and rerun.data is not None, rerun.to_envelope()
+    assert [row["path"] for row in rerun.data["targets"]] == OPTED_OUT_TARGETS
+    assert snapshot_tree(root) == adopted
+
+
+def test_no_session_entry_refuses_a_lock_that_records_the_session_entry(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = bare_host(tmp_path)
+    monkeypatch.chdir(root)
+    assert execute(ops.Init()).ok
+    assert init_host.session_entry_adopted(root)
+    before = snapshot_tree(root)
+    for dry_run in (True, False):
+        result = execute(ops.Init(dry_run=dry_run, session_entry=False))
+        assert not result.ok and result.error is not None
+        assert "--no-session-entry" in result.error.message
+        assert ".heddle.lock" in result.error.hint
+    assert snapshot_tree(root) == before
+
+
+def test_no_session_entry_adoption_leaves_existing_agents_untouched(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = existing_host(tmp_path)
+    monkeypatch.chdir(root)
+    agents = (root / "AGENTS.md").read_bytes()
+    result = execute(ops.Init(adopt_existing=True, session_entry=False))
+    assert result.ok, result.to_envelope()
+    assert (root / "AGENTS.md").read_bytes() == agents
+    recorded = {entry.path.as_posix() for entry in init_host.read_init_lock(root)}
+    assert "AGENTS.md" not in recorded
+    assert execute(ops.Doctor()).ok
+
+
+def test_lock_may_omit_only_the_session_entry(tmp_path: Path) -> None:
+    root = existing_host(tmp_path)
+    digest = "0" * 64
+    (root / ".heddle.lock").write_text(
+        "schema: heddle.lock/v1\ntargets:\n"
+        f"- path: AGENTS.md\n  class: managed-region\n  sha256: {digest}\n"
+        "- path: docs/workflow/engineering-principles.md\n"
+        f"  class: scaffold-once\n  sha256: {digest}\n"
+    )
+    with pytest.raises(KernelError, match="heddle.lock/v1 contract"):
+        init_host.read_init_lock(root)
 
 
 @pytest.mark.toolchain

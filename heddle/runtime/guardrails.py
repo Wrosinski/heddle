@@ -451,12 +451,14 @@ def _managed_block_integrity(root: Path) -> list[Diagnostic]:
     missing AGENTS.md is a host that has not adopted sync — nothing to
     check; a present file without the block is ADVISORY (sync creates
     the block on demand); malformed or half-present markers are FATAL
-    (broken state sync cannot repair blindly)."""
+    (broken state sync cannot repair blindly). A lock that records no
+    AGENTS.md entry opted out of the session entry: nothing to check."""
     from heddle.kernel.managed_regions import marker_fault_kind
+    from heddle.runtime.init_host import session_entry_adopted
     from heddle.runtime.sync import SESSION_ENTRY_ID
 
     target = root / AGENTS_DOC
-    if not target.is_file():
+    if not target.is_file() or not session_entry_adopted(root):
         return []
     try:
         text = target.read_text(encoding="utf-8")

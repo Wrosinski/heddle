@@ -373,6 +373,7 @@ class RecordPolicy:
 class Init:
     dry_run: bool = False
     adopt_existing: bool = False
+    session_entry: bool = True
 
 
 @dataclass(frozen=True)
@@ -518,6 +519,8 @@ def operation_command(operation: Operation) -> str:
         case Init():
             if operation.adopt_existing:
                 arguments.append("--adopt-existing")
+            if not operation.session_entry:
+                arguments.append("--no-session-entry")
         case RecordReviewDisposition() | ReviewRoundOpen() | InterpretReview():
             if operation.payload is not None:
                 arguments.extend(("--input-json", "-"))

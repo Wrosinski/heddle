@@ -1044,6 +1044,32 @@ def test_ac10_red_existing_agents_is_never_adopted(
     assert plan.exists(), "FAIL AC-10: the sibling plan must remain present"
 
 
+def test_sync_leaves_agents_alone_on_a_host_adopted_without_session_entry(
+    run_cli,
+    envelope_tools,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    host = _marker_ready_demo_host(
+        run_cli,
+        envelope_tools,
+        tmp_path,
+        monkeypatch,
+        name="opted-out",
+    )
+    adopt_fixture_host(host, session_entry=False)
+    agents = host / "AGENTS.md"
+    agents.write_text("host-owned instructions\n", encoding="utf-8")
+    for argv in (
+        ["sync", "--feature", "demo", "--dry-run", "--json"],
+        ["sync", "--feature", "demo", "--json"],
+    ):
+        code, envelope = _json_run(run_cli, envelope_tools, argv)
+        assert code == 0, f"FAIL: {argv} must succeed, got {envelope!r}"
+        assert [row["block"] for row in envelope["data"]["targets"]] == [PLAN_ID]
+    assert agents.read_text(encoding="utf-8") == "host-owned instructions\n"
+
+
 def test_ac10_red_human_refusal_is_informative_and_keeps_exit_taxonomy(
     run_cli,
     envelope_tools,

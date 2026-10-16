@@ -21,6 +21,7 @@ from heddle.runtime.guardrails import (
     run_guardrails,
 )
 from heddle.runtime.sync import SESSION_ENTRY_ID
+from tests.runtime.adoption_helpers import adopt_fixture_host
 
 WELL_FORMED_BLOCK = (
     f"{begin_marker(SESSION_ENTRY_ID)}\nbody\n{end_marker(SESSION_ENTRY_ID)}\n"
@@ -50,6 +51,22 @@ def test_managed_block_absent_file_is_silent(tmp_path: Path) -> None:
     # A host that has not adopted `heddle sync` has nothing to check.
     root = _host(tmp_path)
     assert _findings(root, MANAGED_BLOCK_INTEGRITY) == []
+
+
+def test_managed_block_check_skips_a_host_adopted_without_session_entry(
+    tmp_path: Path,
+) -> None:
+    root = _host(tmp_path)
+    (root / "AGENTS.md").write_text("Team instructions.\n", encoding="utf-8")
+    assert [d.severity for d in _findings(root, MANAGED_BLOCK_INTEGRITY)] == [
+        Severity.ADVISORY
+    ]
+    adopt_fixture_host(root, session_entry=False)
+    assert _findings(root, MANAGED_BLOCK_INTEGRITY) == []
+    (root / ".heddle.lock").write_text("schema: invalid\n", encoding="utf-8")
+    assert [d.severity for d in _findings(root, MANAGED_BLOCK_INTEGRITY)] == [
+        Severity.FATAL
+    ]
 
 
 def test_managed_block_well_formed_pair_is_silent(tmp_path: Path) -> None:

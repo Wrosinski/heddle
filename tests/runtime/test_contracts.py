@@ -169,7 +169,14 @@ def test_typed_invalid_revision_is_usage_before_service_loading(monkeypatch):
 # order is compared exactly (= table order).
 # ---------------------------------------------------------------------------
 EXPECTED_SURFACE = [
-    ("init", True, True, [0, 1, 2, 3], [], {"--dry-run", "--json", "--adopt-existing"}),
+    (
+        "init",
+        True,
+        True,
+        [0, 1, 2, 3],
+        [],
+        {"--dry-run", "--json", "--adopt-existing", "--no-session-entry"},
+    ),
     ("orient", False, False, [0, 1, 2, 3], [], {"--feature", "--json"}),
     ("status", False, False, [0, 1, 2, 3], [], {"--all", "--feature", "--json"}),
     (

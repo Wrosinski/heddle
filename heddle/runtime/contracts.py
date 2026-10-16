@@ -1161,6 +1161,10 @@ COMMAND_SURFACE: tuple[CommandContract, ...] = (
                 "--adopt-existing",
                 "preserve and record existing host-owned config and principles",
             ),
+            FlagSpec(
+                "--no-session-entry",
+                "adopt without the AGENTS.md session entry; the lock records it",
+            ),
         ),
         exit_codes=_EXIT_FATAL,
         output_schema="heddle.init/v0",

@@ -2,9 +2,14 @@
 
 The planner runs before project configuration exists.  It discovers the
 nearest Git root without spawning Git and renders one immutable plan: the
-three lock-recorded targets and the lock.  Dry-run serializes
+lock-recorded targets and the lock.  Dry-run serializes
 that plan without touching the host filesystem; apply installs the same
 desired bytes atomically and commits the lock last.
+
+The AGENTS.md session entry is optional: ``--no-session-entry`` adopts
+without it, and the lock is the one record of that choice.  A lock without
+an AGENTS.md entry tells ``heddle sync`` and ``heddle validate`` to leave
+AGENTS.md alone.
 """
 
 from __future__ import annotations
@@ -50,9 +55,10 @@ INIT_RESOURCE_UNREADABLE = "init-resource-unreadable"
 _RESOURCE_ROOT = Path(__file__).resolve().parent.parent / "resources"
 _LOCK_SCHEMA = "heddle.lock/v1"
 _LOCK_PATH = PurePosixPath(".heddle.lock")
+_AGENTS_PATH = PurePosixPath("AGENTS.md")
 _TARGET_SPECS: tuple[tuple[PurePosixPath, InitClass], ...] = (
     (PurePosixPath(".heddle.yaml"), "scaffold-once"),
-    (PurePosixPath("AGENTS.md"), "managed-region"),
+    (_AGENTS_PATH, "managed-region"),
     (
         PurePosixPath("docs/workflow/engineering-principles.md"),
         "scaffold-once",
@@ -133,13 +139,34 @@ def read_init_lock(root: Path) -> tuple[InitLockEntry, ...]:
     )
 
 
-def plan_init(cwd: Path, *, adopt_existing: bool = False) -> InitPlan:
+def session_entry_adopted(root: Path) -> bool:
+    """Whether Heddle manages the AGENTS.md session entry at ``root``.
+
+    A valid lock without an AGENTS.md entry records an adoption that opted
+    out. A host without a lock keeps the default managed entry; an invalid
+    lock raises."""
+    lock = _read_lock(root / _LOCK_PATH)
+    return lock is None or _AGENTS_PATH.as_posix() in lock.entries
+
+
+def plan_init(
+    cwd: Path, *, adopt_existing: bool = False, session_entry: bool = True
+) -> InitPlan:
     """Build the immutable host-adoption plan rooted at the nearest Git host."""
-    return _plan_init_root(_find_git_root(cwd), adopt_existing=adopt_existing)
+    return _plan_init_root(
+        _find_git_root(cwd),
+        adopt_existing=adopt_existing,
+        session_entry=session_entry,
+    )
 
 
-def _plan_init_root(root: Path, *, adopt_existing: bool = False) -> InitPlan:
-    """Build a plan after the pre-config Git-root boundary has resolved."""
+def _plan_init_root(
+    root: Path, *, adopt_existing: bool = False, session_entry: bool = True
+) -> InitPlan:
+    """Build a plan after the pre-config Git-root boundary has resolved.
+
+    An existing lock fixes whether AGENTS.md is a target; ``session_entry``
+    applies only to a host without one."""
 
     resources = {
         ".heddle.yaml": _read_resource("heddle-yaml.scaffold.yaml"),
@@ -157,9 +184,27 @@ def _plan_init_root(root: Path, *, adopt_existing: bool = False) -> InitPlan:
 
     lock = _read_lock(root / _LOCK_PATH)
     recorded = lock.entries if lock is not None else {}
+    manages_agents = (
+        _AGENTS_PATH.as_posix() in recorded if lock is not None else session_entry
+    )
+    if manages_agents and not session_entry:
+        raise KernelError(
+            code="workspace-invalid",
+            message=(
+                f"--no-session-entry conflicts with {root / _LOCK_PATH}, which "
+                f"records the {_AGENTS_PATH} session entry"
+            ),
+            hint=(
+                f"to re-adopt without it, move {_LOCK_PATH} aside and preview "
+                "`heddle init --adopt-existing --no-session-entry --dry-run`; "
+                f"remove the managed block from {_AGENTS_PATH} yourself"
+            ),
+        )
     planned: list[InitTarget] = []
     for path, class_ in _TARGET_SPECS[:-1]:
         target_path = root / path
+        if path == _AGENTS_PATH and not manages_agents:
+            continue
         if path.as_posix() in recorded:
             planned.append(_plan_recorded_target(target_path, path, class_))
         elif class_ == "managed-region":
@@ -217,7 +262,11 @@ def initialize(operation: ops.Init) -> HeddleResult:
     dry_run = operation.dry_run
     try:
         root = _find_git_root(Path.cwd())
-        plan = _plan_init_root(root, adopt_existing=operation.adopt_existing)
+        plan = _plan_init_root(
+            root,
+            adopt_existing=operation.adopt_existing,
+            session_entry=operation.session_entry,
+        )
     except KernelError as error:
         return _init_failure(error)
 
@@ -495,7 +544,7 @@ def _plan_unrecorded_agents(
     managed_body: str,
 ) -> InitTarget:
     current = _target_bytes(path)
-    relative = PurePosixPath("AGENTS.md")
+    relative = _AGENTS_PATH
     if current is None:
         action: InitAction = "create" if _target_mode(path) is None else "refuse"
         return InitTarget(
@@ -572,6 +621,7 @@ def _validate_lock_document(
     path: Path,
 ) -> dict[str, dict[str, str]]:
     expected = {relative.as_posix(): class_ for relative, class_ in _TARGET_SPECS[:-1]}
+    required = set(expected) - {_AGENTS_PATH.as_posix()}
     if not isinstance(document, dict) or document.get("schema") != _LOCK_SCHEMA:
         raise _invalid_lock(path)
     rows = document.get("targets")
@@ -599,7 +649,10 @@ def _validate_lock_document(
             "class": class_,
             "sha256": digest,
         }
-    if list(entries) != sorted(expected) or set(entries) != set(expected):
+    if list(entries) != sorted(entries) or set(entries) not in (
+        set(expected),
+        required,
+    ):
         raise _invalid_lock(path)
     return entries
 
@@ -645,10 +698,12 @@ def _render_lock(
 
 
 def _parse_args(args: list[str]) -> tuple[ops.Init | None, HeddleResult | None]:
-    flags = {"--dry-run", "--adopt-existing"}
+    flags = {"--dry-run", "--adopt-existing", "--no-session-entry"}
     if len(args) == len(set(args)) and all(token in flags for token in args):
         return ops.Init(
-            dry_run="--dry-run" in args, adopt_existing="--adopt-existing" in args
+            dry_run="--dry-run" in args,
+            adopt_existing="--adopt-existing" in args,
+            session_entry="--no-session-entry" not in args,
         ), None
     unexpected = next(
         (token for token in args if token not in flags or args.count(token) > 1),
@@ -660,7 +715,10 @@ def _parse_args(args: list[str]) -> tuple[ops.Init | None, HeddleResult | None]:
             HeddleError(
                 code="usage",
                 message=f"unrecognized init argument {unexpected!r}",
-                hint="usage: heddle init [--adopt-existing] [--dry-run] [--json]",
+                hint=(
+                    "usage: heddle init [--adopt-existing] [--no-session-entry] "
+                    "[--dry-run] [--json]"
+                ),
             ),
             exit_code=ExitCode.USAGE,
         ),
@@ -715,7 +773,7 @@ def _refused_failure(
     for target in refused:
         code = "init-refused-target"
         message = f"{target.path.as_posix()} cannot be adopted safely"
-        if target.path == PurePosixPath("AGENTS.md"):
+        if target.path == _AGENTS_PATH:
             current = _target_bytes(plan.root / target.path)
             fault = _managed_pair_fault(current) if current is not None else None
             if fault not in {None, "invalid-utf8"}:

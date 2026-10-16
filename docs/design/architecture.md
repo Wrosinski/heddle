@@ -268,7 +268,9 @@ comment. Runtime verification records command, source identity, outcome and log.
 
 The init contract defines the four-file footprint: `.heddle.yaml`, root
 `AGENTS.md`, an unratified engineering-principles
-seed, and `.heddle.lock`. Init preserves existing host-owned bytes and writes the
+seed, and `.heddle.lock`. `heddle init --no-session-entry` leaves out
+`AGENTS.md`; the lock is the single record of that choice, and sync and
+validate read it. Init preserves existing host-owned bytes and writes the
 lock last; the per-target preview/apply contract reports create/accept/integrate/
 refuse/skip. Its filesystem race failures remain exit 3, distinct from state
 revision conflicts. Transient directories self-ignore without editing host
