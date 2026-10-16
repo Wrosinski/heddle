@@ -295,9 +295,10 @@ heddle init --no-session-entry
 `git status` must show none of Heddle's files afterwards. Through your
 personal instructions rather than a shared file, tell your agents to begin
 sessions with `heddle orient`, never to add Heddle files with `git add -f`,
-and to keep Heddle paths and AC and finding IDs out of code, tests, commit
-messages and pull requests; Heddle's briefings otherwise cite them in tests
-and remediation commits.
+and to keep Heddle paths and AC and finding IDs out of code, tests, shared
+docs, commit messages and pull requests; Heddle's briefings otherwise cite
+them in tests and remediation commits, and the completion briefing has
+agents update `AGENTS.md`.
 
 A new worktree or another clone has none of these files, and a checkout
 without its own `.heddle.yaml` fails with `workspace-invalid` instead of
@@ -306,24 +307,25 @@ the principles file and any `.heddle/overrides/` or `.heddle/generated/`
 into it as regular files, then run `heddle doctor` there; it fails on a
 missing or symlinked adoption file. [Add another host](#add-another-host)
 does not apply, because nothing is committed. Feature records stay in the
-checkout that created them, and `git worktree remove` or `git clean -x`
+checkout that created them, and `git worktree remove` or `git clean -dfx`
 deletes them without warning, so finish or copy out a feature before
 removing its worktree or cleaning ignored files.
 
 Merging the shared branch brings teammates' changes into the feature. Those
 outside milestone ownership show as unresolved source coverage, which blocks
-`heddle feature complete`; those inside it count as the feature's own work
-and need fresh verification. Merge late, and before completion attribute the
-outside changes as the
+`heddle feature complete`; those inside it count as the feature's own work:
+they need fresh verification and invalidate the dispositions of any review of
+those paths not yet sealed by a stage or milestone transition. Merge late, and
+before completion attribute the outside changes as the
 [implementation phase](workflow.md#phase-6-milestoned-implementation-with-continuous-verification)
 describes, citing a new untracked note for each merge, such as
 `.heddle/scratch/upstream-sync-1.md`, that names the merged commits. Run
-attribution from your own session; it is on no `heddle drive` allowlist.
-Never edit a cited note: that, or a later change to an attributed path that
-does not return it to its baseline, makes `heddle validate`, `status` and
+attribution from your own session; it is on no `heddle drive` allowlist. Never
+edit or delete a cited note: that, or a later change to an attributed path
+that does not return it to its baseline, makes `heddle validate`, `status` and
 `orient` fail until you attribute the paths again. Start each feature from a
-commit already on the shared branch: rebasing a feature that started from an
-unpushed commit rewrites its baseline, and coverage then reports
+commit already on the shared branch: rebasing a feature that started from any
+other commit rewrites its baseline, and coverage then reports
 `baseline-unavailable` until `heddle feature baseline set` repoints it.
 
 ## Operate features normally
