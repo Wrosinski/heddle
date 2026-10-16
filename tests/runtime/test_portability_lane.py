@@ -479,7 +479,11 @@ def test_ac04_red_occupied_non_agents_targets_preview_and_refuse_without_writes(
                     "kind": "command",
                     "operation": {
                         "name": "init",
-                        "arguments": {"dry_run": True, "adopt_existing": False},
+                        "arguments": {
+                            "dry_run": True,
+                            "adopt_existing": False,
+                            "session_entry": True,
+                        },
                     },
                 },
                 "command": "heddle init --dry-run",
@@ -887,7 +891,11 @@ def test_ac08_red_missing_root_doctor_and_status_route_to_init(
                 "kind": "command",
                 "operation": {
                     "name": "init",
-                    "arguments": {"dry_run": True, "adopt_existing": False},
+                    "arguments": {
+                        "dry_run": True,
+                        "adopt_existing": False,
+                        "session_entry": True,
+                    },
                 },
             },
             "command": "heddle init --dry-run",
@@ -1026,7 +1034,11 @@ def test_ac09_red_fresh_host_doctor_lock_matrix_and_zero_feature_route(
                         "kind": "command",
                         "operation": {
                             "name": "init",
-                            "arguments": {"dry_run": False, "adopt_existing": False},
+                            "arguments": {
+                                "dry_run": False,
+                                "adopt_existing": False,
+                                "session_entry": True,
+                            },
                         },
                     },
                     "command": "heddle init",

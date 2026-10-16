@@ -272,10 +272,11 @@ def test_failed_no_session_entry_guidance_keeps_the_opt_out(
     )
     (root / ".heddle.lock").write_text("schema: invalid\n")
     invalid = execute(ops.Init(dry_run=True, session_entry=False))
-    assert not invalid.ok
+    assert not invalid.ok and invalid.error is not None
     assert [action.command for action in invalid.next_actions] == [
         "heddle init --no-session-entry --dry-run"
     ]
+    assert "`heddle init --no-session-entry --dry-run`" in invalid.error.hint
     assert (root / "AGENTS.md").read_bytes() == agents
 
 
@@ -295,15 +296,30 @@ def test_no_session_entry_adoption_leaves_existing_agents_untouched(
 
 def test_lock_may_omit_only_the_session_entry(tmp_path: Path) -> None:
     root = existing_host(tmp_path)
-    digest = "0" * 64
-    (root / ".heddle.lock").write_text(
-        "schema: heddle.lock/v1\ntargets:\n"
-        f"- path: AGENTS.md\n  class: managed-region\n  sha256: {digest}\n"
-        "- path: docs/workflow/engineering-principles.md\n"
-        f"  class: scaffold-once\n  sha256: {digest}\n"
-    )
-    with pytest.raises(KernelError, match="heddle.lock/v1 contract"):
-        init_host.read_init_lock(root)
+    classes = {
+        ".heddle.yaml": "scaffold-once",
+        "AGENTS.md": "managed-region",
+        "docs/workflow/engineering-principles.md": "scaffold-once",
+    }
+    principles = "docs/workflow/engineering-principles.md"
+    for recorded, valid in (
+        ((".heddle.yaml", principles), True),
+        (("AGENTS.md", principles), False),
+        ((".heddle.yaml", "AGENTS.md"), False),
+        ((".heddle.yaml",), False),
+    ):
+        rows = "".join(
+            f"- path: {path}\n  class: {classes[path]}\n  sha256: {'a' * 64}\n"
+            for path in recorded
+        )
+        lock = root / ".heddle.lock"
+        lock.write_text(f"schema: heddle.lock/v1\ntargets:\n{rows}")
+        if valid:
+            entries = init_host.read_init_lock(root)
+            assert tuple(entry.path.as_posix() for entry in entries) == recorded
+        else:
+            with pytest.raises(KernelError, match="heddle.lock/v1 contract"):
+                init_host.read_init_lock(root)
 
 
 @pytest.mark.toolchain
