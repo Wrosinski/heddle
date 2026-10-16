@@ -159,6 +159,30 @@ def test_deletion_binding_and_later_ownership_do_not_hide_owned_changes(host):
     assert expanded.verifications == ()
 
 
+@pytest.mark.parametrize("revert", ["remove-new-file", "restore-tracked-file"])
+def test_attribution_is_moot_while_its_path_matches_the_baseline(host, revert):
+    root, state_path = host
+    tracked = root / "deleted.txt"
+    baseline = tracked.read_bytes()
+    tracked.write_text("other feature's edit\n")
+    assert attribute("outside.txt", "another.txt", "deleted.txt").ok
+    assert coverage(root, state_path).status == "complete"
+    target = root / "outside.txt" if revert == "remove-new-file" else tracked
+    attributed = target.read_bytes()
+    if revert == "remove-new-file":
+        target.unlink()
+    else:
+        target.write_bytes(baseline)
+    # A path back at its baseline needs no coverage, and attribution cannot
+    # be renewed for it, so its attribution must not block.
+    assert coverage(root, state_path).status == "complete"
+    target.write_text("a later, unreviewed edit\n")
+    with pytest.raises(KernelError, match="attribution.*(stale|changed)"):
+        coverage(root, state_path)
+    target.write_bytes(attributed)
+    assert coverage(root, state_path).status == "complete"
+
+
 def test_cited_orchestration_evidence_remains_byte_bound(host):
     root, state_path = host
     reference = "plans/sample-feature/orchestration/m1-feedback.md"

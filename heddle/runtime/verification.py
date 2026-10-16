@@ -699,7 +699,11 @@ def _observe_source_coverage(
     from heddle.runtime.source_attribution import qualified_attribution_paths
 
     attributed = qualified_attribution_paths(
-        root, state, plan_path=plan_path, owned=declaration.paths
+        root,
+        state,
+        plan_path=plan_path,
+        owned=declaration.paths,
+        changed_since_baseline=inventory.changed_since_baseline,
     )
     return reconcile_source_coverage(
         declaration,

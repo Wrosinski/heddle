@@ -60,7 +60,15 @@ def qualified_attribution_paths(
     *,
     plan_path: str,
     owned: tuple[str, ...] | None = None,
+    changed_since_baseline: tuple[str, ...] | None = None,
 ) -> tuple[str, ...]:
+    """Attributed paths that currently qualify for exclusion from coverage.
+
+    Only paths in ``changed_since_baseline`` are checked: a path back at
+    its baseline needs no coverage and cannot be attributed again, so its
+    attribution is moot until the path differs again. ``None`` checks every
+    attributed path. A checked path whose bytes or cited evidence changed
+    since attribution raises."""
     if owned is None:
         owned = resolve_source_declaration(state, "acceptance").paths
     latest = {
@@ -77,7 +85,9 @@ def qualified_attribution_paths(
         paths = tuple(
             path
             for path in row.source.definition.paths
-            if latest[path] == index and not overlaps_ownership(path, owned)
+            if latest[path] == index
+            and not overlaps_ownership(path, owned)
+            and (changed_since_baseline is None or path in changed_since_baseline)
         )
         if not paths:
             continue

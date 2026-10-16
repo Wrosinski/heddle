@@ -429,7 +429,9 @@ or establish analytical acceptance. Heddle binds each leaf's content, type and
 executable bit, including deleted paths, and the cited regular evidence files.
 Owned paths, directories, unknown paths and mutable self-references are rejected.
 Changed bindings block coverage until explicitly re-inspected and attributed
-again; new unclassified paths still block. Later ownership takes precedence and
+again, unless the path matches the feature baseline again: it then needs no
+coverage, and its attribution is moot until the path differs again. New
+unclassified paths still block. Later ownership takes precedence and
 requires normal source-bound proof. Attribution never rewrites the baseline,
 shrinks ownership or supplies verification evidence.
 

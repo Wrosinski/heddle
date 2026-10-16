@@ -327,6 +327,14 @@ authority for the installed version.
   previous value, reason and time to `source_baseline_history`, and is on no
   agent session allowlist.
 
+### Fixed
+
+- An outside-feature attribution no longer blocks coverage once its path
+  matches the feature baseline again, for example after a merge reverts it.
+  Such a path needs no coverage and could not be attributed again, so
+  validate stayed fatal with no way out. The attribution applies again,
+  bound to the bytes it recorded, if the path changes later.
+
 ## [0.2.0] - 2026-09-29
 
 Review gates gather their own evidence, apply shared boundary-and-proof
