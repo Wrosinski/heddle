@@ -259,6 +259,61 @@ package location and interpreter with the installation mode you selected. If the
 host repository is not yet adopted, follow the first-adoption procedure once and
 commit that integration through the host's normal review process.
 
+## Keep Heddle local to one checkout
+
+Heddle can run in a shared repository whose other contributors do not use it.
+Every Heddle file then stays untracked and hidden in your clone, so none of it
+reaches a commit or pull request. This fits the default layout on a host that
+does not already use the paths below.
+
+Hide them in `.git/info/exclude`, which applies to your clone and all of its
+worktrees and is never committed:
+
+```gitignore
+/.heddle.yaml
+/.heddle.lock
+/.heddle/
+/docs/workflow/engineering-principles.md
+/docs/features/
+/plans/
+/docs/gate-trajectories/
+```
+
+Also exclude any other untracked tool directory inside the checkout, such as
+`.claude/worktrees/`: source coverage counts every untracked, unignored path
+as a change. Then adopt without the session entry:
+
+```bash
+heddle init --no-session-entry --dry-run
+heddle init --no-session-entry
+```
+
+`git status` must show none of Heddle's files afterwards. Never add them with
+`git add -f`, and keep feature records out of commit messages and pull
+requests. Tell your agents to begin sessions with `heddle orient` through
+your personal instructions rather than a shared file.
+
+Excluded files do not reach a new worktree or another clone, and a checkout
+without its own `.heddle.yaml` fails with `workspace-invalid` instead of using
+an enclosing checkout's project. Copy `.heddle.yaml`, `.heddle.lock` and the
+principles file into it as regular files, then run
+`heddle init --no-session-entry --dry-run`, which should plan only `skip` and
+`accept` rows, and `heddle doctor` there. Feature records stay in the checkout that created them,
+and `git worktree remove` deletes them along with the worktree without
+warning, so finish or copy out a feature before removing its worktree.
+
+Merging the shared branch brings teammates' changes into the feature; source
+coverage reports them as unresolved, which blocks `heddle feature complete`.
+Merge late, and before completion attribute them in one batch with
+`heddle feature sources attribute`, citing an untracked note such as
+`.heddle/scratch/upstream-sync.md` that names the merged commits. Run it from
+your own session; it is on no `heddle drive` allowlist. If a teammate changes
+an attributed path again, `heddle validate` fails until you attribute it
+again. Start each feature from a commit already on the shared branch:
+rebasing a feature that started from an unpushed commit rewrites its
+baseline, and coverage then reports `baseline-unavailable` until
+`heddle feature baseline set` repoints it.
+
 ## Operate features normally
 
 Begin each work session with `heddle orient` and follow its ordered
