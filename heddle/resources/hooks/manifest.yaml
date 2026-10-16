@@ -9,9 +9,8 @@
 #
 # Commit-msg hooks run only where Git has a commit-msg hook installed: the
 # host config needs the `default_install_hook_types` below, then
-# `pre-commit install`. Their snippets set `always_run`, so a top-level
-# `files` or `exclude` that filters out the message path makes them fail
-# rather than skip.
+# `pre-commit install`. Their snippets set `always_run`; a top-level `files`
+# or `exclude` must not filter out the message path, which they read.
 version: 1
 default_install_hook_types: [pre-commit, commit-msg]
 hooks:
@@ -52,7 +51,8 @@ hooks:
       `Test-Renamed: <old id> -> <new id>` trailer in the message's trailer
       block. A deleted file passes when its tests all moved or were renamed,
       or, without tests, when Git sees it renamed. When concluding a merge,
-      only what every parent kept counts. Anything else requires
+      a removal counts only if every parent kept it, and only a test no
+      parent had is a move or rename target. Anything else requires
       ALLOW_TEST_DELETION=1 (paired with the Bypass-Justification trailer
       contract).
     params:

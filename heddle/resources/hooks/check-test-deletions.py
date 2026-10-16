@@ -19,10 +19,13 @@ under the tests root:
 
 The census proves definitions are kept, not pytest collection or parameter
 cases. A file that does not parse under the running interpreter is checked
-by its removed definition lines instead. When a commit concludes a merge,
-only tests and files every parent kept count: what one side dropped was
-checked where it was dropped. Rebase and cherry-pick replay most commits
-without commit hooks, and ``--no-verify`` skips them.
+by its removed definition lines instead. When a commit concludes a merge, a
+removal counts only if every parent kept the test or file, and only a test
+no parent had can be a move or rename target: what one side dropped was
+checked where it was dropped. The census starts from HEAD, so a test only a
+merged-in side had that the resolution drops is not checked. Rebase and
+cherry-pick replay most commits without commit hooks, and ``--no-verify``
+skips them.
 """
 
 from __future__ import annotations
@@ -215,28 +218,42 @@ def _renames(message: Path) -> list[tuple[str, str]]:
     ]
 
 
-def _removed_lines(path: str) -> list[str]:
-    diff = _git(
-        "--literal-pathspecs",
-        "diff",
-        "--cached",
-        "--no-color",
-        "--no-ext-diff",
-        "--no-textconv",
-        "-U0",
-        "--",
-        path,
-    )
-    return [
-        line for line in _text(diff.stdout).splitlines() if REMOVED_TEST.match(line)
-    ]
+def _removed_lines(path: str, heads: list[str]) -> list[str]:
+    """Removed definition lines; in a merge, only those every parent kept."""
+
+    def removed_from(*base: str) -> list[str]:
+        diff = _git(
+            "--literal-pathspecs",
+            "diff",
+            "--cached",
+            "--no-color",
+            "--no-ext-diff",
+            "--no-textconv",
+            "-U0",
+            *base,
+            "--",
+            path,
+        )
+        return [
+            line for line in _text(diff.stdout).splitlines() if REMOVED_TEST.match(line)
+        ]
+
+    lines = removed_from()
+    for head in heads:
+        kept = set(removed_from(head))
+        lines = [line for line in lines if line in kept]
+    return lines
 
 
-def _kept_by_every_parent(
-    heads: list[str], removed: set[str], deleted: list[str]
-) -> tuple[set[str], list[str]]:
-    """The removed ids and deleted files that every merge parent kept."""
-    paths = {_name(test_id)[0] for test_id in removed} | set(deleted)
+def _merge_census(
+    heads: list[str], removed: set[str], added: set[str], deleted: list[str]
+) -> tuple[set[str], set[str], list[str]]:
+    """What concluding a merge removes, adds and deletes against every parent.
+
+    HEAD is already the census base; a removed id or deleted file counts only
+    if every merged parent had it too, and an added id only if none had it.
+    """
+    paths = {_name(test_id)[0] for test_id in removed | added} | set(deleted)
     sources = {
         (head, path): _blob(f"{head}:{path}") for head in heads for path in paths
     }
@@ -245,14 +262,15 @@ def _kept_by_every_parent(
         for key, source in sources.items()
     }
 
-    def kept(head: str, test_id: str) -> bool:
+    def has(head: str, test_id: str) -> bool:
         key = (head, _name(test_id)[0])
         held = ids[key]
-        # A side that cannot be parsed is taken to keep the test.
+        # A side that cannot be parsed is taken to hold the test.
         return sources[key] is not None and (held is None or test_id in held)
 
     return (
-        {i for i in removed if all(kept(head, i) for head in heads)},
+        {i for i in removed if all(has(head, i) for head in heads)},
+        {i for i in added if not any(has(head, i) for head in heads)},
         [
             path
             for path in deleted
@@ -266,6 +284,7 @@ def _check(message: Path) -> int:
     after: dict[str, set[str]] = {}
     deleted: list[str] = []
     unparsed: dict[str, list[str]] = {}
+    heads = _merge_heads()
     fields = _fields("--no-renames")
     for index in range(0, len(fields), 2):
         status, path = fields[index], fields[index + 1]
@@ -276,14 +295,13 @@ def _check(message: Path) -> int:
         if status == "D":
             deleted.append(path)
         if old_ids is None or new_ids is None:
-            unparsed[path] = [] if status == "D" else _removed_lines(path)
+            unparsed[path] = [] if status == "D" else _removed_lines(path, heads)
             continue
         before[path], after[path] = old_ids, new_ids
     removed = {i for path, ids in before.items() for i in ids - after[path]}
     added = {i for path, ids in after.items() for i in ids - before[path]}
-    heads = _merge_heads()
     if heads:
-        removed, deleted = _kept_by_every_parent(heads, removed, deleted)
+        removed, added, deleted = _merge_census(heads, removed, added, deleted)
     unaccounted, unpaired, conflicting, unmatched = _account(
         removed, added, _renames(message)
     )

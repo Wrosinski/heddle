@@ -720,23 +720,34 @@ def test_test_deletions_merge_counts_what_every_parent_kept(tmp_path: Path) -> N
     _init_git_repo(tmp_path)
     _stage(tmp_path, {"tests/test_a.py": TWO_TESTS})
     assert _deletions(tmp_path).returncode == 0  # an unborn branch deletes nothing
-    _stage(tmp_path, {"tests/test_c.py": CLASS_TEST})
+    broken = "def test_x():\n    pass\n\n\ndef test_y(:\n    pass\n"
+    _stage(tmp_path, {"tests/test_c.py": CLASS_TEST, "tests/test_x.py": broken})
     _commit_all(tmp_path)
     git("checkout", "-q", "-b", "side")
-    _stage(tmp_path, {"tests/test_a.py": None})
-    _commit_all(tmp_path, "side drops test_a.py")
+    _stage(
+        tmp_path,
+        {
+            "tests/test_a.py": None,
+            "tests/test_d.py": CLASS_TEST,
+            "tests/test_x.py": broken.replace("def test_x():\n    pass\n\n\n", ""),
+        },
+    )
+    _commit_all(tmp_path, "side drops test_a.py and test_x, and adds test_d.py")
     git("checkout", "-q", "-")
     _stage(tmp_path, {"README.md": "notes\n"})
     _commit_all(tmp_path, "the main line moves on")
     git("merge", "--no-ff", "--no-commit", "side")
 
-    # The side branch dropped test_a.py; it was checked where it was dropped.
+    # What the side dropped, even in a file that does not parse, was checked
+    # where it was dropped.
     assert _deletions(tmp_path).returncode == 0
+    # A test the side added is no move target for a deletion made here.
     _stage(tmp_path, {"tests/test_c.py": None})
     result = _deletions(tmp_path)
     assert result.returncode == 1
     assert "tests/test_c.py::TestOld::test_m" in result.stdout
     assert "tests/test_a.py" not in result.stdout
+    assert "test_x" not in result.stdout.replace("tests/test_x.py does not", "")
 
 
 @pytest.mark.toolchain

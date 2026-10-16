@@ -497,15 +497,19 @@ names (for example `layout.tests`). Then add a `repo: local` hook to
 `check-principles-amendment` hooks run at the commit-msg stage. Set
 `default_install_hook_types: [pre-commit, commit-msg]` in that config and run
 `pre-commit install`; without a commit-msg hook installed, those guards never
-run. Their snippets set `always_run`, so a top-level `files` or `exclude`
-that filters out the commit message path makes them fail instead of skip.
+run. Their snippets set `always_run`. Keep a top-level `files` or `exclude`
+from filtering out the commit message path: the test-deletion and
+principles-amendment hooks then fail, and the bypass-justification hook falls
+back to `.git/COMMIT_EDITMSG`.
 
 The test-deletion guard compares test ids, `path::[Class::...]name`, between
 HEAD and the index. A test moved to another file under its own name passes,
 and so does a file without tests that Git sees renamed. For a rename, add one
 `Test-Renamed: <old id> -> <new id>` trailer per test to the message's
-trailer block; a class rename covers the members it keeps. A true deletion
-still needs `ALLOW_TEST_DELETION=1` with a `Bypass-Justification:` trailer.
+trailer block; a class rename covers the members it keeps. When a commit
+concludes a merge, a removal counts only if every parent kept the test, and a
+test that only a merged-in side had is not checked. A true deletion still
+needs `ALLOW_TEST_DELETION=1` with a `Bypass-Justification:` trailer.
 
 ## Shared decision policy
 

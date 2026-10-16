@@ -148,10 +148,14 @@ install themselves in host projects or confine an external provider. Host owners
 choose their own hooks and execution permissions. Passing structural checks and
 fixture-based runtime tests does not establish real-provider behavior quality.
 
-They are local guards. `git commit --no-verify` skips them, and rebase and
-cherry-pick replay most commits without commit hooks; a reworded commit or a
-conflicted step concluded with `--continue` runs them. The test-deletion
-census proves test definitions are kept, not that pytest still collects them
-or their parameter cases. When a commit concludes a merge, it counts only
-tests and files every parent kept, since a deletion on either side was
-checked where it was made.
+They are local guards. `git commit --no-verify` skips them. Rebase and
+cherry-pick replay commits without commit hooks, except a reworded commit, a
+conflicted cherry-pick or revert concluded with `--continue`, and a conflicted
+rebase step committed with `git commit`; `git rebase --continue` commits a
+resolved step without them. The test-deletion census proves test definitions
+are kept, not that pytest still collects them or their parameter cases. When
+a commit concludes a merge, a removal counts only if every parent kept the
+test or file, and only a test no parent had can be a move or rename target,
+since a deletion on either side was checked where it was made. The census
+starts from HEAD, so a test that only a merged-in side had and that the
+resolution drops is not checked.

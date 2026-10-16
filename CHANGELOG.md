@@ -18,8 +18,10 @@ authority for the installed version.
   trailer in the message's trailer block; a class rename covers the members
   it keeps. A deleted file under the tests root passes when every test in it
   moved or was renamed, or, for a file without tests, when Git sees it
-  renamed. Tests removed inside a renamed file are now caught. A commit
-  concluding a merge counts only tests and files every parent kept. A file
+  renamed. Tests removed inside a renamed file are now caught. When a commit
+  concludes a merge, a removal counts only if every parent kept the test or
+  file, and only a test no parent had can be a move or rename target; a test
+  that only a merged-in side had is not checked. A file
   that does not parse falls back to the line check, and a failed git call
   fails the hook. The commit-msg snippets declare `stages: [commit-msg]` and
   `always_run: true`, and the hook manifest lists the
