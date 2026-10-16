@@ -19,10 +19,12 @@ authority for the installed version.
   it keeps. A deleted file under the tests root passes when every test in it
   moved or was renamed, or, for a file without tests, when Git sees it
   renamed. Tests removed inside a renamed file are now caught. When a commit
-  concludes a merge, a removal counts only if every parent kept the test or
-  file, and only a test no parent had can be a move or rename target; a test
-  that only a merged-in side had is not checked. A file
-  that does not parse falls back to the line check, and a failed git call
+  concludes a merge, a removal counts unless a merged-in parent deleted the
+  test or file since its merge base with HEAD, and only a test or file no
+  parent had can be a move or rename target; a test that only a merged-in
+  side had is not checked. A file
+  that does not parse under the hook's interpreter falls back to comparing
+  its test definitions by name, and a failed git call
   fails the hook. The commit-msg snippets declare `stages: [commit-msg]` and
   `always_run: true`, and the hook manifest lists the
   `default_install_hook_types` a host needs before `pre-commit install`.

@@ -507,8 +507,9 @@ HEAD and the index. A test moved to another file under its own name passes,
 and so does a file without tests that Git sees renamed. For a rename, add one
 `Test-Renamed: <old id> -> <new id>` trailer per test to the message's
 trailer block; a class rename covers the members it keeps. When a commit
-concludes a merge, a removal counts only if every parent kept the test, and a
-test that only a merged-in side had is not checked. A true deletion still
+concludes a merge, a removal counts unless a merged-in parent deleted the test
+since its merge base with HEAD, and a test that only a merged-in side had is
+not checked. A true deletion still
 needs `ALLOW_TEST_DELETION=1` with a `Bypass-Justification:` trailer.
 
 ## Shared decision policy

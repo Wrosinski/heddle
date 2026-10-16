@@ -19,13 +19,13 @@ under the tests root:
 
 The census proves definitions are kept, not pytest collection or parameter
 cases. A file that does not parse under the running interpreter is checked
-by its removed definition lines instead. When a commit concludes a merge, a
-removal counts only if every parent kept the test or file, and only a test
-no parent had can be a move or rename target: what one side dropped was
-checked where it was dropped. The census starts from HEAD, so a test only a
-merged-in side had that the resolution drops is not checked. Rebase and
-cherry-pick replay most commits without commit hooks, and ``--no-verify``
-skips them.
+by the names of its test definitions instead. When a commit concludes a
+merge, a removal counts unless a merged-in parent deleted the test or file
+since its merge base with HEAD, since that deletion was checked where it was
+made; only a test or file no parent had can be a move or rename target. The
+census starts from HEAD, so a test that only a merged-in side had and that
+the resolution drops is not checked. Rebase and cherry-pick replay most
+commits without commit hooks, and ``--no-verify`` skips them.
 """
 
 from __future__ import annotations
@@ -39,7 +39,7 @@ from collections import Counter
 from collections.abc import Iterable
 from pathlib import Path
 
-REMOVED_TEST = re.compile(r"^-\s*(def test_|async def test_|class Test)")
+DEFINITION = re.compile(r"\s*(?:(?:async\s+)?def\s+(test\w*)|class\s+(Test\w*))")
 RENAMED = re.compile(r"^Test-Renamed:\s*(\S.*?)\s+->\s+(\S.*?)\s*$", re.IGNORECASE)
 
 
@@ -99,20 +99,20 @@ def _merge_heads() -> list[str]:
         raise GitError(f"cannot read {path}: {error}") from error
 
 
-def _renamed_sources() -> set[str]:
-    """Paths under the root that Git's rename detection pairs with a new path."""
+def _renames_detected() -> list[tuple[str, str]]:
+    """(source, destination) per rename Git's detection finds under the root."""
     fields = _fields("-M")
-    sources: set[str] = set()
+    pairs: list[tuple[str, str]] = []
     index = 0
     while index < len(fields):
         status = fields[index]
         if status[:1] in {"R", "C"}:
             if status[:1] == "R":
-                sources.add(fields[index + 1])
+                pairs.append((fields[index + 1], fields[index + 2]))
             index += 3
         else:
             index += 2
-    return sources
+    return pairs
 
 
 def _test_ids(path: str, source: bytes) -> set[str] | None:
@@ -218,73 +218,91 @@ def _renames(message: Path) -> list[tuple[str, str]]:
     ]
 
 
-def _removed_lines(path: str, heads: list[str]) -> list[str]:
-    """Removed definition lines; in a merge, only those every parent kept."""
-
-    def removed_from(*base: str) -> list[str]:
-        diff = _git(
-            "--literal-pathspecs",
-            "diff",
-            "--cached",
-            "--no-color",
-            "--no-ext-diff",
-            "--no-textconv",
-            "-U0",
-            *base,
-            "--",
-            path,
-        )
-        return [
-            line for line in _text(diff.stdout).splitlines() if REMOVED_TEST.match(line)
-        ]
-
-    lines = removed_from()
-    for head in heads:
-        kept = set(removed_from(head))
-        lines = [line for line in lines if line in kept]
-    return lines
+def _definitions(source: bytes | None) -> dict[str, list[str]]:
+    """Test definition lines by name, read as text for a file that won't parse."""
+    found: dict[str, list[str]] = {}
+    for line in _text(source or b"").splitlines():
+        match = DEFINITION.match(line)
+        if match:
+            name = match.group(1) or match.group(2)
+            found.setdefault(name, []).append(line.strip())
+    return found
 
 
-def _merge_census(
-    heads: list[str], removed: set[str], added: set[str], deleted: list[str]
-) -> tuple[set[str], set[str], list[str]]:
-    """What concluding a merge removes, adds and deletes against every parent.
+def _removed_definitions(old: bytes | None, new: bytes | None) -> list[tuple[str, str]]:
+    """(name, line) per test definition the new text no longer repeats."""
+    before, after = _definitions(old), _definitions(new)
+    return [
+        (name, line)
+        for name, lines in before.items()
+        for line in lines[len(after.get(name, ())) :]
+    ]
 
-    HEAD is already the census base; a removed id or deleted file counts only
-    if every merged parent had it too, and an added id only if none had it.
+
+class _Merge:
+    """The parents a commit concluding a merge joins, and their merge bases.
+
+    A parent dropped something when it lacks what its merge base with HEAD
+    had; a side that does not parse is taken to keep its tests.
     """
-    paths = {_name(test_id)[0] for test_id in removed | added} | set(deleted)
-    sources = {
-        (head, path): _blob(f"{head}:{path}") for head in heads for path in paths
-    }
-    ids = {
-        key: None if source is None else _test_ids(key[1], source)
-        for key, source in sources.items()
-    }
 
-    def has(head: str, test_id: str) -> bool:
-        key = (head, _name(test_id)[0])
-        held = ids[key]
-        # A side that cannot be parsed is taken to hold the test.
-        return sources[key] is not None and (held is None or test_id in held)
+    def __init__(self, heads: list[str]) -> None:
+        self.bases = {
+            head: _text(_git("merge-base", "HEAD", head, ok=(0, 1)).stdout).strip()
+            or None
+            for head in heads
+        }
+        self._sources: dict[tuple[str, str], bytes | None] = {}
 
-    return (
-        {i for i in removed if all(has(head, i) for head in heads)},
-        {i for i in added if not any(has(head, i) for head in heads)},
-        [
-            path
-            for path in deleted
-            if all(sources[head, path] is not None for head in heads)
-        ],
-    )
+    def _source(self, rev: str | None, path: str) -> bytes | None:
+        if rev is None:
+            return None
+        if (rev, path) not in self._sources:
+            self._sources[rev, path] = _blob(f"{rev}:{path}")
+        return self._sources[rev, path]
+
+    def _holds(self, rev: str | None, test_id: str) -> bool | None:
+        """Whether ``rev`` has the test; None where its file does not parse."""
+        path = _name(test_id)[0]
+        source = self._source(rev, path)
+        if source is None:
+            return False
+        ids = _test_ids(path, source)
+        return None if ids is None else test_id in ids
+
+    def dropped(self, test_id: str) -> bool:
+        return any(
+            self._holds(head, test_id) is False and self._holds(base, test_id) is True
+            for head, base in self.bases.items()
+        )
+
+    def dropped_file(self, path: str) -> bool:
+        return any(
+            self._source(head, path) is None and self._source(base, path) is not None
+            for head, base in self.bases.items()
+        )
+
+    def dropped_definition(self, path: str, name: str) -> bool:
+        return any(
+            name not in _definitions(self._source(head, path))
+            and name in _definitions(self._source(base, path))
+            for head, base in self.bases.items()
+        )
+
+    def new(self, test_id: str) -> bool:
+        return all(self._holds(head, test_id) is False for head in self.bases)
+
+    def new_file(self, path: str) -> bool:
+        return all(self._source(head, path) is None for head in self.bases)
 
 
 def _check(message: Path) -> int:
     before: dict[str, set[str]] = {}
     after: dict[str, set[str]] = {}
     deleted: list[str] = []
-    unparsed: dict[str, list[str]] = {}
+    unparsed: dict[str, list[tuple[str, str]]] = {}
     heads = _merge_heads()
+    merge = _Merge(heads) if heads else None
     fields = _fields("--no-renames")
     for index in range(0, len(fields), 2):
         status, path = fields[index], fields[index + 1]
@@ -295,17 +313,32 @@ def _check(message: Path) -> int:
         if status == "D":
             deleted.append(path)
         if old_ids is None or new_ids is None:
-            unparsed[path] = [] if status == "D" else _removed_lines(path, heads)
+            unparsed[path] = [] if status == "D" else _removed_definitions(old, new)
             continue
         before[path], after[path] = old_ids, new_ids
     removed = {i for path, ids in before.items() for i in ids - after[path]}
     added = {i for path, ids in after.items() for i in ids - before[path]}
-    if heads:
-        removed, added, deleted = _merge_census(heads, removed, added, deleted)
+    gone = set(deleted)
+    if merge is not None:
+        removed = {i for i in removed if not merge.dropped(i)}
+        added = {i for i in added if merge.new(i)}
+        deleted = [path for path in deleted if not merge.dropped_file(path)]
+        unparsed = {
+            path: [
+                (name, line)
+                for name, line in definitions
+                if not merge.dropped_definition(path, name)
+            ]
+            for path, definitions in unparsed.items()
+        }
     unaccounted, unpaired, conflicting, unmatched = _account(
         removed, added, _renames(message)
     )
-    renamed = _renamed_sources() if deleted else set()
+    renamed = {
+        source
+        for source, destination in (_renames_detected() if deleted else [])
+        if merge is None or merge.new_file(destination)
+    }
     flagged_files = [
         path
         for path in deleted
@@ -316,12 +349,14 @@ def _check(message: Path) -> int:
     unparsed_lines = {path: lines for path, lines in unparsed.items() if lines}
     python = f"Python {sys.version_info.major}.{sys.version_info.minor}"
     for path in sorted(unparsed):
+        if path in gone and path not in deleted:
+            continue
         print(
             f"note: {path} does not parse under {python}; "
             + (
                 "it counts as a deleted test file"
                 if path in deleted
-                else "its removed definition lines were checked instead, and "
+                else "its test definitions were compared by name instead, and "
                 "trailers do not apply to them"
             )
         )
@@ -361,9 +396,9 @@ def _check(message: Path) -> int:
         )
     if unparsed_lines:
         print("\nRemoved test definitions in files that do not parse:")
-        for path, lines in sorted(unparsed_lines.items()):
-            for line in lines:
-                print(f"  {path}: {line}")
+        for path, definitions in sorted(unparsed_lines.items()):
+            for _defined, line in definitions:
+                print(f"  {path}: -{line}")
     print(
         "\nTo allow a deletion, set ALLOW_TEST_DELETION=1 with a "
         "Bypass-Justification: trailer."

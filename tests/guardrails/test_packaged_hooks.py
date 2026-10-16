@@ -703,6 +703,10 @@ def test_test_deletions_unparsable_file_falls_back_to_removed_lines(
     assert result.returncode == 1
     assert "note: tests/test_a.py does not parse under Python" in result.stdout
     assert "tests/test_a.py: -def test_a():" in result.stdout
+    # Definitions are compared by name, so a changed signature is no removal.
+    resigned = "def test_a(tmp_path):\n    assert True\n\n\ndef test_b(:\n    pass\n"
+    _stage(tmp_path, {"tests/test_a.py": resigned})
+    assert _deletions(tmp_path).returncode == 0
 
     _commit_all(tmp_path)
     _stage(tmp_path, {"tests/test_a.py": None})
@@ -748,6 +752,80 @@ def test_test_deletions_merge_counts_what_every_parent_kept(tmp_path: Path) -> N
     assert "tests/test_c.py::TestOld::test_m" in result.stdout
     assert "tests/test_a.py" not in result.stdout
     assert "test_x" not in result.stdout.replace("tests/test_x.py does not", "")
+
+
+@pytest.mark.toolchain
+def test_test_deletions_merge_discounts_only_what_a_parent_deleted(
+    tmp_path: Path,
+) -> None:
+    def git(*args: str) -> None:
+        subprocess.run(["git", *args], cwd=tmp_path, check=True, capture_output=True)
+
+    unparsable = (
+        "def test_keep():\n    pass\n\n\ndef test_sig():\n    pass\n\n\ndef x(:\n"
+    )
+    ours = TWO_TESTS + "\n\ndef test_main_new():\n    assert True\n"
+    _init_git_repo(tmp_path)
+    _stage(
+        tmp_path,
+        {
+            "tests/test_x.py": TWO_TESTS,
+            "tests/test_u.py": unparsable,
+            "tests/conftest.py": "import pytest\n",
+            "tests/helpers.py": "VALUE = 1\n",
+        },
+    )
+    _commit_all(tmp_path)
+    git("checkout", "-q", "-b", "side")
+    _stage(
+        tmp_path,
+        {
+            "tests/test_x.py": TWO_TESTS
+            + "\n\ndef test_side_new():\n    assert True\n",
+            "tests/test_u.py": unparsable.replace("test_sig()", "test_sig(tmp_path)"),
+            "tests/sub/conftest.py": "import pytest\n",
+            "tests/helpers.py": None,
+        },
+    )
+    _commit_all(tmp_path, "side")
+    git("checkout", "-q", "-")
+    main_u = "\n\ndef test_main_u():\n    pass\n"
+    _stage(tmp_path, {"tests/test_x.py": ours, "tests/test_u.py": unparsable + main_u})
+    _commit_all(tmp_path, "main")
+    subprocess.run(
+        ["git", "merge", "--no-ff", "--no-commit", "side"],
+        cwd=tmp_path,
+        capture_output=True,
+    )
+
+    # Taking the side's file drops a test this branch added since the fork.
+    git("checkout", "--theirs", "tests/test_x.py")
+    git("add", "tests/test_x.py")
+    theirs = _deletions(tmp_path)
+    assert theirs.returncode == 1
+    assert "tests/test_x.py::test_main_new" in theirs.stdout
+    _stage(tmp_path, {"tests/test_x.py": ours})
+    assert _deletions(tmp_path).returncode == 0, "the side's own changes pass"
+
+    # The side changed the signature, and dropping the test is still a removal.
+    side_u = unparsable.replace("test_sig()", "test_sig(tmp_path)")
+    assert (tmp_path / "tests/test_u.py").read_text() == side_u + main_u
+    _stage(tmp_path, {"tests/test_u.py": unparsable.replace("def test_sig():", "")})
+    dropped = _deletions(tmp_path)
+    assert dropped.returncode == 1
+    assert "tests/test_u.py: -def test_sig():" in dropped.stdout
+    # So is dropping, by name, a test this branch added since the fork.
+    _stage(tmp_path, {"tests/test_u.py": side_u})
+    dropped = _deletions(tmp_path)
+    assert dropped.returncode == 1
+    assert "tests/test_u.py: -def test_main_u():" in dropped.stdout
+    _stage(tmp_path, {"tests/test_u.py": side_u + main_u})
+
+    # A file the side added is no rename target for a deletion made here.
+    git("rm", "-q", "tests/conftest.py")
+    deleted = _deletions(tmp_path)
+    assert deleted.returncode == 1
+    assert "Deleted test files:\n  tests/conftest.py\n" in deleted.stdout
 
 
 @pytest.mark.toolchain

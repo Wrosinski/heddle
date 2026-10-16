@@ -154,8 +154,8 @@ conflicted cherry-pick or revert concluded with `--continue`, and a conflicted
 rebase step committed with `git commit`; `git rebase --continue` commits a
 resolved step without them. The test-deletion census proves test definitions
 are kept, not that pytest still collects them or their parameter cases. When
-a commit concludes a merge, a removal counts only if every parent kept the
-test or file, and only a test no parent had can be a move or rename target,
-since a deletion on either side was checked where it was made. The census
-starts from HEAD, so a test that only a merged-in side had and that the
-resolution drops is not checked.
+a commit concludes a merge, a removal counts unless a merged-in parent
+deleted the test or file since its merge base with HEAD, since that deletion
+was checked where it was made, and only a test or file no parent had can be a
+move or rename target. The census starts from HEAD, so a test that only a
+merged-in side had and that the resolution drops is not checked.
