@@ -347,9 +347,13 @@ def test_verify_names_the_heddle_limit_that_stopped_its_run(
     log = state_path.parent / details["log"]
     assert verification_log_counts(log) == {"passed": 1}
     assert details["counts"] is None
-    assert error["message"].startswith(
+    assert error["message"] == (
         "verification for m1 did not finish: Heddle stopped m1 at its hard limit "
-        "of 1 s (env); set HEDDLE_VERIFY_HARD_TIMEOUT_SECONDS above"
+        "of 1 s (env)"
+    )
+    assert error["hint"].startswith(
+        "set HEDDLE_VERIFY_HARD_TIMEOUT_SECONDS above the run's expected duration "
+        "to allow longer, then retry verification for m1; "
     )
     assert "repair" not in error["hint"]
     assert envelope["next_actions"][0]["reason"].startswith("raise the limit")
@@ -644,7 +648,7 @@ def test_ac07_ac18_verify_publish_failure_is_fatal_and_preserves_state(
     def fake_run_monitored(_argv, raw_out: Path, _cfg):
         captures.append(raw_out)
         raw_out.write_bytes(b"completed but unpublished\n")
-        return _completed_run()
+        return _completed_run(exit_code=5)
 
     def fail_publish(_captured: Path, _destination: Path) -> None:
         raise OSError("injected verification log publication failure")
@@ -661,6 +665,15 @@ def test_ac07_ac18_verify_publish_failure_is_fatal_and_preserves_state(
         "FAIL: verification-log publication failure must halt as "
         f"workspace-invalid/3, got exit {code} / {envelope!r}"
     )
+    # The command ran, so its run is reported; no log was retained.
+    details = envelope["error"]["details"]
+    assert (details["child_exit_code"], details["recorded"], details["log"]) == (
+        5,
+        False,
+        None,
+    )
+    assert details["run"]["termination"] == "completed"
+    assert details["run"]["elapsed_s"] == 2.5
     assert state_path.read_bytes() == before_state, (
         "FAIL: a verification fact must not be appended when its log could not "
         "be published"

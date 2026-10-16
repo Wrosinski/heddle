@@ -26,7 +26,7 @@ from heddle.runtime.clock import utc_now_seconds
 from heddle.runtime.verify_exec import (
     LAUNCH_FAILED,
     run_verification_command,
-    stopped_at_limit_text,
+    stopped_at_limit,
 )
 
 if TYPE_CHECKING:
@@ -293,10 +293,11 @@ def run_close_suite(
     log = log_path.relative_to(context.state_path.parent).as_posix()
     if exit_code != 0:
         payload = run.payload()
-        stopped = stopped_at_limit_text("the close suite", payload)
+        stopped = stopped_at_limit("the close suite", payload)
         if stopped is not None:
-            message = f"close validation did not finish: {stopped}; log: {log_path}"
-            hint = "raise the limit, then complete the feature again"
+            what, remedy = stopped
+            message = f"close validation did not finish: {what}; log: {log_path}"
+            hint = f"{remedy}, then complete the feature again"
         elif run.termination == LAUNCH_FAILED:
             message = (
                 "close validation failed: the configured test command's shell "

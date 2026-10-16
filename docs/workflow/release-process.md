@@ -33,6 +33,9 @@ the [changelog](../../CHANGELOG.md) follows Keep a Changelog. Before 1.0, a
 minor release may change command surfaces, payload schemas, on-disk record
 formats and configuration keys; record every such change under `Changed` or
 `Removed`. `heddle help --json` is the authority for the installed version.
+The GitHub pre-release flag is reserved for `-alpha`, `-beta` and `-rc`
+identifiers; a `0.y.z` release is published as a normal release and marked
+latest.
 
 A new optional field on an output payload is additive: it keeps the payload's
 schema id and gets a `Changed` line, as `changes`, `waived_rerun`,
@@ -40,9 +43,6 @@ schema id and gets a `Changed` line, as `changes`, `waived_rerun`,
 not know. The rule covers only new optional output fields. An input schema
 change, a new enum value or a changed meaning of an existing field is a schema
 change and follows the rule above.
-The GitHub pre-release flag is reserved for `-alpha`, `-beta` and `-rc`
-identifiers; a `0.y.z` release is published as a normal release and marked
-latest.
 
 ## Prepare the release commit
 

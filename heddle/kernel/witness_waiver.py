@@ -70,8 +70,8 @@ class WitnessRerunRoute:
         """This route, noting a recorded waiver of the lane that no longer binds."""
         return replace(
             self,
-            reason=f"{self.reason} (witness waiver {decision_id} stopped binding "
-            "when the lane changed after it)",
+            reason=f"witness waiver {decision_id} stopped binding when the lane "
+            f"changed after it; {self.reason}",
         )
 
 

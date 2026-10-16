@@ -19,7 +19,7 @@ from tests.tiering_completion_helpers import final_host
 JOURNAL_ROUTE = f"plans/{FEATURE}.decision-journal.md"
 
 
-def _propose(scope: object, *, decision_class: int = 5):
+def _propose(scope: object, *, decision_class: int = 5, dry_run: bool = False):
     return execute(
         ops.DecisionsAdd(
             decisions=(
@@ -36,6 +36,7 @@ def _propose(scope: object, *, decision_class: int = 5):
                 ),
             ),
             feature=FEATURE,
+            dry_run=dry_run,
         )
     )
 
@@ -942,21 +943,35 @@ def test_status_and_orient_state_the_route_until_a_waiver_binds(
     _review_fix(host.root, 9)
     row = _status_row("acceptance")
     assert row["rerun_route"]["route"] == "waivable"
-    assert (
-        f"(witness waiver {decision_id} stopped binding when the lane changed after it)"
-    ) in row["rerun_route"]["reason"]
+    assert row["rerun_route"]["reason"].startswith(
+        f"witness waiver {decision_id} stopped binding when the lane changed "
+        "after it; the post-review rerun is the default"
+    ), row["rerun_route"]
+
+    # A passing rerun supersedes the waiver: a later stale state is not a lapse.
+    verify(host.state, "acceptance")
+    _review_fix(host.root, 10)
+    row = _status_row("acceptance")
+    assert row["rerun_route"]["route"] == "waivable"
+    assert "witness waiver" not in row["rerun_route"]["reason"], row
 
 
-@pytest.mark.parametrize("change", ["command-stale", "implement-content"])
+@pytest.mark.parametrize(
+    "change", ["command-stale", "lapsed-waiver", "implement-content"]
+)
 def test_an_unwaivable_lane_states_why_and_its_refusal_says_the_same(
     tmp_path, monkeypatch, run_cli, change: str
 ) -> None:
-    if change == "command-stale":
+    if change in {"command-stale", "lapsed-waiver"}:
         host = final_host(tmp_path, monkeypatch)
+        expected = "the stored command changed since the last run"
+        if change == "lapsed-waiver":
+            _review_fix(host.root, 8)
+            verify(host.state, "smoke")
+            expected = f"witness waiver {_waive(host.state, 'acceptance')} stopped"
         value = read(host.state)
         value["commands"]["acceptance_test"] += " # changed witness"
         write(host.state, value)
-        expected = "the stored command changed since the last run"
     else:
         from tests.change_impact_verify_helpers import implement_exit_host
 
@@ -979,3 +994,85 @@ def test_an_unwaivable_lane_states_why_and_its_refusal_says_the_same(
         "the refusal must read the route orient showed: "
         f"{refused.error.message!r} vs {route['reason']!r}"
     )
+
+
+# Each status row of the route matrix, at implement exit and after review (the
+# post-review stages rotate), against a dry run of the waiver proposal.
+_AGREEMENT_CASES = [
+    ("implement", "formatting-only", "accept-prior"),
+    ("implement", "content", "rerun-only"),
+    ("implement", "source-set", "rerun-only"),
+    ("implement", "command", "rerun-only"),
+    ("implement", "failed", "rerun-only"),
+    ("implement", "missing", "rerun-only"),
+    ("implement", "unstable", "rerun-only"),
+    ("peer-review", "formatting-only", "waivable"),
+    ("robustness", "content", "waivable"),
+    ("complete", "source-set", "waivable"),
+    ("peer-review", "command", "rerun-only"),
+    ("robustness", "failed", "rerun-only"),
+    ("complete", "missing", "rerun-only"),
+    ("peer-review", "unstable", "rerun-only"),
+]
+
+
+def _lane_at(tmp_path, monkeypatch, stage: str, change: str) -> str:
+    """Bring a witness lane to ``change`` at ``stage``; return the lane."""
+    from tests.change_impact_verify_helpers import (
+        implement_exit_host,
+        reflow_review_fix,
+    )
+
+    if stage == "implement":
+        host = implement_exit_host(tmp_path, monkeypatch)
+    else:
+        host = final_host(
+            tmp_path, monkeypatch, stage=stage, overlay=stage == "robustness"
+        )
+    if change == "missing":
+        _declare_live(host.state)
+        return "live"
+    if change == "formatting-only":
+        if stage == "implement":
+            (host.root / "src/example.py").write_text("VALUE = (7)\n")
+        else:
+            _review_fix(host.root, 8)
+            verify(host.state, "acceptance")
+            reflow_review_fix(host.root, 8)
+    elif change == "content":
+        _review_fix(host.root, 8)
+    elif change == "source-set":
+        _own(host.root, host.state, "src/extra.py")
+    else:
+        value = read(host.state)
+        value["commands"]["acceptance_test"] = {
+            "command": value["commands"]["acceptance_test"] + " # changed witness",
+            "failed": "python3 -c 'raise SystemExit(1)'",
+            # The witness passes but rewrites owned content while it runs.
+            "unstable": "python3 tests/check.py && python3 -c "
+            "\"open('src/other.py', 'a').write('# touched\\n')\"",
+        }[change]
+        write(host.state, value)
+        if change != "command":
+            execute(ops.Verify(feature=FEATURE, scope="acceptance"))
+    return "acceptance"
+
+
+@pytest.mark.parametrize(("stage", "change", "route"), _AGREEMENT_CASES)
+def test_every_route_agrees_with_a_dry_run_proposal(
+    tmp_path, monkeypatch, stage: str, change: str, route: str
+) -> None:
+    scope = _lane_at(tmp_path, monkeypatch, stage, change)
+    row = _status_row(scope)
+    assert row.get("rerun_route", {}).get("route") == route, row
+
+    proposed = _propose(scope, dry_run=True)
+
+    if route == "rerun-only":
+        assert not proposed.ok, proposed.to_envelope()
+        assert proposed.error.message.endswith(row["rerun_route"]["reason"]), (
+            proposed.error.message,
+            row["rerun_route"],
+        )
+    else:
+        assert proposed.ok, (row, proposed.to_envelope())

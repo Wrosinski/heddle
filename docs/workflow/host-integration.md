@@ -343,9 +343,10 @@ allowed.
 `heddle verify` and the close suite stop a stored command after 2700 s overall
 or 900 s without output, the session defaults in
 [the limits module](../../heddle/contracts/limits.py). Set
-`HEDDLE_VERIFY_HARD_TIMEOUT_SECONDS` or `HEDDLE_VERIFY_INACTIVITY_TIMEOUT_SECONDS`
-for a lane that runs longer; `heddle verify --dry-run` shows the effective
-limits, and a stopped run names the one it reached.
+`HEDDLE_VERIFY_HARD_TIMEOUT_SECONDS` for a lane that runs longer, or
+`HEDDLE_VERIFY_INACTIVITY_TIMEOUT_SECONDS` for one that stays silent longer;
+`heddle verify --dry-run` shows the effective limits, and a stopped run names
+the one it reached.
 
 ## Update Heddle safely
 

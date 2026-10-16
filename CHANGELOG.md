@@ -19,7 +19,8 @@ authority for the installed version.
   because the log's last pytest summary may belong to an earlier chained step;
   a command that exits 124 itself stays `completed`. `--dry-run` shows the
   limits and `heddle verify --help` states the defaults. The recorded fact is
-  unchanged. A run whose after-capture fails still reports its `run`.
+  unchanged. A run whose log or after-capture cannot be published still
+  reports its `run`, and human output prints each `--stale` row's run.
 - A close-suite failure from `heddle feature complete` names how its run ended:
   a Heddle limit with its override, a shell that could not start, or the
   command's own exit code.

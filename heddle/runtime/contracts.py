@@ -1750,13 +1750,7 @@ COMMAND_SURFACE: tuple[CommandContract, ...] = (
     CommandContract(
         name=ops.operation_type_name(ops.Verify),
         cli_binding=("write_path", "run_verify"),
-        summary=(
-            "run a stored verification command and record the fact; Heddle stops "
-            f"a run after {DEFAULT_SESSION_HARD_TIMEOUT_S} s in total or "
-            f"{DEFAULT_SESSION_INACTIVITY_TIMEOUT_S} s without output unless "
-            f"{VERIFY_HARD_TIMEOUT_ENV} or {VERIFY_INACTIVITY_TIMEOUT_ENV} sets "
-            "another limit; --dry-run shows the effective limits"
-        ),
+        summary="run a stored verification command and record the fact",
         mutating=True,
         dry_run=True,
         args=(),
@@ -1773,7 +1767,14 @@ COMMAND_SURFACE: tuple[CommandContract, ...] = (
                 "order; excludes --scope",
             ),
             _EXPECT_REVISION,
-            _DRY_RUN,
+            FlagSpec(
+                "--dry-run",
+                "preview without running or writing, with the effective limits: "
+                f"Heddle stops a run after {DEFAULT_SESSION_HARD_TIMEOUT_S} s in "
+                f"total or {DEFAULT_SESSION_INACTIVITY_TIMEOUT_S} s without output "
+                f"unless {VERIFY_HARD_TIMEOUT_ENV} or "
+                f"{VERIFY_INACTIVITY_TIMEOUT_ENV} sets another",
+            ),
         ),
         exit_codes=_EXIT_CAS,
         output_schema="heddle.verify/v0",

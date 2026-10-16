@@ -535,10 +535,14 @@ def test_stale_rows_report_each_run_and_name_a_stopping_limit(
     hint = envelope["error"]["hint"]
     for scope in ("m1", "acceptance"):
         assert (
-            f"Heddle stopped {scope} at its hard limit of 2 s (env); set "
-            "HEDDLE_VERIFY_HARD_TIMEOUT_SECONDS above"
-        ) in hint
-    assert "stopped m2" not in hint
+            "set HEDDLE_VERIFY_HARD_TIMEOUT_SECONDS above the run's expected "
+            f"duration to allow longer, then retry verification for {scope}"
+        ) in hint, hint
+    assert "repair the check" not in hint and "for m2" not in hint, hint
+    assert [item["reason"] for item in envelope["next_actions"]] == [
+        f"raise the limit before retrying verification for {scope}"
+        for scope in ("m1", "acceptance")
+    ], envelope["next_actions"]
 
 
 def test_stale_dry_run_shows_the_effective_limits(
@@ -574,3 +578,21 @@ def test_a_skipped_witness_lane_states_its_rerun_route(
         "owner accept the earlier witness"
     ) in reasons["live"], reasons["live"]
     assert "rerun-only" not in reasons["m3"], reasons["m3"]
+
+
+def test_stale_human_output_prints_each_rows_run(
+    tmp_path, monkeypatch, run_cli
+) -> None:
+    _stale_host(tmp_path, monkeypatch)
+
+    code, out, _err = run_cli(["verify", "--stale", "--feature", FEATURE])
+
+    assert code == 0, out
+    for scope in ("m1", "m2", "acceptance"):
+        line = next(
+            (line for line in out.splitlines() if line.startswith(f"  run {scope}: ")),
+            None,
+        )
+        assert line is not None and line.startswith(f"  run {scope}: completed in "), (
+            out
+        )

@@ -92,6 +92,20 @@ class VerificationRun:
         }
 
 
+class UnpublishedRunError(KernelError):
+    """The command ran, but its log could not be published."""
+
+    def __init__(self, run: VerificationRun, log_path: Path, error: OSError) -> None:
+        super().__init__(
+            code="workspace-invalid",
+            message=(
+                f"verification evidence for {log_path} could not be published: {error}"
+            ),
+            hint="check that the verification directory is writable and retry",
+        )
+        self.run = run
+
+
 def verification_limits() -> VerificationLimits:
     """The limits a verification run gets now, with their sources."""
 
@@ -107,23 +121,27 @@ def verification_limits() -> VerificationLimits:
     )
 
 
-# The limit behind each termination Heddle causes.
+# The limit behind each termination Heddle causes, and what it must exceed.
 _STOPPING_LIMITS = {
-    process.Termination.TIMEOUT.value: "hard",
-    process.Termination.INACTIVITY.value: "inactivity",
+    process.Termination.TIMEOUT.value: ("hard", "the run's expected duration"),
+    process.Termination.INACTIVITY.value: (
+        "inactivity",
+        "the longest stretch the run goes without output",
+    ),
 }
 
 
-def stopped_at_limit_text(scope: str, run: Mapping[str, Any]) -> str | None:
-    """Name the Heddle limit that stopped a run, from its payload, or None."""
-    kind = _STOPPING_LIMITS.get(run["termination"])
-    if kind is None:
+def stopped_at_limit(scope: str, run: Mapping[str, Any]) -> tuple[str, str] | None:
+    """The Heddle limit that stopped a run, from its payload, and its remedy."""
+    stopping = _STOPPING_LIMITS.get(run["termination"])
+    if stopping is None:
         return None
+    kind, measure = stopping
     limit = run["limits"][kind]
     return (
         f"Heddle stopped {scope} at its {kind} limit of {limit['seconds']:g} s "
-        f"({limit['source']}); set {limit['override']} above the run's expected "
-        "duration to allow longer"
+        f"({limit['source']})",
+        f"set {limit['override']} above {measure} to allow longer",
     )
 
 
@@ -233,15 +251,19 @@ def run_verification_command(
                         limits,
                     )
                 except process.MonitorLaunchError:
-                    # A launch failure (e.g. a missing executable in the
-                    # stored command) is a *failing* verification, not a
-                    # dispatcher internal error. The monitor opens the capture
-                    # before spawning, so its empty evidence still installs.
+                    # The shell itself could not start (a missing executable
+                    # inside the command exits 127 through the shell instead).
+                    # It is a *failing* verification, not a dispatcher internal
+                    # error. The monitor opens the capture before spawning, so
+                    # its empty evidence still installs.
                     run = VerificationRun(
                         VERIFY_LAUNCH_FAILURE_EXIT, LAUNCH_FAILED, None, limits
                     )
-            log_path.parent.mkdir(parents=True, exist_ok=True)
-            process.install_monitored_output(capture_path, log_path)
+            try:
+                log_path.parent.mkdir(parents=True, exist_ok=True)
+                process.install_monitored_output(capture_path, log_path)
+            except OSError as error:
+                raise UnpublishedRunError(run, log_path, error) from error
             return run
     except OSError as error:
         raise KernelError(

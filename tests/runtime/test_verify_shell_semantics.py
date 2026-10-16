@@ -27,7 +27,7 @@ from heddle.runtime.verify_exec import (
     VerificationRun,
     pytest_summary_counts,
     run_verification_command,
-    stopped_at_limit_text,
+    stopped_at_limit,
     verification_log_counts,
 )
 
@@ -336,14 +336,28 @@ def test_a_run_reports_how_it_ended_and_the_limits_it_had(
             "override": "HEDDLE_VERIFY_INACTIVITY_TIMEOUT_SECONDS",
         },
     }
-    assert stopped_at_limit_text("m1", run.payload()) is None
+    assert stopped_at_limit("m1", run.payload()) is None
 
 
 @pytest.mark.parametrize(
-    ("hard", "inactivity", "termination", "exit_code", "limit"),
+    ("hard", "inactivity", "termination", "exit_code", "limit", "measure"),
     [
-        ("1", "30", "timeout", 124, "hard limit of 1 s (env)"),
-        ("30", "1", "inactivity", 118, "inactivity limit of 1 s (env)"),
+        (
+            "1",
+            "30",
+            "timeout",
+            124,
+            "hard limit of 1 s (env)",
+            "the run's expected duration",
+        ),
+        (
+            "30",
+            "1",
+            "inactivity",
+            118,
+            "inactivity limit of 1 s (env)",
+            "the longest stretch the run goes without output",
+        ),
     ],
     ids=["hard", "inactivity"],
 )
@@ -355,6 +369,7 @@ def test_a_run_heddle_stops_names_the_limit_and_its_override(
     termination: str,
     exit_code: int,
     limit: str,
+    measure: str,
 ) -> None:
     monkeypatch.setenv("HEDDLE_VERIFY_HARD_TIMEOUT_SECONDS", hard)
     monkeypatch.setenv("HEDDLE_VERIFY_INACTIVITY_TIMEOUT_SECONDS", inactivity)
@@ -363,19 +378,21 @@ def test_a_run_heddle_stops_names_the_limit_and_its_override(
 
     assert (run.termination, run.exit_code) == (termination, exit_code)
     assert not run.completed
-    text = stopped_at_limit_text("live", run.payload())
-    assert text is not None and f"Heddle stopped live at its {limit}" in text
+    stopped = stopped_at_limit("live", run.payload())
+    assert stopped is not None
+    what, remedy = stopped
+    assert what == f"Heddle stopped live at its {limit}"
     override = run.payload()["limits"][
         "hard" if termination == "timeout" else "inactivity"
-    ]
-    assert f"set {override['override']} above" in text
+    ]["override"]
+    assert remedy == f"set {override} above {measure} to allow longer"
 
 
 def test_a_command_exiting_124_itself_reads_as_completed(tmp_path: Path) -> None:
     run = _run_report(tmp_path, "exit 124")
 
     assert (run.termination, run.exit_code) == ("completed", 124)
-    assert stopped_at_limit_text("m1", run.payload()) is None
+    assert stopped_at_limit("m1", run.payload()) is None
 
 
 @pytest.mark.parametrize(
@@ -387,7 +404,8 @@ def test_a_command_exiting_124_itself_reads_as_completed(tmp_path: Path) -> None
             "timeout",
             "close validation did not finish: Heddle stopped the close suite at "
             "its hard limit of 1 s (env)",
-            "raise the limit",
+            "set HEDDLE_VERIFY_HARD_TIMEOUT_SECONDS above the run's expected "
+            "duration to allow longer, then complete the feature again",
         ),
         (
             "exit 124",

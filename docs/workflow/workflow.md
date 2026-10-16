@@ -406,8 +406,9 @@ pre-review run, so reviewers can inspect it.
 limits: the session defaults in [the limits module](../../heddle/contracts/limits.py),
 2700 s overall and 900 s without output, unless
 `HEDDLE_VERIFY_HARD_TIMEOUT_SECONDS` or `HEDDLE_VERIFY_INACTIVITY_TIMEOUT_SECONDS`
-sets another. Raise them above a long lane's expected duration before running
-it; `--dry-run` shows the effective values. Each run reports `run`: how it
+sets another. Before a long lane runs, raise the hard limit above its expected
+duration and the inactivity limit above its longest stretch without output;
+`--dry-run` shows the effective values. Each run reports `run`: how it
 ended (`completed`, `timeout`, `inactivity` or `launch-failed`), its elapsed
 seconds and its limits. A run Heddle stopped records a failing fact and names
 the limit to raise. It reports no pytest `counts`, because a chained command's

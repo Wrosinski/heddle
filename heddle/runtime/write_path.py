@@ -115,9 +115,10 @@ from heddle.runtime.verification import (
 )
 from heddle.runtime.verify_exec import (
     LAUNCH_FAILED,
+    UnpublishedRunError,
     VerificationRun,
     run_verification_command,
-    stopped_at_limit_text,
+    stopped_at_limit,
     verification_fact,
     verification_limits,
     verification_log_counts,
@@ -678,6 +679,25 @@ def _verify_scope(
         )
     except KernelError as error:
         failure = write_failure(error, context.diagnostics)
+        if isinstance(error, UnpublishedRunError):
+            # The command ran but left no log, so nothing is retained.
+            assert failure.error is not None
+            attempt = _verification_attempt_details(
+                context.feature,
+                resolved_scope,
+                command,
+                error.run.exit_code,
+                None,
+                recorded=False,
+                counts=None,
+                run=error.run.payload(),
+            )
+            return replace(
+                failure,
+                error=replace(
+                    failure.error, details={**failure.error.details, **attempt}
+                ),
+            )
         if run is None:
             return failure
         # The command ran: report what it did beside the capture failure.
@@ -848,12 +868,13 @@ def _verification_failure_text(
     A run Heddle stopped names the limit and its override, not a broken check;
     a command that itself exited 124 completed and reads as any other failure.
     """
-    stopped = stopped_at_limit_text(scope, run)
+    stopped = stopped_at_limit(scope, run)
     if stopped is not None:
+        what, remedy = stopped
         return (
-            f"verification for {scope} did not finish: {stopped}",
-            f"inspect {log} for how far it got, then retry verification for "
-            f"{scope} with the limit raised",
+            f"verification for {scope} did not finish: {what}",
+            f"{remedy}, then retry verification for {scope}; {log} shows how far "
+            "it got",
             f"raise the limit before retrying verification for {scope}",
         )
     if run["termination"] == LAUNCH_FAILED:
@@ -905,7 +926,7 @@ def _verification_attempt_details(
     scope: str,
     command: str,
     child_exit_code: int,
-    log: str,
+    log: str | None,
     *,
     recorded: bool,
     counts: dict[str, int] | None,
@@ -1066,23 +1087,21 @@ def _verify_stale(context: ResolvedSnapshotContext, *, dry_run: bool) -> HeddleR
         return _mutation_success(
             context, command_name="verify", revision=revision, wrote=wrote, extra=body
         )
-    stopped = [
-        text
+    # Each failed row is a recorded run, remedied as its single-scope result.
+    remedies = {
+        row["scope"]: _verification_failure_text(
+            row["scope"], row["status"], row["run"], row["log"]
+        )
         for row in rows
-        if row["scope"] in failed and isinstance(row.get("run"), dict)
-        if (text := stopped_at_limit_text(row["scope"], row["run"])) is not None
-    ]
+        if row["scope"] in failed
+    }
     return HeddleResult.failure(
         HeddleError(
             code="verification-failed",
             message=(
                 "verification produced unusable evidence for " + ", ".join(failed)
             ),
-            hint=(
-                "inspect each listed row's log, repair the check or command, then "
-                "retry verification for each listed scope"
-                + "".join(f"; {text}" for text in stopped)
-            ),
+            hint="; ".join(hint for _message, hint, _reason in remedies.values()),
             details={"feature": context.feature, "revision": revision, **body},
         ),
         exit_code=ExitCode.FATAL,
@@ -1090,10 +1109,7 @@ def _verify_stale(context: ResolvedSnapshotContext, *, dry_run: bool) -> HeddleR
         next_actions=tuple(
             NextAction(
                 action=ops.CommandAction(ops.Verify(scope, feature=context.feature)),
-                reason=(
-                    f"repair the check or command before retrying verification "
-                    f"for {scope}"
-                ),
+                reason=remedies[scope][2],
             )
             for scope in failed
         ),
@@ -2013,6 +2029,8 @@ def _render_human(result: HeddleResult) -> None:
             print(f"  pytest: {_counts_text(counts)}", file=sys.stderr)
         if isinstance(run := error.details.get("run"), dict):
             print(f"  run: {_run_text(run)}", file=sys.stderr)
+        for line in _batch_run_lines(error.details):
+            print(line, file=sys.stderr)
         for action in result.next_actions:
             print(f"  next: {action.command} - {action.reason}", file=sys.stderr)
     else:
@@ -2061,6 +2079,8 @@ def _render_human(result: HeddleResult) -> None:
             print(f"  pytest: {_counts_text(counts)}")
         if isinstance(run := data.get("run"), dict):
             print(f"  run: {_run_text(run)}")
+        for line in _batch_run_lines(data):
+            print(line)
         if isinstance(limits := data.get("limits"), dict):
             print(f"  limits: {_limits_text(limits)}")
         for action in result.next_actions:
@@ -2077,6 +2097,16 @@ def _run_text(run: dict[str, Any]) -> str:
     if ended == "completed" and elapsed is not None:
         took = f"in {elapsed:g} s"
     return f"{ended} {took}; limits {_limits_text(run.get('limits', {}))}"
+
+
+def _batch_run_lines(body: Mapping[str, Any]) -> list[str]:
+    """One line per attempted ``verify --stale`` row, naming its scope."""
+    rows = body.get("verifications")
+    return [
+        f"  run {row['scope']}: {_run_text(row['run'])}"
+        for row in (rows if isinstance(rows, list) else [])
+        if isinstance(row, dict) and isinstance(row.get("run"), dict)
+    ]
 
 
 def _limits_text(limits: dict[str, Any]) -> str:

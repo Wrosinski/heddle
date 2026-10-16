@@ -305,7 +305,7 @@ def assess_current_verifications(
         observed = manifests[index]
         if route is None or not route.offers_waiver or observed is None:
             continue
-        waiver = _current_witness_waiver(root, state, status, observed)
+        waiver = _current_witness_waiver(root, state, status, observed, route)
         if waiver is not None:
             statuses[index] = replace(status, action=None, waived_by=waiver)
     return tuple(
@@ -324,7 +324,7 @@ def assess_current_verifications(
             ),
             # Set after the overlay, so a waived row keeps no route.
             rerun_route=(
-                _with_lapsed_waiver(state, status.scope, route)
+                _with_lapsed_waiver(state, status, route)
                 if status.waived_by is None
                 else None
             ),
@@ -362,13 +362,22 @@ def _assess_scope(
 
 
 def _with_lapsed_waiver(
-    state: StateFile, scope: str, route: WitnessRerunRoute | None
+    state: StateFile, status: VerificationFreshness, route: WitnessRerunRoute | None
 ) -> WitnessRerunRoute | None:
-    """The lane's route, noting a recorded waiver that no longer binds."""
-    if route is None:
-        return None
-    decision = _latest_user_waiver(state, scope)
-    return route if decision is None else route.lapsed(decision.id)
+    """The lane's route, noting a waiver of its latest fact that no longer binds.
+
+    A waiver whose fact a later run replaced is superseded, not lapsed.
+    """
+    if route is None or status.fact_index is None:
+        return route
+    decision = _latest_user_waiver(state, status.scope)
+    if decision is None:
+        return route
+    assert decision.witness_waiver is not None
+    fact = verification_fact_identity(state.verifications[status.fact_index])
+    if decision.witness_waiver["fact"] != fact:
+        return route
+    return route.lapsed(decision.id)
 
 
 def _stale_explanation(
@@ -504,13 +513,14 @@ def prepare_witness_waiver(
     state: StateFile,
     value: object,
     *,
-    assessed: tuple[VerificationFreshness, SourceEvidence] | None = None,
+    assessed: tuple[VerificationFreshness, SourceEvidence, WitnessRerunRoute | None]
+    | None = None,
 ) -> PreparedWitnessWaiver:
     """Bind a waived rerun to the latest passing fact and current source.
 
-    The lane's rerun route decides eligibility, read from the same assessment
-    readiness shows; ``assessed`` passes that assessment, before any waiver
-    applies, with its current manifest.
+    The lane's rerun route decides eligibility, as readiness shows it;
+    ``assessed`` passes the row readiness assessed, before any waiver applies,
+    with its current manifest and route.
     """
     proposal = validate_witness_waiver_proposal(state, value)
     scope = proposal["scope"]
@@ -522,11 +532,13 @@ def prepare_witness_waiver(
         status = _assess_scope(
             root, state, scope, verification_command_for_scope(state, scope), manifest
         )
+        route = _with_lapsed_waiver(
+            state, status, witness_rerun_route(state.stage, status)
+        )
     else:
-        status, manifest = assessed
+        status, manifest, route = assessed
     if status.status == "fresh":
         raise _source_error(scope, "is current; no rerun waiver is needed")
-    route = witness_rerun_route(state.stage, status)
     assert route is not None
     if not route.offers_waiver:
         raise _source_error(
@@ -618,6 +630,7 @@ def _current_witness_waiver(
     state: StateFile,
     status: VerificationFreshness,
     manifest: SourceEvidence,
+    route: WitnessRerunRoute,
 ) -> str | None:
     """Return the latest user waiver still bound to this lane's evidence."""
     decision = _latest_user_waiver(state, status.scope)
@@ -626,7 +639,7 @@ def _current_witness_waiver(
     assert decision.witness_waiver is not None
     try:
         current = prepare_witness_waiver(
-            root, state, {"scope": status.scope}, assessed=(status, manifest)
+            root, state, {"scope": status.scope}, assessed=(status, manifest, route)
         )
     except KernelError:
         return None
