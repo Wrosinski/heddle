@@ -558,6 +558,10 @@ def _captured_citation(
 
 
 _COMMIT_REFERENCE = re.compile(r"commit [0-9a-fA-F]{7,64}")
+_COMMIT_HINT = (
+    "a commit is not a reference: cite the files it changed and name the commit "
+    "in reason"
+)
 
 
 def _reference_input_failure(
@@ -566,40 +570,51 @@ def _reference_input_failure(
     """Classify a newly supplied reference that could not be captured.
 
     Returns the predicate and remedy. A reference that is not a repository
-    path, or that names a pytest node of an existing file or a commit in place
-    of a file, is malformed; any other is unavailable. Only new input is
-    classified this way: a recorded reference was a regular file when it was
-    accepted, so a missing one is unavailable.
+    path is malformed, as is a missing path that names a pytest node of an
+    existing file or a commit in place of a file. Anything that exists but is
+    not a readable regular file, and any other missing path, is unavailable.
+    Only new input is classified this way: a recorded reference was a regular
+    file when it was accepted, so a missing one is unavailable.
     """
     try:
-        normalize_paths((reference,))
+        path = normalize_paths((reference,))[0]
     except (KernelError, ValueError) as invalid:
         return (
             "malformed-field",
             f"cite a repository-relative regular file instead of {reference}: "
             f"{invalid}",
         )
-    if _COMMIT_REFERENCE.fullmatch(reference):
+    try:
+        present = (root / path).exists() or (root / path).is_symlink()
+    except OSError:
+        present = False
+    if present:
         return (
-            "malformed-field",
-            "a commit is not a reference: cite the files it changed and name "
-            "the commit in reason",
+            "reference-unavailable",
+            f"cite a readable regular file in place of {reference}: {error}",
+        )
+    if _COMMIT_REFERENCE.fullmatch(reference):
+        return "malformed-field", _COMMIT_HINT
+    if reference.startswith("commit "):
+        return (
+            "reference-unavailable",
+            f"restore {reference} and retry: {error}; {_COMMIT_HINT}",
         )
     if "::" in reference:
-        path, node = reference.split("::", 1)
+        cited, node = reference.split("::", 1)
         try:
-            exists = (root / normalize_paths((path,))[0]).is_file()
+            exists = (root / normalize_paths((cited,))[0]).is_file()
         except (KernelError, ValueError, OSError):
             exists = False
         if exists:
             return (
                 "malformed-field",
-                f"a test node is not a reference: cite {path} and name {node} "
+                f"a test node is not a reference: cite {cited} and name {node} "
                 "in reason",
             )
         return (
             "reference-unavailable",
-            f"restore {path} and retry: {error}; a test node is not a reference, "
+            f"restore {cited} and retry: {error}; a test node is not a reference, "
             "cite its file and name the node in reason",
         )
     return "reference-unavailable", f"restore {reference} and retry: {error}"
@@ -752,6 +767,8 @@ class _EvidenceQualification:
 OPEN_RE_RECORD = "re-record"
 OPEN_COVERAGE = "coverage"
 OPEN_ROUND_OR_OWNER = "round-or-owner"
+# The stops the kernel derives; each records a pending owner decision.
+_KERNEL_STOPS = frozenset({"round-limit", "no-progress", "no-decrease"})
 
 
 _VERIFICATION_SCOPE_REMEDY = (
@@ -1460,8 +1477,9 @@ class _Qualification:
         qualifies. ``coverage``: the latest round's coverage, not yet disposed.
         ``round-or-owner``: anything else, which keeps a kernel stop.
 
-        A row is judged at the current basis, as reaffirm judges it, so a
-        changed basis never hides evidence that fails on its own.
+        A row is judged at the current basis, as reaffirm judges it, and as
+        re-cited where a citation changed, so neither change hides evidence
+        that fails on its own.
         """
         state = self.snapshot.state
         latest_round = {
@@ -1494,28 +1512,68 @@ class _Qualification:
                 continue
             if reference is None:
                 reference = self.basis_reference(assignment, stamped=False)
-            candidate = replace(
-                disposition,
-                evidence_basis=basis,
-                basis_evidence=reference,
-                rebound_by=REBOUND_BY_REAFFIRM,
+            remedies.append(
+                self._resolution_remedy(assignment, disposition, basis, reference)
             )
-            result = _qualify_resolution(self, candidate, basis, assignment=assignment)
-            if result.qualifies:
-                result = _decision_route(
-                    state,
-                    (disposition.run_id, disposition.finding_id),
-                    disposition.status,
-                    disposition.decision_id,
-                )
-            # Refreshing review evidence or an inspection duty needs a new round.
-            rerecordable = result.qualifies or (
-                result.stale
-                and not disposition.requires_inspection
-                and disposition.evidence_kind != "review"
-            )
-            remedies.append(OPEN_RE_RECORD if rerecordable else OPEN_ROUND_OR_OWNER)
         return tuple(remedies)
+
+    def _resolution_remedy(
+        self,
+        assignment: ReviewAssignment,
+        disposition: AssignmentDisposition,
+        basis: str | None,
+        reference: ManifestReference,
+    ) -> str:
+        """Whether re-recording closes one stale affirmative row."""
+        route = _decision_route(
+            self.snapshot.state,
+            (disposition.run_id, disposition.finding_id),
+            disposition.status,
+            disposition.decision_id,
+        )
+        if not route.qualifies:
+            return OPEN_ROUND_OR_OWNER
+        candidate = _reaffirm_candidate(disposition, basis, reference)
+        result = _qualify_resolution(self, candidate, basis, assignment=assignment)
+        if result.qualifies:
+            return OPEN_RE_RECORD
+        # Refreshing review evidence or an inspection duty needs a new round.
+        if (
+            not result.stale
+            or disposition.requires_inspection
+            or disposition.evidence_kind == "review"
+        ):
+            return OPEN_ROUND_OR_OWNER
+        if result.predicate != "reference-changed":
+            return OPEN_RE_RECORD
+        # Citations are judged first, so a changed one hides what the rest of
+        # the evidence now shows; judge the row as the lead would re-cite it.
+        recited = self._recited(candidate)
+        if recited is None:
+            return OPEN_ROUND_OR_OWNER
+        result = _qualify_resolution(self, recited, basis, assignment=assignment)
+        return (
+            OPEN_RE_RECORD if result.qualifies or result.stale else OPEN_ROUND_OR_OWNER
+        )
+
+    def _recited(
+        self, disposition: AssignmentDisposition
+    ) -> AssignmentDisposition | None:
+        """The row citing each of its paths as it reads now, or None if one can't be
+        captured."""
+        try:
+            references = tuple(
+                captured_reference(
+                    self.config.root,
+                    path,
+                    plan_path=self.snapshot.plan_path,
+                    source_observations=self.captures,
+                )
+                for path, _digest in disposition.references
+            )
+        except (KernelError, OSError, ValueError):
+            return None
+        return replace(disposition, references=references, reference_equivalence=None)
 
     def _latest_dispositions(
         self, assignment: ReviewAssignment
@@ -1963,7 +2021,7 @@ def projection(
                     if decision.title.startswith(prefix)
                     else None
                 )
-                if recorded_stop in {"round-limit", "no-progress", "no-decrease"}:
+                if recorded_stop in _KERNEL_STOPS:
                     row["stop_reason"] = recorded_stop
             pending = core.pending_retained(snapshot.state, assignment.id)
             row["retained_responses"] = [ops.decoded_payload(r) for r in pending]
@@ -2004,6 +2062,10 @@ def projection(
                         # reaffirm work, which every such assignment shares.
                         row["next_step"] = "reaffirm"
                         row["reaffirm"] = reaffirm.work
+                        if _unresolved_kernel_stop(snapshot, row):
+                            reaffirm.work["stops"].append(
+                                f"{row['role']} {row['scope']} ({row['stop_reason']})"
+                            )
                         remedy = next_action(snapshot, row).action
                 explained = frame.explain_open(assignment, closed.open_refs, remedy)
             row["evidence_explanations"] = []
@@ -2251,7 +2313,7 @@ def next_action(snapshot: FeatureSnapshot, row: dict[str, Any]) -> NextAction:
             "Inspect whether each listed resolution still applies, then run review "
             "reaffirm: across every unsealed assignment it re-records the rows "
             "that still qualify and lists those marked refused, which need new "
-            "dispositions." + skipped + _stop_note(snapshot, row),
+            "dispositions." + skipped + _reaffirm_stop_note(work["stops"]),
         )
     return NextAction(
         ops.AuthoringAction(
@@ -2269,27 +2331,41 @@ def next_action(snapshot: FeatureSnapshot, row: dict[str, Any]) -> NextAction:
     )
 
 
-_KERNEL_STOPS = frozenset({"round-limit", "no-progress", "no-decrease"})
+def _unresolved_kernel_stop(snapshot: FeatureSnapshot, row: dict[str, Any]) -> bool:
+    """Whether the row is at a kernel stop no owner decision has resolved."""
+    if row["stop_reason"] not in _KERNEL_STOPS:
+        return False
+    assignment = core.assignment_for(snapshot.state, row["role"], row["scope"])
+    return not any(
+        decision.id == assignment.stop_decision_id and decision.status == "resolved"
+        for decision in snapshot.state.decisions
+    )
 
 
 def _stop_note(snapshot: FeatureSnapshot, row: dict[str, Any]) -> str:
     """Say why open work routes past a kernel stop the owner has not resolved."""
-    if row["stop_reason"] not in _KERNEL_STOPS:
+    if not _unresolved_kernel_stop(snapshot, row):
         return ""
-    assignment = core.assignment_for(snapshot.state, row["role"], row["scope"])
-    resolved = any(
-        decision.id == assignment.stop_decision_id
-        and decision.status == "resolved"
-        and isinstance(decision.resolution, Disposition)
-        for decision in snapshot.state.decisions
+    closes = (
+        "changed evidence to re-record, or the latest round's coverage"
+        if row["stop_reason"] == "round-limit"
+        else "changed evidence to re-record"
     )
-    if resolved:
-        return ""
     return (
         f" The {row['stop_reason']} stop is reached, but every open row closes "
-        "with recorded evidence alone (changed evidence to re-record, or the "
-        "latest round's coverage), so it needs no review round and no owner "
-        "decision."
+        f"with recorded evidence alone ({closes}), so it needs no review round "
+        "and no owner decision."
+    )
+
+
+def _reaffirm_stop_note(stops: list[str]) -> str:
+    """Name the assignments past whose unresolved stop reaffirm is routed."""
+    if not stops:
+        return ""
+    return (
+        f" Stops are reached for {', '.join(stops)}, but their open rows close "
+        "by re-recording evidence alone, so they need no review round and no "
+        "owner decision."
     )
 
 
@@ -2738,6 +2814,18 @@ class _Reaffirmation:
     refused: tuple[tuple[int, AssignmentDisposition, _EvidenceQualification], ...]
 
 
+def _reaffirm_candidate(
+    row: AssignmentDisposition, basis: str | None, reference: ManifestReference
+) -> AssignmentDisposition:
+    """``row`` re-bound to the current basis, as reaffirm writes it."""
+    return replace(
+        row,
+        evidence_basis=basis,
+        basis_evidence=reference,
+        rebound_by=REBOUND_BY_REAFFIRM,
+    )
+
+
 def _reaffirmation(
     frame: _Qualification, assignment: ReviewAssignment
 ) -> _Reaffirmation:
@@ -2757,12 +2845,7 @@ def _reaffirmation(
             continue
         if reference is None:
             reference = frame.basis_reference(assignment, stamped=False)
-        candidate = replace(
-            old,
-            evidence_basis=basis,
-            basis_evidence=reference,
-            rebound_by=REBOUND_BY_REAFFIRM,
-        )
+        candidate = _reaffirm_candidate(old, basis, reference)
         qualification = _qualify_resolution(
             frame, candidate, basis, assignment=assignment
         )
@@ -2883,6 +2966,9 @@ def _reaffirm_work(frame: _Qualification) -> _ReaffirmWork:
             "skipped": [
                 assignment.id for assignment, _slots, _rows in selection.skipped
             ],
+            # Routed assignments at an unresolved kernel stop, added as the
+            # projection routes them; the work names them once for all.
+            "stops": [],
         },
     )
 

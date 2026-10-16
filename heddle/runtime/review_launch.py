@@ -50,7 +50,7 @@ class LaunchMember:
 
 @dataclass(frozen=True)
 class LaunchExclusion:
-    """A routed review slot left out of the launch set, and why."""
+    """A slot of a routed review left out of the launch set, and why."""
 
     role: str
     scope: str | None
@@ -150,6 +150,9 @@ def launch_set(
         )
         for position, slot in enumerate(current.slots):
             if slot.name not in missing:
+                excluded.append(
+                    LaunchExclusion(operation.gate, scope, slot.name, "slot-recorded")
+                )
                 continue
             try:
                 resolve_invocation(

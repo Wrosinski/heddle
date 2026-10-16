@@ -159,14 +159,35 @@ def test_disposition_batch_reports_each_rejected_row_once_without_writing(
             "a test node is not a reference, cite its file and name the node",
         ),
         ("src/gone.py", "reference-unavailable", "restore src/gone.py and retry"),
+        (
+            "commit HEAD~1",
+            "reference-unavailable",
+            "a commit is not a reference: cite the files it changed",
+        ),
+        (
+            "tests/check.py::literal-directory",
+            "reference-unavailable",
+            "cite a readable regular file in place of tests/check.py::literal",
+        ),
     ],
-    ids=["test-node", "commit", "absolute", "missing-node-file", "missing-file"],
+    ids=[
+        "test-node",
+        "commit",
+        "absolute",
+        "missing-node-file",
+        "missing-file",
+        "commit-ref",
+        "node-shaped-directory",
+    ],
 )
 def test_disposition_reference_refusal_names_what_a_reference_must_be(
     tmp_path, monkeypatch, run_cli, reference, predicate, remedy
 ):
-    """A node id or commit is malformed input, never a file to restore."""
+    """A node id or commit is malformed input, never a file to restore; only a
+    missing path is judged by its shape."""
     host, path = current_host(tmp_path, monkeypatch)
+    if reference.endswith("literal-directory"):
+        (host / reference).mkdir()
     calls = provider_transport(
         monkeypatch,
         review_content(findings=[finding("SP-I1", classification="implement")]),

@@ -128,7 +128,7 @@ def test_ac11_driver_routes_review_reaffirm_past_a_round_limit_stop(
     assert "Authoring work: review-reaffirm" in prompts[0], (
         "the round-limit stop withheld the reaffirm session"
     )
-    assert "round-limit stop is reached" in prompts[0]
+    assert "Stops are reached for spec-review feature (round-limit)" in prompts[0]
     assert not any(
         isinstance(op, (ops.ReviewRoundOpen, ops.ReaffirmReview)) for op in executed
     ), "the driver recorded a stop or reaffirmed itself"

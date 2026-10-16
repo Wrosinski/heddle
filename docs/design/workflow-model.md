@@ -309,15 +309,16 @@ raw basis. `rebound_by` names the writer of a re-binding row:
 `review-equivalence` for those rows and `reaffirm` for rows `review reaffirm`
 writes. A row the lead authors has none.
 
-At a round-limit, no-progress or no-decrease stop, readiness still routes
-disposition, or reaffirm where it can write the rows, when every open reference
-closes by re-recording evidence alone, judged at the current basis as reaffirm
-judges it. That holds for a row whose
+At a round-limit, no-progress or no-decrease stop, unless an owner decision is
+pending, readiness still routes disposition, or reaffirm where it can write the
+rows, when every open reference closes by re-recording evidence alone. Each row
+is judged at the current basis as reaffirm judges it and, where a citation
+changed, as the lead would re-cite it. That holds for a row whose basis,
 citations or verification changed, and, at a round limit, for the latest
 round's undisposed coverage. A row whose evidence fails on its own, a row with
-an inspection duty, a review-backed row whose review source changed, and any
-retained, undisposed or awaiting-decision row keep the stop for its round or
-owner decision.
+an inspection duty, a review-backed row whose citation or review source
+changed, and any retained, undisposed or awaiting-decision row keep the stop for
+its round or owner decision.
 
 The scaffolding review's test subject is the declared tests, `Verified-by:`
 bindings and their helpers, plus every test under the tests root that differs

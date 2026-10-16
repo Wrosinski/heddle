@@ -19,6 +19,7 @@ from typing import Any, cast
 from heddle.contracts import operations as ops
 from heddle.contracts.operations import RunGate, RunGates
 from heddle.contracts.result import (
+    LAUNCH_REFUSAL_CAUSES,
     Diagnostic,
     ExitCode,
     HeddleError,
@@ -54,6 +55,11 @@ from heddle.gate.types import (
 )
 from heddle.kernel.model import FeatureSnapshot
 from heddle.kernel.project_config import KernelError, ProjectConfig
+from heddle.kernel.readiness import (
+    implementation_pending,
+    implementation_pending_details,
+    implementation_pending_text,
+)
 from heddle.kernel.source_manifest import ObservedPath, SourceEvidence
 from heddle.kernel.state import GateRun, StateFile
 from heddle.runtime import recording
@@ -448,7 +454,9 @@ def execute_gates(parsed: RunGates) -> HeddleResult:
             if isinstance(prepared, HeddleResult):
                 return prepared
             publication = _Publication(resolved.snapshot.state.revision)
-            interrupted = _execute_batch_workers(resolved, prepared, publication)
+            interrupted = _execute_batch_workers(
+                resolved, prepared, publication, current
+            )
             if interrupted is not None:
                 return interrupted
             return _batch_result(resolved, prepared, current)
@@ -844,6 +852,7 @@ def _execute_batch_workers(
     resolved: ResolvedSnapshotContext,
     members: list[_BatchMember],
     publication: _Publication,
+    launch: LaunchSet,
 ) -> HeddleResult | None:
     """Call every member that needs a provider and record results in order.
 
@@ -927,7 +936,7 @@ def _execute_batch_workers(
             if member.finished_at is None:
                 _finish_timing(member)
         _terminate_batch_processes(processes)
-        return _interrupted_batch(resolved, members)
+        return _interrupted_batch(resolved, members, launch)
     finally:
         _terminate_batch_processes(processes)
         for receiver in receivers:
@@ -991,7 +1000,9 @@ def _stop_publication(members: list[_BatchMember], publication: _Publication) ->
 
 
 def _interrupted_batch(
-    resolved: ResolvedSnapshotContext, members: list[_BatchMember]
+    resolved: ResolvedSnapshotContext,
+    members: list[_BatchMember],
+    launch: LaunchSet,
 ) -> HeddleResult:
     """Keep finished output recoverable after the workers are stopped."""
     for member in members:
@@ -1029,7 +1040,7 @@ def _interrupted_batch(
         "restart run-gates to recover completed output and retry unfinished work",
     )
     selected.error_exit = ExitCode.INTERNAL
-    return _batch_result(resolved, members)
+    return _batch_result(resolved, members, launch)
 
 
 def _accept_batch_outcome(
@@ -1082,11 +1093,11 @@ def _terminate_batch_processes(processes: list[Any]) -> None:
 def _batch_result(
     resolved: ResolvedSnapshotContext,
     members: list[_BatchMember],
-    launch: LaunchSet | None = None,
+    launch: LaunchSet,
 ) -> HeddleResult:
     """Succeed when every member completed and was recorded, whatever its verdict.
 
-    A success lists the routed slots its launch set left out.
+    Success and failure alike list the routed slots the launch set left out.
     """
     refreshed = resolve_snapshot_from_cwd(resolved.feature, writable=True)
     if isinstance(refreshed, ResolveFeatureFailure):
@@ -1099,6 +1110,7 @@ def _batch_result(
     member_actions = {
         member.key: _batch_member_actions(refreshed, member) for member in members
     }
+    excluded = [row.payload() for row in launch.exclusions]
     failing = [
         member
         for member in members
@@ -1117,6 +1129,7 @@ def _batch_result(
             error,
             selected.error_exit,
             actions=member_actions,
+            excluded=excluded,
             diagnostics=resolved.diagnostics + _preparation_notes(members),
         )
     exit_code = max(
@@ -1137,9 +1150,7 @@ def _batch_result(
                 _batch_member_summary(member, member_actions[member.key])
                 for member in members
             ],
-            "excluded_slots": [
-                row.payload() for row in (launch.exclusions if launch else ())
-            ],
+            "excluded_slots": excluded,
             "revision": refreshed.snapshot.state.revision,
         },
         diagnostics=resolved.diagnostics + _preparation_notes(members),
@@ -1309,6 +1320,7 @@ def _batch_failure(
     exit_code: ExitCode,
     *,
     actions: Mapping[tuple[str, str, str], tuple[NextAction, ...]],
+    excluded: list[dict[str, Any]],
     diagnostics: tuple[Diagnostic, ...],
 ) -> HeddleResult:
     assert selected.launch is not None
@@ -1323,6 +1335,7 @@ def _batch_failure(
                     for member in members
                 ],
                 "selected_member": _member_identity(selected.launch),
+                "excluded_slots": excluded,
             },
         ),
         exit_code=exit_code,
@@ -1360,60 +1373,68 @@ def _launch_refusal(
     actions: tuple[NextAction, ...],
 ) -> tuple[dict[str, Any], str, str]:
     """The first cause in LAUNCH_REFUSAL_CAUSES order, with its message and hint."""
-    from heddle.kernel.readiness import (
-        implementation_pending,
-        implementation_pending_details,
-        implementation_pending_text,
-    )
-
     state = resolved.snapshot.state
     excluded = [row.payload() for row in launch.exclusions]
     follow = "follow the current actions; each slot's run-gate runs it alone"
+
+    def refusal(
+        cause: str, message: str, hint: str, **details: Any
+    ) -> tuple[dict[str, Any], str, str]:
+        if cause not in LAUNCH_REFUSAL_CAUSES:
+            raise ValueError(f"unknown launch refusal cause {cause!r}")
+        return {"cause": cause, **details, "excluded_slots": excluded}, message, hint
+
     if resolved.config.review_launch != REVIEW_LAUNCH_MODES[0]:
-        return (
-            {"cause": "launch-sequential", "excluded_slots": excluded},
+        return refusal(
+            "launch-sequential",
             "no review slots launch together: reviews.launch is sequential",
             follow,
+        )
+    pending = implementation_pending(state, state.stage)
+    if pending is not None:
+        details = implementation_pending_details(state, pending)
+        message, hint = implementation_pending_text(details)
+        details.pop("cause")
+        return refusal(
+            "implementation-pending",
+            f"no review slots launch together now: {message}",
+            hint,
+            **details,
+        )
+    if actions and not _runs_review(actions[0]):
+        first = actions[0]
+        return refusal(
+            "other-work-first",
+            f"other work comes first; the next action is {first.command}",
+            follow,
+            action={"command": first.command, "reason": first.reason},
         )
     if launch.members:
         member = launch.members[0]
         command = ops.action_command(
             ops.CommandAction(_slot_operation(resolved.feature, member))
         )
-        return (
-            {"cause": "single-slot", "command": command, "excluded_slots": excluded},
+        return refusal(
+            "single-slot",
             f"only {member.role} {member.scope} slot {member.slot} can launch now",
             f"run it alone: {command}",
+            command=command,
         )
-    pending = implementation_pending(state, state.stage)
-    if pending is not None:
-        details = implementation_pending_details(state, pending)
-        message, hint = implementation_pending_text(details)
-        return (
-            {**details, "excluded_slots": excluded},
-            f"no review slots launch together now: {message}",
-            hint,
-        )
-    if excluded or not actions:
-        message = "no routed review slot can launch now"
-        if launch.exclusions:
-            first = launch.exclusions[0]
-            message += f": {first.role} {first.scope} is {first.reason}"
-            if first.message:
-                message += f" ({first.message})"
-        return (
-            {"cause": "no-launchable-slot", "excluded_slots": excluded},
-            message,
-            follow,
-        )
-    return (
-        {
-            "cause": "other-work-first",
-            "action": {"command": actions[0].command, "reason": actions[0].reason},
-            "excluded_slots": excluded,
-        },
-        f"no review is routed now; the next action is {actions[0].command}",
-        follow,
+    message = "no routed review slot can launch now"
+    blocking = [row for row in launch.exclusions if row.reason != "slot-recorded"]
+    if blocking:
+        first_exclusion = blocking[0]
+        message += f": {first_exclusion.role} {first_exclusion.scope} is "
+        message += first_exclusion.reason
+        if first_exclusion.message:
+            message += f" ({first_exclusion.message})"
+    return refusal("no-launchable-slot", message, follow)
+
+
+def _runs_review(action: NextAction) -> bool:
+    """Whether a routed action launches review slots."""
+    return isinstance(action.action, ops.CommandAction) and isinstance(
+        action.action.operation, (RunGate, RunGates)
     )
 
 

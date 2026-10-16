@@ -77,7 +77,7 @@ def _resolver():
     return review_launch.launch_set
 
 
-def _resolve(actions, *, snapshot=None, milestone_scope=None):
+def _launch(actions, *, snapshot=None, milestone_scope=None):
     from heddle.kernel.model import resolve_snapshot
     from heddle.kernel.project_config import load_project_config
     from heddle.runtime.review_assignments import projection
@@ -87,7 +87,16 @@ def _resolve(actions, *, snapshot=None, milestone_scope=None):
     observed = projection(config, snapshot)
     return _resolver()(
         config, snapshot, observed, actions, milestone_scope=milestone_scope
-    ).members
+    )
+
+
+def _resolve(actions, *, snapshot=None, milestone_scope=None):
+    return _launch(actions, snapshot=snapshot, milestone_scope=milestone_scope).members
+
+
+def _excluded(rows):
+    """(role, scope, slot, reason) of each excluded slot payload."""
+    return [(row["role"], row["scope"], row["slot"], row["reason"]) for row in rows]
 
 
 @pytest.mark.parametrize("role", REVIEW_ROLES)
@@ -204,6 +213,9 @@ def test_ac2_ac3_lone_missing_secondary_after_accepted_primary_stays_single(
     assert refused.error.details["cause"] == "single-slot"
     assert refused.error.details["command"] == slot_command("spec-review", SECONDARY)
     assert "spec-review feature slot secondary" in refused.error.message
+    assert _excluded(refused.error.details["excluded_slots"]) == [
+        ("spec-review", "feature", PRIMARY, "slot-recorded")
+    ], "the refusal hid why the accepted primary does not launch"
 
 
 def test_ac2_milestone_review_takes_only_the_scope_readiness_selects(
@@ -503,6 +515,15 @@ def test_ac3_sealed_review_never_joins_a_later_batch(
     assert [
         run for run in gate_runs(state_path) if run["gate"] == "spec-review"
     ] == spec_runs
+    from heddle.contracts.result import NextAction
+
+    sealed = _launch(
+        [NextAction(ops.CommandAction(ops.RunGate("spec-review")), "repair")]
+    )
+    assert sealed.members == ()
+    assert [(row.role, row.reason) for row in sealed.exclusions] == [
+        ("spec-review", "assignment-sealed")
+    ]
 
 
 def test_ac3_accepted_slot_with_changed_input_is_never_called_again(
@@ -524,9 +545,13 @@ def test_ac3_accepted_slot_with_changed_input_is_never_called_again(
     assert "behavior-review primary" not in action.reason
     with multiprocessing.Manager() as manager:
         starts, _finishes, _seen = install_slot_engine(monkeypatch, manager)
-        execute_batch()
+        result = execute_batch()
         started = sorted((row["gate"], row["reviewer_slot"]) for row in starts)
     assert started == [("behavior-review", SECONDARY), ("complexity-review", PRIMARY)]
+    assert result.ok, result.to_envelope()
+    assert _excluded(result.data["excluded_slots"]) == [
+        ("behavior-review", "feature", PRIMARY, "slot-recorded")
+    ]
 
 
 def test_ac3_changed_source_output_keeps_its_review_out_of_the_batch(
@@ -565,9 +590,13 @@ def test_ac3_changed_source_output_keeps_its_review_out_of_the_batch(
     )
     with multiprocessing.Manager() as manager:
         starts, _finishes, _seen = install_slot_engine(monkeypatch, manager)
-        execute_batch()
+        result = execute_batch()
         started = sorted((row["gate"], row["reviewer_slot"]) for row in starts)
     assert started == [("complexity-review", PRIMARY), ("complexity-review", SECONDARY)]
+    assert result.ok, result.to_envelope()
+    assert _excluded(result.data["excluded_slots"]) == [
+        ("behavior-review", "feature", None, "changed-source-pending")
+    ]
 
 
 @pytest.mark.parametrize("shape", ("same-gate", "behavior-and-complexity"))
@@ -707,16 +736,131 @@ def test_launch_refusal_vocabulary_is_closed() -> None:
 
     assert LAUNCH_REFUSAL_CAUSES == (
         "launch-sequential",
-        "single-slot",
         "implementation-pending",
-        "no-launchable-slot",
         "other-work-first",
+        "single-slot",
+        "no-launchable-slot",
     )
     assert LAUNCH_EXCLUSION_REASONS == (
         "scope-unresolved",
         "assignment-sealed",
         "changed-source-pending",
+        "slot-recorded",
         "admission-refused",
     )
     with pytest.raises(ValueError, match="unknown launch exclusion reason"):
-        LaunchExclusion("spec-review", "feature", None, "slot-recorded")
+        LaunchExclusion("spec-review", "feature", None, "slot-missing")
+
+
+def test_milestone_gate_without_a_selected_scope_is_excluded_as_unresolved(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from heddle.contracts import operations as ops
+    from heddle.contracts.result import NextAction
+
+    current_host(tmp_path, monkeypatch)
+    launch = _launch(
+        [NextAction(ops.CommandAction(ops.RunGate("milestone-review")), "review")]
+    )
+    assert launch.members == ()
+    assert [
+        (row.role, row.scope, row.slot, row.reason) for row in launch.exclusions
+    ] == [("milestone-review", None, None, "scope-unresolved")]
+
+
+def test_run_gates_names_the_work_routed_before_any_review(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A pending stop decision comes first, so run-gates names it, not a slot."""
+    from heddle.contracts import operations as ops
+    from heddle.runtime.application import execute
+    from tests.structured_review_helpers import finding
+    from tests.tiering_helpers import entry
+    from tests.tiering_review_helpers import (
+        dispose,
+        disposition,
+        provider_transport,
+        recorded_stop,
+        review_content,
+    )
+
+    _host, state_path = current_host(
+        tmp_path,
+        monkeypatch,
+        overrides={"spec-review": entry("spec-review", limit=1)},
+    )
+    provider_transport(
+        monkeypatch,
+        review_content(findings=[finding("SP-I1", classification="implement")]),
+    )
+    assert run_slot("spec-review", PRIMARY).ok
+    origin = gate_runs(state_path)[-1]["run_id"]
+    assert dispose(
+        state_path,
+        [
+            disposition(origin, status="retained"),
+            disposition(origin, "@coverage", status="settled"),
+        ],
+    ).ok
+    stop = status_actions()[0].action
+    assert recorded_stop(execute(stop.operation))
+    before = state_path.read_bytes()
+
+    refused = execute_batch()
+
+    assert not refused.ok and state_path.read_bytes() == before
+    first = status_actions()[0]
+    assert refused.error.details["cause"] == "other-work-first"
+    assert refused.error.details["action"] == {
+        "command": first.command,
+        "reason": first.reason,
+    }
+    assert first.command in refused.error.message
+    assert isinstance(first.action, ops.DecisionAction), first
+
+
+def test_run_gates_names_why_no_routed_slot_can_launch(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A recorded primary and a host-refused secondary leave nothing to launch."""
+    from tests.tiering_review_helpers import provider_transport, review_content
+
+    host, state_path = same_gate_host(tmp_path, monkeypatch)
+    provider_transport(monkeypatch, lambda _cli, _prompt: review_content())
+    assert run_slot("spec-review", PRIMARY).ok
+    path = host / ".heddle.yaml"
+    value = yaml.safe_load(path.read_text())
+    value["agents"] = {"claude": False}
+    path.write_text(yaml.safe_dump(value, sort_keys=False))
+    before = state_path.read_bytes()
+
+    refused = execute_batch()
+
+    assert not refused.ok and state_path.read_bytes() == before
+    details = refused.error.details
+    assert details["cause"] == "no-launchable-slot"
+    assert _excluded(details["excluded_slots"]) == [
+        ("spec-review", "feature", PRIMARY, "slot-recorded"),
+        ("spec-review", "feature", SECONDARY, "admission-refused"),
+    ]
+    assert details["excluded_slots"][1]["code"] == "workspace-invalid"
+    assert "spec-review feature is admission-refused" in refused.error.message
+
+
+def test_a_failed_partial_launch_still_lists_its_excluded_slots(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    host, _state_path = full_peer_host(tmp_path, monkeypatch)
+    path = host / ".heddle.yaml"
+    value = yaml.safe_load(path.read_text())
+    value["agents"] = {"claude": False}
+    path.write_text(yaml.safe_dump(value, sort_keys=False))
+    with multiprocessing.Manager() as manager:
+        install_slot_engine(
+            monkeypatch, manager, failures=(("behavior-review", SECONDARY),)
+        )
+        result = execute_batch()
+    assert not result.ok, result.to_envelope()
+    assert _excluded(result.error.details["excluded_slots"]) == [
+        ("behavior-review", "feature", PRIMARY, "admission-refused")
+    ], "a failed batch dropped the slot its launch left out"

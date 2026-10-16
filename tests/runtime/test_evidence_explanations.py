@@ -439,7 +439,7 @@ def test_basis_change_at_round_limit_routes_rerecordable_rows_to_reaffirm(
     )
     action = _review_action(ops.AuthoringAction)
     assert action.action.work == "review-reaffirm"
-    assert "round-limit stop is reached" in action.reason
+    assert "Stops are reached for milestone-review m1 (round-limit)" in action.reason
     assert "no review round and no owner decision" in action.reason
 
     reaffirmed = application.execute(ops.ReaffirmReview(feature=V7_FEATURE))
@@ -458,11 +458,15 @@ def test_basis_change_at_round_limit_routes_rerecordable_rows_to_reaffirm(
     assert "'review-equivalence', 'reaffirm'" in refused.error.message
 
 
+@pytest.mark.parametrize(
+    "cited", ["tests/check.py", "src/example.py"], ids=["same-citation", "cited-fix"]
+)
 @pytest.mark.parametrize("rerun", [False, True])
 def test_verification_behind_a_basis_change_routes_by_its_own_status(
-    tmp_path, monkeypatch, run_cli, rerun
+    tmp_path, monkeypatch, run_cli, rerun, cited
 ):
-    """A changed basis never hides a failed verification behind "stale"."""
+    """Neither a changed basis nor a changed citation hides a failed verification
+    behind "stale"."""
     from tests.tiering_review_helpers import disposition
 
     def rows(origin):
@@ -472,7 +476,7 @@ def test_verification_behind_a_basis_change_routes_by_its_own_status(
                 "MI-I1",
                 evidence_kind="verification",
                 verification_scope="m1",
-                references=["tests/check.py"],
+                references=[cited],
             ),
             disposition(
                 origin, "@coverage", status="settled", references=["tests/check.py"]
@@ -678,8 +682,162 @@ def test_authorized_continuation_routes_rerecordable_rows_to_disposition(
     assert row["next_step"] in {"disposition", "reaffirm"}, (
         "an authorized continuation routed re-recording to a policy edit"
     )
+    action = _review_action(ops.AuthoringAction)
+    assert "no owner decision" not in action.reason, (
+        "the action denies the owner decision that authorized the continuation"
+    )
     assert application.execute(ops.ReaffirmReview(feature=V7_FEATURE)).ok
     assert review_status(path)["closed"] and len(calls) == 1
+
+
+def test_inspection_duty_without_review_evidence_keeps_the_round_limit_stop(
+    tmp_path, monkeypatch, run_cli
+):
+    """An inspection duty is never discharged by re-recording other evidence."""
+    from tests.operational_model_helpers import read, write
+    from tests.tiering_review_helpers import disposition
+
+    host, path, _origin, _calls = _milestone_review_at_round_limit(
+        tmp_path,
+        monkeypatch,
+        run_cli,
+        lambda origin: [
+            disposition(origin, "MI-I1", references=["src/example.py"]),
+            disposition(
+                origin, "@coverage", status="settled", references=["tests/check.py"]
+            ),
+        ],
+    )
+    # Authored history: the row's duty is one input now refuses without review.
+    value = read(path)
+    value["review_assignments"]["dispositions"][0]["requires_inspection"] = True
+    write(path, value)
+    source = host / "src/example.py"
+    source.write_text(source.read_text() + "LIMIT = 3\n")
+
+    row = assignment_row("milestone-review", "m1")
+    assert row["stop_reason"] == "round-limit" and not row["closed"]
+    assert row["next_step"] == "decision", (
+        "an inspection duty routed past the round-limit stop"
+    )
+
+
+def test_pending_stop_decision_routes_before_rerecordable_rows(
+    tmp_path, monkeypatch, run_cli
+):
+    """A recorded stop's owner decision is never skipped for re-recording."""
+    from tests.operational_model_helpers import read
+    from tests.tiering_helpers import entry
+    from tests.tiering_review_helpers import (
+        dispose,
+        disposition,
+        recorded_stop,
+        review_status,
+        runs,
+    )
+
+    host, path = current_host(
+        tmp_path,
+        monkeypatch,
+        overrides={"spec-review": entry("spec-review", limit=1)},
+    )
+    provider_transport(
+        monkeypatch,
+        review_content(findings=[finding("SP-I1", classification="implement")]),
+    )
+    code, result = gate_command(run_cli, "run-gate", "spec-review")
+    assert code == 4 and result["ok"], result
+    origin = runs(path)[0]["run_id"]
+    cited = {"references": ["tests/check.py"]}
+    assert dispose(
+        path,
+        [
+            disposition(origin, status="retained", **cited),
+            disposition(origin, "@coverage", status="settled", **cited),
+        ],
+    ).ok
+    stop = _review_action(ops.CommandAction).action.operation
+    assert recorded_stop(application.execute(stop))
+    [decision] = read(path)["decisions"]
+    assert dispose(path, [disposition(origin, **cited)]).ok
+    (host / "tests/check.py").write_text(
+        (host / "tests/check.py").read_text() + "# reworded\n"
+    )
+
+    row = review_status(path)
+    assert row["next_step"] == "decision" and row["decision_id"] == decision["id"], (
+        "re-recordable rows skipped the pending stop decision"
+    )
+    assert isinstance(
+        application.execute(ops.Status(feature=V7_FEATURE)).next_actions[0].action,
+        ops.DecisionAction,
+    )
+
+
+def test_one_reaffirm_names_the_assignment_past_its_stop(
+    tmp_path, monkeypatch, run_cli
+):
+    """Two reviews share a basis and only one is at its limit: one reaffirm."""
+    from tests.concurrent_review_helpers import SLOT_REVIEWERS, off
+    from tests.tiering_helpers import entry
+    from tests.tiering_review_helpers import dispose, disposition, runs
+
+    roles = {"behavior-review": 1, "complexity-review": 3}
+    host, path = current_host(
+        tmp_path,
+        monkeypatch,
+        stage="peer-review",
+        overrides={
+            "peer-review-sequential": off("peer-review-sequential"),
+            **{
+                role: entry(role, limit=limit, primary=SLOT_REVIEWERS[role]["primary"])
+                for role, limit in roles.items()
+            },
+        },
+    )
+    for role in roles:
+        provider_transport(monkeypatch, review_content(role))
+        reviewer = SLOT_REVIEWERS[role]["primary"]
+        code, result = gate_command(
+            run_cli,
+            "run-gate",
+            role,
+            "--cli",
+            reviewer["cli"],
+            "--model",
+            reviewer["model"],
+            "--reasoning-effort",
+            reviewer["reasoning_effort"],
+        )
+        assert code in (0, 4) and result["ok"], result
+        origin = runs(path)[-1]["run_id"]
+        assert dispose(
+            path,
+            [
+                disposition(
+                    origin, "@coverage", status="settled", references=["tests/check.py"]
+                )
+            ],
+        ).ok
+    source = host / "src/example.py"
+    source.write_text(source.read_text() + "LIMIT = 3\n")
+
+    status = application.execute(ops.Status(feature=V7_FEATURE))
+    assert [
+        (row["role"], row["next_step"])
+        for row in status.data["review_closure"]["assignments"]
+        if row["role"] in roles
+    ] == [("behavior-review", "reaffirm"), ("complexity-review", "reaffirm")]
+    [reaffirm] = [
+        item
+        for item in status.next_actions
+        if isinstance(item.action, ops.AuthoringAction)
+        and item.action.work == "review-reaffirm"
+    ]
+    assert "Stops are reached for behavior-review feature (round-limit)" in (
+        reaffirm.reason
+    )
+    assert "complexity-review" not in reaffirm.reason
 
 
 def test_recorded_report_row_outside_its_decision_route_is_explained(

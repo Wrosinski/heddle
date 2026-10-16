@@ -1054,8 +1054,8 @@ REVIEW_DISPOSITION_INPUT_SCHEMA: dict[str, Any] = {
         "references must be regular files in the repository; a later change to a "
         "cited file stops the row counting (reference-changed). The feature's own "
         "state.yaml cannot be cited (self-mutating-reference). A test node id or a "
-        "commit is malformed-field: cite the file and name the node or commit in "
-        "reason.",
+        "commit can be refused as malformed-field: cite the file and name the node "
+        "or commit in reason.",
         "A REPORT finding closes only through its owner decision: once that "
         "decision is resolved, record status settled, evidence_kind decision and "
         "its decision_id; until then record awaiting-decision. Other addressed or "

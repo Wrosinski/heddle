@@ -10,6 +10,25 @@ authority for the installed version.
 
 ### Changed
 
+- `heddle run-gates` refusals name their cause in `details.cause`:
+  `launch-sequential`, `implementation-pending`, `other-work-first`,
+  `single-slot` or `no-launchable-slot`, in that order of precedence, with a
+  message to match. Every launch and refusal lists the slots of routed reviews
+  it left out under `excluded_slots`, each with its reason:
+  `scope-unresolved`, `assignment-sealed`, `changed-source-pending`,
+  `slot-recorded` or `admission-refused`, the last with the refusal's code,
+  message and hint.
+- `heddle run-gate milestone-review` for the current milestone refuses with
+  `task-incomplete` while that milestone has no tasks or an unfinished one,
+  as readiness already withheld it; its details name the pending work.
+  Reviews of done milestones are still admitted.
+- A new disposition or scope-change reference that names a test node of an
+  existing file (`path::node`) or a commit (`commit <hex>`), or is absolute or
+  escapes the repository, is refused as `malformed-field` with a remedy to
+  cite the file and name the node or commit in the reason. Other missing
+  references stay `reference-unavailable`, and their remedy mentions node ids
+  and commits when the reference has that shape.
+- `heddle task edit <ref> <text>` names the `--text` form it needs.
 - `heddle run-gate` and `heddle run-gates` print progress to stderr once a
   minute while reviewers run, naming the gate, slot, CLI and elapsed time;
   `run-gates` gives every slot's state (`running`, `done after …` or
@@ -109,9 +128,18 @@ authority for the installed version.
   closes only through `settled` with that decision's `decision_id`. Rows
   already recorded that way are explained in readiness instead of staying
   open without a reason.
-- At a round limit, when the only open reference is the latest round's own
-  `@coverage` duty, readiness routes to `heddle review disposition` instead of
-  a round-limit stop.
+- At a round-limit, no-progress or no-decrease stop, readiness routes to
+  `heddle review disposition` or `heddle review reaffirm` instead of the stop
+  when every open row closes by re-recording evidence alone. That covers a row
+  whose assignment basis, citations or verification changed, judged at the
+  current basis and as re-cited, and, at a round limit, the latest round's
+  undisposed `@coverage`. A row whose evidence fails on its own, an inspection
+  duty, review evidence whose review source changed, and any retained,
+  undisposed or awaiting-decision row keep the stop, and a pending owner
+  decision still comes first. The routed action says why no round or owner
+  decision is needed. Rows `heddle review reaffirm` writes carry
+  `rebound_by: reaffirm`; `state.yaml` accepts only `review-equivalence` and
+  `reaffirm` as a `rebound_by` writer.
 - A `heddle review round-open` that records a no-progress, no-decrease or
   round-limit stop returns `ok: true` with exit 4, and its `data` carries
   `wrote`, `revision`, `decision_id` and `stop_reason`; the next action

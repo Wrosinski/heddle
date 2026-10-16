@@ -286,7 +286,9 @@ def _assignment_readiness(
                 routed = next_actions(snapshot, row)
                 # Every assignment routed to reaffirm carries the same
                 # boundary-level work, which is offered once.
-                if row["next_step"] != "reaffirm" or routed[0] not in actions:
+                if row["next_step"] != "reaffirm" or all(
+                    item.action != routed[0].action for item in actions
+                ):
                     actions.extend(routed)
     obligations = tuple(
         (str(reference[0]), str(reference[1]))

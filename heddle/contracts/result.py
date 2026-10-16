@@ -91,16 +91,18 @@ ERROR_CODES: frozenset[str] = frozenset(
 # ``details.cause`` of its gate-not-converged refusal.
 LAUNCH_REFUSAL_CAUSES = (
     "launch-sequential",
-    "single-slot",
     "implementation-pending",
-    "no-launchable-slot",
     "other-work-first",
+    "single-slot",
+    "no-launchable-slot",
 )
-# Why a routed review slot is left out of a launch set.
+# Why a slot of a routed review is left out of a launch set, in the order they
+# are checked.
 LAUNCH_EXCLUSION_REASONS = (
     "scope-unresolved",
     "assignment-sealed",
     "changed-source-pending",
+    "slot-recorded",
     "admission-refused",
 )
 

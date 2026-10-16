@@ -122,9 +122,10 @@ whose completed output awaits repair after a source change never join a set. A
 refused slot, or a lone remaining one, keeps its `heddle run-gate` action and
 its place. Do not construct a role list or worker count: no such
 public inputs exist. When no set launches, the refusal names its cause in
-`details.cause`: `launch-sequential`, `single-slot`, `implementation-pending`,
-`no-launchable-slot` or `other-work-first`. A launch that leaves a routed slot
-out lists it with its reason under `excluded_slots`. The current milestone's
+`details.cause`: `launch-sequential`, `implementation-pending`,
+`other-work-first`, `single-slot` or `no-launchable-slot`. Every launch and
+refusal lists the slots of routed reviews it left out, with their reasons,
+under `excluded_slots`. The current milestone's
 review is exit evidence: while that milestone has no tasks or an unfinished one,
 `run-gates` and the slot's own `run-gate` both refuse it (`task-incomplete` for
 `run-gate`) and name the open work. On a provider failure, interruption, or
