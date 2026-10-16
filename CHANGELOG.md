@@ -44,7 +44,8 @@ authority for the installed version.
     material change to a milestone's reviewed code or proof since its latest
     round, which readiness routing past a stop does not discharge; at the
     round limit it asks the owner whether to raise the limit, and a driven
-    session, which cannot open the round, names it in its session handoff;
+    session, which cannot open the round, names it in its session handoff
+    and does not wait for it;
   - implement, peer-review and robustness offer a witness waiver only after a
     dry run of the proposal passes, and where orient lists the lane, only
     when its `rerun_route` allows one;

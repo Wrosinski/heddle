@@ -1385,9 +1385,11 @@ def test_implement_owes_a_verification_round_after_a_material_change() -> None:
         "reviews that are off owe none",
         "round limit",
         "cannot open the owed round",
-        "session handoff",
+        "the owed round in its session handoff",
+        "no owner question",
         "closes rows, not that round",
     ), "implement step 5 does not state the owed verification round"
+    assert "driver pauses before advance" not in _normalized("implement.briefing.md")
     assert _has_passage(
         text, "minor finding", "no correction or rerun", "coverage", "supported gap"
     ), "implement step 5 does not state the Minor coverage duty"

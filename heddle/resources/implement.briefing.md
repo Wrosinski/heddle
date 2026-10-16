@@ -177,7 +177,8 @@ formal gate artifacts retain their required structure and non-narration rules.
    round at the confirmed round limit, ask the owner before advance whether to
    raise the limit. A session that cannot open the owed round, such as a driven
    one, names the milestone, the change and the owed round in its session
-   handoff. Do not invent a
+   handoff instead; that is no owner question, and advance does not wait for
+   the round. Do not invent a
    synthesis, fixed pass count, or reset allowance after a policy/model change.
    If the confirmed cap is reached, `heddle review allowance` records only an
    owner-approved absolute quality round increase. It invokes no provider and
