@@ -1384,9 +1384,10 @@ def test_implement_owes_a_verification_round_after_a_material_change() -> None:
         "formatting only changes",
         "reviews that are off owe none",
         "round limit",
-        "cannot open the owed round",
+        "driven session cannot open the owed round",
         "the owed round in its session handoff",
         "no owner question",
+        "advance does not wait for the round",
         "closes rows, not that round",
     ), "implement step 5 does not state the owed verification round"
     assert "driver pauses before advance" not in _normalized("implement.briefing.md")
