@@ -830,11 +830,15 @@ def test_ac6_unreadable_shared_inputs_refuse_with_the_sets_exclusions(
     assert excluded and {row["reason"] for row in excluded} == {"admission-refused"}
 
 
-@pytest.mark.parametrize("failing", ["lock inputs", "locks", "rederivation"])
+@pytest.mark.parametrize(
+    "failing", ["lock inputs", "locks", "rederivation", "after rederivation"]
+)
 def test_ac6_lock_and_admission_failures_list_the_set_last_derived(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, failing: str
 ) -> None:
     """A refusal lists the exclusions of the set as last derived, if any."""
+    from dataclasses import replace
+
     from heddle.gate import entry
     from heddle.runtime import gate_run
 
@@ -848,6 +852,7 @@ def test_ac6_lock_and_admission_failures_list_the_set_last_derived(
         raise OSError(f"synthetic unreadable {failing}")
 
     derive = gate_run.current_launch_set
+    lock_inputs = gate_run._batch_lock_inputs
     derivations = []
 
     def deriving_once(*args, **kwargs):
@@ -856,12 +861,27 @@ def test_ac6_lock_and_admission_failures_list_the_set_last_derived(
             unreadable()
         return derive(*args, **kwargs)
 
+    def rederiving_one_exclusion(*args, **kwargs):
+        derivations.append(args)
+        launch, actions = derive(*args, **kwargs)
+        if len(derivations) > 1:
+            launch = replace(launch, exclusions=launch.exclusions[:1])
+        return launch, actions
+
+    def reading_lock_inputs_once(*args, **kwargs):
+        if len(derivations) > 1:
+            unreadable()
+        return lock_inputs(*args, **kwargs)
+
     if failing == "lock inputs":
         monkeypatch.setattr(gate_run, "_batch_lock_inputs", unreadable)
     elif failing == "locks":
         monkeypatch.setattr(entry, "gate_lock_for_runtime", unreadable)
-    else:
+    elif failing == "rederivation":
         monkeypatch.setattr(gate_run, "current_launch_set", deriving_once)
+    else:
+        monkeypatch.setattr(gate_run, "current_launch_set", rederiving_one_exclusion)
+        monkeypatch.setattr(gate_run, "_batch_lock_inputs", reading_lock_inputs_once)
     before = state_path.read_bytes()
     with multiprocessing.Manager() as manager:
         calls = install_counting_engine(monkeypatch, manager)
@@ -873,9 +893,53 @@ def test_ac6_lock_and_admission_failures_list_the_set_last_derived(
     assert call_count == 0 and state_path.read_bytes() == before
     if failing == "rederivation":
         assert "excluded_slots" not in (refused.error.details or {})
-    else:
-        excluded = refused.error.details["excluded_slots"]
-        assert excluded and {row["reason"] for row in excluded} == {"admission-refused"}
+        return
+    excluded = refused.error.details["excluded_slots"]
+    assert {row["reason"] for row in excluded} == {"admission-refused"}
+    # The set derived again under the locks is the one a later failure lists.
+    assert len(excluded) == (1 if failing == "after rederivation" else 2)
+
+
+def test_ac6_a_failed_final_refresh_still_lists_the_sets_exclusions(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Members ran; the summary cannot refresh, and still names what it left out."""
+    from heddle.kernel.project_config import KernelError
+    from heddle.runtime import gate_run
+    from heddle.runtime.feature_context import ResolveFeatureFailure
+
+    host, _state_path = full_peer_host(tmp_path, monkeypatch, complexity="dual")
+    config = host / ".heddle.yaml"
+    value = yaml.safe_load(config.read_text())
+    value["agents"] = {"claude": False}
+    config.write_text(yaml.safe_dump(value, sort_keys=False))
+    resolve = gate_run.resolve_snapshot_from_cwd
+    resolutions = []
+
+    def failing_third(*args, **kwargs):
+        resolutions.append(args)
+        if len(resolutions) == 3:
+            return ResolveFeatureFailure(
+                KernelError(
+                    code="workspace-invalid",
+                    message="synthetic unreadable state",
+                    hint="repair the state",
+                ),
+                (),
+            )
+        return resolve(*args, **kwargs)
+
+    monkeypatch.setattr(gate_run, "resolve_snapshot_from_cwd", failing_third)
+    with multiprocessing.Manager() as manager:
+        calls = install_counting_engine(monkeypatch, manager)
+        refused = execute_batch()
+        call_count = len(calls)
+
+    assert call_count == 2 and len(resolutions) == 3
+    assert not refused.ok and refused.error.message == "synthetic unreadable state"
+    excluded = refused.error.details["excluded_slots"]
+    assert len(excluded) == 2
+    assert {row["reason"] for row in excluded} == {"admission-refused"}
 
 
 def test_ac6_a_member_preparation_refusal_refuses_the_batch_naming_that_member(

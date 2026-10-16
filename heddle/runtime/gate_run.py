@@ -1111,18 +1111,19 @@ def _batch_result(
 
     Success and failure alike list the routed slots the launch set left out.
     """
+    excluded = [row.payload() for row in launch.exclusions]
     refreshed = resolve_snapshot_from_cwd(resolved.feature, writable=True)
     if isinstance(refreshed, ResolveFeatureFailure):
-        return kernel_error_result(
+        unresolved = kernel_error_result(
             refreshed.error,
             exit_codes=_RESOLUTION_EXITS,
             diagnostics=refreshed.diagnostics,
             include_feature_switch_action=False,
         )
+        return _with_details(unresolved, excluded_slots=excluded)
     member_actions = {
         member.key: _batch_member_actions(refreshed, member) for member in members
     }
-    excluded = [row.payload() for row in launch.exclusions]
     failing = [
         member
         for member in members
