@@ -18,14 +18,17 @@ under the tests root:
   ``Bypass-Justification:`` trailer contract).
 
 The census proves definitions are kept, not pytest collection or parameter
-cases. It reads tokens, so strings and comments hold no tests and syntax
-newer than the running interpreter still reads; a file that does not
-tokenize holds none. When a commit concludes a merge, every parent counts: a
-test any parent has must stay unless some parent lacks it that one of its
-merge bases with HEAD had, a deletion checked where it was made, and only a
-test or file no parent had can be a move or rename target. A file only a
-merged-in head had is checked through its tests. Rebase and cherry-pick
-replay most commits without commit hooks, and ``--no-verify`` skips them.
+cases. It reads tokens, so strings and comments hold no tests and most
+syntax newer than the running interpreter still reads; a file that does not
+tokenize holds none, so run the hook under an interpreter as new as the
+project's. When a commit concludes a merge, every parent counts: a test a
+parent has must stay unless another parent lacks it that the holder's merge
+base with HEAD had, a deletion checked where it was made, and only a test or
+file no parent had can be a move or rename target. A file only a merged-in
+head had is checked through its tests. A merge that discards a side's tests
+(``-s ours``), or keeps once a test two branches renamed differently, needs
+the bypass. Rebase and cherry-pick replay most commits without commit hooks,
+and ``--no-verify`` skips them.
 """
 
 from __future__ import annotations
@@ -36,6 +39,7 @@ import re
 import subprocess
 import sys
 import tokenize
+import unicodedata
 from collections import Counter
 from collections.abc import Iterable
 from pathlib import Path
@@ -84,9 +88,9 @@ def _fields(*args: str) -> list[str]:
     return _text(raw.stdout).split("\0")[:-1]
 
 
-def _statuses(rev: str | None) -> dict[str, str]:
-    """Each path under the root the index changes from ``rev`` (HEAD if None)."""
-    fields = _fields("--no-renames", *([rev] if rev else []))
+def _statuses() -> dict[str, str]:
+    """Each path under the root the index changes from HEAD, by status."""
+    fields = _fields("--no-renames")
     return {fields[index + 1]: fields[index] for index in range(0, len(fields), 2)}
 
 
@@ -115,6 +119,18 @@ def _blobs(specs: list[str]) -> dict[str, bytes | None]:
 def _bases(head: str) -> list[str]:
     """The merge bases of HEAD and ``head``; none for unrelated histories."""
     return _text(_git("merge-base", "--all", "HEAD", head, ok=(0, 1)).stdout).split()
+
+
+def _changed(head: str, bases: list[str]) -> set[str]:
+    """The paths under the root ``head`` changed since any of its merge bases."""
+    empty = _text(_git("hash-object", "-t", "tree", "--stdin", stdin=b"").stdout)
+    paths: set[str] = set()
+    for base in bases or [empty.strip()]:
+        raw = _git(
+            "diff", "--name-only", "-z", "--no-renames", base, head, "--", PATHSPEC
+        )
+        paths.update(_text(raw.stdout).split("\0")[:-1])
+    return paths
 
 
 def _merge_heads() -> list[str]:
@@ -149,10 +165,15 @@ def _test_ids(path: str, source: bytes) -> set[str] | None:
     Functions named ``test*`` and classes named ``Test*`` count wherever only
     classes enclose them; a function's own body holds no test ids. Each
     logical line that begins a definition names it, and an indented block
-    takes the prefix its header line opens.
+    takes the prefix its header line opens. As in Python, every line break
+    form ends a line, names compare in NFKC form, and a NUL byte makes the
+    file unreadable.
     """
+    if b"\0" in source:
+        return None
+    lines = source.replace(b"\r\n", b"\n").replace(b"\r", b"\n")
     try:
-        tokens = list(tokenize.tokenize(io.BytesIO(source).readline))
+        tokens = list(tokenize.tokenize(io.BytesIO(lines).readline))
     except (tokenize.TokenError, SyntaxError, ValueError):
         return None
     skipped = {tokenize.ENCODING, tokenize.NL, tokenize.COMMENT}
@@ -179,7 +200,7 @@ def _header(words: list[str], prefix: str | None, ids: set[str]) -> str | None:
         words = words[1:]
     if prefix is None or len(words) < 2 or words[0] not in {"def", "class"}:
         return prefix
-    kind, name = words[0], words[1]
+    kind, name = words[0], unicodedata.normalize("NFKC", words[1])
     if name.startswith("test" if kind == "def" else "Test"):
         ids.add(f"{prefix}::{name}")
     return None if kind == "def" else f"{prefix}::{name}"
@@ -262,14 +283,13 @@ def _renames(message: Path) -> list[tuple[str, str]]:
 class _Census:
     """Test ids at the index and each revision it is compared with, read once.
 
-    ``parents`` maps HEAD, and each head a merge joins, to the merge bases it
-    descends from; every base descends to HEAD too. ``""`` names the index.
+    ``bases`` maps each head a merge joins to its merge bases with HEAD;
+    ``""`` names the index.
     """
 
     def __init__(self, heads: list[str]) -> None:
-        own = {head: _bases(head) for head in heads}
-        every = [base for bases in own.values() for base in bases]
-        self.parents: dict[str, list[str]] = {"HEAD": every, **own}
+        self.bases = {head: _bases(head) for head in heads}
+        self.parents = ["HEAD", *heads]
         self.unreadable: set[tuple[str, str]] = set()
         self._sources: dict[str, bytes | None] = {}
         self._ids: dict[tuple[str, str], set[str]] = {}
@@ -298,27 +318,40 @@ class _Census:
         return set().union(*(self.ids(parent, path) for parent in self.parents))
 
     def deleted(self, test_id: str) -> bool:
-        """Whether a parent lacks the test that a merge base it descends from had."""
+        """Whether every parent holding the test lost it to another's deletion.
+
+        HEAD's copy is lost when a head lacks the test that their merge base
+        had; a head's copy, when another parent lacks the test that the
+        head's merge base with HEAD had.
+        """
         path = _name(test_id)[0]
-        return any(
-            test_id not in self.ids(parent, path)
-            and any(test_id in self.ids(base, path) for base in bases)
-            for parent, bases in self.parents.items()
+
+        def had(head: str) -> bool:
+            return any(test_id in self.ids(base, path) for base in self.bases[head])
+
+        lacking = [p for p in self.parents if test_id not in self.ids(p, path)]
+        if "HEAD" not in lacking and not any(had(head) for head in lacking):
+            return False
+        return bool(lacking) and all(
+            had(head) for head in self.bases if head not in lacking
         )
 
     def deleted_file(self, path: str) -> bool:
+        """Whether a head lacks the file that its merge base with HEAD had."""
         return any(
-            self.source(parent, path) is None
+            self.source(head, path) is None
             and any(self.source(base, path) is not None for base in bases)
-            for parent, bases in self.parents.items()
+            for head, bases in self.bases.items()
         )
 
 
 def _check(message: Path) -> int:
     heads = _merge_heads()
     census = _Census(heads)
-    statuses = _statuses(None)
-    paths = sorted(set(statuses).union(*(_statuses(head) for head in heads)))
+    statuses = _statuses()
+    paths = sorted(
+        set(statuses).union(*(_changed(h, b) for h, b in census.bases.items()))
+    )
     census.read(["", *census.parents], paths)
     removed: set[str] = set()
     added: set[str] = set()
@@ -326,7 +359,7 @@ def _check(message: Path) -> int:
         held, staged = census.held(path), census.ids("", path)
         removed |= held - staged
         added |= staged - held
-    ancestors = {base for bases in census.parents.values() for base in bases}
+    ancestors = {base for bases in census.bases.values() for base in bases}
     census.read(ancestors, {_name(test_id)[0] for test_id in removed})
     removed = {test_id for test_id in removed if not census.deleted(test_id)}
     deleted = [
@@ -397,6 +430,10 @@ def _check(message: Path) -> int:
 
 
 def main(argv: list[str]) -> int:
+    # Paths are read with surrogateescape; print them back as their bytes.
+    reconfigure = getattr(sys.stdout, "reconfigure", None)
+    if reconfigure is not None:
+        reconfigure(errors="surrogateescape")
     if os.environ.get("ALLOW_TEST_DELETION", "0") == "1":
         return 0
     if len(argv) != 1:

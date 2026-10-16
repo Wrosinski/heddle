@@ -51,9 +51,9 @@ hooks:
       `Test-Renamed: <old id> -> <new id>` trailer in the message's trailer
       block. A deleted file passes when its tests all moved or were renamed,
       or, without tests, when Git sees it renamed. When concluding a merge,
-      a test any parent has must stay unless a parent lacks it that one of
-      its merge bases with HEAD had, and only a test or file no parent had
-      is a move or rename target. Anything else requires
+      a test a parent has must stay unless another parent lacks it that the
+      holder's merge base with HEAD had, and only a test or file no parent
+      had is a move or rename target. Anything else requires
       ALLOW_TEST_DELETION=1 (paired with the Bypass-Justification trailer
       contract).
     params:

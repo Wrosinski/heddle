@@ -412,6 +412,18 @@ def test_test_deletion_ids_follow_lexical_class_nesting() -> None:
         "tests/test_a.py::test_conditional",
     }
     assert hook._test_ids("tests/test_a.py", b"def test_broken(:\n") is None
+    # As in Python: names compare in NFKC form, a lone carriage return ends a
+    # line, and a NUL byte makes the file unreadable (Python 3.12's tokenizer
+    # fails on this one with a SystemError).
+    styled = "def \U0001d601est_x():\n    pass\n".encode()
+    assert hook._test_ids("tests/test_a.py", styled) == {"tests/test_a.py::test_x"}
+    returns = b"def test_a(): pass\rdef test_b(): pass\r"
+    assert hook._test_ids("tests/test_a.py", returns) == {
+        "tests/test_a.py::test_a",
+        "tests/test_a.py::test_b",
+    }
+    nul = b"class TestA:\n    def test_a(self):\n        pass\n\0\n"
+    assert hook._test_ids("tests/test_a.py", nul) is None
 
 
 def test_test_deletion_ids_match_a_syntax_tree_reading() -> None:
@@ -436,13 +448,16 @@ def test_test_deletion_ids_match_a_syntax_tree_reading() -> None:
         visit(tree, path)
         return ids
 
-    compared = 0
-    for module in sorted((REPO_ROOT / "tests").rglob("*.py")):
-        source = module.read_bytes()
-        path = module.relative_to(REPO_ROOT).as_posix()
+    manifest = (REPO_ROOT / "release/manifests/repository.txt").read_text()
+    modules = [
+        path
+        for path in manifest.splitlines()
+        if path.startswith("tests/") and path.endswith(".py")
+    ]
+    assert len(modules) > 100
+    for path in modules:
+        source = (REPO_ROOT / path).read_bytes()
         assert hook._test_ids(path, source) == tree_ids(path, ast.parse(source)), path
-        compared += 1
-    assert compared > 100
 
 
 _A = "tests/test_a.py"
@@ -830,7 +845,7 @@ def test_test_deletions_merge_discounts_only_what_a_parent_deleted(
     )
     _commit_all(tmp_path, "side")
     _git_in(tmp_path, "checkout", "-q", "-")
-    _stage(tmp_path, {"tests/test_x.py": ours})
+    _stage(tmp_path, {"tests/test_x.py": ours, "tests/support.py": "VALUE = 2\n"})
     _commit_all(tmp_path, "main")
     _git_in(tmp_path, "merge", "--no-ff", "--no-commit", "side", check=False)
 
@@ -850,6 +865,12 @@ def test_test_deletions_merge_discounts_only_what_a_parent_deleted(
     _stage(tmp_path, {"tests/test_x.py": ours + side_new})
     both = _deletions(tmp_path)
     assert both.returncode == 0, both.stdout
+    # A support module this branch added is no side's deletion.
+    _git_in(tmp_path, "rm", "-q", "tests/support.py")
+    dropped = _deletions(tmp_path)
+    assert dropped.returncode == 1
+    assert "Deleted test files:\n  tests/support.py\n" in dropped.stdout
+    _stage(tmp_path, {"tests/support.py": "VALUE = 2\n"})
 
     # A file the side added is no rename target for a deletion made here.
     _git_in(tmp_path, "rm", "-q", "tests/conftest.py")
@@ -903,6 +924,112 @@ def test_test_deletions_merge_keeps_what_only_a_merged_in_head_had(
     assert result.returncode == 1
     removed = result.stdout.split("Removed tests:\n")[1].split("\n\n")[0]
     assert removed.split() == ["tests/test_c.py::test_b", "tests/test_h.py::test_h_new"]
+
+
+@pytest.mark.toolchain
+def test_test_deletions_octopus_judges_each_copy_by_its_heads_base(
+    tmp_path: Path,
+) -> None:
+    """A deletion this branch made excuses no test another head added."""
+    keep = "def test_keep():\n    pass\n"
+    with_t = keep + "\n\ndef test_t():\n    pass\n"
+    _init_git_repo(tmp_path)
+    _stage(tmp_path, {"tests/test_a.py": keep})
+    _commit_all(tmp_path)
+    _git_in(tmp_path, "branch", "late")
+    _stage(tmp_path, {"tests/test_a.py": with_t})
+    _commit_all(tmp_path, "main adds test_t")
+    _git_in(tmp_path, "checkout", "-q", "-b", "early")
+    _stage(tmp_path, {"README.md": "notes\n"})
+    _commit_all(tmp_path, "early forks after test_t")
+    _git_in(tmp_path, "checkout", "-q", "-")
+    _stage(tmp_path, {"tests/test_a.py": keep})
+    _commit_all(tmp_path, "main deletes test_t")
+    _git_in(tmp_path, "checkout", "-q", "late")
+    _stage(tmp_path, {"tests/test_a.py": with_t})
+    _commit_all(tmp_path, "late adds its own test_t")
+    _git_in(tmp_path, "checkout", "-q", "-")
+    _git_in(tmp_path, "merge", "--no-ff", "--no-commit", "early", "late")
+    assert len(_merge_heads_of(tmp_path)) == 2
+    assert _deletions(tmp_path).returncode == 0
+
+    _stage(tmp_path, {"tests/test_a.py": keep})
+    result = _deletions(tmp_path)
+
+    assert result.returncode == 1
+    assert "tests/test_a.py::test_t" in result.stdout
+
+
+def _merge_heads_of(root: Path) -> list[str]:
+    path = subprocess.run(
+        ["git", "rev-parse", "--git-path", "MERGE_HEAD"],
+        cwd=root,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    return (root / path).read_text().split()
+
+
+@pytest.mark.toolchain
+def test_test_deletions_merge_of_unrelated_histories_keeps_both_sides(
+    tmp_path: Path,
+) -> None:
+    _init_git_repo(tmp_path)
+    _stage(tmp_path, {"tests/test_a.py": TWO_TESTS, "tests/test_c.py": CLASS_TEST})
+    _commit_all(tmp_path)
+    _git_in(tmp_path, "branch", "main-line")
+    _git_in(tmp_path, "checkout", "-q", "--orphan", "other")
+    _git_in(tmp_path, "rm", "-r", "-q", "--cached", ".")
+    (tmp_path / "tests/test_a.py").unlink()
+    _stage(tmp_path, {"tests/test_o.py": TWO_TESTS, "tests/test_c.py": TWO_TESTS})
+    _commit_all(tmp_path, "an unrelated history")
+    _git_in(tmp_path, "checkout", "-q", "main-line")
+    _git_in(
+        tmp_path,
+        "merge",
+        "--no-ff",
+        "--no-commit",
+        "--allow-unrelated-histories",
+        "other",
+        check=False,
+    )
+    # Taking this side's test_c.py drops the tests the other history had there.
+    _git_in(tmp_path, "checkout", "--ours", "tests/test_c.py")
+    _git_in(tmp_path, "add", "tests/test_c.py")
+    ours = _deletions(tmp_path)
+    assert ours.returncode == 1
+    assert "tests/test_c.py::test_a" in ours.stdout
+    _stage(tmp_path, {"tests/test_c.py": CLASS_TEST + "\n\n" + TWO_TESTS})
+    assert _deletions(tmp_path).returncode == 0
+
+    _stage(tmp_path, {"tests/test_o.py": "def test_a():\n    assert True\n"})
+    result = _deletions(tmp_path)
+
+    assert result.returncode == 1
+    assert "tests/test_o.py::test_b" in result.stdout
+
+
+@pytest.mark.toolchain
+def test_test_deletions_prints_a_path_that_is_not_utf8(tmp_path: Path) -> None:
+    _init_git_repo(tmp_path)
+    name = os.fsdecode(b"tests/test_\xff.py")
+    _stage(tmp_path, {name: TWO_TESTS})
+    _commit_all(tmp_path)
+    _stage(tmp_path, {name: None})
+
+    result = subprocess.run(
+        [sys.executable, str(_hook_path("check-test-deletions")), _message(tmp_path)],
+        cwd=tmp_path,
+        env={k: v for k, v in os.environ.items() if not k.startswith("ALLOW_")}
+        | {"PYTHONIOENCODING": "utf-8"},
+        capture_output=True,
+        timeout=30,
+        check=False,
+    )
+
+    assert result.returncode == 1, result.stderr
+    assert b"Deleted test files:\n  tests/test_\xff.py\n" in result.stdout
 
 
 @pytest.mark.toolchain

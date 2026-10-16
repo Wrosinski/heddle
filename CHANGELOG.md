@@ -19,14 +19,15 @@ authority for the installed version.
   it keeps. A deleted file under the tests root passes when every test in it
   moved or was renamed, or, for a file without tests, when Git sees it
   renamed. Tests removed inside a renamed file are now caught. The ids come
-  from tokens, so a definition inside a string or comment is no test, syntax
-  newer than the hook's interpreter still reads, and a file that does not
-  tokenize holds no tests. When a commit concludes a merge, every parent
-  counts: a test any parent has must stay unless a parent lacks it that one
-  of its merge bases with HEAD had, and only a test or file no parent had can
-  be a move or rename target. A failed git call fails the hook. The commit-msg snippets declare `stages: [commit-msg]` and
-  `always_run: true`, and the hook manifest lists the
-  `default_install_hook_types` a host needs before `pre-commit install`.
+  from tokens, so a definition inside a string or comment is no test, most
+  syntax newer than the hook's interpreter still reads, and a file that does
+  not tokenize holds no tests. When a commit concludes a merge, every parent
+  counts: a test a parent has must stay unless another parent lacks it that
+  the holder's merge base with HEAD had, and only a test or file no parent
+  had can be a move or rename target. A failed git call fails the hook. The
+  commit-msg snippets declare `stages: [commit-msg]` and `always_run: true`,
+  and the hook manifest lists the `default_install_hook_types` a host needs
+  before `pre-commit install`.
 
 - The recommended review policy under the Full base selects `gpt-6-astra` at
   `xhigh` as the `review-test-scaffolding` secondary for every round, and no
