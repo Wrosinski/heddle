@@ -41,7 +41,7 @@ commit, message and push hooks. `heddle init` does not install host Git hooks.
 | `check-local-workflow-records` | repository index | Local workflow records stay out of Git under `release/public-repository.toml` |
 | `check-prompt-conventions` | the `layout.prompts` corpus (`heddle/resources/prompts/` here) | Prompt files named in that corpus's `conventions.yaml` carry their declared convention markers |
 | `check-no-src-print` | `heddle/**/*.py` | Non-CLI source modules do not add accidental `print()` calls |
-| `check-test-deletions` (packaged) | commit message and staged test ids | Tests and test files are not removed without `ALLOW_TEST_DELETION=1`; a test moved to another file under its name passes, and a rename passes with a `Test-Renamed: <old id> -> <new id>` trailer |
+| `check-test-deletions` (packaged) | commit message and staged test ids | Tests and test files are not removed without `ALLOW_TEST_DELETION=1`; a test moved to another file under its name passes, a rename passes with a `Test-Renamed: <old id> -> <new id>` trailer, and a file without tests passes when Git sees it renamed |
 | `check-subprocess-handlers` | `heddle/gate/**/*.py` and `heddle/io/**/*.py` | Direct subprocess calls stay inside sanctioned helper modules |
 | `check-bypass-justification` (packaged) | environment / commit message | Active `ALLOW_*` bypasses require a `Bypass-Justification:` trailer or `BYPASS_JUSTIFICATION` |
 | `check-principles-amendment` (packaged) | commit message when `docs/workflow/engineering-principles.md` is staged | Principles amendments carry an owner-ratified `Principles-Amendment:` trailer |
@@ -149,7 +149,9 @@ choose their own hooks and execution permissions. Passing structural checks and
 fixture-based runtime tests does not establish real-provider behavior quality.
 
 They are local guards. `git commit --no-verify` skips them, and rebase and
-cherry-pick skip commit hooks. The test-deletion census proves test
-definitions are kept, not that pytest still collects them or their parameter
-cases. A commit concluding a merge skips it, since the merged branch's
-deletions were checked where they were made.
+cherry-pick replay most commits without commit hooks; a reworded commit or a
+conflicted step concluded with `--continue` runs them. The test-deletion
+census proves test definitions are kept, not that pytest still collects them
+or their parameter cases. When a commit concludes a merge, it counts only
+tests and files every parent kept, since a deletion on either side was
+checked where it was made.

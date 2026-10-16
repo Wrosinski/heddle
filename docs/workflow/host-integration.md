@@ -489,20 +489,23 @@ witness guidance until reconciled.
 ## Adopting packaged Git hooks
 
 `heddle init` does not install hooks. To adopt one, copy it from the
-installed package's `heddle/resources/hooks/` into `.heddle/hooks/`, replace
-each `{{name|default}}` token with the value its manifest `source` names (for
-example `layout.tests`), and add its manifest `snippet` to
-`.pre-commit-config.yaml`. The `check-test-deletions`,
-`check-bypass-justification` and `check-principles-amendment` hooks run at
-the commit-msg stage. Set `default_install_hook_types: [pre-commit,
-commit-msg]` in that config and run `pre-commit install`; without a commit-msg
-hook installed, those guards never run.
+installed package's `heddle/resources/hooks/` into `.heddle/hooks/` and
+replace each `{{name|default}}` token with the value its manifest `source`
+names (for example `layout.tests`). Then add a `repo: local` hook to
+`.pre-commit-config.yaml` with the manifest entry's `id` and the keys of its
+`snippet`. The `check-test-deletions`, `check-bypass-justification` and
+`check-principles-amendment` hooks run at the commit-msg stage. Set
+`default_install_hook_types: [pre-commit, commit-msg]` in that config and run
+`pre-commit install`; without a commit-msg hook installed, those guards never
+run. Their snippets set `always_run`, so a top-level `files` or `exclude`
+that filters out the commit message path makes them fail instead of skip.
 
 The test-deletion guard compares test ids, `path::[Class::...]name`, between
-HEAD and the index. A test moved to another file under its own name passes.
-For a rename, add one `Test-Renamed: <old id> -> <new id>` trailer per test;
-a class rename covers the methods it keeps. A true deletion still needs
-`ALLOW_TEST_DELETION=1` with a `Bypass-Justification:` trailer.
+HEAD and the index. A test moved to another file under its own name passes,
+and so does a file without tests that Git sees renamed. For a rename, add one
+`Test-Renamed: <old id> -> <new id>` trailer per test to the message's
+trailer block; a class rename covers the members it keeps. A true deletion
+still needs `ALLOW_TEST_DELETION=1` with a `Bypass-Justification:` trailer.
 
 ## Shared decision policy
 

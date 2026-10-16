@@ -15,12 +15,14 @@ authority for the installed version.
   definition lines, and runs at the commit-msg stage. A signature change or a
   re-wrapped definition passes, a test moved to another file under its name
   passes, and a rename passes with a `Test-Renamed: <old id> -> <new id>`
-  trailer; a class rename covers the methods it keeps. A deleted file under
-  the tests root stays flagged unless every test in it moved or was renamed.
-  Tests removed inside a renamed file are now caught, a commit concluding a
-  merge is skipped, a file that does not parse falls back to the line check,
-  and a failed git call fails the hook. Its snippet declares
-  `stages: [commit-msg]`, and the hook manifest lists the
+  trailer in the message's trailer block; a class rename covers the members
+  it keeps. A deleted file under the tests root passes when every test in it
+  moved or was renamed, or, for a file without tests, when Git sees it
+  renamed. Tests removed inside a renamed file are now caught. A commit
+  concluding a merge counts only tests and files every parent kept. A file
+  that does not parse falls back to the line check, and a failed git call
+  fails the hook. The commit-msg snippets declare `stages: [commit-msg]` and
+  `always_run: true`, and the hook manifest lists the
   `default_install_hook_types` a host needs before `pre-commit install`.
 
 - The recommended review policy under the Full base selects `gpt-6-astra` at

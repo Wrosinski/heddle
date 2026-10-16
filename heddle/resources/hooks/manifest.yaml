@@ -9,7 +9,9 @@
 #
 # Commit-msg hooks run only where Git has a commit-msg hook installed: the
 # host config needs the `default_install_hook_types` below, then
-# `pre-commit install`.
+# `pre-commit install`. Their snippets set `always_run`, so a top-level
+# `files` or `exclude` that filters out the message path makes them fail
+# rather than skip.
 version: 1
 default_install_hook_types: [pre-commit, commit-msg]
 hooks:
@@ -40,14 +42,17 @@ hooks:
       entry: python3 .heddle/hooks/check-bypass-justification.py
       language: system
       stages: [commit-msg]
+      always_run: true
   - id: check-test-deletions
     stage: commit-msg
     description: >-
       Compares test ids (path::[Class::...]name) between HEAD and the index
       for staged Python files under the host tests root. A test moved to
       another file under its name passes; a rename passes with a
-      `Test-Renamed: <old id> -> <new id>` trailer. Any other removed test, or
-      a deleted file under the root whose tests did not all move, requires
+      `Test-Renamed: <old id> -> <new id>` trailer in the message's trailer
+      block. A deleted file passes when its tests all moved or were renamed,
+      or, without tests, when Git sees it renamed. When concluding a merge,
+      only what every parent kept counts. Anything else requires
       ALLOW_TEST_DELETION=1 (paired with the Bypass-Justification trailer
       contract).
     params:
@@ -59,6 +64,7 @@ hooks:
       entry: python3 .heddle/hooks/check-test-deletions.py
       language: system
       stages: [commit-msg]
+      always_run: true
   - id: check-skip-only-test-scaffolding
     stage: pre-commit
     description: >-
@@ -90,6 +96,7 @@ hooks:
       entry: python3 .heddle/hooks/check-principles-amendment.py
       language: system
       stages: [commit-msg]
+      always_run: true
 utilities:
   - id: git-commit-retry.sh
     description: >-

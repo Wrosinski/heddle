@@ -492,6 +492,79 @@ _C = "tests/test_c.py"
             [],
             id="move-keeps-its-class",
         ),
+        pytest.param(
+            {f"{_A}::test_old"},
+            {f"{_A}::test_one", f"{_A}::test_two"},
+            [
+                (f"{_A}::test_old", f"{_A}::test_one"),
+                (f"{_A}::test_old", f"{_A}::test_two"),
+            ],
+            {f"{_A}::test_old"},
+            [
+                (f"{_A}::test_old", f"{_A}::test_one"),
+                (f"{_A}::test_old", f"{_A}::test_two"),
+            ],
+            id="old-id-named-twice",
+        ),
+        pytest.param(
+            {f"{_A}::test_a"},
+            {f"{_A}::test_b"},
+            [
+                (f"{_A}::test_a", f"{_A}::test_b"),
+                (f"{_A}::test_missing", f"{_A}::test_b"),
+                (f"{_A}::test_a", f"{_A}::test_missing"),
+            ],
+            set(),
+            [
+                (f"{_A}::test_missing", f"{_A}::test_b"),
+                (f"{_A}::test_a", f"{_A}::test_missing"),
+            ],
+            id="unmatched-entry-voids-no-valid-pair",
+        ),
+        pytest.param(
+            {f"{_A}::test_a"},
+            {f"{_A}::test_b"},
+            [(f"{_A}::test_a", f"{_A}::test_b"), (f"{_A}::test_a", f"{_A}::test_b")],
+            set(),
+            [],
+            id="repeated-entry",
+        ),
+        pytest.param(
+            {f"{_A}::TestOld", f"{_A}::TestOld::test_a", f"{_A}::TestOld::test_b"},
+            {f"{_A}::TestNew", f"{_A}::TestNew::test_b", f"{_A}::TestNew::test_c"},
+            [
+                (f"{_A}::TestOld", f"{_A}::TestNew"),
+                (f"{_A}::TestOld::test_a", f"{_A}::TestNew::test_b"),
+                (f"{_A}::TestOld::test_b", f"{_A}::TestNew::test_c"),
+            ],
+            set(),
+            [],
+            id="member-pairs-before-class-rename",
+        ),
+        pytest.param(
+            {f"{_A}::_Base::test_common"},
+            {f"{_A}::_Shared::test_common"},
+            [(f"{_A}::_Base", f"{_A}::_Shared")],
+            set(),
+            [],
+            id="non-test-class-rename",
+        ),
+        pytest.param(
+            {f"{_A}::TestGroup", f"{_A}::TestGroup::test_one"},
+            {f"{_A}::test_one"},
+            [(f"{_A}::TestGroup::test_one", f"{_A}::test_one")],
+            set(),
+            [],
+            id="dissolved-class",
+        ),
+        pytest.param(
+            {f"{_A}::TestGroup", f"{_A}::TestGroup::test_one"},
+            set(),
+            [],
+            {f"{_A}::TestGroup", f"{_A}::TestGroup::test_one"},
+            [],
+            id="removed-class",
+        ),
     ],
 )
 def test_test_deletion_accounting_pairs_renames_and_moves(
@@ -501,11 +574,11 @@ def test_test_deletion_accounting_pairs_renames_and_moves(
     unaccounted: set[str],
     unused: list[tuple[str, str]],
 ) -> None:
-    left, _unpaired, unused_entries = _load_hook("check-test-deletions")._account(
-        removed, added, renames
-    )
+    left, _unpaired, conflicting, unmatched = _load_hook(
+        "check-test-deletions"
+    )._account(removed, added, renames)
 
-    assert (left, unused_entries) == (unaccounted, unused)
+    assert (left, sorted(conflicting + unmatched)) == (unaccounted, sorted(unused))
 
 
 @pytest.mark.toolchain
@@ -562,12 +635,14 @@ def test_test_deletions_rename_without_trailer_names_both_ids(tmp_path: Path) ->
     assert "Removed tests:\n  tests/test_a.py::test_a\n" in result.stdout
     assert "Added tests:\n  tests/test_a.py::test_renamed\n" in result.stdout
     assert "Test-Renamed: <old id> -> <new id>" in result.stdout
-    trailed = _deletions(
-        tmp_path,
-        "rename\n\nTest-Renamed: tests/test_a.py::test_a -> "
-        "tests/test_a.py::test_renamed\n",
-    )
+    trailer = "Test-Renamed: tests/test_a.py::test_a -> tests/test_a.py::test_renamed\n"
+    trailed = _deletions(tmp_path, f"rename\n\n{trailer}")
     assert trailed.returncode == 0, trailed.stdout
+    # Only the trailer block Git commits counts: not below the scissors line,
+    # and not in a paragraph followed by prose.
+    scissors = "# ------------------------ >8 ------------------------\n"
+    assert _deletions(tmp_path, f"rename\n\n{scissors}{trailer}").returncode == 1
+    assert _deletions(tmp_path, f"rename\n\n{trailer}\nMore prose.\n").returncode == 1
 
 
 @pytest.mark.toolchain
@@ -619,35 +694,79 @@ def test_test_deletions_unparsable_file_falls_back_to_removed_lines(
     _stage(tmp_path, {"tests/test_a.py": TWO_TESTS})
     _commit_all(tmp_path)
     _stage(tmp_path, {"tests/test_a.py": "def test_b(:\n    assert True\n"})
+    # User diff settings cannot hide the removed lines.
+    for key, value in (("color.ui", "always"), ("diff.external", "true")):
+        subprocess.run(["git", "config", key, value], cwd=tmp_path, check=True)
 
     result = _deletions(tmp_path)
 
     assert result.returncode == 1
-    assert "note: tests/test_a.py does not parse" in result.stdout
+    assert "note: tests/test_a.py does not parse under Python" in result.stdout
     assert "tests/test_a.py: -def test_a():" in result.stdout
-
-
-@pytest.mark.toolchain
-def test_test_deletions_skips_a_merge_and_an_unborn_branch(tmp_path: Path) -> None:
-    _init_git_repo(tmp_path)
-    _stage(tmp_path, {"tests/test_a.py": TWO_TESTS})
-    assert _deletions(tmp_path).returncode == 0  # nothing to delete yet
 
     _commit_all(tmp_path)
     _stage(tmp_path, {"tests/test_a.py": None})
-    assert _deletions(tmp_path).returncode == 1
-    git_dir = tmp_path / ".git"
-    (git_dir / "MERGE_HEAD").write_text(
-        subprocess.run(
-            ["git", "rev-parse", "HEAD"],
-            cwd=tmp_path,
-            check=True,
-            capture_output=True,
-            text=True,
-        ).stdout,
-        encoding="utf-8",
-    )
+    deleted = _deletions(tmp_path)
+    assert deleted.returncode == 1
+    assert "it counts as a deleted test file" in deleted.stdout
+    assert "Deleted test files:\n  tests/test_a.py\n" in deleted.stdout
+
+
+@pytest.mark.toolchain
+def test_test_deletions_merge_counts_what_every_parent_kept(tmp_path: Path) -> None:
+    def git(*args: str) -> None:
+        subprocess.run(["git", *args], cwd=tmp_path, check=True, capture_output=True)
+
+    _init_git_repo(tmp_path)
+    _stage(tmp_path, {"tests/test_a.py": TWO_TESTS})
+    assert _deletions(tmp_path).returncode == 0  # an unborn branch deletes nothing
+    _stage(tmp_path, {"tests/test_c.py": CLASS_TEST})
+    _commit_all(tmp_path)
+    git("checkout", "-q", "-b", "side")
+    _stage(tmp_path, {"tests/test_a.py": None})
+    _commit_all(tmp_path, "side drops test_a.py")
+    git("checkout", "-q", "-")
+    _stage(tmp_path, {"README.md": "notes\n"})
+    _commit_all(tmp_path, "the main line moves on")
+    git("merge", "--no-ff", "--no-commit", "side")
+
+    # The side branch dropped test_a.py; it was checked where it was dropped.
     assert _deletions(tmp_path).returncode == 0
+    _stage(tmp_path, {"tests/test_c.py": None})
+    result = _deletions(tmp_path)
+    assert result.returncode == 1
+    assert "tests/test_c.py::TestOld::test_m" in result.stdout
+    assert "tests/test_a.py" not in result.stdout
+
+
+@pytest.mark.toolchain
+def test_test_deletions_passes_moved_support_modules(tmp_path: Path) -> None:
+    _init_git_repo(tmp_path)
+    _stage(
+        tmp_path,
+        {
+            "tests/unit/__init__.py": "",
+            "tests/unit/conftest.py": "import pytest\n\n\n@pytest.fixture\n"
+            "def value():\n    return 1\n",
+            "tests/unit/test_x.py": TWO_TESTS,
+        },
+    )
+    _commit_all(tmp_path)
+    subprocess.run(
+        ["git", "mv", "tests/unit", "tests/kernel"], cwd=tmp_path, check=True
+    )
+    # A moved conftest that also adjusts a line still reads as renamed.
+    _stage(
+        tmp_path,
+        {
+            "tests/kernel/conftest.py": "import pytest\n\n\n@pytest.fixture\n"
+            "def value():\n    return 2\n"
+        },
+    )
+
+    result = _deletions(tmp_path)
+
+    assert result.returncode == 0, result.stdout
 
 
 @pytest.mark.toolchain
@@ -698,6 +817,11 @@ def test_test_deletion_guard_runs_at_commit_msg_where_it_is_wired() -> None:
     assert hook["stage"] == "commit-msg"
     assert hook["snippet"]["stages"] == ["commit-msg"]
     assert "pass_filenames" not in hook["snippet"]
+    assert all(
+        h["snippet"].get("always_run") is True
+        for h in manifest["hooks"]
+        if h["stage"] == "commit-msg"
+    )
     assert manifest["default_install_hook_types"] == ["pre-commit", "commit-msg"]
     assert {h["stage"] for h in manifest["hooks"]} == set(
         manifest["default_install_hook_types"]
@@ -714,6 +838,7 @@ def test_test_deletion_guard_runs_at_commit_msg_where_it_is_wired() -> None:
     )
     assert wired["stages"] == ["commit-msg"]
     assert "pass_filenames" not in wired
+    assert wired["always_run"] is True
 
 
 # ---------------------------------------------------------------------------
