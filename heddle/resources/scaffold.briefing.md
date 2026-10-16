@@ -93,7 +93,8 @@ Create and record all applicable lanes:
    an AC leaves a lane, a pass condition weakens, real/doubled systems, effects
    or stages change, caps/cost are exceeded, or a user-required prerequisite
    appears. Its payload identifies the flow, AC assertions, pass conditions and
-   real/doubled systems. Stop dependent work until the ruling is settled.
+   real/doubled systems. Stop dependent work until the ruling is settled. The
+   verification limits in item 3 bind this command too.
 3. **Live E2E lane.** Bind the confirmed live lane as `live_e2e_test`. Isolate
    real-provider/service execution behind the host's live marker and e2e marker
    for a full workflow, outside default runs. It repeats the applicable e2e flow
@@ -102,7 +103,7 @@ Create and record all applicable lanes:
    prerequisites and caps: timeouts, turn/retry and per-attempt/aggregate cost
    bounds have expected healthy-run headroom within host limits, never unbounded
    retries. Heddle stops a verification run after 2700 s overall or 900 s
-   without output; a lane expected to run longer names the
+   without output; an acceptance or live lane expected to run longer names the
    `HEDDLE_VERIFY_HARD_TIMEOUT_SECONDS` or
    `HEDDLE_VERIFY_INACTIVITY_TIMEOUT_SECONDS` value it needs among its
    prerequisites. A declined lane stays N/A-by-design with its ruling, reason and

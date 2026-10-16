@@ -154,15 +154,14 @@ formal gate artifacts retain their required structure and non-narration rules.
    Off means intentionally not run, not passed. Read all required initial
    reports before remediation. A Minor finding, limitation or observation needs
    no correction or rerun of its own, and its record stays as written; before
-   recording `@coverage` for a MUST AC or decision it names, record how that
-   commitment is satisfied or what supported gap remains. Apply supported
+   recording a run's `@coverage`, state in it how each MUST AC or decision such
+   an item names is satisfied, or what supported gap remains. Apply supported
    Critical/Important IMPLEMENT fixes, rerun affected milestone/consumer proof,
    and commit the remediation. Any material change after the latest round to
    the milestone's reviewed code or proof (production code, tests, fixtures or
    its verification command) owes a verification round before advance, even
    when it follows a Minor finding; formatting-only changes, later milestones'
-   work and reviews that are off owe none. At the round limit the stop
-   decision applies instead. Record dispositions only after that commit, once
+   work and reviews that are off owe none. Record dispositions only after that commit, once
    its hooks have rewritten what they will: a later change to a cited file
    stops the row counting unless it only re-lays out Python or re-pads
    Markdown tables and spacing. Even such a reformat leaves a verification-backed
@@ -171,8 +170,14 @@ formal gate artifacts retain their required structure and non-narration rules.
    exact witnesses, and required pending witnesses. A neighboring failure's
    location alone does not establish that it is unrelated. Record exact original findings and coverage
    through `heddle review disposition`; preserve independent inspection duties
-   and REPORT owners. Native closure and next actions determine whether another
-   targeted round or explicit stop/budget decision is needed. Do not invent a
+   and REPORT owners. Then open a round a change owes; beyond it, native
+   closure and next actions determine whether another targeted round or
+   explicit stop/budget decision is needed. If round-open refuses the owed
+   round at the confirmed round limit, ask the owner before advance whether to
+   raise the limit. A session that cannot open the owed round, such as a driven
+   one, records an owner question with `heddle decisions add` naming the
+   milestone, the change and the owed round, so the driver pauses before
+   advance. Do not invent a
    synthesis, fixed pass count, or reset allowance after a policy/model change.
    If the confirmed cap is reached, `heddle review allowance` records only an
    owner-approved absolute quality round increase. It invokes no provider and

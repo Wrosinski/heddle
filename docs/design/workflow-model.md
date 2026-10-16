@@ -85,11 +85,11 @@ The Full base selects the scaffolding secondary for every round, because
 tests that cannot fail have passed a single scaffolding reviewer. Under the
 Light base the recommendation only suggests it: a suggestion selects nothing
 and schedules no call until the owner copies its `secondary` and
-`secondary_rounds` into that role's entry at confirmation. A confirmed policy
-keeps its entries; the default applies to new recommendations.
+`secondary_rounds` into that role's entry at confirmation.
 
-GPT models use Codex; Claude models use Claude Code. These reviewer choices
-apply across scope, complexity and testability assessments. Those axes still
+GPT models use Codex; Claude models use Claude Code. Apart from the Full
+base's scaffolding secondary, these reviewer choices apply across scope,
+complexity and testability assessments. Those axes still
 select the Light or Full role schedule and round limits. An Off role may retain
 both reviewer selections, but schedules no calls and adds nothing to the call
 budget. Robustness remains Off until explicitly selected with an integration gap.

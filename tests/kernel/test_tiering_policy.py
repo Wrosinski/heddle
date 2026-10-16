@@ -54,6 +54,17 @@ def test_ac2_all_axis_boundaries_recommend_the_declared_base(
     )
     assert result.base == base
     assert {row.role for row in result.entries} == set(ROLES)
+    assert [asdict(item) for item in result.suggestions] == (
+        []
+        if base == "full"
+        else [
+            {
+                "role": "review-test-scaffolding",
+                "secondary": ASTRA_XHIGH,
+                "secondary_rounds": "all",
+            }
+        ]
+    )
     # Literal schedule oracle, independent of production recommendation data.
     enabled = {
         "spec-review",

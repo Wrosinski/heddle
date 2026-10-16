@@ -1354,3 +1354,64 @@ def test_ac16_no_retained_text_keeps_raw_identity_or_a_never_accepted_exit() -> 
         "FAIL AC-16: retained text says identity is raw everywhere or that the "
         f"implement-exit run can never be accepted: {offenders}"
     )
+
+
+def test_milestone_review_reports_a_stated_departure_as_a_finding() -> None:
+    """A stated departure is a finding; a rerun places a new one by change."""
+    text = _text("prompts/milestone-review.md")
+    assert _has_passage(
+        text,
+        "departs from",
+        "finding at that departure's severity",
+        "owner decision",
+        "states no departure",
+    ), "milestone review does not say when a stated departure is a finding"
+    assert _has_passage(
+        text,
+        "newly stated departure",
+        "regression",
+        "limitations",
+        "unresolved original stays retained",
+    ), "milestone review does not place a departure found on a rerun"
+
+
+def test_implement_owes_a_verification_round_after_a_material_change() -> None:
+    """A change after the latest round owes one; Minor items owe coverage."""
+    text = _text("implement.briefing.md")
+    assert _has_passage(
+        text,
+        "owes a verification round before advance",
+        "formatting only changes",
+        "reviews that are off owe none",
+        "round limit",
+        "decisions add",
+        "driver pauses",
+    ), "implement step 5 does not state the owed verification round"
+    assert _has_passage(
+        text, "minor finding", "no correction or rerun", "coverage", "supported gap"
+    ), "implement step 5 does not state the Minor coverage duty"
+
+
+@pytest.mark.parametrize(
+    ("name", "route"),
+    [
+        ("implement.briefing.md", "accept prior"),
+        ("peer-review.briefing.md", "waivable"),
+        ("robustness.briefing.md", "waivable"),
+    ],
+)
+def test_waiver_offers_follow_the_lane_rerun_route(name: str, route: str) -> None:
+    assert _has_passage(_text(name), "rerun route", route, "dry run"), (
+        f"{name} does not tie a waiver offer to `rerun_route` and a dry run"
+    )
+
+
+def test_scaffold_names_the_verification_limits_for_long_lanes() -> None:
+    assert _has_passage(
+        _text("scaffold.briefing.md"),
+        "2700 s",
+        "900 s",
+        "heddle verify hard timeout seconds",
+        "heddle verify inactivity timeout seconds",
+        "acceptance or live lane",
+    ), "scaffold does not name the verification limits and their overrides"

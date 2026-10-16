@@ -152,10 +152,14 @@ reviewer's no-issue statement cannot settle missing coverage or a pending choice
 Milestone review reports an observation or limitation that states a departure
 from an acceptance criterion, a spec clause, a recorded decision or a later
 lane as a finding, unless it cites evidence that the commitment holds or an
-owner decision that accepts the departure. A Minor finding needs no correction
-of its own. Any material change to a milestone's reviewed code or proof after
-its latest round owes a verification round before the milestone advances,
-whichever finding prompted it; formatting-only changes owe none.
+owner decision that accepts the departure. A Minor finding, limitation or
+observation needs no correction of its own, but before recording `@coverage`
+the lead states how each MUST criterion or decision it names is satisfied or
+what gap remains. Any material change to a milestone's reviewed code or proof
+after its latest round owes a verification round before the milestone
+advances, whichever finding prompted it; formatting-only changes, later
+milestones' work and reviews that are off owe none. At the round limit, the
+owner decides whether to allow that round.
 
 When a review stops for no progress, no decrease or its round cap, the native
 round-open operation records an owner question in place of a round. It reports
