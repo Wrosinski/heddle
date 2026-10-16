@@ -296,6 +296,7 @@ def test_ac13_fresh_implement_entry_routes_to_briefing_before_future_reviews(
     ]
     for milestone in document["milestones"]:
         milestone["status"] = "todo"
+        milestone["tasks"] = []
     state_path.write_text(yaml.safe_dump(document, sort_keys=False))
 
     code, output, _error = run_cli(
