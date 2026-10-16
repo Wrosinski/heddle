@@ -797,6 +797,39 @@ def test_ac8_launch_failure_reports_the_member_and_leaves_no_worker(
         assert runs == []
 
 
+def test_ac6_unreadable_shared_inputs_refuse_with_the_sets_exclusions(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A batch whose shared inputs cannot be read still lists what it left out."""
+    from heddle.runtime import gate_run, verification
+
+    host, state_path = full_peer_host(tmp_path, monkeypatch, complexity="dual")
+    config = host / ".heddle.yaml"
+    value = yaml.safe_load(config.read_text())
+    value["agents"] = {"claude": False}
+    config.write_text(yaml.safe_dump(value, sort_keys=False))
+    original = gate_run._prepare_batch_members
+
+    def unreadable(*_args, **_kwargs):
+        raise OSError("synthetic unreadable verification input")
+
+    def preparing(resolved, launch):
+        with pytest.MonkeyPatch.context() as inner:
+            inner.setattr(verification, "verification_statuses", unreadable)
+            return original(resolved, launch)
+
+    monkeypatch.setattr(gate_run, "_prepare_batch_members", preparing)
+    before = state_path.read_bytes()
+    with multiprocessing.Manager() as manager:
+        calls = install_counting_engine(monkeypatch, manager)
+        refused = execute_batch()
+        call_count = len(calls)
+    assert not refused.ok and refused.error.code == "workspace-invalid"
+    assert call_count == 0 and state_path.read_bytes() == before
+    excluded = refused.error.details["excluded_slots"]
+    assert excluded and {row["reason"] for row in excluded} == {"admission-refused"}
+
+
 def test_ac6_a_member_preparation_refusal_refuses_the_batch_naming_that_member(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

@@ -89,8 +89,9 @@ authority for the installed version.
   `single-slot` or `no-launchable-slot`, in that order of precedence, with a
   message to match, or `launch-set-changed` when the set changed while
   `run-gates` waited for its locks. A member whose preparation refuses names
-  itself in `selected_member`. Every launch and refusal lists the slots of routed reviews
-  it left out under `excluded_slots`, each with its reason:
+  itself in `selected_member`. Every launch and refusal lists the slots of
+  routed reviews it left out under `excluded_slots`, unless the set itself
+  could not be derived, each with its reason:
   `scope-unresolved`, `assignment-sealed`, `changed-source-pending`,
   `slot-recorded` or `admission-refused`, the last with the refusal's code,
   message and hint.
@@ -216,9 +217,9 @@ authority for the installed version.
   duty, a review-backed row whose citation or review source changed, and any
   retained, undisposed or awaiting-decision row keep the stop, and a pending
   owner decision still comes first. The routed action says why closing those
-  rows needs no round or owner decision, and that a round a change owes is
-  still owed; a continue-review ruling no longer silences that note once its
-  round is spent. Status and orient review rows routed to reaffirm list those
+  rows needs no round or owner decision, and, for a milestone review, that a
+  round a change owes is still owed; a continue-review ruling silences that
+  note only until its round is spent. Status and orient review rows routed to reaffirm list those
   assignments in `reaffirm.stops`, additive under `heddle.status/v1` and
   `heddle.orient/v0`. Rows `heddle review reaffirm` writes carry
   `rebound_by: reaffirm`; `state.yaml` accepts only `review-equivalence` and

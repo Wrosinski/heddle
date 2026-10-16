@@ -126,7 +126,8 @@ public inputs exist. When no set launches, the refusal names its cause in
 `other-work-first`, `single-slot` or `no-launchable-slot`, or
 `launch-set-changed` when the set changed while `run-gates` waited for its
 locks. Every launch and refusal lists the slots of routed reviews it left out,
-with their reasons, under `excluded_slots`. The current milestone's
+with their reasons, under `excluded_slots`, unless the set itself could not be
+derived. The current milestone's
 review is exit evidence: while that milestone has no tasks or an unfinished one,
 `run-gates` and the slot's own `run-gate` both refuse it (`task-incomplete` for
 `run-gate`) and name the open work. On a provider failure, interruption, or

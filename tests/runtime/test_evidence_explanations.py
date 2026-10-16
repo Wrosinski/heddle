@@ -369,6 +369,9 @@ def test_changed_citation_at_round_limit_routes_to_resubmission_not_stop(
     assert row["next_step"] == "disposition" and row["evidence_state"] == "stale"
     assert isinstance(action, ops.AuthoringAction)
     assert action.work == "review-disposition"
+    reason = application.execute(ops.Status(feature=V7_FEATURE)).next_actions[0].reason
+    assert "The round-limit stop is reached" in reason
+    assert "still owed" not in reason, "only implement defines an owed round"
     assert set(action.references) == {f"{origin}#SP-I1", f"{origin}#@coverage"}
     assert dispose(path, rows).ok
     assert review_status(path)["closed"] and len(calls) == 1
@@ -514,6 +517,34 @@ def test_verification_behind_a_basis_change_routes_by_its_own_status(
     assert row["next_step"] in {"disposition", "reaffirm"}, (
         "a stale verification still routes the mandatory round-limit stop"
     )
+
+
+def test_changed_citation_at_milestone_round_limit_keeps_the_owed_round(
+    tmp_path, monkeypatch, run_cli
+):
+    """Re-citing past the stop closes rows; a change still owes its round."""
+    from tests.tiering_review_helpers import disposition
+
+    def rows(origin):
+        return [
+            disposition(origin, "MI-I1", references=["tests/check.py"]),
+            disposition(
+                origin, "@coverage", status="settled", references=["tests/check.py"]
+            ),
+        ]
+
+    host, _path, _origin, _calls = _milestone_review_at_round_limit(
+        tmp_path, monkeypatch, run_cli, rows
+    )
+    cited = host / "tests/check.py"
+    cited.write_text(cited.read_text() + "\n# citation changed\n")
+
+    row = assignment_row("milestone-review", "m1")
+    assert row["stop_reason"] == "round-limit" and row["next_step"] == "disposition"
+    action = _review_action(ops.AuthoringAction)
+    assert action.action.work == "review-disposition"
+    assert "The round-limit stop is reached" in action.reason
+    assert "a change since the latest round owes is still owed" in action.reason
 
 
 def test_basis_change_beside_undisposed_coverage_at_round_limit_needs_no_stop(
@@ -684,9 +715,9 @@ def test_authorized_continuation_routes_rerecordable_rows_to_disposition(
         "an authorized continuation routed re-recording to a policy edit"
     )
     action = _review_action(ops.AuthoringAction)
-    assert "no owner decision" not in action.reason, (
-        "the action denies the owner decision that authorized the continuation"
-    )
+    assert not any(
+        note in action.reason for note in ("stop is reached", "Stops are reached")
+    ), "the action denies the owner decision that authorized the continuation"
     assert application.execute(ops.ReaffirmReview(feature=V7_FEATURE)).ok
     assert review_status(path)["closed"] and len(calls) == 1
 
@@ -761,9 +792,10 @@ def test_spent_continuation_leaves_a_stop_reached_again_unresolved(
     assert row["stop_reason"] == "round-limit" and not row["closed"]
     assert [d["id"] for d in read(path)["decisions"]] == [decision["id"]]
     action = _review_action(ops.AuthoringAction)
-    assert "round-limit" in action.reason and "still owed" in action.reason, (
-        "a spent continue-review ruling hid the stop reached again"
-    )
+    assert "Stops are reached for spec-review feature (round-limit)" in (
+        action.reason
+    ), "a spent continue-review ruling hid the stop reached again"
+    assert "still owed" not in action.reason, "only implement defines an owed round"
 
 
 def test_inspection_duty_without_review_evidence_keeps_the_round_limit_stop(

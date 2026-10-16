@@ -409,6 +409,7 @@ def execute_gates(parsed: RunGates) -> HeddleResult:
             diagnostics=resolved.diagnostics,
             include_feature_switch_action=False,
         )
+    launch: LaunchSet | None = None
     try:
         launch, current_actions = current_launch_set(resolved.config, resolved.snapshot)
         if len(launch.members) < 2:
@@ -418,7 +419,7 @@ def execute_gates(parsed: RunGates) -> HeddleResult:
         )
         lock_inputs = _batch_lock_inputs(resolved, launch.members)
     except (KernelError, OSError, UnicodeDecodeError, MemoryError) as error:
-        return _batch_input_failure(resolved, "batch lock inputs", error)
+        return _batch_input_failure(resolved, "batch lock inputs", error, launch)
 
     try:
         with ExitStack() as stack:
@@ -461,7 +462,7 @@ def execute_gates(parsed: RunGates) -> HeddleResult:
                 return interrupted
             return _batch_result(resolved, prepared, current)
     except (KernelError, OSError, UnicodeDecodeError, MemoryError) as error:
-        return _batch_input_failure(resolved, "batch admission", error)
+        return _batch_input_failure(resolved, "batch admission", error, launch)
 
 
 def _batch_lock_inputs(
@@ -521,7 +522,7 @@ def _prepare_batch_members(
         )
         verification_statuses(config.root, snapshot.state)
     except (KernelError, OSError, UnicodeDecodeError, ValueError, MemoryError) as error:
-        return _batch_input_failure(resolved, "batch inputs", error)
+        return _batch_input_failure(resolved, "batch inputs", error, launch)
     members = []
     for launch_member in launch.members:
         parsed = _slot_operation(resolved.feature, launch_member)
@@ -568,19 +569,20 @@ def _preparation_failure(
 def _naming_member(
     result: HeddleResult, member: LaunchMember, launch: LaunchSet
 ) -> HeddleResult:
+    return _with_details(
+        result,
+        selected_member=_member_identity(member),
+        excluded_slots=[row.payload() for row in launch.exclusions],
+    )
+
+
+def _with_details(result: HeddleResult, **details: Any) -> HeddleResult:
     assert result.error is not None
     error = result.error
     return replace(
         result,
         error=HeddleError(
-            error.code,
-            error.message,
-            error.hint,
-            {
-                **error.details,
-                "selected_member": _member_identity(member),
-                "excluded_slots": [row.payload() for row in launch.exclusions],
-            },
+            error.code, error.message, error.hint, {**error.details, **details}
         ),
     )
 
@@ -1456,7 +1458,7 @@ def _batch_changed(
             "the launch set changed while run-gates waited for its locks",
             "follow the current actions and reassess",
             {
-                "cause": LAUNCH_REFUSAL_CAUSES[-1],
+                "cause": "launch-set-changed",
                 "excluded_slots": [row.payload() for row in current.exclusions],
             },
         ),
@@ -1467,8 +1469,12 @@ def _batch_changed(
 
 
 def _batch_input_failure(
-    resolved: ResolvedSnapshotContext, subject: str, error: BaseException
+    resolved: ResolvedSnapshotContext,
+    subject: str,
+    error: BaseException,
+    launch: LaunchSet | None,
 ) -> HeddleResult:
+    """The typed refusal for unreadable batch inputs, with the set's exclusions."""
     typed = (
         error
         if isinstance(error, KernelError)
@@ -1478,11 +1484,16 @@ def _batch_input_failure(
             hint="repair the declared batch inputs and retry",
         )
     )
-    return kernel_error_result(
+    result = kernel_error_result(
         typed,
         exit_codes=_RESOLUTION_EXITS,
         diagnostics=resolved.diagnostics,
         include_feature_switch_action=False,
+    )
+    if launch is None:
+        return result
+    return _with_details(
+        result, excluded_slots=[row.payload() for row in launch.exclusions]
     )
 
 

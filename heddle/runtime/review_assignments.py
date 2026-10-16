@@ -2346,6 +2346,8 @@ def _unresolved_kernel_stop(snapshot: FeatureSnapshot, row: dict[str, Any]) -> b
     )
 
 
+# Implement step 5: a material change after a milestone's latest round owes
+# a verification round that re-recording does not discharge.
 _OWED_ROUND = " A round that a change since the latest round owes is still owed."
 
 
@@ -2361,7 +2363,8 @@ def _stop_note(snapshot: FeatureSnapshot, row: dict[str, Any]) -> str:
     return (
         f" The {row['stop_reason']} stop is reached, but every open row closes "
         f"with recorded evidence alone ({closes}), so closing these rows needs "
-        f"no review round or owner decision.{_OWED_ROUND}"
+        "no review round or owner decision."
+        + (_OWED_ROUND if row["role"] == "milestone-review" else "")
     )
 
 
@@ -2372,7 +2375,8 @@ def _reaffirm_stop_note(stops: list[str]) -> str:
     return (
         f" Stops are reached for {', '.join(stops)}, but their open rows close "
         "by re-recording evidence alone, so closing them needs no review round "
-        f"or owner decision.{_OWED_ROUND}"
+        "or owner decision."
+        + (_OWED_ROUND if any(s.startswith("milestone-review ") for s in stops) else "")
     )
 
 
