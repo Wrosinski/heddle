@@ -108,14 +108,6 @@ def same_gate_host(
     host, state_path = current_host(
         tmp_path, monkeypatch, stage=stage, overrides=overrides
     )
-    if stage == "implement":
-        # m1 implementation is finished, so its review is exit evidence.
-        edit_state(
-            state_path,
-            lambda value: value["milestones"][0].__setitem__(
-                "tasks", [{"id": "t1", "text": "Declared value", "status": "done"}]
-            ),
-        )
     if launch is not None:
         set_launch(host, launch)
     return host, state_path

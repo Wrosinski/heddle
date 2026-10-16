@@ -169,7 +169,11 @@ def current_host(tmp_path, monkeypatch, *, stage="spec-review", **policy_kwargs)
     for milestone in value["milestones"]:
         milestone.pop("estimated_hours")
         if stage == "implement" and milestone["id"] == "m1":
+            # m1's implementation is finished, so its review is exit evidence.
             milestone["status"] = "current"
+            milestone["tasks"] = [
+                {"id": "t1", "text": "Declared value", "status": "done"}
+            ]
         elif stage in {"peer-review", "robustness", "complete"}:
             milestone["status"] = "done"
     host, state_path = fresh_host(tmp_path, state=value)

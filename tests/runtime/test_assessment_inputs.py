@@ -230,6 +230,9 @@ def test_ac6_simultaneous_assignments_expose_distinct_current_bases(
     for _stage in ("spec-review", "plan-review", "scaffold"):
         assert application.execute(ops.PhaseExit(feature=V7_FEATURE)).ok
     assert application.execute(ops.MilestoneAdvance(feature=V7_FEATURE)).ok
+    # m1's implementation is finished, so its review is exit evidence.
+    assert application.execute(ops.TaskAdd("Declared value", feature=V7_FEATURE)).ok
+    assert application.execute(ops.TaskDone("m1", "t1", feature=V7_FEATURE)).ok
 
     provider_transport(monkeypatch, review_content("milestone-review"))
     assert gate_command(run_cli, "run-gate", "milestone-review")[0] == 0
