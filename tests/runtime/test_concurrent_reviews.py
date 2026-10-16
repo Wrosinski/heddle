@@ -830,6 +830,54 @@ def test_ac6_unreadable_shared_inputs_refuse_with_the_sets_exclusions(
     assert excluded and {row["reason"] for row in excluded} == {"admission-refused"}
 
 
+@pytest.mark.parametrize("failing", ["lock inputs", "locks", "rederivation"])
+def test_ac6_lock_and_admission_failures_list_the_set_last_derived(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, failing: str
+) -> None:
+    """A refusal lists the exclusions of the set as last derived, if any."""
+    from heddle.gate import entry
+    from heddle.runtime import gate_run
+
+    host, state_path = full_peer_host(tmp_path, monkeypatch, complexity="dual")
+    config = host / ".heddle.yaml"
+    value = yaml.safe_load(config.read_text())
+    value["agents"] = {"claude": False}
+    config.write_text(yaml.safe_dump(value, sort_keys=False))
+
+    def unreadable(*_args, **_kwargs):
+        raise OSError(f"synthetic unreadable {failing}")
+
+    derive = gate_run.current_launch_set
+    derivations = []
+
+    def deriving_once(*args, **kwargs):
+        derivations.append(args)
+        if len(derivations) > 1:
+            unreadable()
+        return derive(*args, **kwargs)
+
+    if failing == "lock inputs":
+        monkeypatch.setattr(gate_run, "_batch_lock_inputs", unreadable)
+    elif failing == "locks":
+        monkeypatch.setattr(entry, "gate_lock_for_runtime", unreadable)
+    else:
+        monkeypatch.setattr(gate_run, "current_launch_set", deriving_once)
+    before = state_path.read_bytes()
+    with multiprocessing.Manager() as manager:
+        calls = install_counting_engine(monkeypatch, manager)
+        refused = execute_batch()
+        call_count = len(calls)
+
+    assert not refused.ok and refused.error.code == "workspace-invalid"
+    assert f"synthetic unreadable {failing}" in refused.error.message
+    assert call_count == 0 and state_path.read_bytes() == before
+    if failing == "rederivation":
+        assert "excluded_slots" not in (refused.error.details or {})
+    else:
+        excluded = refused.error.details["excluded_slots"]
+        assert excluded and {row["reason"] for row in excluded} == {"admission-refused"}
+
+
 def test_ac6_a_member_preparation_refusal_refuses_the_batch_naming_that_member(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

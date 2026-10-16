@@ -421,12 +421,14 @@ def execute_gates(parsed: RunGates) -> HeddleResult:
     except (KernelError, OSError, UnicodeDecodeError, MemoryError) as error:
         return _batch_input_failure(resolved, "batch lock inputs", error, launch)
 
+    derived: LaunchSet | None = launch  # the set as last derived, for a refusal
     try:
         with ExitStack() as stack:
             held = {
                 gate: stack.enter_context(entry.gate_lock_for_runtime(*lock_input))
                 for gate, lock_input in lock_inputs.items()
             }
+            derived = None
             refreshed = resolve_snapshot_from_cwd(resolved.feature, writable=True)
             if isinstance(refreshed, ResolveFeatureFailure):
                 return kernel_error_result(
@@ -439,6 +441,7 @@ def execute_gates(parsed: RunGates) -> HeddleResult:
             current, current_actions = current_launch_set(
                 resolved.config, resolved.snapshot
             )
+            derived = current
             # Another lead may have recorded a slot, or the milestone moved,
             # while this command waited; either way the set it derived first
             # is no longer the one readiness offers.
@@ -462,7 +465,7 @@ def execute_gates(parsed: RunGates) -> HeddleResult:
                 return interrupted
             return _batch_result(resolved, prepared, current)
     except (KernelError, OSError, UnicodeDecodeError, MemoryError) as error:
-        return _batch_input_failure(resolved, "batch admission", error, launch)
+        return _batch_input_failure(resolved, "batch admission", error, derived)
 
 
 def _batch_lock_inputs(
