@@ -161,6 +161,43 @@ class TestAC11FeatureSwitch:
         # exists at the main checkout's derived location.
         assert not (host / ".git" / "heddle" / "active-feature").exists()
 
+    def test_nested_worktree_never_inherits_an_untracked_enclosing_project(
+        self, run_cli, envelope_tools, tmp_path, monkeypatch
+    ):
+        # A host that keeps every Heddle file local (excluded, never
+        # committed): a worktree nested inside the main checkout has no
+        # .heddle.yaml of its own and must not resolve to the main one.
+        host = tmp_path / "main"
+        shutil.copytree(GOLDEN, host)
+        (host / "README.md").write_text("product\n", encoding="utf-8")
+        _git(["init", "-q"], host)
+        _git(["config", "user.email", "edge@example.com"], host)
+        _git(["config", "user.name", "Example"], host)
+        (host / ".git" / "info" / "exclude").write_text(
+            "/*\n!/README.md\n", encoding="utf-8"
+        )
+        _git(["add", "README.md"], host)
+        _git(["commit", "-q", "-m", "product only"], host)
+        worktree = host / ".claude" / "worktrees" / "edge"
+        _git(["worktree", "add", "-q", str(worktree), "-b", "edge"], host)
+        assert not (worktree / ".heddle.yaml").exists()
+        monkeypatch.chdir(worktree)
+        # feature switch maps every config-load failure to usage.
+        for argv, error_code in (
+            (["status", "--json"], "workspace-invalid"),
+            (["feature", "switch", "nl-screening", "--json"], "usage"),
+        ):
+            _code, out, _err = run_cli(argv)
+            envelope = envelope_tools.parse(out)
+            assert envelope["error"]["code"] == error_code, argv
+            assert str(worktree.resolve()) in envelope["error"]["message"], argv
+            assert "worktree" in envelope["error"]["hint"], argv
+            assert "nl-screening" not in out, (
+                f"FAIL: {argv} read the enclosing checkout's features"
+            )
+        assert not git_pointer_path(worktree).exists()
+        assert not (host / ".git" / "heddle" / "active-feature").exists()
+
     def test_outside_git_is_usage_error_writing_nothing(
         self, run_cli, envelope_tools, tmp_path, monkeypatch
     ):

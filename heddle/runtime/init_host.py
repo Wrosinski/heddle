@@ -31,7 +31,7 @@ from heddle.kernel.managed_regions import (
     marker_fault_kind,
     replace_managed_region,
 )
-from heddle.kernel.project_config import KernelError
+from heddle.kernel.project_config import KernelError, is_git_boundary
 from heddle.runtime.output import emit_envelope
 from heddle.runtime.sync import (
     SESSION_ENTRY_ID,
@@ -389,16 +389,14 @@ def _find_git_root(start: Path) -> Path:
     for candidate in (resolved, *resolved.parents):
         git_entry = candidate / ".git"
         try:
-            mode = git_entry.lstat().st_mode
-        except FileNotFoundError:
-            continue
+            boundary = is_git_boundary(candidate)
         except OSError as error:
             raise KernelError(
                 code="workspace-invalid",
                 message=f"cannot inspect Git entry {git_entry}: {error}",
                 hint=f"make {git_entry} readable and retry",
             ) from error
-        if stat.S_ISDIR(mode) or stat.S_ISREG(mode):
+        if boundary:
             return candidate
     raise KernelError(
         code="workspace-invalid",

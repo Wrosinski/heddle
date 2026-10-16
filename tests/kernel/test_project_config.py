@@ -28,8 +28,10 @@ import pytest
 
 from heddle.kernel import KernelError
 from heddle.kernel.project_config import (
+    MISSING_PROJECT_ROOT,
     LayoutConfig,
     find_project_root,
+    find_project_root_from_cwd,
     load_project_config,
 )
 
@@ -150,6 +152,53 @@ class TestAC2DefaultsDiagnosticsDiscovery:
         outside = tmp_path / "no-project" / "deep"
         outside.mkdir(parents=True)
         assert find_project_root(outside) is None
+
+    @pytest.mark.parametrize("git_entry", ["directory", "file"])
+    def test_discovery_stops_at_the_first_git_boundary(self, tmp_path, git_entry):
+        # A nested checkout (a directory, or a linked worktree's or
+        # submodule's file) never inherits the enclosing project.
+        (tmp_path / ".heddle.yaml").write_text("")
+        nested = tmp_path / ".claude" / "worktrees" / "edge"
+        nested.mkdir(parents=True)
+        if git_entry == "directory":
+            (nested / ".git").mkdir()
+        else:
+            (nested / ".git").write_text("gitdir: /elsewhere\n")
+        (nested / "src").mkdir()
+        assert find_project_root(nested / "src") is None
+
+    def test_discovery_prefers_config_beside_the_git_boundary(self, tmp_path):
+        (tmp_path / ".git").mkdir()
+        (tmp_path / ".heddle.yaml").write_text("")
+        (tmp_path / "src").mkdir()
+        assert find_project_root(tmp_path / "src") == tmp_path
+
+    def test_discovery_finds_a_project_below_the_git_root(self, tmp_path):
+        (tmp_path / ".git").mkdir()
+        project = tmp_path / "services" / "api"
+        (project / "deep").mkdir(parents=True)
+        (project / ".heddle.yaml").write_text("")
+        assert find_project_root(project / "deep") == project
+
+    def test_discovery_ignores_a_symlinked_git_entry(self, tmp_path):
+        (tmp_path / ".heddle.yaml").write_text("")
+        nested = tmp_path / "vendored"
+        nested.mkdir()
+        (nested / ".git").symlink_to(tmp_path)
+        assert find_project_root(nested) == tmp_path
+
+    def test_missing_root_error_names_the_git_boundary(self, tmp_path, monkeypatch):
+        (tmp_path / ".heddle.yaml").write_text("")
+        nested = tmp_path / "worktree"
+        nested.mkdir()
+        (nested / ".git").write_text("gitdir: /elsewhere\n")
+        monkeypatch.chdir(nested)
+        with pytest.raises(KernelError) as excinfo:
+            find_project_root_from_cwd()
+        assert excinfo.value.code == "workspace-invalid"
+        assert excinfo.value.reason == MISSING_PROJECT_ROOT
+        assert str(nested.resolve()) in excinfo.value.message
+        assert "worktree" in excinfo.value.hint
 
     @pytest.mark.parametrize(
         ("variant", "offending_key"),

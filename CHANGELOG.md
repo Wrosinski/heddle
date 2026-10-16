@@ -209,6 +209,13 @@ authority for the installed version.
   - scaffold explains the content-based reviewed tests and the
     `baseline-unavailable` stop.
 
+- Project commands stop looking for `.heddle.yaml` at the first Git boundary,
+  a `.git` directory or file. A linked worktree or submodule inside another
+  checkout no longer resolves to that checkout's project when its own Heddle
+  files are untracked; it fails with `workspace-invalid`, names its Git root
+  and points to copying the files or `heddle init --dry-run`. A
+  `.heddle.yaml` above the Git root is no longer found.
+
 ### Added
 
 - `heddle task edit <task-ref> --text <text>` corrects an open task's text on

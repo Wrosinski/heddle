@@ -90,7 +90,10 @@ replay only when the single reuse owner accepts their integrity and identity.
 
 ## Project configuration and resources
 
-`.heddle.yaml` is the project policy/configuration source. `pyproject.toml` is
+`.heddle.yaml` is the project policy/configuration source. Commands find it
+by walking up from the working directory, stopping at the first Git boundary
+(a `.git` directory or file), so a linked worktree or submodule never resolves
+to an enclosing checkout's project. `pyproject.toml` is
 package/build configuration, not a second Heddle policy store. The
 [config parser](../../heddle/kernel/project_config.py) owns accepted keys and
 validation. `layout.*` controls the declared layout consumers; a declared key

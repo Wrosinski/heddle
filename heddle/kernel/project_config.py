@@ -11,6 +11,7 @@ malformed YAML or a wrongly-typed pinned value is fatal
 
 from __future__ import annotations
 
+import stat
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -156,14 +157,44 @@ DEFAULT_AUTOPILOT = AutopilotConfig(
 )
 
 
+def is_git_boundary(directory: Path) -> bool:
+    """True when ``directory`` holds a ``.git`` directory or regular file.
+
+    A ``.git`` file marks a linked worktree or submodule, which is its own
+    checkout; a symlinked ``.git`` is not a boundary. ``OSError`` other than
+    a missing entry propagates to the caller."""
+    try:
+        mode = (directory / ".git").lstat().st_mode
+    except FileNotFoundError:
+        return False
+    return stat.S_ISDIR(mode) or stat.S_ISREG(mode)
+
+
 def find_project_root(start: Path) -> Path | None:
     """Walk up from ``start`` to the nearest directory containing
-    ``.heddle.yaml``; ``None`` when no ancestor has one."""
+    ``.heddle.yaml``; ``None`` when none exists up to the first Git
+    boundary."""
+    return _walk_to_project_root(start)[0]
+
+
+def _walk_to_project_root(start: Path) -> tuple[Path | None, Path | None]:
+    """The project root, else ``None`` with the Git boundary that ended the
+    walk. A checkout never resolves to an enclosing checkout's project."""
     resolved = start.resolve()
     for candidate in (resolved, *resolved.parents):
         if (candidate / HEDDLE_CONFIG_FILENAME).is_file():
-            return candidate
-    return None
+            return candidate, None
+        try:
+            boundary = is_git_boundary(candidate)
+        except OSError as error:
+            raise KernelError(
+                code="workspace-invalid",
+                message=f"cannot inspect Git entry {candidate / '.git'}: {error}",
+                hint=f"make {candidate / '.git'} readable and retry",
+            ) from error
+        if boundary:
+            return None, candidate
+    return None, None
 
 
 def find_project_root_from_cwd() -> Path:
@@ -171,21 +202,34 @@ def find_project_root_from_cwd() -> Path:
         cwd: Path | None = Path.cwd()
     except OSError:
         cwd = None
-    root = find_project_root(cwd) if cwd is not None else None
-    if root is None:
-        raise KernelError(
-            code="workspace-invalid",
-            message=(
-                f"no {HEDDLE_CONFIG_FILENAME} from the working directory "
-                "upward — not inside a Heddle project"
-            ),
-            hint=(
-                "run inside a Heddle project, or author "
-                f"{HEDDLE_CONFIG_FILENAME} at the project root"
-            ),
-            reason=MISSING_PROJECT_ROOT,
+    root, boundary = _walk_to_project_root(cwd) if cwd is not None else (None, None)
+    if root is not None:
+        return root
+    if boundary is None:
+        message = (
+            f"no {HEDDLE_CONFIG_FILENAME} from the working directory "
+            "upward — not inside a Heddle project"
         )
-    return root
+        hint = (
+            "run inside a Heddle project, or author "
+            f"{HEDDLE_CONFIG_FILENAME} at the project root"
+        )
+    else:
+        message = (
+            f"no {HEDDLE_CONFIG_FILENAME} between the working directory and "
+            f"its Git root {boundary} — not inside a Heddle project"
+        )
+        hint = (
+            "a linked worktree or submodule is its own checkout: copy the "
+            "project's untracked Heddle files into it, or author "
+            f"{HEDDLE_CONFIG_FILENAME} at its root"
+        )
+    raise KernelError(
+        code="workspace-invalid",
+        message=message,
+        hint=hint,
+        reason=MISSING_PROJECT_ROOT,
+    )
 
 
 def load_project_config_from_cwd() -> ProjectConfig:
