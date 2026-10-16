@@ -221,8 +221,9 @@ def find_project_root_from_cwd() -> Path:
         )
         if (boundary / ".git").is_file():
             hint = (
-                "a linked worktree or submodule is its own checkout: copy its "
-                "project's untracked Heddle files into it, or author "
+                "this checkout's .git is a file, as in a linked worktree or "
+                "submodule: run inside a Heddle project, copy its project's "
+                "untracked Heddle files into it, or author "
                 f"{HEDDLE_CONFIG_FILENAME} at its root"
             )
     raise KernelError(

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import os
 from pathlib import Path
 
 import pytest
@@ -278,10 +279,17 @@ def test_failed_no_session_entry_guidance_keeps_the_opt_out(
     ]
     assert "`heddle init --no-session-entry --dry-run`" in invalid.error.hint
     assert (root / "AGENTS.md").read_bytes() == agents
-    fresh = bare_host(tmp_path)
-    workflow = fresh / "docs/workflow"
+
+
+def test_failed_no_session_entry_apply_hint_keeps_the_opt_out(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    if os.geteuid() == 0:
+        pytest.skip("permission bits do not bind when running as root")
+    root = bare_host(tmp_path)
+    workflow = root / "docs/workflow"
     workflow.mkdir(parents=True)
-    monkeypatch.chdir(fresh)
+    monkeypatch.chdir(root)
     workflow.chmod(0o555)
     try:
         unwritable = execute(ops.Init(session_entry=False))
@@ -289,7 +297,7 @@ def test_failed_no_session_entry_guidance_keeps_the_opt_out(
         workflow.chmod(0o755)
     assert not unwritable.ok and unwritable.error is not None
     assert unwritable.error.hint.endswith("re-run heddle init --no-session-entry")
-    assert not (fresh / "AGENTS.md").exists()
+    assert not (root / "AGENTS.md").exists()
 
 
 def test_no_session_entry_adoption_leaves_existing_agents_untouched(
