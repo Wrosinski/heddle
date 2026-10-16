@@ -301,7 +301,7 @@ def test_ac4_large_high_default_scaffolding_convergence_honors_no_decrease():
     selected = next(
         row for row in recommendation.entries if row.role == "review-test-scaffolding"
     )
-    assert selected.mode == "convergence" and selected.secondary is None
+    assert selected.mode == "convergence" and selected.secondary_rounds == "all"
     result = assess(
         selection=selected,
         rounds=(round_fact(new_important=1), round_fact(2, new_important=1)),

@@ -81,7 +81,12 @@ def test_ac2_all_axis_boundaries_recommend_the_declared_base(
         "plan-review": FABLE_XHIGH,
         "behavior-review": ASTRA_XHIGH,
         "robustness-analysis": FABLE_XHIGH,
+        # The full base reviews scaffolded tests with a second model.
+        **({"review-test-scaffolding": ASTRA_XHIGH} if base == "full" else {}),
     }
+    every_round = {"spec-review", "plan-review"} | (
+        {"review-test-scaffolding"} if base == "full" else set()
+    )
     for row in result.entries:
         actual = asdict(row)
         trigger = actual.pop("trigger")
@@ -109,7 +114,7 @@ def test_ac2_all_axis_boundaries_recommend_the_declared_base(
             "minimum_rounds": 1 if active else 0,
             "primary": reviewers[row.role],
             "secondary": secondaries.get(row.role),
-            "secondary_rounds": "all" if doc else 1,
+            "secondary_rounds": "all" if row.role in every_round else 1,
         }
         assert actual == expected, f"FAIL AC-8: {row.role} recommendation"
     effective = api("heddle.kernel.feature_policy").effective_policy(
@@ -118,17 +123,18 @@ def test_ac2_all_axis_boundaries_recommend_the_declared_base(
             overrides={row.role: row for row in result.entries},
         )
     )
-    assert effective.budget.feature_minimum == (6 if base == "light" else 8)
+    assert effective.budget.feature_minimum == (6 if base == "light" else 9)
     assert effective.budget.per_milestone_minimum == 1
-    # AC-7 literal oracle: spec and plan add `all` secondary calls.
+    # AC-7 literal oracle: spec and plan add `all` secondary calls, and under
+    # the full base so does scaffolding (two more calls at its limit of 2).
     maximum = (
         None
         if scope == "large" and complexity == "high"
         else {
             ("light", "low"): 12,
             ("light", "high"): 16,
-            ("full", "low"): 15,
-            ("full", "high"): 19,
+            ("full", "low"): 17,
+            ("full", "high"): 21,
         }[base, complexity]
     )
     assert effective.budget.feature_maximum == maximum, "FAIL AC-7: default budget"
@@ -145,7 +151,9 @@ def test_ac2_large_high_default_roles_tuples_and_dual_first_schedule():
         assert (rows[role].mode, rows[role].limit) == ("upper-limit", 3)
     assert rows["review-test-scaffolding"].mode == "convergence"
     assert rows["review-test-scaffolding"].limit is None
-    assert rows["review-test-scaffolding"].secondary is None
+    assert asdict(rows["review-test-scaffolding"].secondary) == ASTRA_XHIGH
+    assert rows["review-test-scaffolding"].secondary_rounds == "all"
+    assert result.suggestions == ()
     assert asdict(rows["review-test-scaffolding"].primary) == OPUS
     assert asdict(rows["milestone-review"].primary) == OPUS
     assert asdict(rows["behavior-review"].primary) == OPUS
@@ -628,8 +636,10 @@ def test_ac8_suggestions_name_the_scaffolding_secondary_without_selecting_it():
     from heddle.contracts import operations as ops
 
     kernel = api("heddle.kernel.feature_policy")
-    for assessment in (axes(), axes("large", "high", "none")):
+    # Only the light base suggests it; the full base selects it.
+    for assessment in (axes(), axes("small", "high", "partial")):
         result = kernel.recommend_policy(assessment)
+        assert result.base == "light"
         payload = ops.decoded_payload(result)
         assert "suggestions" in payload, (
             "FAIL AC-8: the recommendation carries no suggestions"

@@ -74,16 +74,19 @@ The recommended reviewer defaults are:
 | --- | --- | --- | --- |
 | `spec-review` | `gpt-6-astra` / `xhigh` | `claude-fable-5-1` / `xhigh` | `all` |
 | `plan-review` | `gpt-6-astra` / `xhigh` | `claude-fable-5-1` / `xhigh` | `all` |
-| `review-test-scaffolding` | `claude-opus-5-5` / `xhigh` | None (suggested: `gpt-6-astra` / `xhigh`) | `all` when the suggestion is adopted |
+| `review-test-scaffolding` | `claude-opus-5-5` / `xhigh` | Full: `gpt-6-astra` / `xhigh`; Light: none (suggested: `gpt-6-astra` / `xhigh`) | `all` when selected |
 | `milestone-review` | `claude-opus-5-5` / `xhigh` | None | — |
 | `peer-review-sequential` | `claude-opus-5-5` / `xhigh` | None | — |
 | `behavior-review` | `claude-opus-5-5` / `xhigh` | `gpt-6-astra` / `xhigh` | 1 |
 | `complexity-review` | `claude-opus-5-5` / `xhigh` | None | — |
 | `robustness-analysis` | `gpt-6-astra` / `xhigh` | `claude-fable-5-1` / `xhigh` | 1 |
 
-The recommendation's suggestions list the scaffolding secondary. A suggestion
-selects nothing and schedules no call until the owner copies its `secondary`
-and `secondary_rounds` into that role's entry at confirmation.
+The Full base selects the scaffolding secondary for every round, because
+tests that cannot fail have passed a single scaffolding reviewer. Under the
+Light base the recommendation only suggests it: a suggestion selects nothing
+and schedules no call until the owner copies its `secondary` and
+`secondary_rounds` into that role's entry at confirmation. A confirmed policy
+keeps its entries; the default applies to new recommendations.
 
 GPT models use Codex; Claude models use Claude Code. These reviewer choices
 apply across scope, complexity and testability assessments. Those axes still

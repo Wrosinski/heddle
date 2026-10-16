@@ -10,6 +10,10 @@ authority for the installed version.
 
 ### Changed
 
+- The recommended review policy under the Full base selects `gpt-6-astra` at
+  `xhigh` as the `review-test-scaffolding` secondary for every round, and no
+  longer lists it as a suggestion. Under the Light base it stays a suggestion.
+  Confirmed policies keep the reviewers they recorded.
 - `heddle verify` reports each run as `run` beside the recorded fact, in its
   result, error details and `--stale` rows: `termination` (`completed`,
   `timeout`, `inactivity` or `launch-failed`), `elapsed_s` and the effective

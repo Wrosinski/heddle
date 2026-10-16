@@ -13,6 +13,7 @@ from heddle.contracts.feature_policy import (
     FEATURE_AXES_FIELDS,
     GATE_POLICY_FIELDS,
     GATE_POLICY_OPTIONAL_FIELDS,
+    ITERATIVE_DOCUMENT_ROLES,
     MODES,
     POLICY_SCHEMA,
     REVIEWER_FIELDS,
@@ -265,6 +266,10 @@ def recommend_policy(axes: FeatureAxes) -> Recommendation:
         "behavior-review": astra,
         "robustness-analysis": fable,
     }
+    # The full base reviews scaffolded tests with a second model in every
+    # round; the light base leaves it a suggestion.
+    if base == "full":
+        secondary_reviewers["review-test-scaffolding"] = astra
     disabled = (
         {"behavior-review", "complexity-review"}
         if base == "light"
@@ -294,11 +299,18 @@ def recommend_policy(axes: FeatureAxes) -> Recommendation:
                 minimum_rounds=0 if mode == "off" else 1,
                 primary=reviewers[role],
                 secondary=secondary_reviewers.get(role),
-                secondary_rounds=SECONDARY_ROUNDS_ALL if role in DOCUMENT_ROLES else 1,
+                # An iterative document review's secondary serves every round.
+                secondary_rounds=SECONDARY_ROUNDS_ALL
+                if role in ITERATIVE_DOCUMENT_ROLES and role in secondary_reviewers
+                else 1,
             )
         )
     suggestions = (
-        SecondarySuggestion("review-test-scaffolding", astra, SECONDARY_ROUNDS_ALL),
+        ()
+        if base == "full"
+        else (
+            SecondarySuggestion("review-test-scaffolding", astra, SECONDARY_ROUNDS_ALL),
+        )
     )
     return Recommendation(base, tuple(entries), suggestions)
 
