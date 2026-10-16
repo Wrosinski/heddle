@@ -1384,8 +1384,8 @@ def test_implement_owes_a_verification_round_after_a_material_change() -> None:
         "formatting only changes",
         "reviews that are off owe none",
         "round limit",
-        "decisions add",
-        "driver pauses",
+        "cannot open the owed round",
+        "session handoff",
         "closes rows, not that round",
     ), "implement step 5 does not state the owed verification round"
     assert _has_passage(

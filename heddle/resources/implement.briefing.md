@@ -176,9 +176,8 @@ formal gate artifacts retain their required structure and non-narration rules.
    explicit stop/budget decision is needed. If round-open refuses the owed
    round at the confirmed round limit, ask the owner before advance whether to
    raise the limit. A session that cannot open the owed round, such as a driven
-   one, records an owner question with `heddle decisions add` naming the
-   milestone, the change and the owed round, so the driver pauses before
-   advance. Do not invent a
+   one, names the milestone, the change and the owed round in its session
+   handoff. Do not invent a
    synthesis, fixed pass count, or reset allowance after a policy/model change.
    If the confirmed cap is reached, `heddle review allowance` records only an
    owner-approved absolute quality round increase. It invokes no provider and
