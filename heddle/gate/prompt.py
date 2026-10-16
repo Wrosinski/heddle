@@ -603,7 +603,8 @@ def build_rerun_ledger(ctx: GateContext) -> str:
             "without decision fields. A REPORT finding a decision owns is "
             "awaiting_decision while that decision is pending and settled once "
             "it is resolved, with its decision_id and a decision_origin equal "
-            "to source.",
+            "to source. A Minor REPORT finding that no decision owns is retained "
+            "or settled like an IGNORE finding, without decision fields.",
             "- An addressed row and every regression cite trace, test or "
             "execution evidence; absence, unavailable and speculation are "
             "rejected there.",

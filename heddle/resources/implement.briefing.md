@@ -152,9 +152,17 @@ formal gate artifacts retain their required structure and non-narration rules.
    recorded even at exit 4, which signals open findings, decisions or a
    retained response; a failed call returns `ok: false`.
    Off means intentionally not run, not passed. Read all required initial
-   reports before remediation; Minor findings are audit-only. Apply supported
+   reports before remediation. A Minor finding, limitation or observation needs
+   no correction or rerun of its own, and its record stays as written; before
+   recording `@coverage` for a MUST AC or decision it names, record how that
+   commitment is satisfied or what supported gap remains. Apply supported
    Critical/Important IMPLEMENT fixes, rerun affected milestone/consumer proof,
-   and commit the remediation. Record dispositions only after that commit, once
+   and commit the remediation. Any material change after the latest round to
+   the milestone's reviewed code or proof (production code, tests, fixtures or
+   its verification command) owes a verification round before advance, even
+   when it follows a Minor finding; formatting-only changes, later milestones'
+   work and reviews that are off owe none. At the round limit the stop
+   decision applies instead. Record dispositions only after that commit, once
    its hooks have rewritten what they will: a later change to a cited file
    stops the row counting unless it only re-lays out Python or re-pads
    Markdown tables and spacing. Even such a reformat leaves a verification-backed
@@ -245,7 +253,8 @@ staged, unstaged or untracked changes; Git observation failure is unknown, not
 clean. Advice adds no acknowledgement flag or execution authority. Ignored
 records still participate whenever the review or citation contract selects them.
 
-When another inspection is warranted, the boundary owner can use
+When step 5 owes a verification round, or another inspection is warranted,
+the boundary owner can use
 the Heddle `review round-open --input-json <file> --feature <slug>` operation
 with this payload. Round opening remains boundary-owned:
 
@@ -453,7 +462,9 @@ a class-5 `witness_waiver` question beside the rerun. Propose it through
 `heddle decisions add` (see `--help`); resolved with accept-prior-witness, it
 lets the owner accept the earlier witness, and phase exit passes. Any other
 change, an ownership change, or a witness that never passed leaves the rerun as
-the only route.
+the only route. Orient's verification row states which applies in
+`rerun_route`: raise the question only when it reads `accept-prior`, after
+`heddle decisions add --dry-run` accepts the proposal.
 
 Smoke and the post-review rerun belong to the final proof boundary: peer review
 when Overlay R is off and robustness when it is on. There, after the last relevant review fix,

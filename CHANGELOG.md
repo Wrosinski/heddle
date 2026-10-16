@@ -14,6 +14,28 @@ authority for the installed version.
   `xhigh` as the `review-test-scaffolding` secondary for every round, and no
   longer lists it as a suggestion. Under the Light base it stays a suggestion.
   Confirmed policies keep the reviewers they recorded.
+- Stage briefings and the milestone-review prompt carry new guidance:
+  - milestone review reports an observation or limitation that states a
+    departure from an acceptance criterion, a spec clause, a recorded
+    decision or a later lane as a finding, unless it cites evidence that the
+    commitment holds or an owner decision that accepts it; on a rerun, such a
+    departure inside content the fixes changed is a regression;
+  - implement says a Minor finding needs no correction of its own, asks how a
+    MUST criterion or decision it names is satisfied before recording
+    `@coverage`, and owes a verification round before advance after any
+    material change to a milestone's reviewed code or proof since its latest
+    round;
+  - implement, peer-review and robustness offer a witness waiver only where
+    the lane's `rerun_route` allows one, after a dry run of the proposal;
+  - scaffold names Heddle's verification limits and their overrides for a
+    lane expected to run longer;
+  - the rerun ledger states that a Minor REPORT finding no decision owns is
+    retained or settled without decision fields.
+
+  The milestone-review prompt version changes. Earlier-round milestone review
+  evidence in features already in flight must be refreshed or
+  re-dispositioned.
+
 - `heddle verify` reports each run as `run` beside the recorded fact, in its
   result, error details and `--stale` rows: `termination` (`completed`,
   `timeout`, `inactivity` or `launch-failed`), `elapsed_s` and the effective

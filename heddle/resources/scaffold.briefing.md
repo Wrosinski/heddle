@@ -101,7 +101,11 @@ Create and record all applicable lanes:
    reversible with the approved cleanup/recovery plan. Retain the confirmed
    prerequisites and caps: timeouts, turn/retry and per-attempt/aggregate cost
    bounds have expected healthy-run headroom within host limits, never unbounded
-   retries. A declined lane stays N/A-by-design with its ruling, reason and
+   retries. Heddle stops a verification run after 2700 s overall or 900 s
+   without output; a lane expected to run longer names the
+   `HEDDLE_VERIFY_HARD_TIMEOUT_SECONDS` or
+   `HEDDLE_VERIFY_INACTIVITY_TIMEOUT_SECONDS` value it needs among its
+   prerequisites. A declined lane stays N/A-by-design with its ruling, reason and
    fallback. Do not silently add live or substitute cached output for declared
    real execution. Newly discovered prerequisites are auto-resolvable setup or
    user-required choices; material changes use class 2 against the original

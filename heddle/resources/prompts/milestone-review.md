@@ -57,7 +57,14 @@ establishes each conclusion and any material limit. Keep the summary standalone.
 [partial-review-evidence-kinds]
 
 An actual contract violation is a finding; a possible improvement is not one
-without its consequential gap. Keep severity, classification and confidence
+without its consequential gap. An observation or limitation that states behavior
+departs from what an AC, a spec clause, a recorded decision or a later lane
+requires is a finding at that departure's severity. It stays an observation only
+when it cites the commitment it checked plus evidence bearing on the stated
+departure that shows the commitment holds, or an owner decision that accepts the
+departure. An earlier review recommendation, a lead disposition or an unaffected
+neighboring property is not that evidence. A limitation that only says a lane
+did not run here states no departure. Keep severity, classification and confidence
 independent. Critical concerns threaten required behavior or structural
 integrity; Important concerns affect consequential quality or proof; Minor
 concerns are awareness-only IGNORE. Engineering principles can settle engineering
@@ -80,7 +87,9 @@ history does not establish a change, describe other current gaps in the assigned
 coverage or limitations without inventing a regression or claiming those gaps
 are resolved. When before/after evidence does establish a new violation, report
 it as a new finding with that change evidence; verification scope does not
-suppress real regressions. First reviews have empty prior dispositions and
+suppress real regressions. A departure from a commitment inside content the
+fixes changed is such a regression; outside it, record the departure and the
+commitment it breaks in limitations. First reviews have empty prior dispositions and
 regressions.
 
 Keep enforcement suggestions evidence-backed and separate from defects; do not

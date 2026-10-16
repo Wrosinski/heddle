@@ -192,6 +192,9 @@ def test_coverage_admission_preserves_frozen_capture_and_origin_boundaries(
         "An IMPLEMENT finding or @coverage target is retained or addressed",
         "every regression cite trace, test or execution evidence",
         "that finding is not a regression",
+        # The validator's unowned Minor REPORT rule, stated where rows are encoded.
+        "A Minor REPORT finding that no decision owns is retained or settled like "
+        "an IGNORE finding, without decision fields",
     ):
         assert rule in rerun_prompt
 
