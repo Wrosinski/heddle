@@ -116,8 +116,10 @@ shared with people who do not use Heddle, adopt with
 `heddle init --no-session-entry`. The lock then records no `AGENTS.md` entry,
 and `heddle sync` and `heddle validate` leave the file alone. Your agents need
 another way to learn that sessions start with `heddle orient`. An existing lock
-fixes the choice: to change it, move `.heddle.lock` aside and adopt again with
-`--adopt-existing`.
+fixes the choice. To change it, move `.heddle.lock` aside and adopt again with
+`heddle init --adopt-existing`, adding `--no-session-entry` to opt out. When
+opting out, remove the managed block from `AGENTS.md` yourself; nothing
+maintains it afterwards.
 
 ## Configure the host repository
 
@@ -308,7 +310,7 @@ heddle sync
 
 Inspect the sync preview and apply only approved managed-region changes.
 Current sync targets are the plan-status region and the root AGENTS session-entry
-region.
+region; a host adopted with `--no-session-entry` has only the plan-status region.
 
 ### No active feature
 

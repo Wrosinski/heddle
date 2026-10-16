@@ -290,7 +290,8 @@ acceptance; start a fresh process after switching packages and install host
 application dependencies separately.
 
 `heddle sync` remains explicit-only and has two targets: the plan-status managed
-region and root AGENTS session-entry region. Exact markers, byte preservation,
+region and root AGENTS session-entry region, which a host adopted with
+`--no-session-entry` omits. Exact markers, byte preservation,
 idempotency and per-file publication are enforced by the projection runtime and
 its focused tests.
 It is not part of the driver loop. Accepted historical plans are not regenerated.

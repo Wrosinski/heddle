@@ -1163,7 +1163,7 @@ COMMAND_SURFACE: tuple[CommandContract, ...] = (
             ),
             FlagSpec(
                 "--no-session-entry",
-                "adopt without the AGENTS.md session entry; the lock records it",
+                "adopt without the AGENTS.md session entry; the lock keeps the choice",
             ),
         ),
         exit_codes=_EXIT_FATAL,

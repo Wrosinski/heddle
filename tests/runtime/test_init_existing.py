@@ -250,7 +250,33 @@ def test_no_session_entry_refuses_a_lock_that_records_the_session_entry(
         assert not result.ok and result.error is not None
         assert "--no-session-entry" in result.error.message
         assert ".heddle.lock" in result.error.hint
+        # Rerunning init would only repeat the refusal.
+        assert result.next_actions == ()
     assert snapshot_tree(root) == before
+
+
+def test_failed_no_session_entry_guidance_keeps_the_opt_out(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = existing_host(tmp_path)
+    monkeypatch.chdir(root)
+    agents = (root / "AGENTS.md").read_bytes()
+    refused = execute(ops.Init(session_entry=False))
+    assert not refused.ok and refused.error is not None
+    assert [action.command for action in refused.next_actions] == [
+        "heddle init --no-session-entry --dry-run"
+    ]
+    assert (
+        "`heddle init --adopt-existing --no-session-entry --dry-run`"
+        in refused.error.hint
+    )
+    (root / ".heddle.lock").write_text("schema: invalid\n")
+    invalid = execute(ops.Init(dry_run=True, session_entry=False))
+    assert not invalid.ok
+    assert [action.command for action in invalid.next_actions] == [
+        "heddle init --no-session-entry --dry-run"
+    ]
+    assert (root / "AGENTS.md").read_bytes() == agents
 
 
 def test_no_session_entry_adoption_leaves_existing_agents_untouched(

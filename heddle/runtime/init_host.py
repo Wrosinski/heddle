@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import hashlib
 import stat
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path, PurePosixPath
 from typing import Any, Literal, cast
 
@@ -51,6 +51,7 @@ InitOutcome = Literal["done", "failed", "not-reached"]
 GIT_ROOT_MISSING = "missing-git-root"
 INIT_LOCK_MISSING = "missing-init-lock"
 INIT_RESOURCE_UNREADABLE = "init-resource-unreadable"
+INIT_SESSION_ENTRY_CONFLICT = "session-entry-conflict"
 
 _RESOURCE_ROOT = Path(__file__).resolve().parent.parent / "resources"
 _LOCK_SCHEMA = "heddle.lock/v1"
@@ -199,6 +200,7 @@ def _plan_init_root(
                 "`heddle init --adopt-existing --no-session-entry --dry-run`; "
                 f"remove the managed block from {_AGENTS_PATH} yourself"
             ),
+            reason=INIT_SESSION_ENTRY_CONFLICT,
         )
     planned: list[InitTarget] = []
     for path, class_ in _TARGET_SPECS[:-1]:
@@ -268,7 +270,7 @@ def initialize(operation: ops.Init) -> HeddleResult:
             session_entry=operation.session_entry,
         )
     except KernelError as error:
-        return _init_failure(error)
+        return _init_failure(error, operation)
 
     rows = tuple(
         InitResultRow(target.path, target.class_, target.action)
@@ -284,12 +286,12 @@ def initialize(operation: ops.Init) -> HeddleResult:
 
     refused = tuple(target for target in plan.targets if target.action == "refuse")
     if refused:
-        return _refused_failure(plan, refused)
+        return _refused_failure(plan, refused, operation)
 
     try:
         applied = apply_init(plan)
     except KernelError as error:
-        return _init_failure(error)
+        return _init_failure(error, operation)
     result = HeddleResult.success(
         {"targets": [row.to_payload() for row in applied]},
         next_actions=(
@@ -716,7 +718,7 @@ def _parse_args(args: list[str]) -> tuple[ops.Init | None, HeddleResult | None]:
     )
 
 
-def _init_failure(error: KernelError) -> HeddleResult:
+def _init_failure(error: KernelError, operation: ops.Init) -> HeddleResult:
     actions: tuple[NextAction, ...]
     diagnostics: tuple[Diagnostic, ...]
     if error.reason == GIT_ROOT_MISSING:
@@ -734,10 +736,15 @@ def _init_failure(error: KernelError) -> HeddleResult:
         # returns at the missing-root boundary without probing resources.
         actions = ()
         diagnostics = ()
+    elif error.reason == INIT_SESSION_ENTRY_CONFLICT:
+        # Only moving the lock aside resolves the conflict, as the hint says;
+        # rerunning init would repeat the refusal.
+        actions = ()
+        diagnostics = ()
     else:
         actions = (
             NextAction(
-                action=ops.CommandAction(ops.Init(dry_run=True)),
+                action=ops.CommandAction(replace(operation, dry_run=True)),
                 reason="repair the reported host state and recompute the plan",
             ),
         )
@@ -758,8 +765,12 @@ def _init_failure(error: KernelError) -> HeddleResult:
 def _refused_failure(
     plan: InitPlan,
     refused: tuple[InitTarget, ...],
+    operation: ops.Init,
 ) -> HeddleResult:
     named = ", ".join(target.path.as_posix() for target in refused)
+    adopt_preview = ops.operation_command(
+        replace(operation, dry_run=True, adopt_existing=True)
+    )
     diagnostics: list[Diagnostic] = []
     for target in refused:
         code = "init-refused-target"
@@ -787,16 +798,15 @@ def _refused_failure(
             message=f"init refused occupied or structurally invalid targets: {named}",
             hint=(
                 "review every refused row before applying; to preserve existing "
-                "host-owned config and principles, preview "
-                "`heddle init --adopt-existing --dry-run`; structural faults "
-                "still require repair"
+                f"host-owned config and principles, preview `{adopt_preview}`; "
+                "structural faults still require repair"
             ),
         ),
         exit_code=ExitCode.FATAL,
         diagnostics=tuple(diagnostics),
         next_actions=(
             NextAction(
-                action=ops.CommandAction(ops.Init(dry_run=True)),
+                action=ops.CommandAction(replace(operation, dry_run=True)),
                 reason="review or remove every refused target before applying",
             ),
         ),

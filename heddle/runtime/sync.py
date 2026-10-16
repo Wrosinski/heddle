@@ -571,9 +571,9 @@ def sync(parsed: ops.Sync) -> HeddleResult:
     feature = resolved.feature
     plan_display = (Path(config.layout.plans) / feature / "plan.md").as_posix()
     plan_path = config.root / plan_display
-    try:
-        from heddle.runtime.init_host import session_entry_adopted
+    from heddle.runtime.init_host import session_entry_adopted
 
+    try:
         agents_path = (
             config.root / "AGENTS.md" if session_entry_adopted(config.root) else None
         )

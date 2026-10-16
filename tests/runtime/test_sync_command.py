@@ -1044,11 +1044,15 @@ def test_ac10_red_existing_agents_is_never_adopted(
     assert plan.exists(), "FAIL AC-10: the sibling plan must remain present"
 
 
+@pytest.mark.parametrize(
+    "agents_text", ["host-owned instructions\n", None], ids=["present", "absent"]
+)
 def test_sync_leaves_agents_alone_on_a_host_adopted_without_session_entry(
     run_cli,
     envelope_tools,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    agents_text: str | None,
 ) -> None:
     host = _marker_ready_demo_host(
         run_cli,
@@ -1059,7 +1063,10 @@ def test_sync_leaves_agents_alone_on_a_host_adopted_without_session_entry(
     )
     adopt_fixture_host(host, session_entry=False)
     agents = host / "AGENTS.md"
-    agents.write_text("host-owned instructions\n", encoding="utf-8")
+    if agents_text is None:
+        agents.unlink(missing_ok=True)
+    else:
+        agents.write_text(agents_text, encoding="utf-8")
     for argv in (
         ["sync", "--feature", "demo", "--dry-run", "--json"],
         ["sync", "--feature", "demo", "--json"],
@@ -1067,7 +1074,37 @@ def test_sync_leaves_agents_alone_on_a_host_adopted_without_session_entry(
         code, envelope = _json_run(run_cli, envelope_tools, argv)
         assert code == 0, f"FAIL: {argv} must succeed, got {envelope!r}"
         assert [row["block"] for row in envelope["data"]["targets"]] == [PLAN_ID]
-    assert agents.read_text(encoding="utf-8") == "host-owned instructions\n"
+    if agents_text is None:
+        assert not agents.exists(), "FAIL: sync created AGENTS.md on an opted-out host"
+    else:
+        assert agents.read_text(encoding="utf-8") == agents_text
+
+
+def test_sync_refuses_an_invalid_lock_without_writes(
+    run_cli,
+    envelope_tools,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    host = _marker_ready_demo_host(
+        run_cli,
+        envelope_tools,
+        tmp_path,
+        monkeypatch,
+        name="invalid-lock",
+    )
+    adopt_fixture_host(host)
+    (host / ".heddle.lock").write_text("schema: invalid\n", encoding="utf-8")
+    before = {
+        path: path.read_bytes()
+        for path in (host / "AGENTS.md", host / "plans" / "demo" / "plan.md")
+    }
+    code, envelope = _json_run(
+        run_cli, envelope_tools, ["sync", "--feature", "demo", "--json"]
+    )
+    assert code != 0, f"FAIL: sync must refuse an invalid lock, got {envelope!r}"
+    assert envelope["error"]["code"] == "workspace-invalid"
+    assert {path: path.read_bytes() for path in before} == before
 
 
 def test_ac10_red_human_refusal_is_informative_and_keeps_exit_taxonomy(
