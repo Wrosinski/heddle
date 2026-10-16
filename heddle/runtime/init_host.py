@@ -749,14 +749,18 @@ def _init_failure(error: KernelError, operation: ops.Init) -> HeddleResult:
             ),
         )
         diagnostics = ()
-    # Lock and target errors are shared with doctor and name the plain
-    # preview; a failed init repeats its own request instead.
+    # Lock, target and projection errors are shared with doctor and sync and
+    # name plain init; a failed init repeats its own request instead.
     preview = ops.operation_command(replace(operation, dry_run=True))
+    rerun = ops.operation_command(replace(operation, dry_run=False))
+    hint = error.hint.replace("`heddle init --dry-run`", f"`{preview}`").replace(
+        "re-run heddle init", f"re-run {rerun}"
+    )
     return HeddleResult.failure(
         HeddleError(
             code=error.code,
             message=error.message,
-            hint=error.hint.replace("`heddle init --dry-run`", f"`{preview}`"),
+            hint=hint,
             details=error.details,
         ),
         exit_code=ExitCode.FATAL,
