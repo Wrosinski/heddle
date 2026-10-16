@@ -24,7 +24,9 @@ authority for the installed version.
   not tokenize holds no tests. When a commit concludes a merge, every parent
   counts: a test a parent has must stay unless another parent lacks it that
   the holder's merge base with HEAD had, and only a test or file no parent
-  had can be a move or rename target. A failed git call fails the hook. The
+  had can be a move or rename target; a merge that discards a side's tests
+  (`-s ours`), or keeps once a test two branches renamed differently, needs
+  the bypass. A failed git call fails the hook. The
   commit-msg snippets declare `stages: [commit-msg]` and `always_run: true`,
   and the hook manifest lists the `default_install_hook_types` a host needs
   before `pre-commit install`.

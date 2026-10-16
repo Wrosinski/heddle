@@ -508,9 +508,11 @@ and so does a file without tests that Git sees renamed. For a rename, add one
 `Test-Renamed: <old id> -> <new id>` trailer per test to the message's
 trailer block; a class rename covers the members it keeps. When a commit
 concludes a merge, a test a parent has must stay unless another parent lacks
-it that the holder's merge base with HEAD had. The guard reads tokens, so run
-it under an interpreter as new as the project's: a file it cannot tokenize
-holds no tests. A true deletion still
+it that the holder's merge base with HEAD had; a merge that discards a side's
+tests (`-s ours`), or keeps once a test two branches renamed differently,
+needs the bypass. The guard reads tokens, so run it under an interpreter as
+new as the project's: a file it cannot tokenize holds no tests. A true
+deletion still
 needs `ALLOW_TEST_DELETION=1` with a `Bypass-Justification:` trailer.
 
 ## Shared decision policy
