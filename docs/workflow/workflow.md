@@ -123,9 +123,10 @@ refused slot, or a lone remaining one, keeps its `heddle run-gate` action and
 its place. Do not construct a role list or worker count: no such
 public inputs exist. When no set launches, the refusal names its cause in
 `details.cause`: `launch-sequential`, `implementation-pending`,
-`other-work-first`, `single-slot` or `no-launchable-slot`. Every launch and
-refusal lists the slots of routed reviews it left out, with their reasons,
-under `excluded_slots`. The current milestone's
+`other-work-first`, `single-slot` or `no-launchable-slot`, or
+`launch-set-changed` when the set changed while `run-gates` waited for its
+locks. Every launch and refusal lists the slots of routed reviews it left out,
+with their reasons, under `excluded_slots`. The current milestone's
 review is exit evidence: while that milestone has no tasks or an unfinished one,
 `run-gates` and the slot's own `run-gate` both refuse it (`task-incomplete` for
 `run-gate`) and name the open work. On a provider failure, interruption, or
@@ -603,9 +604,10 @@ one lane's rerun with a class-5 `witness-waiver` decision resolved as
 source. A later formatting-only change keeps it; any other relevant edit
 restores the rerun. Failed, missing, unstable or command-stale evidence cannot
 be waived. Each stale witness row in `heddle status` and `heddle orient` states
-its `rerun_route` (`waivable`, `accept-prior` or `rerun-only`) with the reason;
-offer the owner a waiver only where it names one, and check the proposal with
-`heddle decisions add --dry-run` before asking. With R Off,
+its `rerun_route` (`waivable`, `accept-prior` or `rerun-only`) with the reason.
+Where a lane has a row, offer the owner a waiver only where it names one; where
+it has none, such as live at peer review, the dry run decides. Check every
+proposal with `heddle decisions add --dry-run` before asking. With R Off,
 the lead still owes declared live proof here although native enforcement starts
 at robustness, which is traversed even with R Off, and applies again at complete.
 After the last relevant fix and final applicable pass, refresh the assessment

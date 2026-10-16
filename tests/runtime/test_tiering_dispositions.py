@@ -250,10 +250,15 @@ def test_scope_change_reference_refusal_names_the_file_to_cite(
     )
 
     assert not result.ok and result.error.code == "workspace-invalid"
+    assert result.error.details == {
+        "reference": "tests/check.py::test_declared_value",
+        "predicate": "malformed-field",
+    }
     assert (
         "a test node is not a reference: cite tests/check.py and name "
         "test_declared_value in reason"
-    ) in result.error.message
+    ) in result.error.hint
+    assert "never reset history" not in result.error.hint
     assert snapshot(host) == before and len(calls) == 1
 
 

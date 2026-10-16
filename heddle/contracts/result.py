@@ -95,6 +95,8 @@ LAUNCH_REFUSAL_CAUSES = (
     "other-work-first",
     "single-slot",
     "no-launchable-slot",
+    # Checked last, once the locks are held: the set readiness offers moved.
+    "launch-set-changed",
 )
 # Why a slot of a routed review is left out of a launch set, in the order they
 # are checked.

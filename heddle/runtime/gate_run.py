@@ -449,8 +449,8 @@ def execute_gates(parsed: RunGates) -> HeddleResult:
                     resolved, current.members
                 ).items()
             } != held:
-                return _batch_changed(resolved, current_actions)
-            prepared = _prepare_batch_members(resolved, current.members)
+                return _batch_changed(resolved, current, current_actions)
+            prepared = _prepare_batch_members(resolved, current)
             if isinstance(prepared, HeddleResult):
                 return prepared
             publication = _Publication(resolved.snapshot.state.revision)
@@ -495,12 +495,13 @@ def _slot_operation(feature: str, member: LaunchMember) -> RunGate:
 
 
 def _prepare_batch_members(
-    resolved: ResolvedSnapshotContext, launch: tuple[LaunchMember, ...]
+    resolved: ResolvedSnapshotContext, launch: LaunchSet
 ) -> list[_BatchMember] | HeddleResult:
     """Prepare every member's immutable input before any provider call.
 
     A member whose preparation refuses refuses the batch with the refusal its
-    standalone ``run-gate`` would return, naming that member.
+    standalone ``run-gate`` would return, naming that member and the slots
+    the set left out.
     """
     snapshot, config = resolved.snapshot, resolved.config
     try:
@@ -522,7 +523,7 @@ def _prepare_batch_members(
     except (KernelError, OSError, UnicodeDecodeError, ValueError, MemoryError) as error:
         return _batch_input_failure(resolved, "batch inputs", error)
     members = []
-    for launch_member in launch:
+    for launch_member in launch.members:
         parsed = _slot_operation(resolved.feature, launch_member)
         gate_type = GATES[launch_member.role]
         try:
@@ -537,7 +538,7 @@ def _prepare_batch_members(
         ) as error:
             member = _preparation_failure(resolved, error)
         if isinstance(member, HeddleResult):
-            return _naming_member(member, launch_member)
+            return _naming_member(member, launch_member, launch)
         member.launch = launch_member
         members.append(member)
     return members
@@ -564,7 +565,9 @@ def _preparation_failure(
     )
 
 
-def _naming_member(result: HeddleResult, member: LaunchMember) -> HeddleResult:
+def _naming_member(
+    result: HeddleResult, member: LaunchMember, launch: LaunchSet
+) -> HeddleResult:
     assert result.error is not None
     error = result.error
     return replace(
@@ -573,7 +576,11 @@ def _naming_member(result: HeddleResult, member: LaunchMember) -> HeddleResult:
             error.code,
             error.message,
             error.hint,
-            {**error.details, "selected_member": _member_identity(member)},
+            {
+                **error.details,
+                "selected_member": _member_identity(member),
+                "excluded_slots": [row.payload() for row in launch.exclusions],
+            },
         ),
     )
 
@@ -1439,13 +1446,19 @@ def _runs_review(action: NextAction) -> bool:
 
 
 def _batch_changed(
-    resolved: ResolvedSnapshotContext, actions: tuple[NextAction, ...]
+    resolved: ResolvedSnapshotContext,
+    current: LaunchSet,
+    actions: tuple[NextAction, ...],
 ) -> HeddleResult:
     return HeddleResult.failure(
         HeddleError(
             "gate-not-converged",
             "the launch set changed while run-gates waited for its locks",
             "follow the current actions and reassess",
+            {
+                "cause": LAUNCH_REFUSAL_CAUSES[-1],
+                "excluded_slots": [row.payload() for row in current.exclusions],
+            },
         ),
         exit_code=ExitCode.FATAL,
         diagnostics=resolved.diagnostics,

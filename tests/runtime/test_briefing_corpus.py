@@ -1386,6 +1386,7 @@ def test_implement_owes_a_verification_round_after_a_material_change() -> None:
         "round limit",
         "decisions add",
         "driver pauses",
+        "closes rows, not that round",
     ), "implement step 5 does not state the owed verification round"
     assert _has_passage(
         text, "minor finding", "no correction or rerun", "coverage", "supported gap"
@@ -1406,12 +1407,39 @@ def test_waiver_offers_follow_the_lane_rerun_route(name: str, route: str) -> Non
     )
 
 
+def test_a_lane_orient_does_not_list_leaves_the_waiver_to_the_dry_run() -> None:
+    """Live has no orient row at peer review; its waiver offer still exists."""
+    for text, source in (
+        (_text("peer-review.briefing.md"), "peer-review"),
+        (
+            (REPO_ROOT / "docs/workflow/workflow.md").read_text(encoding="utf-8"),
+            "the workflow guide",
+        ),
+    ):
+        assert _has_passage(
+            text,
+            ("only when", "only where"),
+            "waivable",
+            ("lists none", "has none"),
+            "dry run decides",
+        ), f"{source} withholds the waiver offer from a lane orient does not list"
+
+
 def test_scaffold_names_the_verification_limits_for_long_lanes() -> None:
-    assert _has_passage(
-        _text("scaffold.briefing.md"),
-        "2700 s",
-        "900 s",
+    from heddle.contracts.limits import (
+        DEFAULT_SESSION_HARD_TIMEOUT_S,
+        DEFAULT_SESSION_INACTIVITY_TIMEOUT_S,
+    )
+
+    limits = (
+        f"{DEFAULT_SESSION_HARD_TIMEOUT_S} s",
+        f"{DEFAULT_SESSION_INACTIVITY_TIMEOUT_S} s",
         "heddle verify hard timeout seconds",
         "heddle verify inactivity timeout seconds",
-        "acceptance or live lane",
+    )
+    assert _has_passage(
+        _text("scaffold.briefing.md"), *limits, "acceptance or live lane"
     ), "scaffold does not name the verification limits and their overrides"
+    for doc in ("docs/workflow/workflow.md", "docs/workflow/host-integration.md"):
+        text = (REPO_ROOT / doc).read_text(encoding="utf-8")
+        assert _has_passage(text, *limits), f"{doc} does not state the limits"

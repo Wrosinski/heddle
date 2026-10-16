@@ -53,6 +53,7 @@ from heddle.runtime.readiness import (
     readiness_failure,
     readiness_status_block,
 )
+from heddle.runtime.verify_exec import stopped_at_limit
 
 DRIVE_BLOCKED_PROCESS_EXIT = ExitCode.INTERNAL  # process exit 1: blocked/escalated
 VALIDATION_ATTEMPT_LIMIT = 5
@@ -290,6 +291,7 @@ def run_loop(config: ProjectConfig, slug: str, *, until: str | None) -> HeddleRe
                     "exit_code": verification_error.details.get("child_exit_code"),
                     "log": verification_error.details.get("log"),
                     "fact_index": verification_error.details.get("fact_index"),
+                    "run": verification_error.details.get("run"),
                 }
             if verification is not None:
                 # Recorded unusable proof is a typed command failure, but it
@@ -345,13 +347,19 @@ def _count_verification(
     verify_failures[scope] = verify_failures.get(scope, 0) + 1
     if verify_failures[scope] < VERIFY_ATTEMPT_LIMIT:
         return None
+    run = verification.get("run")
+    stopped = stopped_at_limit(scope, run) if isinstance(run, dict) else None
+    remedy = (
+        "fix the stored verification command or the failing check"
+        if stopped is None
+        else f"{stopped[0]}; {stopped[1]}"
+    )
     detail = (
         f"verification for scope {scope} remained "
         f"{freshness_status} for "
         f"{verify_failures[scope]} consecutive times "
         f"(latest exit {verification.get('exit_code')}, "
-        f"log {verification.get('log')}); fix the stored "
-        "verification command or the failing check, then "
+        f"log {verification.get('log')}); {remedy}, then "
         "resolve and re-run drive"
     )
     return _raise_decision_batch(

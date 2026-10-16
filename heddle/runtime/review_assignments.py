@@ -2336,10 +2336,17 @@ def _unresolved_kernel_stop(snapshot: FeatureSnapshot, row: dict[str, Any]) -> b
     if row["stop_reason"] not in _KERNEL_STOPS:
         return False
     assignment = core.assignment_for(snapshot.state, row["role"], row["scope"])
-    return not any(
-        decision.id == assignment.stop_decision_id and decision.status == "resolved"
+    # A continue-review ruling resolves only the stop it was given for; once
+    # its round is spent, a stop reached again is unresolved until recorded.
+    return not core.continuation_authorized(snapshot.state, assignment) and not any(
+        decision.id == assignment.stop_decision_id
+        and decision.status == "resolved"
+        and isinstance(decision.resolution, Disposition)
         for decision in snapshot.state.decisions
     )
+
+
+_OWED_ROUND = " A round that a change since the latest round owes is still owed."
 
 
 def _stop_note(snapshot: FeatureSnapshot, row: dict[str, Any]) -> str:
@@ -2353,8 +2360,8 @@ def _stop_note(snapshot: FeatureSnapshot, row: dict[str, Any]) -> str:
     )
     return (
         f" The {row['stop_reason']} stop is reached, but every open row closes "
-        f"with recorded evidence alone ({closes}), so it needs no review round "
-        "and no owner decision."
+        f"with recorded evidence alone ({closes}), so closing these rows needs "
+        f"no review round or owner decision.{_OWED_ROUND}"
     )
 
 
@@ -2364,8 +2371,8 @@ def _reaffirm_stop_note(stops: list[str]) -> str:
         return ""
     return (
         f" Stops are reached for {', '.join(stops)}, but their open rows close "
-        "by re-recording evidence alone, so they need no review round and no "
-        "owner decision."
+        "by re-recording evidence alone, so closing them needs no review round "
+        f"or owner decision.{_OWED_ROUND}"
     )
 
 
@@ -3129,8 +3136,14 @@ def _scope_change(
                 captured_reference(config.root, path, plan_path=plan_path)
             )
         except (KernelError, OSError, ValueError) as error:
-            _predicate, remedy = _reference_input_failure(config.root, str(path), error)
-            raise core.invalid(f"scope change reference {path!r}: {remedy}") from error
+            predicate, remedy = _reference_input_failure(config.root, str(path), error)
+            raise KernelError(
+                code="workspace-invalid",
+                message=f"review assignment: scope change reference {path!r} is "
+                f"{predicate}",
+                hint=remedy,
+                details={"reference": str(path), "predicate": predicate},
+            ) from error
     return ReviewScopeChange(
         _nonempty(raw["reason"], "material contract change reason"),
         tuple(sorted(references)),

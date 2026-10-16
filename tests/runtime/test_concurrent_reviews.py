@@ -316,6 +316,7 @@ def test_ac5_a_lock_location_change_while_waiting_refuses_before_any_call(
     assert locked, "fixture precondition: run-gates reached its locks"
     assert not result.ok, "FAIL AC-5: a moved lock location did not refuse"
     assert call_count == 0 and state_path.read_bytes() == before
+    assert result.error.details == {"cause": "launch-set-changed", "excluded_slots": []}
 
 
 def _unrelated_write() -> None:
@@ -831,6 +832,7 @@ def test_ac6_a_member_preparation_refusal_refuses_the_batch_naming_that_member(
         "scope": "feature",
         "reviewer_slot": SECONDARY,
     }, f"FAIL AC-6: the refusal does not name its member: {refused.error}"
+    assert refused.error.details["excluded_slots"] == []
     assert (
         refused.error.code,
         refused.error.message,

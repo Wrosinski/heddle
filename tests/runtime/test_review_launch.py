@@ -740,6 +740,7 @@ def test_launch_refusal_vocabulary_is_closed() -> None:
         "other-work-first",
         "single-slot",
         "no-launchable-slot",
+        "launch-set-changed",
     )
     assert LAUNCH_EXCLUSION_REASONS == (
         "scope-unresolved",

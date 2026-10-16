@@ -440,7 +440,8 @@ def test_basis_change_at_round_limit_routes_rerecordable_rows_to_reaffirm(
     action = _review_action(ops.AuthoringAction)
     assert action.action.work == "review-reaffirm"
     assert "Stops are reached for milestone-review m1 (round-limit)" in action.reason
-    assert "no review round and no owner decision" in action.reason
+    assert "closing them needs no review round or owner decision" in action.reason
+    assert "a change since the latest round owes is still owed" in action.reason
 
     reaffirmed = application.execute(ops.ReaffirmReview(feature=V7_FEATURE))
     assert reaffirmed.ok, reaffirmed.to_envelope()
@@ -688,6 +689,81 @@ def test_authorized_continuation_routes_rerecordable_rows_to_disposition(
     )
     assert application.execute(ops.ReaffirmReview(feature=V7_FEATURE)).ok
     assert review_status(path)["closed"] and len(calls) == 1
+
+
+def test_spent_continuation_leaves_a_stop_reached_again_unresolved(
+    tmp_path, monkeypatch, run_cli
+):
+    """A continue-review ruling resolves the stop it was given for, once."""
+    from tests.operational_model_helpers import SPEC, read
+    from tests.tiering_helpers import entry
+    from tests.tiering_review_helpers import (
+        amend,
+        dispose,
+        disposition,
+        open_round,
+        recorded_stop,
+        review_status,
+        runs,
+    )
+
+    host, path = current_host(
+        tmp_path,
+        monkeypatch,
+        overrides={"spec-review": entry("spec-review", limit=1)},
+    )
+
+    def report(_cli, _prompt):
+        from tests.structured_review_helpers import disposition as accounted
+        from tests.structured_review_helpers import finding_ref
+
+        content = review_content()
+        if runs(path):
+            content["prior_dispositions"] = [
+                accounted(finding_ref(run["run_id"], "@coverage"), action="addressed")
+                for run in runs(path)
+            ]
+        return content
+
+    provider_transport(monkeypatch, report)
+    code, result = gate_command(run_cli, "run-gate", "spec-review")
+    assert code in (0, 4) and result["ok"], result
+    cited = {"references": ["tests/check.py"]}
+    settled = {"status": "settled", **cited}
+    assert dispose(
+        path, [disposition(runs(path)[0]["run_id"], "@coverage", **settled)]
+    ).ok
+    assert review_status(path)["closed"]
+    spec = host / SPEC
+    spec.write_text(spec.read_text() + "\nClarify the declared contract.\n")
+    assert recorded_stop(open_round(path))
+    [decision] = read(path)["decisions"]
+    assert application.execute(
+        ops.ResolveDecision(
+            decision_id=decision["id"],
+            kind="continue-review",
+            rationale="Owner authorizes one bounded follow-up",
+            routes_to="docs/features/runtime/operational-example.md",
+            feature=V7_FEATURE,
+        )
+    ).ok
+    assert amend(path, entry("spec-review", limit=2), revision=2).ok
+    assert open_round(path).ok
+    code, result = gate_command(run_cli, "run-gate", "spec-review")
+    assert code in (0, 4) and result["ok"], result
+    assert dispose(
+        path, [disposition(runs(path)[-1]["run_id"], "@coverage", **settled)]
+    ).ok
+
+    # The first round's coverage went stale with the edit, so the assignment
+    # reopens at its new limit, past the ruling the second round spent.
+    row = review_status(path)
+    assert row["stop_reason"] == "round-limit" and not row["closed"]
+    assert [d["id"] for d in read(path)["decisions"]] == [decision["id"]]
+    action = _review_action(ops.AuthoringAction)
+    assert "round-limit" in action.reason and "still owed" in action.reason, (
+        "a spent continue-review ruling hid the stop reached again"
+    )
 
 
 def test_inspection_duty_without_review_evidence_keeps_the_round_limit_stop(

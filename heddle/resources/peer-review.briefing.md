@@ -177,8 +177,9 @@ one lane's rerun: a class-5 `witness_waiver` decision, resolved with
 accept-prior-witness, binds the latest passing pre-review run and the current
 source. File it with `heddle decisions add` (see `--help`). Ask the owner
 only once `heddle decisions add --dry-run` accepts the proposal. Where orient
-lists the lane, its `rerun_route` reads `waivable`, and a `rerun-only` lane has
-nothing to waive; where it lists none, as for live here, the dry run decides. An opt-out ruled at
+lists the lane, offer it only when its `rerun_route` reads `waivable`; a
+`rerun-only` lane has nothing to waive. Where orient lists none, as for live
+here, the dry run decides. An opt-out ruled at
 the specification checkpoint is a standing grant: the lead files that decision
 citing the ruling and resolves it where the session allows; a driven session
 cannot resolve, so the

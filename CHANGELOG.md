@@ -41,9 +41,13 @@ authority for the installed version.
     MUST criterion or decision it names is satisfied before recording
     `@coverage`, and owes a verification round before advance after any
     material change to a milestone's reviewed code or proof since its latest
-    round;
-  - implement, peer-review and robustness offer a witness waiver only where
-    the lane's `rerun_route` allows one, after a dry run of the proposal;
+    round, which readiness routing past a stop does not discharge; at the
+    round limit it asks the owner whether to raise the limit, and a driven
+    session that cannot open the round records an owner question, so the
+    driver pauses before advance;
+  - implement, peer-review and robustness offer a witness waiver only after a
+    dry run of the proposal passes, and where orient lists the lane, only
+    when its `rerun_route` allows one;
   - scaffold names Heddle's verification limits and their overrides for a
     lane expected to run longer;
   - the rerun ledger states that a Minor REPORT finding no decision owns is
@@ -63,7 +67,9 @@ authority for the installed version.
   a command that exits 124 itself stays `completed`. `--dry-run` shows the
   limits and `heddle verify --help` states the defaults. The recorded fact is
   unchanged. A run whose log or after-capture cannot be published still
-  reports its `run`, and human output prints each `--stale` row's run.
+  reports its `run`, and human output prints each `--stale` row's run. The
+  driver's attempt-cap question for such a lane names the limit and its
+  override too.
 - A close-suite failure from `heddle feature complete` names how its run ended:
   a Heddle limit with its override, a shell that could not start, or the
   command's own exit code.
@@ -79,7 +85,9 @@ authority for the installed version.
 - `heddle run-gates` refusals name their cause in `details.cause`:
   `launch-sequential`, `implementation-pending`, `other-work-first`,
   `single-slot` or `no-launchable-slot`, in that order of precedence, with a
-  message to match. Every launch and refusal lists the slots of routed reviews
+  message to match, or `launch-set-changed` when the set changed while
+  `run-gates` waited for its locks. A member whose preparation refuses names
+  itself in `selected_member`. Every launch and refusal lists the slots of routed reviews
   it left out under `excluded_slots`, each with its reason:
   `scope-unresolved`, `assignment-sealed`, `changed-source-pending`,
   `slot-recorded` or `admission-refused`, the last with the refusal's code,
@@ -88,12 +96,15 @@ authority for the installed version.
   `task-incomplete` while that milestone has no tasks or an unfinished one,
   as readiness already withheld it; its details name the pending work.
   Reviews of done milestones are still admitted.
-- A new disposition or scope-change reference that names a test node of an
-  existing file (`path::node`) or a commit (`commit <hex>`), or is absolute or
-  escapes the repository, is refused as `malformed-field` with a remedy to
-  cite the file and name the node or commit in the reason. Other missing
-  references stay `reference-unavailable`, and their remedy mentions node ids
-  and commits when the reference has that shape.
+- A new disposition reference that names a test node of an existing file
+  (`path::node`) or a commit (`commit <hex>`), or is absolute or escapes the
+  repository, is refused as `malformed-field` with a remedy to cite the file
+  and name the node or commit in the reason. Other missing references stay
+  `reference-unavailable`, and their remedy mentions node ids and commits
+  when the reference has that shape. `heddle review round-open` classifies a
+  scope-change reference the same way: its `workspace-invalid` refusal
+  carries the `reference` and that `predicate` in its details and the remedy
+  as its hint.
 - `heddle task edit <ref> <text>` names the `--text` form it needs.
 - `heddle run-gate` and `heddle run-gates` print progress to stderr once a
   minute while reviewers run, naming the gate, slot, CLI and elapsed time;
@@ -200,10 +211,14 @@ authority for the installed version.
   whose assignment basis, citations or verification changed, judged at the
   current basis and as re-cited, and, at a round limit, the latest round's
   undisposed `@coverage`. A row whose evidence fails on its own, an inspection
-  duty, review evidence whose review source changed, and any retained,
-  undisposed or awaiting-decision row keep the stop, and a pending owner
-  decision still comes first. The routed action says why no round or owner
-  decision is needed. Rows `heddle review reaffirm` writes carry
+  duty, a review-backed row whose citation or review source changed, and any
+  retained, undisposed or awaiting-decision row keep the stop, and a pending
+  owner decision still comes first. The routed action says why closing those
+  rows needs no round or owner decision, and that a round a change owes is
+  still owed; a continue-review ruling no longer silences that note once its
+  round is spent. Status and orient review rows routed to reaffirm list those
+  assignments in `reaffirm.stops`, additive under `heddle.status/v1` and
+  `heddle.orient/v0`. Rows `heddle review reaffirm` writes carry
   `rebound_by: reaffirm`; `state.yaml` accepts only `review-equivalence` and
   `reaffirm` as a `rebound_by` writer.
 - A `heddle review round-open` that records a no-progress, no-decrease or

@@ -170,7 +170,8 @@ formal gate artifacts retain their required structure and non-narration rules.
    exact witnesses, and required pending witnesses. A neighboring failure's
    location alone does not establish that it is unrelated. Record exact original findings and coverage
    through `heddle review disposition`; preserve independent inspection duties
-   and REPORT owners. Then open a round a change owes; beyond it, native
+   and REPORT owners. Then open a round a change owes; readiness that routes
+   re-recording past a stop closes rows, not that round. Beyond it, native
    closure and next actions determine whether another targeted round or
    explicit stop/budget decision is needed. If round-open refuses the owed
    round at the confirmed round limit, ask the owner before advance whether to

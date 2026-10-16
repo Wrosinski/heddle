@@ -142,6 +142,30 @@ def test_consecutive_verify_failures_raise_attempt_cap_batch(
     assert path.read_bytes() == before
 
 
+def test_attempt_cap_after_limit_stops_names_the_limit_to_raise(
+    run_json, driver_corpus, monkeypatch, auto_tier2_workspace
+):
+    """A lane Heddle stopped at its limit is not a check to repair."""
+    host = _arm_verify_pending(auto_tier2_workspace, "sleep 5")
+    _no_sessions(monkeypatch)
+    monkeypatch.chdir(host)
+    monkeypatch.setenv("HEDDLE_VERIFY_HARD_TIMEOUT_SECONDS", "0.2")
+
+    code, envelope, _out, _err = run_json(["drive", "--feature", SLUG, "--json"])
+
+    assert code != 0 and envelope["error"]["code"] == "attempt-cap", envelope
+    state = driver_corpus.read_yaml(driver_corpus.state(host, SLUG))
+    [batch] = [
+        decision
+        for decision in state.get("decisions", [])
+        if decision.get("status") == "pending"
+    ]
+    question = batch["question"]
+    assert "Heddle stopped m1 at its hard limit of 0.2 s (env)" in question, question
+    assert "set HEDDLE_VERIFY_HARD_TIMEOUT_SECONDS above" in question, question
+    assert "fix the stored verification command" not in question, question
+
+
 def test_passing_verification_resets_the_failure_counter(
     run_json, driver_corpus, monkeypatch, auto_tier2_workspace
 ):
