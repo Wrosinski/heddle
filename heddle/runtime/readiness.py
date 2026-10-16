@@ -32,6 +32,7 @@ from heddle.kernel.readiness import (
     EvidenceState,
     ReviewAssessment,
     assess_boundary,
+    implementation_pending,
 )
 from heddle.kernel.reviews import (
     run_owner,
@@ -45,7 +46,7 @@ from heddle.kernel.witness_waiver import (
     witness_offer,
 )
 from heddle.runtime.flow_changes import phase_exit_grant_blockers
-from heddle.runtime.review_launch import LaunchMember, launch_set
+from heddle.runtime.review_launch import LaunchMember, LaunchSet, launch_set
 from heddle.runtime.verification import (
     assess_current_verifications,
     required_verification_scopes,
@@ -202,16 +203,8 @@ def _assignment_readiness(
     verifications = assess_current_verifications(
         config.root, snapshot.state, scopes, source_observations=captures
     )
-    current = snapshot.current_milestone
-    implementation_work_pending = boundary.stage == "implement" and (
-        (current is None and any(m.status == "todo" for m in snapshot.state.milestones))
-        or (
-            current is not None
-            and (
-                not current.tasks
-                or any(task.status != "done" for task in current.tasks)
-            )
-        )
+    implementation_work_pending = (
+        implementation_pending(snapshot.state, boundary.stage) is not None
     )
     # Verification and milestone review are exit evidence. While ordinary
     # implementation work remains, keep their status observable without
@@ -331,7 +324,7 @@ def _assignment_readiness(
         actions = project_launch_actions(
             snapshot.feature,
             actions,
-            _launch_members(config, snapshot, observed, actions, captures),
+            _launch_members(config, snapshot, observed, actions, captures).members,
         )
     derived = derive_next_actions(snapshot)
     off_robustness_exit = _qualified_fresh_off_robustness_exit(
@@ -597,7 +590,7 @@ def _launch_members(
     observed: dict[str, Any],
     actions: list[NextAction] | tuple[NextAction, ...],
     captures: dict[str, ObservedPath],
-) -> tuple[LaunchMember, ...]:
+) -> LaunchSet:
     """Resolve the launch set, selecting the milestone a milestone gate reviews."""
     milestone_gate = next(
         (
@@ -676,7 +669,7 @@ def _runs_member_slot(operation: ops.RunGate, member: LaunchMember) -> bool:
 
 def current_launch_set(
     config: ProjectConfig, snapshot: FeatureSnapshot
-) -> tuple[tuple[LaunchMember, ...], tuple[NextAction, ...]]:
+) -> tuple[LaunchSet, tuple[NextAction, ...]]:
     """Return the launch set run-gates may execute and readiness's current actions."""
     from heddle.runtime.review_assignments import projection
 
@@ -689,8 +682,10 @@ def current_launch_set(
         assignment_projection=observed,
         project_launch=False,
     ).next_actions
-    members = _launch_members(config, snapshot, observed, actions, captures)
-    return members, tuple(project_launch_actions(snapshot.feature, actions, members))
+    launch = _launch_members(config, snapshot, observed, actions, captures)
+    return launch, tuple(
+        project_launch_actions(snapshot.feature, actions, launch.members)
+    )
 
 
 def select_review_milestone(

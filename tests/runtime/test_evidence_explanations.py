@@ -374,6 +374,314 @@ def test_changed_citation_at_round_limit_routes_to_resubmission_not_stop(
     assert review_status(path)["closed"] and len(calls) == 1
 
 
+def _review_action(kind):
+    """The one status action of ``kind`` that is not the m1 verification."""
+    [action] = [
+        item
+        for item in application.execute(ops.Status(feature=V7_FEATURE)).next_actions
+        if isinstance(item.action, kind)
+        and not isinstance(getattr(item.action, "operation", None), ops.Verify)
+    ]
+    return action
+
+
+def _milestone_review_at_round_limit(tmp_path, monkeypatch, run_cli, rows):
+    """m1's one-round milestone review, closed by ``rows(origin)``."""
+    from tests.tiering_helpers import entry
+    from tests.tiering_review_helpers import dispose, runs
+
+    host, path = current_host(
+        tmp_path,
+        monkeypatch,
+        stage="implement",
+        overrides={"milestone-review": entry("milestone-review", limit=1)},
+    )
+    calls = provider_transport(
+        monkeypatch,
+        review_content(
+            "milestone-review",
+            findings=[finding("MI-I1", classification="implement")],
+        ),
+    )
+    code, result = gate_command(run_cli, "run-gate", "milestone-review")
+    assert code == 4 and result["ok"], result
+    origin = runs(path)[0]["run_id"]
+    assert dispose(path, rows(origin)).ok
+    assert assignment_row("milestone-review", "m1")["closed"]
+    return host, path, origin, calls
+
+
+def test_basis_change_at_round_limit_routes_rerecordable_rows_to_reaffirm(
+    tmp_path, monkeypatch, run_cli
+):
+    """A basis change alone reopens rows reaffirm can write: no stop, no round."""
+    from tests.operational_model_helpers import read, write
+    from tests.tiering_review_helpers import disposition
+
+    def rows(origin):
+        return [
+            disposition(origin, "MI-I1", references=["tests/check.py"]),
+            disposition(
+                origin, "@coverage", status="settled", references=["tests/check.py"]
+            ),
+        ]
+
+    host, path, origin, calls = _milestone_review_at_round_limit(
+        tmp_path, monkeypatch, run_cli, rows
+    )
+    source = host / "src/example.py"
+    source.write_text(source.read_text() + "LIMIT = 3\n")
+
+    row = assignment_row("milestone-review", "m1")
+    assert row["stop_reason"] == "round-limit" and not row["closed"]
+    assert row["next_step"] == "reaffirm", (
+        "a basis change alone still routes the mandatory round-limit stop"
+    )
+    action = _review_action(ops.AuthoringAction)
+    assert action.action.work == "review-reaffirm"
+    assert "round-limit stop is reached" in action.reason
+    assert "no review round and no owner decision" in action.reason
+
+    reaffirmed = application.execute(ops.ReaffirmReview(feature=V7_FEATURE))
+    assert reaffirmed.ok, reaffirmed.to_envelope()
+    assert assignment_row("milestone-review", "m1")["closed"] and len(calls) == 1
+    latest = disposition_rows(path)[-2:]
+    assert [row["rebound_by"] for row in latest] == ["reaffirm", "reaffirm"], (
+        "a reaffirmed row reads as fresh evidence in the ledger"
+    )
+    # The marker names a known writer; an unknown one is an invalid ledger.
+    value = read(path)
+    value["review_assignments"]["dispositions"][-1]["rebound_by"] = "manual"
+    write(path, value)
+    refused = application.execute(ops.Status(feature=V7_FEATURE))
+    assert not refused.ok and refused.error.code == "workspace-invalid"
+    assert "'review-equivalence', 'reaffirm'" in refused.error.message
+
+
+@pytest.mark.parametrize("rerun", [False, True])
+def test_verification_behind_a_basis_change_routes_by_its_own_status(
+    tmp_path, monkeypatch, run_cli, rerun
+):
+    """A changed basis never hides a failed verification behind "stale"."""
+    from tests.tiering_review_helpers import disposition
+
+    def rows(origin):
+        return [
+            disposition(
+                origin,
+                "MI-I1",
+                evidence_kind="verification",
+                verification_scope="m1",
+                references=["tests/check.py"],
+            ),
+            disposition(
+                origin, "@coverage", status="settled", references=["tests/check.py"]
+            ),
+        ]
+
+    def verified(code_out):
+        code, out = code_out
+        assert code == 0 and out["ok"], out
+
+    host, path, origin, _calls = _milestone_review_at_round_limit(
+        tmp_path,
+        monkeypatch,
+        run_cli,
+        lambda origin: (
+            verified(gate_command(run_cli, "verify", "--scope", "m1")),
+            rows(origin),
+        )[1],
+    )
+    (host / "src/example.py").write_text("VALUE = 8\n")
+    if rerun:
+        code, failed = gate_command(run_cli, "verify", "--scope", "m1")
+        assert code != 0 and not failed["ok"], failed
+
+    row = assignment_row("milestone-review", "m1")
+    assert row["stop_reason"] == "round-limit" and not row["closed"]
+    if rerun:
+        assert row["next_step"] == "decision", (
+            "a failed verification routed past the round-limit stop"
+        )
+        action = _review_action(ops.CommandAction)
+        assert isinstance(action.action.operation, ops.ReviewRoundOpen)
+        return
+    assert row["next_step"] in {"disposition", "reaffirm"}, (
+        "a stale verification still routes the mandatory round-limit stop"
+    )
+
+
+def test_basis_change_beside_undisposed_coverage_at_round_limit_needs_no_stop(
+    tmp_path, monkeypatch, run_cli
+):
+    """Re-recordable rows and the latest round's coverage close by recording."""
+    from tests.operational_model_helpers import read, write
+    from tests.tiering_review_helpers import dispose, disposition
+
+    host, path, origin, calls = _milestone_review_at_round_limit(
+        tmp_path,
+        monkeypatch,
+        run_cli,
+        lambda origin: [
+            disposition(origin, "MI-I1", references=["tests/check.py"]),
+            disposition(
+                origin, "@coverage", status="settled", references=["tests/check.py"]
+            ),
+        ],
+    )
+    # Coverage is undisposed again: the authored ledger drops its row.
+    value = read(path)
+    del value["review_assignments"]["dispositions"][-1]
+    write(path, value)
+    source = host / "src/example.py"
+    source.write_text(source.read_text() + "LIMIT = 3\n")
+
+    row = assignment_row("milestone-review", "m1")
+    assert row["stop_reason"] == "round-limit" and not row["closed"]
+    assert row["next_step"] in {"disposition", "reaffirm"}, (
+        "re-recordable rows beside undisposed coverage still routed the stop"
+    )
+    assert dispose(
+        path,
+        [
+            disposition(origin, "MI-I1", references=["tests/check.py"]),
+            disposition(
+                origin, "@coverage", status="settled", references=["tests/check.py"]
+            ),
+        ],
+    ).ok
+    assert assignment_row("milestone-review", "m1")["closed"] and len(calls) == 1
+
+
+@pytest.mark.parametrize("inspection", [False, True])
+def test_review_source_change_at_round_limit_keeps_the_stop_for_review_evidence(
+    tmp_path, monkeypatch, run_cli, inspection
+):
+    """Review evidence, and the inspection duty it discharges, needs a new round."""
+    from tests.operational_model_helpers import SPEC
+    from tests.structured_review_helpers import disposition as reviewer_disposition
+    from tests.structured_review_helpers import finding_ref
+    from tests.tiering_helpers import entry
+    from tests.tiering_review_helpers import (
+        dispose,
+        disposition,
+        open_round,
+        review_status,
+        runs,
+    )
+
+    host, path = current_host(
+        tmp_path,
+        monkeypatch,
+        overrides={"spec-review": entry("spec-review", limit=2)},
+    )
+    content = review_content(findings=[finding("SP-I1", classification="implement")])
+    calls = provider_transport(monkeypatch, content)
+    code, result = gate_command(run_cli, "run-gate", "spec-review")
+    assert code == 4 and result["ok"], result
+    origin = runs(path)[0]["run_id"]
+    cited = {"references": ["tests/check.py"], "requires_inspection": inspection}
+    assert dispose(
+        path,
+        [
+            disposition(origin, status="retained", **cited),
+            disposition(origin, "@coverage", status="settled"),
+        ],
+    ).ok
+    assert open_round(path).ok
+    content = review_content()
+    content["prior_dispositions"] = [
+        reviewer_disposition(finding_ref(origin, target), action="addressed")
+        for target in ("SP-I1", "@coverage")
+    ]
+    calls = provider_transport(monkeypatch, content)
+    code, second = gate_command(run_cli, "run-gate", "spec-review")
+    assert code == 0 and second["data"]["accepted"], second
+    follow_up = runs(path)[-1]["run_id"]
+    assert dispose(
+        path,
+        [
+            disposition(
+                origin, evidence_kind="review", review_run_id=follow_up, **cited
+            ),
+            disposition(follow_up, "@coverage", status="settled"),
+        ],
+    ).ok
+    assert review_status(path)["closed"]
+    spec = host / SPEC
+    spec.write_text(spec.read_text() + "\nClarify the declared contract.\n")
+
+    row = review_status(path)
+    assert row["stop_reason"] == "round-limit" and not row["closed"]
+    assert row["next_step"] == "decision", (
+        "review evidence behind a changed source routed past the round-limit stop"
+    )
+    action = _review_action(ops.CommandAction)
+    assert isinstance(action.action.operation, ops.ReviewRoundOpen)
+    assert len(calls) == 1
+
+
+def test_authorized_continuation_routes_rerecordable_rows_to_disposition(
+    tmp_path, monkeypatch, run_cli
+):
+    """An authorized continuation does not turn re-recording into a policy edit."""
+    from tests.operational_model_helpers import SPEC, read
+    from tests.tiering_helpers import entry
+    from tests.tiering_review_helpers import (
+        dispose,
+        disposition,
+        recorded_stop,
+        review_status,
+        runs,
+    )
+
+    host, path = current_host(
+        tmp_path,
+        monkeypatch,
+        overrides={"spec-review": entry("spec-review", limit=1)},
+    )
+    calls = provider_transport(
+        monkeypatch,
+        review_content(findings=[finding("SP-I1", classification="implement")]),
+    )
+    code, result = gate_command(run_cli, "run-gate", "spec-review")
+    assert code == 4 and result["ok"], result
+    origin = runs(path)[0]["run_id"]
+    cited = {"references": ["tests/check.py"]}
+    assert dispose(
+        path,
+        [
+            disposition(origin, status="retained", **cited),
+            disposition(origin, "@coverage", status="settled", **cited),
+        ],
+    ).ok
+    stop = _review_action(ops.CommandAction).action.operation
+    assert recorded_stop(application.execute(stop))
+    [decision] = read(path)["decisions"]
+    resolved = application.execute(
+        ops.ResolveDecision(
+            decision_id=decision["id"],
+            kind="continue-review",
+            rationale="Owner authorizes one bounded follow-up",
+            routes_to="docs/features/runtime/operational-example.md",
+            feature=V7_FEATURE,
+        )
+    )
+    assert resolved.ok, resolved.to_envelope()
+    assert dispose(path, [disposition(origin, **cited)]).ok
+    assert review_status(path)["closed"]
+    spec = host / SPEC
+    spec.write_text(spec.read_text() + "\nClarify the declared contract.\n")
+
+    row = review_status(path)
+    assert row["stop_reason"] == "round-limit" and not row["closed"]
+    assert row["next_step"] in {"disposition", "reaffirm"}, (
+        "an authorized continuation routed re-recording to a policy edit"
+    )
+    assert application.execute(ops.ReaffirmReview(feature=V7_FEATURE)).ok
+    assert review_status(path)["closed"] and len(calls) == 1
+
+
 def test_recorded_report_row_outside_its_decision_route_is_explained(
     tmp_path, monkeypatch, run_cli
 ):

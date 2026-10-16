@@ -303,9 +303,21 @@ report alone does not settle an earlier finding or coverage obligation.
 Readiness checks execution, disposition and applicability separately. Relevant
 changes to an assignment's subject or cited evidence can invalidate its current
 closure; a change that is review-equivalent for every changed path does not.
-Phase exit and milestone advance append one re-binding row, marked
-`rebound_by`, for each disposition current only by equivalence, before the
-receipt seals the current raw basis.
+Phase exit and milestone advance append one re-binding row for each
+disposition current only by equivalence, before the receipt seals the current
+raw basis. `rebound_by` names the writer of a re-binding row:
+`review-equivalence` for those rows and `reaffirm` for rows `review reaffirm`
+writes. A row the lead authors has none.
+
+At a round-limit, no-progress or no-decrease stop, readiness still routes
+disposition, or reaffirm where it can write the rows, when every open reference
+closes by re-recording evidence alone, judged at the current basis as reaffirm
+judges it. That holds for a row whose
+citations or verification changed, and, at a round limit, for the latest
+round's undisposed coverage. A row whose evidence fails on its own, a row with
+an inspection duty, a review-backed row whose review source changed, and any
+retained, undisposed or awaiting-decision row keep the stop for its round or
+owner decision.
 
 The scaffolding review's test subject is the declared tests, `Verified-by:`
 bindings and their helpers, plus every test under the tests root that differs
@@ -358,9 +370,9 @@ every unsealed assignment at the current boundary and skips sealed ones; with
 both it covers one assignment, and a sealed one refuses. In one CAS write it
 appends a copy of each stale row whose citations and supporting evidence still
 qualify, preserving captured references, reasons and evidence/inspection
-bindings and changing only the basis, its manifest and the time. It lists every
-other stale row with its typed changes, and an assignment missing a slot with
-its reason. It exits 0 when nothing remains, 4 when rows remain beside those
+bindings and changing only the basis, its manifest, the time and
+`rebound_by: reaffirm`. It lists every other stale row with its typed changes,
+and an assignment missing a slot with its reason. It exits 0 when nothing remains, 4 when rows remain beside those
 written, and 1, writing nothing, when no row is writable. Superseded or
 unresolved rows are not resurrected. Readiness routes it as `review-reaffirm`
 authoring work whose references list the rows it would write and refuse; the

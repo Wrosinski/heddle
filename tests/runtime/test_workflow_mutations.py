@@ -1379,6 +1379,7 @@ def test_task_edit_replaces_open_task_text_and_keeps_done_tasks(
         (["t2", "--text", "   "], "text"),
         (["t2"], "--text"),
         (["t2", "t1", "--text", "Two references"], "exactly one"),
+        (["t2", "Text as a second argument"], "heddle task edit t2 --text <text>"),
         (["missing", "--text", "Unknown task"], "unknown task reference"),
     ):
         code, out, _err = run_cli(["task", "edit", *argv, *scope])

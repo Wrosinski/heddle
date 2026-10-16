@@ -84,9 +84,17 @@ def run_review(role: str, reviewer: dict[str, str]) -> str:
     return str(result.data["run_id"])
 
 
-def disposed_spec_review(tmp_path, monkeypatch):
-    """A closed spec review: two findings and coverage, one citation each."""
-    root, path = current_host(tmp_path, monkeypatch)
+def disposed_spec_review(tmp_path, monkeypatch, *, limit=None):
+    """A closed spec review: two findings and coverage, one citation each.
+
+    With ``limit`` the review's round limit is that many rounds.
+    """
+    from tests.tiering_helpers import entry
+
+    overrides = (
+        {} if limit is None else {"spec-review": entry("spec-review", limit=limit)}
+    )
+    root, path = current_host(tmp_path, monkeypatch, overrides=overrides)
     _cited_files(root)
     calls = provider_transport(
         monkeypatch,

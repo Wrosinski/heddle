@@ -121,9 +121,15 @@ refuse, sealed reviews, slots that already have an accepted review, and reviews
 whose completed output awaits repair after a source change never join a set. A
 refused slot, or a lone remaining one, keeps its `heddle run-gate` action and
 its place. Do not construct a role list or worker count: no such
-public inputs exist. On a provider failure, interruption, or CAS conflict, inspect
-every returned member summary; each carries its own remedy naming its role,
-scope and reviewer. Completed artifacts remain available for restart, and
+public inputs exist. When no set launches, the refusal names its cause in
+`details.cause`: `launch-sequential`, `single-slot`, `implementation-pending`,
+`no-launchable-slot` or `other-work-first`. A launch that leaves a routed slot
+out lists it with its reason under `excluded_slots`. The current milestone's
+review is exit evidence: while that milestone has no tasks or an unfinished one,
+`run-gates` and the slot's own `run-gate` both refuse it (`task-incomplete` for
+`run-gate`) and name the open work. On a provider failure, interruption, or
+CAS conflict, inspect every returned member summary; each carries its own
+remedy naming its role, scope and reviewer. Completed artifacts remain available for restart, and
 `heddle run-gates` or the slot's own `run-gate` records recoverable output
 before admitting another provider call. Commands carrying
 `--expect-revision` remain sequential and must reread the revision before each

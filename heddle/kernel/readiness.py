@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import StrEnum
+from typing import Any
 
 from heddle.contracts import operations as ops
 from heddle.contracts.result import NextAction
@@ -90,6 +91,70 @@ class BoundaryAssessment:
     purpose: str = "boundary"
     original_obligations: tuple[tuple[str, str], ...] = ()
     observation_identity: str = ""
+
+
+# Why ordinary implementation work remains at the implement stage.
+PENDING_OPEN_TASKS = "open-tasks"
+PENDING_NO_TASKS = "no-tasks"
+PENDING_NO_CURRENT_MILESTONE = "no-current-milestone"
+
+
+def implementation_pending(state: StateFile, stage: str) -> str | None:
+    """Name the implementation work that remains at ``stage``, if any.
+
+    Milestone review and verification are exit evidence, so they wait while
+    the current milestone has no tasks or an unfinished one, or while a todo
+    milestone has not been started.
+    """
+    if stage != "implement":
+        return None
+    current = next((m for m in state.milestones if m.status == "current"), None)
+    if current is None:
+        return (
+            PENDING_NO_CURRENT_MILESTONE
+            if any(m.status == "todo" for m in state.milestones)
+            else None
+        )
+    if not current.tasks:
+        return PENDING_NO_TASKS
+    if any(task.status != "done" for task in current.tasks):
+        return PENDING_OPEN_TASKS
+    return None
+
+
+def implementation_pending_details(state: StateFile, pending: str) -> dict[str, Any]:
+    """The refusal details naming what implementation work remains."""
+    current = next((m for m in state.milestones if m.status == "current"), None)
+    return {
+        "cause": "implementation-pending",
+        "pending": pending,
+        "milestone": current.id if current is not None else None,
+        "open_tasks": [
+            task.id
+            for task in (current.tasks if current else ())
+            if task.status != "done"
+        ],
+    }
+
+
+def implementation_pending_text(details: dict[str, Any]) -> tuple[str, str]:
+    """The refusal message and hint for ``implementation_pending_details``."""
+    milestone, pending = details["milestone"], details["pending"]
+    if pending == PENDING_OPEN_TASKS:
+        return (
+            f"milestone {milestone} has open tasks "
+            f"{', '.join(details['open_tasks'])}; its review is exit evidence",
+            "finish them with heddle task done, then run the review",
+        )
+    if pending == PENDING_NO_TASKS:
+        return (
+            f"milestone {milestone} has no tasks yet; its review is exit evidence",
+            "add its tasks with heddle task add and finish them, then run the review",
+        )
+    return (
+        "no milestone is current yet; milestone review is exit evidence",
+        "start the next todo milestone as orient directs, then run the review",
+    )
 
 
 def assess_boundary(

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import sys
 from collections.abc import Iterable
 from copy import deepcopy
@@ -27,6 +28,8 @@ from heddle.contracts.review_assignments import (
     DISPOSITION_REQUIRED_FIELDS,
     DISPOSITION_STATUSES,
     EVIDENCE_KINDS,
+    REBOUND_BY_EQUIVALENCE,
+    REBOUND_BY_REAFFIRM,
     ROLE_STAGES,
     AcceptanceRecord,
     AcceptedAssignment,
@@ -66,7 +69,12 @@ from heddle.kernel.feature_policy import (
 from heddle.kernel.managed_regions import authored_plan_observation
 from heddle.kernel.model import FeatureSnapshot
 from heddle.kernel.project_config import KernelError, ProjectConfig, feature_state_path
-from heddle.kernel.readiness import EvidenceExplanation
+from heddle.kernel.readiness import (
+    EvidenceExplanation,
+    implementation_pending,
+    implementation_pending_details,
+    implementation_pending_text,
+)
 from heddle.kernel.review_closure import (
     assess_review_closure,
     required_obligation,
@@ -200,6 +208,20 @@ def resolve_invocation(
                 f"{gate_type.name} requires authorized {stage} "
                 "or a later repair boundary"
             )
+        current = snapshot.current_milestone
+        if gate_type.requires_milestone and current is not None and scope == current.id:
+            # The rule readiness applies: the current milestone's review is
+            # exit evidence, so it waits for that milestone's implementation.
+            pending = implementation_pending(state, state.stage)
+            if pending is not None:
+                details = implementation_pending_details(state, pending)
+                message, hint = implementation_pending_text(details)
+                raise KernelError(
+                    code="task-incomplete",
+                    message=f"{gate_type.name} {scope}: {message}",
+                    hint=hint,
+                    details=details,
+                )
     invocation = resolve_gate_execution(
         gate_type, GateInvocationOverrides(**asdict(slot.reviewer))
     )
@@ -535,6 +557,54 @@ def _captured_citation(
     return captured
 
 
+_COMMIT_REFERENCE = re.compile(r"commit [0-9a-fA-F]{7,64}")
+
+
+def _reference_input_failure(
+    root: Path, reference: str, error: Exception
+) -> tuple[str, str]:
+    """Classify a newly supplied reference that could not be captured.
+
+    Returns the predicate and remedy. A reference that is not a repository
+    path, or that names a pytest node of an existing file or a commit in place
+    of a file, is malformed; any other is unavailable. Only new input is
+    classified this way: a recorded reference was a regular file when it was
+    accepted, so a missing one is unavailable.
+    """
+    try:
+        normalize_paths((reference,))
+    except (KernelError, ValueError) as invalid:
+        return (
+            "malformed-field",
+            f"cite a repository-relative regular file instead of {reference}: "
+            f"{invalid}",
+        )
+    if _COMMIT_REFERENCE.fullmatch(reference):
+        return (
+            "malformed-field",
+            "a commit is not a reference: cite the files it changed and name "
+            "the commit in reason",
+        )
+    if "::" in reference:
+        path, node = reference.split("::", 1)
+        try:
+            exists = (root / normalize_paths((path,))[0]).is_file()
+        except (KernelError, ValueError, OSError):
+            exists = False
+        if exists:
+            return (
+                "malformed-field",
+                f"a test node is not a reference: cite {path} and name {node} "
+                "in reason",
+            )
+        return (
+            "reference-unavailable",
+            f"restore {path} and retry: {error}; a test node is not a reference, "
+            "cite its file and name the node in reason",
+        )
+    return "reference-unavailable", f"restore {reference} and retry: {error}"
+
+
 def _citation_digest(executable: bool, content: bytes) -> str:
     return hashlib.sha256(bytes([executable]) + content).hexdigest()
 
@@ -677,6 +747,13 @@ class _EvidenceQualification:
         return self.predicate is None
 
 
+# What closes an open reference at a kernel stop; see
+# _Qualification.open_remedies.
+OPEN_RE_RECORD = "re-record"
+OPEN_COVERAGE = "coverage"
+OPEN_ROUND_OR_OWNER = "round-or-owner"
+
+
 _VERIFICATION_SCOPE_REMEDY = (
     "record the run with heddle verify and give its scope as verification_scope; "
     "for edits not yet run under heddle verify, use evidence_kind inspection"
@@ -697,8 +774,6 @@ _REVIEW_DETAIL_UNAVAILABLE = (
     "change detail is unavailable: the row or its review attempt was recorded "
     "before basis manifests, so only the raw review basis is retained"
 )
-REBOUND_BY_EQUIVALENCE = "review-equivalence"
-"""The marker a sealing write puts on a row it re-binds by review equivalence."""
 
 
 def _rejected_evidence(
@@ -1373,42 +1448,74 @@ class _Qualification:
             ).qualifies
         )
 
-    def only_changed_evidence(
+    def open_remedies(
         self,
         assignment: ReviewAssignment,
         open_refs: tuple[tuple[str, str], ...],
-    ) -> bool:
-        latest = self._latest_dispositions(assignment)
-        basis = self.basis(assignment)
-        return bool(open_refs) and all(
-            (disposition := latest.get(reference)) is not None
-            and disposition.status in {"addressed", "settled"}
-            and _qualify_evidence(
-                self, disposition, basis, assignment=assignment
-            ).predicate
-            == "reference-changed"
-            for reference in open_refs
-        )
+    ) -> tuple[str, ...]:
+        """Classify each open reference by the work that can close it.
 
-    def only_latest_coverage_duties(
-        self,
-        assignment: ReviewAssignment,
-        open_refs: tuple[tuple[str, str], ...],
-    ) -> bool:
-        """Every open reference is the latest round's coverage, not yet disposed."""
+        ``re-record``: the lead re-records the row's evidence, after a rerun or
+        a fresh citation where one changed; reaffirm writes a row that still
+        qualifies. ``coverage``: the latest round's coverage, not yet disposed.
+        ``round-or-owner``: anything else, which keeps a kernel stop.
+
+        A row is judged at the current basis, as reaffirm judges it, so a
+        changed basis never hides evidence that fails on its own.
+        """
+        state = self.snapshot.state
         latest_round = {
             source.run_id
-            for source in core.authoritative_sources(self.snapshot.state)
+            for source in core.authoritative_sources(state)
             if source.assignment_id == assignment.id
             and source.round_number == len(assignment.rounds)
         }
         latest = self._latest_dispositions(assignment)
-        return bool(open_refs) and all(
-            finding_id == "@coverage"
-            and run_id in latest_round
-            and (run_id, finding_id) not in latest
-            for run_id, finding_id in open_refs
-        )
+        basis = self.basis(assignment)
+        reference: ManifestReference | None = None
+        remedies = []
+        for run_id, finding_id in open_refs:
+            disposition = latest.get((run_id, finding_id))
+            if disposition is None:
+                remedies.append(
+                    OPEN_COVERAGE
+                    if finding_id == "@coverage" and run_id in latest_round
+                    else OPEN_ROUND_OR_OWNER
+                )
+                continue
+            if disposition.status not in {"addressed", "settled"} or (
+                _closing_qualification(
+                    self, disposition, basis, assignment=assignment
+                ).qualifies
+            ):
+                # Qualifying evidence the kernel still holds open owes a duty
+                # re-recording cannot discharge.
+                remedies.append(OPEN_ROUND_OR_OWNER)
+                continue
+            if reference is None:
+                reference = self.basis_reference(assignment, stamped=False)
+            candidate = replace(
+                disposition,
+                evidence_basis=basis,
+                basis_evidence=reference,
+                rebound_by=REBOUND_BY_REAFFIRM,
+            )
+            result = _qualify_resolution(self, candidate, basis, assignment=assignment)
+            if result.qualifies:
+                result = _decision_route(
+                    state,
+                    (disposition.run_id, disposition.finding_id),
+                    disposition.status,
+                    disposition.decision_id,
+                )
+            # Refreshing review evidence or an inspection duty needs a new round.
+            rerecordable = result.qualifies or (
+                result.stale
+                and not disposition.requires_inspection
+                and disposition.evidence_kind != "review"
+            )
+            remedies.append(OPEN_RE_RECORD if rerecordable else OPEN_ROUND_OR_OWNER)
+        return tuple(remedies)
 
     def _latest_dispositions(
         self, assignment: ReviewAssignment
@@ -1685,6 +1792,22 @@ def build_boundary_acceptance(
     return ops.decoded_payload(receipt)
 
 
+def _stop_needs_only_rerecording(
+    frame: _Qualification, assignment: ReviewAssignment, closed: ReviewClosure
+) -> bool:
+    """A kernel stop whose open work closes by re-recording evidence alone.
+
+    At a round limit the latest round's undisposed coverage counts too; every
+    other open reference keeps the stop for its round or owner decision.
+    """
+    if closed.next_step != "decision" or not closed.open_refs:
+        return False
+    allowed = {OPEN_RE_RECORD}
+    if closed.stop_reason == "round-limit":
+        allowed.add(OPEN_COVERAGE)
+    return set(frame.open_remedies(assignment, closed.open_refs)) <= allowed
+
+
 def projection(
     config: ProjectConfig,
     snapshot: FeatureSnapshot,
@@ -1858,17 +1981,9 @@ def projection(
             ):
                 row["next_step"] = "disposition"
             elif (
-                closed.next_step == "decision"
-                and receipt is None
+                receipt is None
                 and basis_applies
-                and frame.only_changed_evidence(assignment, closed.open_refs)
-            ):
-                row["next_step"] = "disposition"
-            elif (
-                closed.stop_reason == "round-limit"
-                and receipt is None
-                and basis_applies
-                and frame.only_latest_coverage_duties(assignment, closed.open_refs)
+                and _stop_needs_only_rerecording(frame, assignment, closed)
             ):
                 row["next_step"] = "disposition"
             elif closed.stop_reason == "round-limit" and core.continuation_authorized(
@@ -2136,7 +2251,7 @@ def next_action(snapshot: FeatureSnapshot, row: dict[str, Any]) -> NextAction:
             "Inspect whether each listed resolution still applies, then run review "
             "reaffirm: across every unsealed assignment it re-records the rows "
             "that still qualify and lists those marked refused, which need new "
-            "dispositions." + skipped,
+            "dispositions." + skipped + _stop_note(snapshot, row),
         )
     return NextAction(
         ops.AuthoringAction(
@@ -2149,7 +2264,32 @@ def next_action(snapshot: FeatureSnapshot, row: dict[str, Any]) -> NextAction:
         f"Record evidence-bound native dispositions for {row['role']} {row['scope']}. "
         f"Read the original reports and disposition these open references: "
         f"{json.dumps(row['open_refs'])}. Use review disposition --input-json "
-        "with schema heddle.review-disposition-input/v1 and authored dispositions.",
+        "with schema heddle.review-disposition-input/v1 and authored dispositions."
+        + _stop_note(snapshot, row),
+    )
+
+
+_KERNEL_STOPS = frozenset({"round-limit", "no-progress", "no-decrease"})
+
+
+def _stop_note(snapshot: FeatureSnapshot, row: dict[str, Any]) -> str:
+    """Say why open work routes past a kernel stop the owner has not resolved."""
+    if row["stop_reason"] not in _KERNEL_STOPS:
+        return ""
+    assignment = core.assignment_for(snapshot.state, row["role"], row["scope"])
+    resolved = any(
+        decision.id == assignment.stop_decision_id
+        and decision.status == "resolved"
+        and isinstance(decision.resolution, Disposition)
+        for decision in snapshot.state.decisions
+    )
+    if resolved:
+        return ""
+    return (
+        f" The {row['stop_reason']} stop is reached, but every open row closes "
+        "with recorded evidence alone (changed evidence to re-record, or the "
+        "latest round's coverage), so it needs no review round and no owner "
+        "decision."
     )
 
 
@@ -2485,11 +2625,14 @@ def _dispositions(
                 if identity is not None:
                     identities.append(identity)
             except (KernelError, OSError, ValueError) as error:
+                predicate, remedy = _reference_input_failure(
+                    config.root, reference, error
+                )
                 failures[item.row_index] = _row_failure(
                     item.row_index,
                     row,
-                    "reference-unavailable",
-                    f"restore {reference} and retry: {error}",
+                    predicate,
+                    remedy,
                     field="references",
                     reference=reference,
                 )
@@ -2615,7 +2758,10 @@ def _reaffirmation(
         if reference is None:
             reference = frame.basis_reference(assignment, stamped=False)
         candidate = replace(
-            old, evidence_basis=basis, basis_evidence=reference, rebound_by=None
+            old,
+            evidence_basis=basis,
+            basis_evidence=reference,
+            rebound_by=REBOUND_BY_REAFFIRM,
         )
         qualification = _qualify_resolution(
             frame, candidate, basis, assignment=assignment
@@ -2890,14 +3036,18 @@ def _scope_change(
     raw = _shape(value, ("reason", "references"))
     if not isinstance(raw["references"], list) or not raw["references"]:
         raise core.invalid("scope change requires material contract references")
+    references = []
+    for path in raw["references"]:
+        try:
+            references.append(
+                captured_reference(config.root, path, plan_path=plan_path)
+            )
+        except (KernelError, OSError, ValueError) as error:
+            _predicate, remedy = _reference_input_failure(config.root, str(path), error)
+            raise core.invalid(f"scope change reference {path!r}: {remedy}") from error
     return ReviewScopeChange(
         _nonempty(raw["reason"], "material contract change reason"),
-        tuple(
-            sorted(
-                captured_reference(config.root, p, plan_path=plan_path)
-                for p in raw["references"]
-            )
-        ),
+        tuple(sorted(references)),
     )
 
 

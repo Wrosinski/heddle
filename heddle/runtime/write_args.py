@@ -342,6 +342,17 @@ def parse_task_edit(
     )
     if failure is not None:
         return None, None, None, failure
+    if len(positionals) == 2 and values["--text"] is None:
+        return (
+            None,
+            None,
+            None,
+            usage_failure(
+                "task edit takes the replacement text as --text, not as a second "
+                f"argument: heddle task edit {positionals[0]} --text <text>",
+                usage,
+            ),
+        )
     if len(positionals) != 1:
         return (
             None,

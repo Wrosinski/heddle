@@ -142,6 +142,100 @@ def test_disposition_batch_reports_each_rejected_row_once_without_writing(
     assert snapshot(host) == before and len(calls) == 1
 
 
+@pytest.mark.parametrize(
+    ("reference", "predicate", "remedy"),
+    [
+        (
+            "tests/check.py::test_declared_value",
+            "malformed-field",
+            "a test node is not a reference: cite tests/check.py and name "
+            "test_declared_value in reason",
+        ),
+        ("commit ad79d3e46", "malformed-field", "a commit is not a reference"),
+        ("/etc/hosts", "malformed-field", "cite a repository-relative regular file"),
+        (
+            "src/gone.py::test_gone",
+            "reference-unavailable",
+            "a test node is not a reference, cite its file and name the node",
+        ),
+        ("src/gone.py", "reference-unavailable", "restore src/gone.py and retry"),
+    ],
+    ids=["test-node", "commit", "absolute", "missing-node-file", "missing-file"],
+)
+def test_disposition_reference_refusal_names_what_a_reference_must_be(
+    tmp_path, monkeypatch, run_cli, reference, predicate, remedy
+):
+    """A node id or commit is malformed input, never a file to restore."""
+    host, path = current_host(tmp_path, monkeypatch)
+    calls = provider_transport(
+        monkeypatch,
+        review_content(findings=[finding("SP-I1", classification="implement")]),
+    )
+    code, review = gate_command(run_cli, "run-gate", "spec-review")
+    assert code == 4 and review["ok"], review
+    before = snapshot(host)
+
+    result = dispose(
+        path, [disposition(review["data"]["run_id"], references=[reference])]
+    )
+
+    assert not result.ok and result.error.code == "disposition-batch-invalid"
+    [row] = result.error.details["rows"]
+    assert (row["predicate"], row["field"], row["reference"]) == (
+        predicate,
+        "references",
+        reference,
+    )
+    assert remedy in row["remedy"], row["remedy"]
+    assert snapshot(host) == before and len(calls) == 1
+
+
+def test_scope_change_reference_refusal_names_the_file_to_cite(
+    tmp_path, monkeypatch, run_cli
+):
+    """Round-open classifies its new scope-change references the same way."""
+    host, path = current_host(tmp_path, monkeypatch)
+    calls = provider_transport(
+        monkeypatch,
+        review_content(findings=[finding("SP-I1", classification="implement")]),
+    )
+    code, review = gate_command(run_cli, "run-gate", "spec-review")
+    assert code == 4 and review["ok"], review
+    origin = review["data"]["run_id"]
+    assert dispose(
+        path,
+        [
+            disposition(origin, status="retained"),
+            disposition(origin, "@coverage", status="settled"),
+        ],
+    ).ok
+    before = snapshot(host)
+
+    result = invoke(
+        "ReviewRoundOpen",
+        feature=V7_FEATURE,
+        payload={
+            "schema": "heddle.review-round-input/v1",
+            "role": "spec-review",
+            "scope": "feature",
+            "purpose": "verification",
+            "reason": "Inspect the remaining original concern",
+            "scope_change": {
+                "reason": "The declared contract changed",
+                "references": ["tests/check.py::test_declared_value"],
+            },
+        },
+        expect_revision=yaml.safe_load(path.read_text())["revision"],
+    )
+
+    assert not result.ok and result.error.code == "workspace-invalid"
+    assert (
+        "a test node is not a reference: cite tests/check.py and name "
+        "test_declared_value in reason"
+    ) in result.error.message
+    assert snapshot(host) == before and len(calls) == 1
+
+
 def test_disposition_batch_exposes_existing_verification_status_only_on_bad_row(
     tmp_path, monkeypatch, run_cli
 ):

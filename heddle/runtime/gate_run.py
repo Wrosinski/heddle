@@ -73,7 +73,7 @@ from heddle.runtime.readiness import (
     readiness_failure,
     select_review_milestone,
 )
-from heddle.runtime.review_launch import LaunchMember
+from heddle.runtime.review_launch import LaunchMember, LaunchSet
 
 # the handler-owned code→exit mapping for the run-gate read surface
 # (resolution failures); mirrors status/orient's read-surface mapping.
@@ -405,12 +405,12 @@ def execute_gates(parsed: RunGates) -> HeddleResult:
         )
     try:
         launch, current_actions = current_launch_set(resolved.config, resolved.snapshot)
-        if len(launch) < 2:
-            return _batch_ineligible(resolved, current_actions)
+        if len(launch.members) < 2:
+            return _batch_ineligible(resolved, launch, current_actions)
         prepare_state_recording_lock(
             resolved.config.root / resolved.snapshot.workspace / WORKSPACE_STATE
         )
-        lock_inputs = _batch_lock_inputs(resolved, launch)
+        lock_inputs = _batch_lock_inputs(resolved, launch.members)
     except (KernelError, OSError, UnicodeDecodeError, MemoryError) as error:
         return _batch_input_failure(resolved, "batch lock inputs", error)
 
@@ -435,21 +435,23 @@ def execute_gates(parsed: RunGates) -> HeddleResult:
             # Another lead may have recorded a slot, or the milestone moved,
             # while this command waited; either way the set it derived first
             # is no longer the one readiness offers.
-            if [member.key for member in current] != [
-                member.key for member in launch
+            if [member.key for member in current.members] != [
+                member.key for member in launch.members
             ] or {
                 gate: entry.gate_lock_path_for_runtime(*lock_input)
-                for gate, lock_input in _batch_lock_inputs(resolved, current).items()
+                for gate, lock_input in _batch_lock_inputs(
+                    resolved, current.members
+                ).items()
             } != held:
                 return _batch_changed(resolved, current_actions)
-            prepared = _prepare_batch_members(resolved, current)
+            prepared = _prepare_batch_members(resolved, current.members)
             if isinstance(prepared, HeddleResult):
                 return prepared
             publication = _Publication(resolved.snapshot.state.revision)
             interrupted = _execute_batch_workers(resolved, prepared, publication)
             if interrupted is not None:
                 return interrupted
-            return _batch_result(resolved, prepared)
+            return _batch_result(resolved, prepared, current)
     except (KernelError, OSError, UnicodeDecodeError, MemoryError) as error:
         return _batch_input_failure(resolved, "batch admission", error)
 
@@ -1078,9 +1080,14 @@ def _terminate_batch_processes(processes: list[Any]) -> None:
 
 
 def _batch_result(
-    resolved: ResolvedSnapshotContext, members: list[_BatchMember]
+    resolved: ResolvedSnapshotContext,
+    members: list[_BatchMember],
+    launch: LaunchSet | None = None,
 ) -> HeddleResult:
-    """Succeed when every member completed and was recorded, whatever its verdict."""
+    """Succeed when every member completed and was recorded, whatever its verdict.
+
+    A success lists the routed slots its launch set left out.
+    """
     refreshed = resolve_snapshot_from_cwd(resolved.feature, writable=True)
     if isinstance(refreshed, ResolveFeatureFailure):
         return kernel_error_result(
@@ -1129,6 +1136,9 @@ def _batch_result(
             "members": [
                 _batch_member_summary(member, member_actions[member.key])
                 for member in members
+            ],
+            "excluded_slots": [
+                row.payload() for row in (launch.exclusions if launch else ())
             ],
             "revision": refreshed.snapshot.state.revision,
         },
@@ -1330,19 +1340,80 @@ def _execution_name(outcome: GateOutcome) -> str:
 
 
 def _batch_ineligible(
-    resolved: ResolvedSnapshotContext, actions: tuple[NextAction, ...]
+    resolved: ResolvedSnapshotContext,
+    launch: LaunchSet,
+    actions: tuple[NextAction, ...],
 ) -> HeddleResult:
-    sequential = resolved.config.review_launch != REVIEW_LAUNCH_MODES[0]
+    """Refuse a batch, naming why no two review slots launch together."""
+    details, message, hint = _launch_refusal(resolved, launch, actions)
     return HeddleResult.failure(
-        HeddleError(
-            "gate-not-converged",
-            "no review slots launch together now"
-            + (" (reviews.launch is sequential)" if sequential else ""),
-            "follow the current actions; each slot's run-gate runs it alone",
-        ),
+        HeddleError("gate-not-converged", message, hint, details),
         exit_code=ExitCode.FATAL,
         diagnostics=resolved.diagnostics,
         next_actions=actions,
+    )
+
+
+def _launch_refusal(
+    resolved: ResolvedSnapshotContext,
+    launch: LaunchSet,
+    actions: tuple[NextAction, ...],
+) -> tuple[dict[str, Any], str, str]:
+    """The first cause in LAUNCH_REFUSAL_CAUSES order, with its message and hint."""
+    from heddle.kernel.readiness import (
+        implementation_pending,
+        implementation_pending_details,
+        implementation_pending_text,
+    )
+
+    state = resolved.snapshot.state
+    excluded = [row.payload() for row in launch.exclusions]
+    follow = "follow the current actions; each slot's run-gate runs it alone"
+    if resolved.config.review_launch != REVIEW_LAUNCH_MODES[0]:
+        return (
+            {"cause": "launch-sequential", "excluded_slots": excluded},
+            "no review slots launch together: reviews.launch is sequential",
+            follow,
+        )
+    if launch.members:
+        member = launch.members[0]
+        command = ops.action_command(
+            ops.CommandAction(_slot_operation(resolved.feature, member))
+        )
+        return (
+            {"cause": "single-slot", "command": command, "excluded_slots": excluded},
+            f"only {member.role} {member.scope} slot {member.slot} can launch now",
+            f"run it alone: {command}",
+        )
+    pending = implementation_pending(state, state.stage)
+    if pending is not None:
+        details = implementation_pending_details(state, pending)
+        message, hint = implementation_pending_text(details)
+        return (
+            {**details, "excluded_slots": excluded},
+            f"no review slots launch together now: {message}",
+            hint,
+        )
+    if excluded or not actions:
+        message = "no routed review slot can launch now"
+        if launch.exclusions:
+            first = launch.exclusions[0]
+            message += f": {first.role} {first.scope} is {first.reason}"
+            if first.message:
+                message += f" ({first.message})"
+        return (
+            {"cause": "no-launchable-slot", "excluded_slots": excluded},
+            message,
+            follow,
+        )
+    return (
+        {
+            "cause": "other-work-first",
+            "action": {"command": actions[0].command, "reason": actions[0].reason},
+            "excluded_slots": excluded,
+        },
+        f"no review is routed now; the next action is {actions[0].command}",
+        follow,
     )
 
 

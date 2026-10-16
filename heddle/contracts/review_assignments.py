@@ -39,6 +39,11 @@ DISPOSITION_OPTIONAL_FIELDS = (
     "review_run_id",
     "verification_scope",
 )
+# The writers of a re-binding row: a sealing write that re-binds a row current
+# only by review equivalence, and review reaffirm.
+REBOUND_BY_EQUIVALENCE = "review-equivalence"
+REBOUND_BY_REAFFIRM = "reaffirm"
+REBOUND_BY_WRITERS = (REBOUND_BY_EQUIVALENCE, REBOUND_BY_REAFFIRM)
 ROLE_STAGES = {
     "spec-review": "spec-review",
     "plan-review": "plan-review",
@@ -138,7 +143,8 @@ class AssignmentDisposition:
     basis_evidence: ManifestReference | None = None
     # Per cited rule-bearing path: (path, rule, digest); absent when none has one.
     reference_equivalence: tuple[tuple[str, str, str], ...] | None = None
-    # Set on a row a sealing write re-binds to the current basis by equivalence.
+    # The writer of a re-binding row, one of REBOUND_BY_WRITERS; None on a row
+    # the lead authored.
     rebound_by: str | None = None
 
 

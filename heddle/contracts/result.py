@@ -87,6 +87,24 @@ ERROR_CODES: frozenset[str] = frozenset(
 )
 
 
+# Why run-gates launches no batch, in the order they are checked; carried as
+# ``details.cause`` of its gate-not-converged refusal.
+LAUNCH_REFUSAL_CAUSES = (
+    "launch-sequential",
+    "single-slot",
+    "implementation-pending",
+    "no-launchable-slot",
+    "other-work-first",
+)
+# Why a routed review slot is left out of a launch set.
+LAUNCH_EXCLUSION_REASONS = (
+    "scope-unresolved",
+    "assignment-sealed",
+    "changed-source-pending",
+    "admission-refused",
+)
+
+
 COMPLETION_REPAIR_CAUSES: Mapping[str, frozenset[str]] = {
     "retrospective": frozenset({"missing", "unreadable", "empty", "missing-headings"}),
     "decision-journal": frozenset({"missing", "unreadable", "audit-incomplete"}),

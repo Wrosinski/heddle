@@ -24,6 +24,7 @@ from heddle.contracts.feature_policy import (
 from heddle.contracts.review_assignments import (
     DISPOSITION_STATUSES,
     EVIDENCE_KINDS,
+    REBOUND_BY_WRITERS,
     SCHEMA,
     AcceptanceRecord,
     AcceptanceRecordFamily,
@@ -291,6 +292,8 @@ def parse_assignments(value: Any) -> ReviewAssignments:
         references = _pairs(row["references"], hashes=True)
         basis_evidence = _basis_evidence(row["basis_evidence"], evidence_basis)
         rebound_by = _nullable(row["rebound_by"])
+        if rebound_by is not None:
+            rebound_by = _choice(rebound_by, REBOUND_BY_WRITERS)
         if rebound_by is not None and basis_evidence is None:
             raise invalid("a re-binding row must name its basis manifest")
         dispositions.append(

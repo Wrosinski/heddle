@@ -15,7 +15,7 @@ from typing import Any
 from heddle.contracts import operations as ops
 from heddle.contracts.feature_policy import Reviewer
 from heddle.contracts.gates import GATE_CATALOG
-from heddle.contracts.result import NextAction
+from heddle.contracts.result import LAUNCH_EXCLUSION_REASONS, NextAction
 from heddle.gate.registry import GATES
 from heddle.gate.types import GateInvocationOverrides
 from heddle.kernel import review_assignments as core
@@ -48,6 +48,44 @@ class LaunchMember:
         return f"{self.role} {self.slot}"
 
 
+@dataclass(frozen=True)
+class LaunchExclusion:
+    """A routed review slot left out of the launch set, and why."""
+
+    role: str
+    scope: str | None
+    slot: str | None
+    reason: str
+    code: str | None = None
+    message: str | None = None
+    hint: str | None = None
+
+    def __post_init__(self) -> None:
+        if self.reason not in LAUNCH_EXCLUSION_REASONS:
+            raise ValueError(f"unknown launch exclusion reason {self.reason!r}")
+
+    def payload(self) -> dict[str, Any]:
+        return {
+            "role": self.role,
+            "scope": self.scope,
+            "slot": self.slot,
+            "reason": self.reason,
+            **(
+                {"code": self.code, "message": self.message, "hint": self.hint}
+                if self.code is not None
+                else {}
+            ),
+        }
+
+
+@dataclass(frozen=True)
+class LaunchSet:
+    """The members that launch together and the routed slots left out."""
+
+    members: tuple[LaunchMember, ...] = ()
+    exclusions: tuple[LaunchExclusion, ...] = ()
+
+
 def launch_set(
     config: ProjectConfig,
     snapshot: FeatureSnapshot,
@@ -55,15 +93,17 @@ def launch_set(
     actions: list[NextAction] | tuple[NextAction, ...],
     *,
     milestone_scope: str | None = None,
-) -> tuple[LaunchMember, ...]:
+) -> LaunchSet:
     """Return the members readiness's routed reviews would launch now.
 
     ``observed`` is the review-assignment projection for ``snapshot``;
     ``milestone_scope`` is the milestone the caller selected for a gate that
-    reviews one milestone. Sequential hosts launch nothing together.
+    reviews one milestone. Sequential hosts launch nothing together. Each
+    routed slot left out is listed with its reason; an admission refusal keeps
+    its own code, message and hint.
     """
     if config.review_launch != "concurrent" or not observed:
-        return ()
+        return LaunchSet()
     rows = {
         (row["role"], row["scope"]): row
         for row in observed["review_closure"]["assignments"]
@@ -71,6 +111,7 @@ def launch_set(
     state = snapshot.state
     seen: set[str] = set()
     ranked: list[tuple[tuple[int, int], LaunchMember]] = []
+    excluded: list[LaunchExclusion] = []
     for index, action in enumerate(actions):
         operation = (
             action.action.operation
@@ -86,11 +127,20 @@ def launch_set(
         scope = milestone_scope if gate_type.requires_milestone else "feature"
         row = rows.get((operation.gate, scope))
         if scope is None or row is None:
+            excluded.append(
+                LaunchExclusion(operation.gate, scope, None, "scope-unresolved")
+            )
             continue
         assignment = core.assignment_for(state, operation.gate, scope)
-        if core.assignment_sealed(
-            state, assignment
-        ) or changed_source_attempt_is_pending(state, assignment):
+        if core.assignment_sealed(state, assignment):
+            excluded.append(
+                LaunchExclusion(operation.gate, scope, None, "assignment-sealed")
+            )
+            continue
+        if changed_source_attempt_is_pending(state, assignment):
+            excluded.append(
+                LaunchExclusion(operation.gate, scope, None, "changed-source-pending")
+            )
             continue
         current = core.launch_round(state, assignment)
         missing = (
@@ -109,7 +159,18 @@ def launch_set(
                     GateInvocationOverrides(**asdict(slot.reviewer)),
                     admit=True,
                 )
-            except KernelError:
+            except KernelError as error:
+                excluded.append(
+                    LaunchExclusion(
+                        operation.gate,
+                        scope,
+                        slot.name,
+                        "admission-refused",
+                        error.code,
+                        error.message,
+                        error.hint,
+                    )
+                )
                 continue
             ranked.append(
                 (
@@ -119,4 +180,7 @@ def launch_set(
                     ),
                 )
             )
-    return tuple(member for _rank, member in sorted(ranked, key=lambda r: r[0]))
+    return LaunchSet(
+        tuple(member for _rank, member in sorted(ranked, key=lambda r: r[0])),
+        tuple(excluded),
+    )

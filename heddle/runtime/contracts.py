@@ -1004,7 +1004,10 @@ REVIEW_DISPOSITION_INPUT_SCHEMA: dict[str, Any] = {
                         "required": True,
                         "min_items": 1,
                         "items": {"type": "string", "non_empty": True},
-                        "summary": "repository paths of the regular files cited",
+                        "summary": (
+                            "repository paths of the regular files cited; a test "
+                            "node id or commit is not a reference"
+                        ),
                     },
                     "reason": _text_field("how the evidence resolves the obligation"),
                     "requires_inspection": {
@@ -1050,7 +1053,9 @@ REVIEW_DISPOSITION_INPUT_SCHEMA: dict[str, Any] = {
         "retain exact references.",
         "references must be regular files in the repository; a later change to a "
         "cited file stops the row counting (reference-changed). The feature's own "
-        "state.yaml cannot be cited (self-mutating-reference).",
+        "state.yaml cannot be cited (self-mutating-reference). A test node id or a "
+        "commit is malformed-field: cite the file and name the node or commit in "
+        "reason.",
         "A REPORT finding closes only through its owner decision: once that "
         "decision is resolved, record status settled, evidence_kind decision and "
         "its decision_id; until then record awaiting-decision. Other addressed or "
@@ -1134,7 +1139,8 @@ REVIEW_ROUND_INPUT_SCHEMA: dict[str, Any] = {
         "pending stop decision instead of a round: ok with exit 4 and the "
         "decision_id and stop_reason in data; resolve it with decisions resolve, "
         "and raise a reached limit with review allowance.",
-        "scope_change references must be regular files; a change cannot repeat "
+        "scope_change references must be regular files, never a test node id or "
+        "a commit; a change cannot repeat "
         "the exact captured references of an earlier scope change.",
         "Unknown fields are refused.",
     ],

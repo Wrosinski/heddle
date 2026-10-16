@@ -116,6 +116,27 @@ def test_ac11_driver_opens_a_stage_session_for_review_reaffirm_and_never_runs_it
     assert path.read_bytes() == before and len(calls) == 1
 
 
+def test_ac11_driver_routes_review_reaffirm_past_a_round_limit_stop(
+    tmp_path, monkeypatch
+):
+    """A basis change at the round limit opens the reaffirm session; no stop."""
+    host, path, origin, calls = disposed_spec_review(tmp_path, monkeypatch, limit=1)
+    stale_basis(host)
+    before = path.read_bytes()
+    result, prompts, executed = _drive(monkeypatch, host, until="plan-review")
+    assert len(prompts) == 1, f"expected one stage session: {prompts}"
+    assert "Authoring work: review-reaffirm" in prompts[0], (
+        "the round-limit stop withheld the reaffirm session"
+    )
+    assert "round-limit stop is reached" in prompts[0]
+    assert not any(
+        isinstance(op, (ops.ReviewRoundOpen, ops.ReaffirmReview)) for op in executed
+    ), "the driver recorded a stop or reaffirmed itself"
+    assert yaml.safe_load(path.read_text())["decisions"] == []
+    assert not result.ok and "17" in result.error.message, result.to_envelope()
+    assert path.read_bytes() == before and len(calls) == 1
+
+
 def test_ac11_driver_session_names_every_row_of_the_one_review_reaffirm(
     tmp_path, monkeypatch
 ):

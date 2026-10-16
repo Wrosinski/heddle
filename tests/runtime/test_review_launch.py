@@ -87,7 +87,7 @@ def _resolve(actions, *, snapshot=None, milestone_scope=None):
     observed = projection(config, snapshot)
     return _resolver()(
         config, snapshot, observed, actions, milestone_scope=milestone_scope
-    )
+    ).members
 
 
 @pytest.mark.parametrize("role", REVIEW_ROLES)
@@ -201,6 +201,9 @@ def test_ac2_ac3_lone_missing_secondary_after_accepted_primary_stays_single(
     before = state_path.read_bytes()
     refused = execute_batch()
     assert not refused.ok and state_path.read_bytes() == before
+    assert refused.error.details["cause"] == "single-slot"
+    assert refused.error.details["command"] == slot_command("spec-review", SECONDARY)
+    assert "spec-review feature slot secondary" in refused.error.message
 
 
 def test_ac2_milestone_review_takes_only_the_scope_readiness_selects(
@@ -424,6 +427,13 @@ def test_ac3_a_host_refused_slot_keeps_its_own_action_beside_the_batch(
         started = sorted((row["gate"], row["reviewer_slot"]) for row in starts)
     assert result.ok, result.to_envelope()
     assert started == [("behavior-review", SECONDARY), ("complexity-review", PRIMARY)]
+    [excluded] = result.data["excluded_slots"]
+    assert (excluded["role"], excluded["slot"], excluded["reason"]) == (
+        "behavior-review",
+        PRIMARY,
+        "admission-refused",
+    ), "a slot the host refused was dropped silently from a partial launch"
+    assert excluded["code"] == "workspace-invalid" and excluded["message"]
 
 
 def test_ac3_unauthorized_stage_keeps_the_single_gate_refusal(
@@ -610,3 +620,103 @@ def test_ac11_run_gates_refuses_in_sequential_mode_without_writing(
     assert any(
         action.command.startswith("heddle run-gate ") for action in refused.next_actions
     ), "FAIL AC-11: the refusal does not return the current single-gate action"
+    assert refused.error.details["cause"] == "launch-sequential"
+
+
+@pytest.mark.parametrize(
+    ("pending", "tasks", "open_tasks"),
+    [
+        ("open-tasks", [{"id": "t2", "text": "Live lane", "status": "todo"}], ["t2"]),
+        ("no-tasks", None, []),
+    ],
+    ids=["open-tasks", "no-tasks"],
+)
+def test_run_gates_and_run_gate_name_the_implementation_work_withholding_review(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, pending, tasks, open_tasks
+) -> None:
+    """Both commands refuse the current milestone's review with one named cause."""
+    from tests.concurrent_review_helpers import edit_state
+
+    _host, state_path = same_gate_host(tmp_path, monkeypatch, role="milestone-review")
+
+    def unfinished(value):
+        milestone = value["milestones"][0]
+        milestone["tasks"] = [*milestone["tasks"], *tasks] if tasks else []
+
+    edit_state(state_path, unfinished)
+    before = state_path.read_bytes()
+    with multiprocessing.Manager() as manager:
+        calls = install_counting_engine(monkeypatch, manager)
+        batch = execute_batch()
+        single = run_slot("milestone-review", PRIMARY)
+        call_count = len(calls)
+    assert call_count == 0 and state_path.read_bytes() == before
+    expected = {
+        "cause": "implementation-pending",
+        "pending": pending,
+        "milestone": "m1",
+        "open_tasks": open_tasks,
+    }
+    assert not batch.ok and batch.error.code == "gate-not-converged"
+    assert batch.error.details == {**expected, "excluded_slots": []}, (
+        "run-gates did not name the work withholding the review"
+    )
+    assert not single.ok and single.error.code == "task-incomplete", (
+        "run-gate admitted a review readiness withholds"
+    )
+    assert single.error.details == expected
+    for message in (batch.error.message, single.error.message):
+        assert "m1" in message and all(task in message for task in open_tasks)
+    assert ("no tasks yet" in single.error.message) == (pending == "no-tasks")
+
+
+def test_run_gate_still_admits_a_done_milestone_retained_review(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Survivor: open work in the current milestone never blocks an earlier one."""
+    from heddle.gate.registry import GATES
+    from heddle.gate.types import GateInvocationOverrides
+    from heddle.kernel.model import resolve_snapshot
+    from heddle.kernel.project_config import load_project_config
+    from heddle.runtime.review_assignments import resolve_invocation
+    from tests.concurrent_review_helpers import edit_state
+
+    _host, state_path = same_gate_host(tmp_path, monkeypatch, role="milestone-review")
+
+    def advanced(value):
+        first, second = value["milestones"][:2]
+        first["status"] = "done"
+        second["status"] = "current"
+        second["tasks"] = [{"id": "t1", "text": "Next part", "status": "current"}]
+
+    edit_state(state_path, advanced)
+    config = load_project_config(Path.cwd())
+    resolve_invocation(
+        resolve_snapshot(config, V7_FEATURE),
+        config,
+        GATES["milestone-review"],
+        GateInvocationOverrides(),
+        admit=True,
+    )
+
+
+def test_launch_refusal_vocabulary_is_closed() -> None:
+    """The run-gates refusal causes and exclusion reasons are one closed set."""
+    from heddle.contracts.result import LAUNCH_EXCLUSION_REASONS, LAUNCH_REFUSAL_CAUSES
+    from heddle.runtime.review_launch import LaunchExclusion
+
+    assert LAUNCH_REFUSAL_CAUSES == (
+        "launch-sequential",
+        "single-slot",
+        "implementation-pending",
+        "no-launchable-slot",
+        "other-work-first",
+    )
+    assert LAUNCH_EXCLUSION_REASONS == (
+        "scope-unresolved",
+        "assignment-sealed",
+        "changed-source-pending",
+        "admission-refused",
+    )
+    with pytest.raises(ValueError, match="unknown launch exclusion reason"):
+        LaunchExclusion("spec-review", "feature", None, "slot-recorded")
