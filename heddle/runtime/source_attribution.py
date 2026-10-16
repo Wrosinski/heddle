@@ -67,7 +67,7 @@ def qualified_attribution_paths(
     Only paths in ``changed_since_baseline`` are checked: a path Git reports
     unchanged since the baseline needs no coverage and cannot be attributed
     again, so its attribution is moot until Git reports a change again.
-    ``None`` checks every attributed path. A checked path whose bytes or
+    ``None`` applies no baseline filter. A checked path whose bytes or
     cited evidence changed since attribution raises."""
     baseline_changes = (
         None if changed_since_baseline is None else frozenset(changed_since_baseline)

@@ -165,7 +165,12 @@ def test_attribution_is_moot_while_its_path_matches_the_baseline(host, revert):
     tracked = root / "deleted.txt"
     baseline = tracked.read_bytes()
     tracked.write_text("other feature's edit\n")
-    assert attribute("outside.txt", "another.txt", "deleted.txt").ok
+    # One row for two paths, so removing the new file leaves it partly moot.
+    grouped = payload("deleted.txt")
+    grouped["attributions"].insert(
+        0, {**grouped["attributions"][0], "paths": ["outside.txt", "another.txt"]}
+    )
+    assert execute(ops.AttributeSources(grouped, feature="sample-feature")).ok
     assert coverage(root, state_path).status == "complete"
     target = root / "outside.txt" if revert == "remove-new-file" else tracked
     attributed = target.read_bytes()
