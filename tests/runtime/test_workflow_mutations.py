@@ -42,6 +42,37 @@ GOLDEN = REPO_ROOT / "tests" / "fixtures" / "workspaces" / "golden"
 EDGE = REPO_ROOT / "tests" / "fixtures" / "workspaces" / "edge"
 
 
+_LIMITS_DEFAULT = {
+    "hard": {
+        "seconds": 2700.0,
+        "source": "default",
+        "override": "HEDDLE_VERIFY_HARD_TIMEOUT_SECONDS",
+    },
+    "inactivity": {
+        "seconds": 900.0,
+        "source": "default",
+        "override": "HEDDLE_VERIFY_INACTIVITY_TIMEOUT_SECONDS",
+    },
+}
+
+
+def _completed_run(exit_code: int = 0) -> SimpleNamespace:
+    """A monitor result for a command that finished 2.5 s after launch."""
+    from heddle.io.process import Termination
+
+    return SimpleNamespace(
+        exit_code=exit_code,
+        termination=Termination.COMPLETED,
+        launch_time=10.0,
+        termination_time=12.5,
+    )
+
+
+def _default_limits(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("HEDDLE_VERIFY_HARD_TIMEOUT_SECONDS", raising=False)
+    monkeypatch.delenv("HEDDLE_VERIFY_INACTIVITY_TIMEOUT_SECONDS", raising=False)
+
+
 def _make_tiny_completed_milestone_eligible(state_path: Path) -> None:
     state = _read_yaml(state_path)
     for milestone in state["milestones"]:
@@ -164,7 +195,7 @@ def test_ac07_verify_runs_stored_command_and_appends_unique_log_facts(
         calls.append((command, raw_out))
         raw_out.parent.mkdir(parents=True, exist_ok=True)
         raw_out.write_text("verification ok\n", encoding="utf-8")
-        return SimpleNamespace(exit_code=0)
+        return _completed_run()
 
     monkeypatch.setattr("heddle.io.process.run_monitored", fake_run_monitored)
     for _ in range(2):
@@ -208,7 +239,7 @@ def test_verify_reports_pytest_counts_without_recording_them(
             "lint: all checks passed\n",
             encoding="utf-8",
         )
-        return SimpleNamespace(exit_code=0)
+        return _completed_run()
 
     monkeypatch.setattr("heddle.io.process.run_monitored", fake_run_monitored)
     argv = ["verify", "--scope", "m2", "--feature", "nl-screening"]
@@ -251,6 +282,204 @@ def test_failed_verify_reports_pytest_counts_in_details(
     assert "  pytest: 1 failed, 3 passed\n" in err
 
 
+def test_verify_reports_its_run_beside_the_fact(
+    run_cli, envelope_tools, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    host = _copy_host(tmp_path, GOLDEN)
+    monkeypatch.chdir(host)
+    _default_limits(monkeypatch)
+    state_path = host / "plans" / "nl-screening" / "state.yaml"
+
+    def fake_run_monitored(_command, raw_out, _cfg, **_kwargs):
+        raw_out.parent.mkdir(parents=True, exist_ok=True)
+        raw_out.write_text("verification ok\n", encoding="utf-8")
+        return _completed_run()
+
+    monkeypatch.setattr("heddle.io.process.run_monitored", fake_run_monitored)
+    argv = ["verify", "--scope", "m2", "--feature", "nl-screening"]
+    code, out, _err = run_cli([*argv, "--json"])
+    data = envelope_tools.parse(out)["data"]
+    assert code == 0
+    assert data["run"] == {
+        "termination": "completed",
+        "elapsed_s": 2.5,
+        "limits": _LIMITS_DEFAULT,
+    }
+    assert "run" not in data["verification"]
+    state_text = state_path.read_text(encoding="utf-8")
+    assert "termination" not in state_text and "elapsed_s" not in state_text
+
+    code, out, _err = run_cli(argv)
+    assert code == 0
+    assert (
+        "  run: completed in 2.5 s; limits hard 2700 s (default, "
+        "HEDDLE_VERIFY_HARD_TIMEOUT_SECONDS), inactivity 900 s (default, "
+        "HEDDLE_VERIFY_INACTIVITY_TIMEOUT_SECONDS)\n"
+    ) in out
+
+
+def test_verify_names_the_heddle_limit_that_stopped_its_run(
+    run_cli, envelope_tools, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from heddle.runtime.verify_exec import verification_log_counts
+
+    host = _copy_host(tmp_path, TINY)
+    monkeypatch.chdir(host)
+    monkeypatch.setenv("HEDDLE_VERIFY_HARD_TIMEOUT_SECONDS", "1")
+    monkeypatch.setenv("HEDDLE_VERIFY_INACTIVITY_TIMEOUT_SECONDS", "30")
+    state_path = host / "plans" / "sample-feature" / "state.yaml"
+    state = _read_yaml(state_path)
+    # The first step's summary is the log's last one when the second is stopped.
+    state["milestones"][0]["verification"]["command"] = (
+        "printf '1 passed in 0.01s\\n' && sleep 30"
+    )
+    _write_yaml(state_path, state)
+
+    argv = ["verify", "--scope", "m1", "--feature", "sample-feature"]
+    code, out, _err = run_cli([*argv, "--json"])
+    envelope = envelope_tools.parse(out)
+    error = envelope["error"]
+    assert code == 3 and error["code"] == "verification-failed", error
+    details = error["details"]
+    assert details["child_exit_code"] == 124
+    assert details["run"]["termination"] == "timeout"
+    assert details["run"]["limits"]["hard"]["source"] == "env"
+    log = state_path.parent / details["log"]
+    assert verification_log_counts(log) == {"passed": 1}
+    assert details["counts"] is None
+    assert error["message"].startswith(
+        "verification for m1 did not finish: Heddle stopped m1 at its hard limit "
+        "of 1 s (env); set HEDDLE_VERIFY_HARD_TIMEOUT_SECONDS above"
+    )
+    assert "repair" not in error["hint"]
+    assert envelope["next_actions"][0]["reason"].startswith("raise the limit")
+    fact = _read_yaml(state_path)["verifications"][-1]
+    assert fact["exit_code"] == 124 and "termination" not in fact
+
+    code, _out, err = run_cli(argv)
+    assert code == 3
+    assert "  run: timeout after " in err and "  pytest:" not in err
+
+
+def test_verify_command_exiting_124_reads_as_its_own_failure(
+    run_cli, envelope_tools, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    host = _copy_host(tmp_path, TINY)
+    monkeypatch.chdir(host)
+    state_path = host / "plans" / "sample-feature" / "state.yaml"
+    state = _read_yaml(state_path)
+    state["milestones"][0]["verification"]["command"] = "exit 124"
+    _write_yaml(state_path, state)
+
+    code, out, _err = run_cli(
+        ["verify", "--scope", "m1", "--feature", "sample-feature", "--json"]
+    )
+    error = envelope_tools.parse(out)["error"]
+    assert code == 3 and error["code"] == "verification-failed", error
+    assert error["details"]["child_exit_code"] == 124
+    assert error["details"]["run"]["termination"] == "completed"
+    assert error["message"] == (
+        "verification for m1 produced unusable evidence (failed)"
+    )
+    assert "repair the check or command" in error["hint"]
+
+
+def test_verify_dry_run_and_help_show_the_effective_limits(
+    run_cli, envelope_tools, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    host = _copy_host(tmp_path, TINY)
+    monkeypatch.chdir(host)
+    _default_limits(monkeypatch)
+    monkeypatch.setenv("HEDDLE_VERIFY_HARD_TIMEOUT_SECONDS", "31200")
+
+    argv = ["verify", "--scope", "m1", "--feature", "sample-feature", "--dry-run"]
+    code, out, _err = run_cli([*argv, "--json"])
+    data = envelope_tools.parse(out)["data"]
+    assert code == 0 and data["dry_run"] is True
+    assert data["limits"] == {
+        **_LIMITS_DEFAULT,
+        "hard": {**_LIMITS_DEFAULT["hard"], "seconds": 31200.0, "source": "env"},
+    }
+
+    code, out, _err = run_cli(argv)
+    assert code == 0
+    assert (
+        "  limits: hard 31200 s (env, HEDDLE_VERIFY_HARD_TIMEOUT_SECONDS), "
+        "inactivity 900 s (default, HEDDLE_VERIFY_INACTIVITY_TIMEOUT_SECONDS)\n"
+    ) in out
+
+    code, out, _err = run_cli(["verify", "--help"])
+    assert code == 0
+    assert "2700 s in total or 900 s without output" in out
+    assert "HEDDLE_VERIFY_HARD_TIMEOUT_SECONDS" in out
+    assert "HEDDLE_VERIFY_INACTIVITY_TIMEOUT_SECONDS" in out
+
+
+def test_verify_keeps_its_run_when_the_after_capture_fails(
+    run_cli, envelope_tools, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from heddle.kernel.project_config import KernelError
+    from heddle.runtime import write_path
+
+    host = _copy_host(tmp_path, TINY)
+    monkeypatch.chdir(host)
+    state_path = host / "plans" / "sample-feature" / "state.yaml"
+    before = state_path.read_bytes()
+    original = write_path.observe_current_source
+    calls: list[str] = []
+
+    def fail_after_the_run(*args, **kwargs):
+        calls.append("observe")
+        if len(calls) == 2:
+            raise KernelError(
+                code="workspace-invalid",
+                message="after capture failed",
+                hint="repair capture",
+            )
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(write_path, "observe_current_source", fail_after_the_run)
+    code, out, _err = run_cli(
+        ["verify", "--scope", "m1", "--feature", "sample-feature", "--json"]
+    )
+    envelope = envelope_tools.parse(out)
+    error = envelope["error"]
+    assert code == 3 and error["code"] == "workspace-invalid", error
+    assert error["message"] == "after capture failed"
+    assert error["details"]["recorded"] is False
+    assert error["details"]["run"]["termination"] == "completed"
+    assert (state_path.parent / error["details"]["log"]).is_file()
+    assert "verification-log-unrecorded" in {
+        diagnostic["code"] for diagnostic in envelope["diagnostics"]
+    }
+    assert state_path.read_bytes() == before
+
+
+def test_verify_reports_a_shell_that_could_not_start(
+    run_cli, envelope_tools, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import heddle.io.process as monitor_module
+
+    host = _copy_host(tmp_path, TINY)
+    monkeypatch.chdir(host)
+
+    def refuse_launch(_argv, raw_out: Path, _cfg, **_kwargs):
+        raw_out.write_bytes(b"")
+        raise monitor_module.MonitorLaunchError("injected launch failure")
+
+    monkeypatch.setattr(monitor_module, "run_monitored", refuse_launch)
+    code, out, _err = run_cli(
+        ["verify", "--scope", "m1", "--feature", "sample-feature", "--json"]
+    )
+    error = envelope_tools.parse(out)["error"]
+    assert code == 3 and error["code"] == "verification-failed", error
+    assert error["details"]["child_exit_code"] == 127
+    assert error["details"]["run"]["termination"] == "launch-failed"
+    assert error["details"]["run"]["elapsed_s"] is None
+    assert error["message"] == "verification for m1 could not start its shell"
+    assert "/bin/sh" in error["hint"]
+
+
 def test_ac07_ac18_verify_records_nonzero_exit_code(
     run_cli, envelope_tools, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -282,6 +511,7 @@ def test_ac07_ac18_verify_records_nonzero_exit_code(
         "revision": state["revision"] + 1,
         "fact_index": len(state["verifications"]),
         "status": "failed",
+        "run": envelope["error"]["details"]["run"],
     }
     fact = _read_yaml(state_path)["verifications"][-1]
     assert fact["scope"] == "m1" and fact["exit_code"] == 17, (
@@ -414,7 +644,7 @@ def test_ac07_ac18_verify_publish_failure_is_fatal_and_preserves_state(
     def fake_run_monitored(_argv, raw_out: Path, _cfg):
         captures.append(raw_out)
         raw_out.write_bytes(b"completed but unpublished\n")
-        return SimpleNamespace(exit_code=0)
+        return _completed_run()
 
     def fail_publish(_captured: Path, _destination: Path) -> None:
         raise OSError("injected verification log publication failure")

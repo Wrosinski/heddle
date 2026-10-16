@@ -340,6 +340,13 @@ it. The host's instructions continue to decide whether broad suites, live
 providers, external effects, production changes, pushes, or publication are
 allowed.
 
+`heddle verify` and the close suite stop a stored command after 2700 s overall
+or 900 s without output, the session defaults in
+[the limits module](../../heddle/contracts/limits.py). Set
+`HEDDLE_VERIFY_HARD_TIMEOUT_SECONDS` or `HEDDLE_VERIFY_INACTIVITY_TIMEOUT_SECONDS`
+for a lane that runs longer; `heddle verify --dry-run` shows the effective
+limits, and a stopped run names the one it reached.
+
 ## Update Heddle safely
 
 Checkpoint the host and any editable Heddle checkout before changing the active

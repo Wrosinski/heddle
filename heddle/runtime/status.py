@@ -633,6 +633,8 @@ def _render_read_result(result: HeddleResult) -> None:
             suffix += f"; accepted degraded by {row['accepted_degraded']} (still red)"
         if row.get("waived_rerun"):
             suffix += f"; rerun waived by {row['waived_rerun']} (pre-review evidence)"
+        if route := row.get("rerun_route"):
+            suffix += f"; {route['route']}: {route['reason']}"
         print(f"  verification {row['scope']}: {row['freshness']}{suffix}")
     for diagnostic in result.diagnostics:
         print(f"note: {diagnostic.code}: {diagnostic.message}")

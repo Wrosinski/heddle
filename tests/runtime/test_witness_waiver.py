@@ -851,3 +851,131 @@ def test_ac14_a_witness_that_never_passed_is_never_acceptable(
     # change because the evidence failed. Never because of what changed.
     message = refused.error.message
     assert "failed" in message or "pre-review witness run is mandatory" in message
+
+
+def _changes(*kinds: str):
+    from types import SimpleNamespace
+
+    return SimpleNamespace(
+        changes=tuple(
+            SimpleNamespace(kind=kind, path=f"src/{kind}.py") for kind in kinds
+        )
+    )
+
+
+_POST_REVIEW = ("peer-review", "robustness", "complete")
+_ROUTE_MATRIX = [
+    ("implement", "content-stale", ("formatting-only",), "accept-prior"),
+    ("implement", "content-stale", ("formatting-only", "content"), "rerun-only"),
+    ("implement", "content-stale", (), "rerun-only"),
+    ("implement", "source-set-stale", ("membership",), "rerun-only"),
+    *(
+        (stage, status, kinds, "waivable")
+        for stage in _POST_REVIEW
+        for status, kinds in (
+            ("content-stale", ("formatting-only",)),
+            ("content-stale", ("content",)),
+            ("source-set-stale", ("membership",)),
+        )
+    ),
+    *(
+        (stage, status, (), "rerun-only")
+        for stage in ("implement", *_POST_REVIEW)
+        for status in ("command-stale", "failed", "missing", "unstable")
+    ),
+    ("scaffold", "content-stale", ("formatting-only",), "rerun-only"),
+    ("complete", "fresh", (), None),
+]
+
+
+@pytest.mark.parametrize(("stage", "status", "kinds", "route"), _ROUTE_MATRIX)
+def test_the_rerun_route_follows_the_stage_and_the_evidence(
+    stage: str, status, kinds: tuple[str, ...], route: str | None
+) -> None:
+    from heddle.kernel.witness_waiver import witness_rerun_route
+
+    explanation = _changes(*kinds) if kinds else None
+    for scope in ("acceptance", "live"):
+        row = VerificationFreshness(scope, status, None, 3, explanation=explanation)
+        result = witness_rerun_route(stage, row)
+        assert (result.route if result else None) == route, (scope, result)
+        if result is not None and "content" in kinds and route == "rerun-only":
+            assert "its source has content src/content.py" in result.reason
+    # Smoke and milestone scopes have no owner alternative; a waived lane
+    # carries no route.
+    for scope in ("smoke", "m1"):
+        row = VerificationFreshness(scope, status, None, 3, explanation=explanation)
+        assert witness_rerun_route(stage, row) is None
+    waived = VerificationFreshness(
+        "acceptance", status, None, 3, waived_by="D1", explanation=explanation
+    )
+    assert witness_rerun_route(stage, waived) is None
+
+
+def test_status_and_orient_state_the_route_until_a_waiver_binds(
+    tmp_path, monkeypatch, run_cli
+) -> None:
+    host = final_host(tmp_path, monkeypatch)
+    _review_fix(host.root, 8)
+    verify(host.state, "smoke")
+
+    row = _status_row("acceptance")
+    assert row["rerun_route"] == {
+        "route": "waivable",
+        "reason": "the post-review rerun is the default, and the owner may waive "
+        "it with a witness-waiver decision",
+    }
+    assert "rerun_route" not in _status_row("smoke")
+    code, out, _err = run_cli(["orient", "--feature", FEATURE])
+    assert code == 0
+    line = next(
+        line
+        for line in out.splitlines()
+        if line.startswith("  verification acceptance")
+    )
+    assert line.endswith("; waivable: " + row["rerun_route"]["reason"]), line
+
+    decision_id = _waive(host.state, "acceptance")
+    row = _status_row("acceptance")
+    assert row["waived_rerun"] == decision_id and "rerun_route" not in row, row
+
+    _review_fix(host.root, 9)
+    row = _status_row("acceptance")
+    assert row["rerun_route"]["route"] == "waivable"
+    assert (
+        f"(witness waiver {decision_id} stopped binding when the lane changed after it)"
+    ) in row["rerun_route"]["reason"]
+
+
+@pytest.mark.parametrize("change", ["command-stale", "implement-content"])
+def test_an_unwaivable_lane_states_why_and_its_refusal_says_the_same(
+    tmp_path, monkeypatch, run_cli, change: str
+) -> None:
+    if change == "command-stale":
+        host = final_host(tmp_path, monkeypatch)
+        value = read(host.state)
+        value["commands"]["acceptance_test"] += " # changed witness"
+        write(host.state, value)
+        expected = "the stored command changed since the last run"
+    else:
+        from tests.change_impact_verify_helpers import implement_exit_host
+
+        host = implement_exit_host(tmp_path, monkeypatch)
+        (host.root / "src/example.py").write_text("VALUE = 7  # behaviour note\n")
+        verify(host.state, "m1")
+        expected = "its source has content src/example.py"
+
+    route = _status_row("acceptance")["rerun_route"]
+    assert route["route"] == "rerun-only" and expected in route["reason"], route
+    code, out, _err = run_cli(["orient", "--feature", FEATURE])
+    assert code == 0
+    assert "; rerun-only: " + route["reason"] in out, out
+    before = host.state.read_bytes()
+
+    refused = _propose("acceptance")
+
+    assert not refused.ok and host.state.read_bytes() == before
+    assert refused.error.message.endswith(route["reason"]), (
+        "the refusal must read the route orient showed: "
+        f"{refused.error.message!r} vs {route['reason']!r}"
+    )

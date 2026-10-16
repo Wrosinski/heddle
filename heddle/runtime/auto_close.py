@@ -23,7 +23,11 @@ from heddle.runtime.audit import (
     friction_retrospective_path,
 )
 from heddle.runtime.clock import utc_now_seconds
-from heddle.runtime.verify_exec import run_verification_command
+from heddle.runtime.verify_exec import (
+    LAUNCH_FAILED,
+    run_verification_command,
+    stopped_at_limit_text,
+)
 
 if TYPE_CHECKING:
     from heddle.kernel.project_config import ProjectConfig
@@ -284,20 +288,36 @@ def run_close_suite(
     if not command:
         return None
     log_path = _close_suite_log_path(context)
-    exit_code = run_verification_command(context.config.root, command, log_path)
+    run = run_verification_command(context.config.root, command, log_path)
+    exit_code = run.exit_code
     log = log_path.relative_to(context.state_path.parent).as_posix()
     if exit_code != 0:
-        return _close_suite_failure(
-            message=(
+        payload = run.payload()
+        stopped = stopped_at_limit_text("the close suite", payload)
+        if stopped is not None:
+            message = f"close validation did not finish: {stopped}; log: {log_path}"
+            hint = "raise the limit, then complete the feature again"
+        elif run.termination == LAUNCH_FAILED:
+            message = (
+                "close validation failed: the configured test command's shell "
+                f"could not start; log: {log_path}"
+            )
+            hint = "check that /bin/sh can start in the repository root before close"
+        else:
+            message = (
                 f"close validation failed: configured test command exited "
                 f"{exit_code}; log: {log_path}"
-            ),
-            hint="make the configured autopilot test command pass before close",
+            )
+            hint = "make the configured autopilot test command pass before close"
+        return _close_suite_failure(
+            message=message,
+            hint=hint,
             details={
                 "feature": context.feature,
                 "command": command,
                 "child_exit_code": exit_code,
                 "log": log,
+                "run": payload,
             },
             action=ops.ManualAction(command),
             reason=(

@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import os
 import re
+from collections.abc import Mapping
 from contextlib import chdir
+from dataclasses import dataclass
 from math import isfinite
 from pathlib import Path
 from tempfile import TemporaryDirectory, gettempdir
@@ -14,6 +16,8 @@ import heddle.io.process as process
 from heddle.contracts.limits import (
     DEFAULT_SESSION_HARD_TIMEOUT_S,
     DEFAULT_SESSION_INACTIVITY_TIMEOUT_S,
+    VERIFY_HARD_TIMEOUT_ENV,
+    VERIFY_INACTIVITY_TIMEOUT_ENV,
 )
 from heddle.io.process import MonitorConfig
 from heddle.kernel.project_config import KernelError
@@ -23,8 +27,6 @@ from heddle.kernel.state import (
 )
 from heddle.kernel.verification import SCOPE_COMMAND_KEYS
 
-_VERIFY_HARD_TIMEOUT_ENV = "HEDDLE_VERIFY_HARD_TIMEOUT_SECONDS"
-_VERIFY_INACTIVITY_TIMEOUT_ENV = "HEDDLE_VERIFY_INACTIVITY_TIMEOUT_SECONDS"
 _VERIFY_POLL_ENV = "HEDDLE_VERIFY_POLL_SECONDS"
 # `verify` inherits run-gate's host-policy timeout defaults rather
 # than inventing its own — one binding in heddle/contracts/limits.py shared
@@ -36,6 +38,94 @@ _DEFAULT_VERIFY_POLL_S = 0.1
 # Exit code recorded when the stored verify command fails to launch
 # (shell "command not found" convention).
 VERIFY_LAUNCH_FAILURE_EXIT = 127
+# How a run ended: the monitor's terminations, or a command that never started.
+LAUNCH_FAILED = "launch-failed"
+
+
+@dataclass(frozen=True)
+class VerificationLimit:
+    """One limit Heddle puts on a verification run, and where its value came
+    from: the shared default or its environment override."""
+
+    seconds: float
+    source: str
+    override: str
+
+    def payload(self) -> dict[str, Any]:
+        return {
+            "seconds": self.seconds,
+            "source": self.source,
+            "override": self.override,
+        }
+
+
+@dataclass(frozen=True)
+class VerificationLimits:
+    hard: VerificationLimit
+    inactivity: VerificationLimit
+
+    def payload(self) -> dict[str, Any]:
+        return {"hard": self.hard.payload(), "inactivity": self.inactivity.payload()}
+
+
+@dataclass(frozen=True)
+class VerificationRun:
+    """What one run of a stored command did. Invocation data: the recorded
+    verification fact keeps only the exit code."""
+
+    exit_code: int
+    # completed, timeout, inactivity (io/process.py) or launch-failed.
+    termination: str
+    # None when the command never started.
+    elapsed_s: float | None
+    limits: VerificationLimits
+
+    @property
+    def completed(self) -> bool:
+        return self.termination == process.Termination.COMPLETED
+
+    def payload(self) -> dict[str, Any]:
+        return {
+            "termination": self.termination,
+            "elapsed_s": self.elapsed_s,
+            "limits": self.limits.payload(),
+        }
+
+
+def verification_limits() -> VerificationLimits:
+    """The limits a verification run gets now, with their sources."""
+
+    def limit(name: str, default: float) -> VerificationLimit:
+        configured = name in os.environ
+        return VerificationLimit(
+            _env_float(name, default), "env" if configured else "default", name
+        )
+
+    return VerificationLimits(
+        limit(VERIFY_HARD_TIMEOUT_ENV, _DEFAULT_VERIFY_HARD_TIMEOUT_S),
+        limit(VERIFY_INACTIVITY_TIMEOUT_ENV, _DEFAULT_VERIFY_INACTIVITY_TIMEOUT_S),
+    )
+
+
+# The limit behind each termination Heddle causes.
+_STOPPING_LIMITS = {
+    process.Termination.TIMEOUT.value: "hard",
+    process.Termination.INACTIVITY.value: "inactivity",
+}
+
+
+def stopped_at_limit_text(scope: str, run: Mapping[str, Any]) -> str | None:
+    """Name the Heddle limit that stopped a run, from its payload, or None."""
+    kind = _STOPPING_LIMITS.get(run["termination"])
+    if kind is None:
+        return None
+    limit = run["limits"][kind]
+    return (
+        f"Heddle stopped {scope} at its {kind} limit of {limit['seconds']:g} s "
+        f"({limit['source']}); set {limit['override']} above the run's expected "
+        "duration to allow longer"
+    )
+
 
 # Pytest's closing summary line, bordered (`==== 3 passed in 0.12s ====`) or
 # bare under -q, with pytest's own duration format (`65.00s (0:01:05)`).
@@ -85,7 +175,9 @@ def verification_command(document: dict[str, Any], scope: str) -> str | None:
     return command if isinstance(command, str) and command.strip() else None
 
 
-def run_verification_command(root: Path, command: str, log_path: Path) -> int:
+def run_verification_command(
+    root: Path, command: str, log_path: Path
+) -> VerificationRun:
     # Verification commands run under `sh -c`: milestone verification payloads
     # are naturally authored as
     # `&&` chains, and the previous shlex-split-and-exec handed the whole
@@ -99,6 +191,7 @@ def run_verification_command(root: Path, command: str, log_path: Path) -> int:
     # every other completed verification attempt.
     shell_command = command if command.strip() else f"exit {VERIFY_LAUNCH_FAILURE_EXIT}"
     argv = ["/bin/sh", "-c", shell_command]
+    limits = verification_limits()
     try:
         capture_parent = Path(gettempdir()).resolve()
         workspace_root = root.resolve()
@@ -128,27 +221,28 @@ def run_verification_command(root: Path, command: str, log_path: Path) -> int:
                         argv,
                         capture_path,
                         MonitorConfig(
-                            hard_timeout_s=_env_float(
-                                _VERIFY_HARD_TIMEOUT_ENV,
-                                _DEFAULT_VERIFY_HARD_TIMEOUT_S,
-                            ),
-                            inactivity_timeout_s=_env_float(
-                                _VERIFY_INACTIVITY_TIMEOUT_ENV,
-                                _DEFAULT_VERIFY_INACTIVITY_TIMEOUT_S,
-                            ),
+                            hard_timeout_s=limits.hard.seconds,
+                            inactivity_timeout_s=limits.inactivity.seconds,
                             poll_s=_env_float(_VERIFY_POLL_ENV, _DEFAULT_VERIFY_POLL_S),
                         ),
                     )
-                    exit_code = int(result.exit_code)
+                    run = VerificationRun(
+                        int(result.exit_code),
+                        result.termination.value,
+                        _elapsed(result),
+                        limits,
+                    )
                 except process.MonitorLaunchError:
                     # A launch failure (e.g. a missing executable in the
                     # stored command) is a *failing* verification, not a
                     # dispatcher internal error. The monitor opens the capture
                     # before spawning, so its empty evidence still installs.
-                    exit_code = VERIFY_LAUNCH_FAILURE_EXIT
+                    run = VerificationRun(
+                        VERIFY_LAUNCH_FAILURE_EXIT, LAUNCH_FAILED, None, limits
+                    )
             log_path.parent.mkdir(parents=True, exist_ok=True)
             process.install_monitored_output(capture_path, log_path)
-            return exit_code
+            return run
     except OSError as error:
         raise KernelError(
             code="workspace-invalid",
@@ -158,6 +252,12 @@ def run_verification_command(root: Path, command: str, log_path: Path) -> int:
             ),
             hint="check that the verification directory is writable and retry",
         ) from error
+
+
+def _elapsed(result: process.MonitorResult) -> float | None:
+    if result.launch_time is None or result.termination_time is None:
+        return None
+    return round(result.termination_time - result.launch_time, 1)
 
 
 def pytest_summary_counts(text: str) -> dict[str, int] | None:
@@ -187,8 +287,9 @@ def pytest_summary_counts(text: str) -> dict[str, int] | None:
 
 
 def verification_log_counts(log_path: Path) -> dict[str, int] | None:
-    """Pytest outcome counts from the tail of a completed verification log.
-    Envelope information only: no recorded fact carries them."""
+    """Outcome counts of the last pytest summary in the tail of a completed
+    verification log. Envelope information only: no recorded fact carries
+    them."""
     try:
         with log_path.open("rb") as log:
             log.seek(max(0, log.seek(0, os.SEEK_END) - _SUMMARY_TAIL_BYTES))

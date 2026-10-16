@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Mapping
+from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any
 
 from heddle.contracts.schemas import WITNESS_WAIVER_OPTIONAL_KEYS
@@ -35,52 +36,127 @@ WAIVER_BINDING_KEYS = WAIVER_INPUT_KEYS | {"fact", "ownership", "source_sha256"}
 WAIVER_EVIDENCE_KEY = WITNESS_WAIVER_OPTIONAL_KEYS[0]
 
 
-def waivable_witness_rerun(stage: str, status: VerificationFreshness) -> bool:
-    """Whether a stale lane awaits its default post-review rerun."""
-    return (
-        stage in WAIVER_STAGES
-        and status.scope in WITNESS_SCOPES
-        and status.status in WAIVABLE_STATUSES
-        and status.waived_by is None
-    )
+# How the owner may answer a witness lane's routed rerun.
+WAIVABLE = "waivable"
+ACCEPT_PRIOR = "accept-prior"
+RERUN_ONLY = "rerun-only"
+# Why only a rerun can answer a lane whose evidence never stood as a witness.
+_RERUN_ONLY_CAUSES = {
+    "missing": "no run is recorded",
+    "failed": "the last run failed",
+    "unstable": "the source changed during the last run",
+    "command-stale": "the stored command changed since the last run",
+}
 
 
-def acceptable_prior_witness(stage: str, status: VerificationFreshness) -> bool:
-    """Whether implement exit may accept a lane's earlier passing witness.
+@dataclass(frozen=True)
+class WitnessRerunRoute:
+    """A witness lane's owner alternative to its routed rerun.
 
-    Only a content-stale fact qualifies, so the fact passed, was stable and ran
-    the current command over the current source set; every change since its run
-    must be formatting-only.
+    It states eligibility, not permission to run now.
     """
-    return (
-        stage == IMPLEMENT_EXIT_STAGE
-        and status.scope in WITNESS_SCOPES
-        and status.formatting_only
-        and status.waived_by is None
+
+    route: str
+    reason: str
+
+    @property
+    def offers_waiver(self) -> bool:
+        return self.route != RERUN_ONLY
+
+    def payload(self) -> dict[str, str]:
+        return {"route": self.route, "reason": self.reason}
+
+    def lapsed(self, decision_id: str) -> WitnessRerunRoute:
+        """This route, noting a recorded waiver of the lane that no longer binds."""
+        return replace(
+            self,
+            reason=f"{self.reason} (witness waiver {decision_id} stopped binding "
+            "when the lane changed after it)",
+        )
+
+
+def waiver_stage(stage: str) -> bool:
+    """Whether a witness waiver may be proposed at ``stage``."""
+    return stage in WAIVER_STAGES or stage == IMPLEMENT_EXIT_STAGE
+
+
+def witness_rerun_route(
+    stage: str, status: VerificationFreshness
+) -> WitnessRerunRoute | None:
+    """How the owner may answer a witness lane's rerun at ``stage``.
+
+    None for a fresh or waived lane and for every other scope: smoke has its
+    own degraded acceptance, and milestone scopes have no owner alternative.
+    """
+    if (
+        status.scope not in WITNESS_SCOPES
+        or status.status == "fresh"
+        or status.waived_by is not None
+    ):
+        return None
+    if status.status not in WAIVABLE_STATUSES:
+        return WitnessRerunRoute(
+            RERUN_ONLY,
+            f"{_RERUN_ONLY_CAUSES[status.status]}, and only a stable passing run "
+            "of the current command can stand in for a rerun",
+        )
+    if stage in WAIVER_STAGES:
+        return WitnessRerunRoute(
+            WAIVABLE,
+            "the post-review rerun is the default, and the owner may waive it with "
+            "a witness-waiver decision",
+        )
+    if stage != IMPLEMENT_EXIT_STAGE:
+        return WitnessRerunRoute(
+            RERUN_ONLY,
+            "the pre-review witness run is mandatory, and a waiver applies only "
+            "from implement exit on",
+        )
+    if status.formatting_only:
+        # Only a content-stale fact qualifies, so the fact passed, was stable
+        # and ran the current command over the current source set.
+        return WitnessRerunRoute(
+            ACCEPT_PRIOR,
+            "only formatting changed since the witness passed, so the owner may "
+            "accept it in place of the rerun with a witness-waiver decision",
+        )
+    changes = getattr(status.explanation, "changes", ())
+    named = ", ".join(
+        f"{change.kind} {change.path}" if change.path else change.kind
+        for change in changes
+        if change.kind != "formatting-only"
+    )
+    return WitnessRerunRoute(
+        RERUN_ONLY,
+        "at implement exit only formatting-only changes let the owner accept the "
+        f"earlier witness, and its source has {named or 'an unexplained change'}",
     )
 
 
-def verification_refresh_reason(stage: str, status: VerificationFreshness) -> str:
+def waivable_witness_rerun(status: VerificationFreshness) -> bool:
+    """Whether a stale lane awaits its default post-review rerun."""
+    return status.rerun_route is not None and status.rerun_route.route == WAIVABLE
+
+
+def acceptable_prior_witness(status: VerificationFreshness) -> bool:
+    """Whether implement exit may accept a lane's earlier passing witness."""
+    return status.rerun_route is not None and status.rerun_route.route == ACCEPT_PRIOR
+
+
+def verification_refresh_reason(status: VerificationFreshness) -> str:
     """Name a stale scope's rerun, and the owner's waiver when one is open."""
     return f"refresh {status.scope} verification ({status.status})" + witness_offer(
-        stage, status
+        status
     )
 
 
-def witness_offer(stage: str, status: VerificationFreshness, lane: str = "this") -> str:
+def witness_offer(status: VerificationFreshness, lane: str | None = None) -> str:
     """The owner's alternative to a witness lane's rerun, or nothing."""
-    if waivable_witness_rerun(stage, status):
-        return (
-            f"; {lane} post-review rerun is the default and the owner may waive it "
-            "with a witness-waiver decision (see `heddle decisions add --help`)"
-        )
-    if acceptable_prior_witness(stage, status):
-        return (
-            f"; only formatting changed since {lane} witness passed, so the owner "
-            "may accept it in place of the rerun with a witness-waiver decision "
-            "(see `heddle decisions add --help`)"
-        )
-    return ""
+    route = status.rerun_route
+    if route is None or not route.offers_waiver:
+        return ""
+    named = f"{lane}: " if lane else ""
+    return f"; {named}{route.reason} (see `heddle decisions add --help`)"
 
 
 def validate_witness_waiver(value: Any, *, bound: bool) -> dict[str, Any]:
@@ -135,7 +211,7 @@ def waiver_source_evidence(value: Any) -> EvidenceReference | None:
 def validate_witness_waiver_proposal(state: StateFile, value: object) -> dict[str, Any]:
     """Validate the stage and lane without observing source files."""
     proposal = validate_witness_waiver(value, bound=False)
-    if state.stage not in WAIVER_STAGES | {IMPLEMENT_EXIT_STAGE}:
+    if not waiver_stage(state.stage):
         raise _invalid(
             "applies only from implement exit on; the pre-review witness run "
             "is mandatory"

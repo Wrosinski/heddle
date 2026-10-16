@@ -211,6 +211,17 @@ content, membership or ownership change leaves only the rerun. The waiver never
 qualifies review-disposition evidence, and is named by the completion fact.
 Like accepted degraded smoke, it needs a matching decision journal entry at
 close.
+
+One [route function](../../heddle/kernel/witness_waiver.py) decides a witness
+lane's eligibility from the stage and the assessed status, once per assessment,
+after any bound waiver applies. Status and orient rows of a witness lane with a
+routed rerun carry it as `rerun_route`: `waivable` after review, `accept-prior`
+at implement exit after formatting-only changes, or `rerun-only`, with the
+reason. Next-action reasons, the boundary hint, `verify --stale` skip reasons
+and the waiver refusal all read that route. It states eligibility, not
+permission to run now; fresh and waived rows omit it, and smoke and milestone
+scopes never carry it. When a recorded waiver stopped binding, the reason says
+so.
 Checkpoint witness questions use existing decisions, and unresolved questions
 block progression. Recorded grants remain separate from design and prerequisites.
 

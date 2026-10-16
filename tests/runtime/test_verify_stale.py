@@ -504,3 +504,73 @@ def test_ac12_stale_and_scope_are_mutually_exclusive(
         and "--stale" in error["message"]
         and "--scope" in error["message"]
     ), f"FAIL AC-12: --stale and --scope must be refused as exclusive: {error}"
+
+
+def test_stale_rows_report_each_run_and_name_a_stopping_limit(
+    tmp_path, monkeypatch, run_cli
+) -> None:
+    host = _stale_host(tmp_path, monkeypatch)
+    # m1's and acceptance's checks execute this source, which now outlasts the
+    # hard limit; m2's does not.
+    (host.root / "src/example.py").write_text(
+        "import time\ntime.sleep(30)\nVALUE = 7\n"
+    )
+    monkeypatch.setenv("HEDDLE_VERIFY_HARD_TIMEOUT_SECONDS", "2")
+
+    code, envelope = run_stale(run_cli)
+
+    assert code == 3 and envelope["error"]["code"] == "verification-failed", envelope
+    rows = {row["scope"]: row for row in batch_rows(envelope)["verifications"]}
+    assert {scope: row["run"]["termination"] for scope, row in rows.items()} == {
+        "m1": "timeout",
+        "m2": "completed",
+        "acceptance": "timeout",
+    }, rows
+    assert rows["m1"]["counts"] is None
+    assert rows["m2"]["run"]["limits"]["hard"] == {
+        "seconds": 2.0,
+        "source": "env",
+        "override": "HEDDLE_VERIFY_HARD_TIMEOUT_SECONDS",
+    }
+    hint = envelope["error"]["hint"]
+    for scope in ("m1", "acceptance"):
+        assert (
+            f"Heddle stopped {scope} at its hard limit of 2 s (env); set "
+            "HEDDLE_VERIFY_HARD_TIMEOUT_SECONDS above"
+        ) in hint
+    assert "stopped m2" not in hint
+
+
+def test_stale_dry_run_shows_the_effective_limits(
+    tmp_path, monkeypatch, run_cli
+) -> None:
+    _stale_host(tmp_path, monkeypatch)
+    monkeypatch.delenv("HEDDLE_VERIFY_HARD_TIMEOUT_SECONDS", raising=False)
+    monkeypatch.setenv("HEDDLE_VERIFY_INACTIVITY_TIMEOUT_SECONDS", "60")
+
+    code, envelope = run_stale(run_cli, "--dry-run")
+
+    assert code == 0 and envelope["ok"], envelope
+    limits = envelope["data"]["limits"]
+    assert (limits["hard"]["seconds"], limits["hard"]["source"]) == (2700.0, "default")
+    assert (limits["inactivity"]["seconds"], limits["inactivity"]["source"]) == (
+        60.0,
+        "env",
+    )
+
+
+def test_a_skipped_witness_lane_states_its_rerun_route(
+    tmp_path, monkeypatch, run_cli
+) -> None:
+    _mixed_host(tmp_path, monkeypatch)
+
+    code, envelope = run_stale(run_cli, "--dry-run")
+
+    assert code == 0 and envelope["ok"], envelope
+    reasons = skip_reasons(batch_rows(envelope))
+    assert reasons["live"].startswith("source-set-stale; the live lane reruns only ")
+    assert (
+        "; rerun-only: at implement exit only formatting-only changes let the "
+        "owner accept the earlier witness"
+    ) in reasons["live"], reasons["live"]
+    assert "rerun-only" not in reasons["m3"], reasons["m3"]

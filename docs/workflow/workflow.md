@@ -402,6 +402,18 @@ membership or ownership change, or a witness that never passed, still needs
 the rerun. The lead performs any declared alignment assessment on this
 pre-review run, so reviewers can inspect it.
 
+`heddle verify` runs a stored command under Heddle's hard and inactivity
+limits: the session defaults in [the limits module](../../heddle/contracts/limits.py),
+2700 s overall and 900 s without output, unless
+`HEDDLE_VERIFY_HARD_TIMEOUT_SECONDS` or `HEDDLE_VERIFY_INACTIVITY_TIMEOUT_SECONDS`
+sets another. Raise them above a long lane's expected duration before running
+it; `--dry-run` shows the effective values. Each run reports `run`: how it
+ended (`completed`, `timeout`, `inactivity` or `launch-failed`), its elapsed
+seconds and its limits. A run Heddle stopped records a failing fact and names
+the limit to raise. It reports no pytest `counts`, because a chained command's
+last summary may belong to an earlier step; otherwise `counts` are the last
+pytest summary in the log.
+
 Milestone ownership may name another feature's Heddle records when a migration
 explicitly changes or deletes those exact paths. It may not name the active
 feature's workspace, close records, or the shared gate-effectiveness log, and a
@@ -578,7 +590,10 @@ one lane's rerun with a class-5 `witness-waiver` decision resolved as
 `accept-prior-witness`; it binds the latest passing pre-review fact and current
 source. A later formatting-only change keeps it; any other relevant edit
 restores the rerun. Failed, missing, unstable or command-stale evidence cannot
-be waived. With R Off,
+be waived. Each stale witness row in `heddle status` and `heddle orient` states
+its `rerun_route` (`waivable`, `accept-prior` or `rerun-only`) with the reason;
+offer the owner a waiver only where it names one, and check the proposal with
+`heddle decisions add --dry-run` before asking. With R Off,
 the lead still owes declared live proof here although native enforcement starts
 at robustness, which is traversed even with R Off, and applies again at complete.
 After the last relevant fix and final applicable pass, refresh the assessment

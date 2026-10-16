@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass
 from types import MappingProxyType
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 from heddle.contracts.operations import (
     VERIFICATION_SCOPE_GUIDANCE,
@@ -21,6 +21,9 @@ from heddle.kernel.source_manifest import (
     normalize_milestone_source_paths,
 )
 from heddle.kernel.state import Milestone, StateFile, VerificationFact
+
+if TYPE_CHECKING:
+    from heddle.kernel.witness_waiver import WitnessRerunRoute
 
 FreshnessStatus = Literal[
     "missing",
@@ -83,6 +86,9 @@ class VerificationFreshness:
     applicability: str = "required"
     explanation: Any | None = None
     detail_limit: str | None = None
+    # A witness lane's owner alternative to its routed rerun, set once the
+    # waiver overlay is applied; None on fresh, waived and other rows.
+    rerun_route: WitnessRerunRoute | None = None
 
     @property
     def authorizes(self) -> bool:

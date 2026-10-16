@@ -316,7 +316,7 @@ def _assignment_readiness(
         reruns = [
             row.action
             for row in actionable_verifications
-            if waivable_witness_rerun(boundary.stage, row)
+            if waivable_witness_rerun(row)
         ]
         actions = [
             *(item for item in actions if item.action not in reruns),
@@ -355,9 +355,7 @@ def _assignment_readiness(
     if project_stale:
         # Projected over the final order, so the batch covers exactly the
         # leading scopes `verify --stale` selects from the unprojected actions.
-        routed = tuple(
-            project_stale_verify_actions(routed, verifications, boundary.stage)
-        )
+        routed = tuple(project_stale_verify_actions(routed, verifications))
     return BoundaryAssessment(
         boundary,
         tuple(rows),
@@ -414,7 +412,6 @@ def stale_batch_scopes(
 def project_stale_verify_actions(
     actions: Sequence[NextAction],
     verifications: Iterable[VerificationFreshness],
-    stage: str,
 ) -> list[NextAction]:
     """Route one ``verify --stale`` in place of two or more stale reruns it covers."""
     rows = {row.scope: row for row in verifications}
@@ -438,7 +435,7 @@ def project_stale_verify_actions(
         + (", ".join(named[:-1]) + " and " + named[-1])
         + " verification in one batch"
         + "".join(
-            witness_offer(stage, rows[scope], lane=f"the {scope}") for scope in covered
+            witness_offer(rows[scope], lane=f"the {scope} lane") for scope in covered
         )
     )
     batch = NextAction(
@@ -803,9 +800,7 @@ def readiness_status_block(
     if not assessment.blockers:
         return None
     if assessment.blockers[0] == "verification-missing":
-        return verification_status_block(
-            assessment.verifications, assessment.boundary.stage, diagnostics
-        )
+        return verification_status_block(assessment.verifications, diagnostics)
     return HeddleResult.failure(
         HeddleError(
             code=assessment.blockers[0],
@@ -823,7 +818,6 @@ def readiness_status_block(
 
 def verification_status_block(
     statuses: tuple[VerificationFreshness, ...],
-    stage: str,
     diagnostics: tuple[Diagnostic, ...] = (),
 ) -> HeddleResult | None:
     stale = tuple(status for status in statuses if not status.satisfies_boundary)
@@ -832,9 +826,9 @@ def verification_status_block(
     first = stale[0]
     assert first.action is not None
     hint = "rerun every listed verification action and retry the transition"
-    if any(waivable_witness_rerun(stage, status) for status in stale):
+    if any(waivable_witness_rerun(status) for status in stale):
         hint += "; the owner may instead waive a witness lane's post-review rerun"
-    elif any(acceptable_prior_witness(stage, status) for status in stale):
+    elif any(acceptable_prior_witness(status) for status in stale):
         hint += (
             "; only formatting changed since a witness lane passed, so the owner "
             "may instead accept that earlier witness"
@@ -854,13 +848,12 @@ def verification_status_block(
                 [
                     NextAction(
                         action=status.action,
-                        reason=verification_refresh_reason(stage, status),
+                        reason=verification_refresh_reason(status),
                     )
                     for status in stale
                     if status.action is not None
                 ],
                 stale,
-                stage,
             )
         ),
     )

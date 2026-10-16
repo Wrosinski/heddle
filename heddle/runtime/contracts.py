@@ -34,6 +34,12 @@ from heddle.contracts.feature_policy import (
     FeatureAxes,
 )
 from heddle.contracts.gate_execution import VALID_GATE_CLIS, VALID_REASONING_EFFORTS
+from heddle.contracts.limits import (
+    DEFAULT_SESSION_HARD_TIMEOUT_S,
+    DEFAULT_SESSION_INACTIVITY_TIMEOUT_S,
+    VERIFY_HARD_TIMEOUT_ENV,
+    VERIFY_INACTIVITY_TIMEOUT_ENV,
+)
 from heddle.contracts.review_assignments import (
     DISPOSITION_STATUSES,
     EVIDENCE_KINDS,
@@ -1744,7 +1750,13 @@ COMMAND_SURFACE: tuple[CommandContract, ...] = (
     CommandContract(
         name=ops.operation_type_name(ops.Verify),
         cli_binding=("write_path", "run_verify"),
-        summary="run a stored verification command and record the fact",
+        summary=(
+            "run a stored verification command and record the fact; Heddle stops "
+            f"a run after {DEFAULT_SESSION_HARD_TIMEOUT_S} s in total or "
+            f"{DEFAULT_SESSION_INACTIVITY_TIMEOUT_S} s without output unless "
+            f"{VERIFY_HARD_TIMEOUT_ENV} or {VERIFY_INACTIVITY_TIMEOUT_ENV} sets "
+            "another limit; --dry-run shows the effective limits"
+        ),
         mutating=True,
         dry_run=True,
         args=(),

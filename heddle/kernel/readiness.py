@@ -183,7 +183,7 @@ def assess_boundary(
             block(
                 "verification-missing",
                 verification.action,
-                verification_refresh_reason(boundary.stage, verification),
+                verification_refresh_reason(verification),
             )
 
     for requirement in requirements:

@@ -18,16 +18,25 @@ from types import SimpleNamespace
 
 import pytest
 
+from heddle.contracts.result import HeddleResult
+from heddle.io import process
 from heddle.kernel.project_config import KernelError
 from heddle.runtime.verify_exec import (
+    LAUNCH_FAILED,
     VERIFY_LAUNCH_FAILURE_EXIT,
+    VerificationRun,
     pytest_summary_counts,
     run_verification_command,
+    stopped_at_limit_text,
     verification_log_counts,
 )
 
 
 def _run(tmp_path: Path, command: str) -> int:
+    return _run_report(tmp_path, command).exit_code
+
+
+def _run_report(tmp_path: Path, command: str) -> VerificationRun:
     return run_verification_command(tmp_path, command, tmp_path / "verify.log")
 
 
@@ -151,7 +160,7 @@ def test_log_is_published_only_after_the_command_finishes(tmp_path: Path) -> Non
     log_path.parent.mkdir()
     command = f"test ! -e {shlex.quote(str(log_path))} && printf 'verification ok\\n'"
 
-    exit_code = run_verification_command(root, command, log_path)
+    exit_code = run_verification_command(root, command, log_path).exit_code
 
     assert exit_code == 0, (
         "FAIL: the final verification log must stay outside the worktree until "
@@ -182,11 +191,16 @@ def test_monitor_capture_is_external_and_cleaned(
             "project root"
         )
         raw_out.write_bytes(b"external capture\n")
-        return SimpleNamespace(exit_code=0)
+        return SimpleNamespace(
+            exit_code=0,
+            termination=process.Termination.COMPLETED,
+            launch_time=1.0,
+            termination_time=1.25,
+        )
 
     monkeypatch.setattr(verify_exec.process, "run_monitored", fake_run_monitored)
 
-    assert run_verification_command(root, "true", log_path) == 0
+    assert run_verification_command(root, "true", log_path).exit_code == 0
     assert log_path.read_bytes() == b"external capture\n"
     assert captures and all(not path.exists() for path in captures), (
         "FAIL: completed external capture files must be removed after publication"
@@ -232,9 +246,12 @@ def test_launch_failure_installs_empty_log_and_cleans_external_capture(
 
     monkeypatch.setattr(verify_exec.process, "run_monitored", fail_after_open)
 
-    assert (
-        run_verification_command(root, "true", log_path) == VERIFY_LAUNCH_FAILURE_EXIT
+    run = run_verification_command(root, "true", log_path)
+    assert (run.exit_code, run.termination) == (
+        VERIFY_LAUNCH_FAILURE_EXIT,
+        LAUNCH_FAILED,
     )
+    assert run.elapsed_s is None and not run.completed
     assert log_path.is_file(), (
         "FAIL: launch failure must still install the empty log referenced by its fact"
     )
@@ -295,3 +312,119 @@ def test_invalid_verify_timeout_policy_is_typed_usage(
         _run(tmp_path, "true")
     assert raised.value.code == "usage"
     assert "positive number" in raised.value.hint
+
+
+def test_a_run_reports_how_it_ended_and_the_limits_it_had(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("HEDDLE_VERIFY_HARD_TIMEOUT_SECONDS", raising=False)
+    monkeypatch.setenv("HEDDLE_VERIFY_INACTIVITY_TIMEOUT_SECONDS", "45")
+
+    run = _run_report(tmp_path, "true")
+
+    assert run.termination == "completed" and run.completed
+    assert run.elapsed_s is not None and run.elapsed_s >= 0
+    assert run.payload()["limits"] == {
+        "hard": {
+            "seconds": 2700.0,
+            "source": "default",
+            "override": "HEDDLE_VERIFY_HARD_TIMEOUT_SECONDS",
+        },
+        "inactivity": {
+            "seconds": 45.0,
+            "source": "env",
+            "override": "HEDDLE_VERIFY_INACTIVITY_TIMEOUT_SECONDS",
+        },
+    }
+    assert stopped_at_limit_text("m1", run.payload()) is None
+
+
+@pytest.mark.parametrize(
+    ("hard", "inactivity", "termination", "exit_code", "limit"),
+    [
+        ("1", "30", "timeout", 124, "hard limit of 1 s (env)"),
+        ("30", "1", "inactivity", 118, "inactivity limit of 1 s (env)"),
+    ],
+    ids=["hard", "inactivity"],
+)
+def test_a_run_heddle_stops_names_the_limit_and_its_override(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    hard: str,
+    inactivity: str,
+    termination: str,
+    exit_code: int,
+    limit: str,
+) -> None:
+    monkeypatch.setenv("HEDDLE_VERIFY_HARD_TIMEOUT_SECONDS", hard)
+    monkeypatch.setenv("HEDDLE_VERIFY_INACTIVITY_TIMEOUT_SECONDS", inactivity)
+
+    run = _run_report(tmp_path, "sleep 30")
+
+    assert (run.termination, run.exit_code) == (termination, exit_code)
+    assert not run.completed
+    text = stopped_at_limit_text("live", run.payload())
+    assert text is not None and f"Heddle stopped live at its {limit}" in text
+    override = run.payload()["limits"][
+        "hard" if termination == "timeout" else "inactivity"
+    ]
+    assert f"set {override['override']} above" in text
+
+
+def test_a_command_exiting_124_itself_reads_as_completed(tmp_path: Path) -> None:
+    run = _run_report(tmp_path, "exit 124")
+
+    assert (run.termination, run.exit_code) == ("completed", 124)
+    assert stopped_at_limit_text("m1", run.payload()) is None
+
+
+@pytest.mark.parametrize(
+    ("command", "hard", "termination", "message", "hint"),
+    [
+        (
+            "sleep 30",
+            "1",
+            "timeout",
+            "close validation did not finish: Heddle stopped the close suite at "
+            "its hard limit of 1 s (env)",
+            "raise the limit",
+        ),
+        (
+            "exit 124",
+            "30",
+            "completed",
+            "close validation failed: configured test command exited 124",
+            "make the configured autopilot test command pass",
+        ),
+    ],
+    ids=["heddle-limit", "own-exit-124"],
+)
+def test_the_close_suite_names_how_its_run_ended(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    command: str,
+    hard: str,
+    termination: str,
+    message: str,
+    hint: str,
+) -> None:
+    from heddle.runtime.auto_close import run_close_suite
+
+    monkeypatch.setenv("HEDDLE_VERIFY_HARD_TIMEOUT_SECONDS", hard)
+    state_path = tmp_path / "plans" / "sample-feature" / "state.yaml"
+    state_path.parent.mkdir(parents=True)
+    context = SimpleNamespace(
+        config=SimpleNamespace(
+            root=tmp_path, autopilot=SimpleNamespace(test_command=command)
+        ),
+        state_path=state_path,
+        feature="sample-feature",
+    )
+
+    result = run_close_suite(context)  # type: ignore[arg-type]
+
+    assert isinstance(result, HeddleResult) and result.error is not None
+    assert result.error.code == "verification-failed"
+    assert result.error.message.startswith(message)
+    assert result.error.hint.startswith(hint)
+    assert result.error.details["run"]["termination"] == termination

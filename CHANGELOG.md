@@ -10,6 +10,28 @@ authority for the installed version.
 
 ### Changed
 
+- `heddle verify` reports each run as `run` beside the recorded fact, in its
+  result, error details and `--stale` rows: `termination` (`completed`,
+  `timeout`, `inactivity` or `launch-failed`), `elapsed_s` and the effective
+  hard and inactivity `limits` with their source (`default` or `env`) and
+  override variable. A run Heddle stopped at a limit names the limit and its
+  override instead of asking to repair the check, and reports `counts: null`,
+  because the log's last pytest summary may belong to an earlier chained step;
+  a command that exits 124 itself stays `completed`. `--dry-run` shows the
+  limits and `heddle verify --help` states the defaults. The recorded fact is
+  unchanged. A run whose after-capture fails still reports its `run`.
+- A close-suite failure from `heddle feature complete` names how its run ended:
+  a Heddle limit with its override, a shell that could not start, or the
+  command's own exit code.
+- `heddle status` and `heddle orient` verification rows of a witness lane
+  (`acceptance` or `live`) with a routed rerun carry `rerun_route`: `waivable`
+  after review, `accept-prior` at implement exit when only formatting changed,
+  or `rerun-only`, with its `reason`, including a waiver that stopped binding.
+  The orient line prints it. Fresh and waived rows omit it. Next-action
+  reasons, the boundary hint, `verify --stale` skip reasons and the
+  `witness-waiver` refusal read the same route, so an offer and a refusal no
+  longer disagree. The field is additive under `heddle.status/v1` and
+  `heddle.orient/v0`; the release process now states that rule.
 - `heddle run-gates` refusals name their cause in `details.cause`:
   `launch-sequential`, `implementation-pending`, `other-work-first`,
   `single-slot` or `no-launchable-slot`, in that order of precedence, with a

@@ -114,8 +114,12 @@ from heddle.runtime.verification import (
     verification_command_for_scope,
 )
 from heddle.runtime.verify_exec import (
+    LAUNCH_FAILED,
+    VerificationRun,
     run_verification_command,
+    stopped_at_limit_text,
     verification_fact,
+    verification_limits,
     verification_log_counts,
     verification_log_relpath,
 )
@@ -603,6 +607,7 @@ def _verify_scope(
         assess_current_verification(
             context.config.root, context.snapshot.state, resolved_scope
         )
+        limits = verification_limits()
     except KernelError as error:
         return write_failure(error, context.diagnostics)
     if dry_run:
@@ -629,6 +634,7 @@ def _verify_scope(
                         else {}
                     ),
                 },
+                "limits": limits.payload(),
             },
             diagnostics=context.diagnostics,
         )
@@ -642,6 +648,8 @@ def _verify_scope(
         attempt_id=token_hex(8),
     )
     log_path = context.state_path.parent / log_relpath
+    run: VerificationRun | None = None
+    counts: dict[str, int] | None = None
     try:
         _before_definition, before_evidence, _git = observe_current_source(
             context.config.root, declaration, scope=resolved_scope
@@ -649,8 +657,11 @@ def _verify_scope(
         before_reference, _before_reused = publish_source_evidence(
             context.state_path.parent, before_evidence, root=context.config.root
         )
-        exit_code = run_verification_command(context.config.root, command, log_path)
-        counts = verification_log_counts(log_path)
+        run = run_verification_command(context.config.root, command, log_path)
+        exit_code = run.exit_code
+        # A chained command's last summary may belong to an earlier step
+        # when Heddle stopped the run, so counts need a completed run.
+        counts = verification_log_counts(log_path) if run.completed else None
         _after_definition, after_evidence, _after_git = observe_current_source(
             context.config.root,
             declaration,
@@ -666,7 +677,28 @@ def _verify_scope(
             after=after_reference,
         )
     except KernelError as error:
-        return write_failure(error, context.diagnostics)
+        failure = write_failure(error, context.diagnostics)
+        if run is None:
+            return failure
+        # The command ran: report what it did beside the capture failure.
+        return _unrecorded_attempt(
+            context,
+            failure,
+            _verification_attempt_details(
+                context.feature,
+                resolved_scope,
+                command,
+                run.exit_code,
+                log_relpath,
+                recorded=False,
+                counts=counts,
+                run=run.payload(),
+            ),
+            log_path,
+            log_relpath,
+        )
+    assert run is not None
+    run_payload = run.payload()
     fact = verification_fact(
         resolved_scope,
         command,
@@ -730,6 +762,7 @@ def _verify_scope(
                             counts=counts,
                             revision=commit.revision,
                             fact_index=fact_index,
+                            run=run_payload,
                         ),
                     },
                 ),
@@ -746,20 +779,21 @@ def _verify_scope(
                     command_name="verify",
                     revision=commit.revision,
                     wrote=commit.wrote,
-                    extra={"verification": verification, "counts": counts},
+                    extra={
+                        "verification": verification,
+                        "counts": counts,
+                        "run": run_payload,
+                    },
                 )
             else:
+                message, hint, reason = _verification_failure_text(
+                    resolved_scope, assessment.status, run_payload, log_relpath
+                )
                 result = HeddleResult.failure(
                     HeddleError(
                         code="verification-failed",
-                        message=(
-                            f"verification for {resolved_scope} produced "
-                            f"unusable evidence ({assessment.status})"
-                        ),
-                        hint=(
-                            f"inspect {log_relpath}, repair the check or command, "
-                            f"then retry verification for {resolved_scope}"
-                        ),
+                        message=message,
+                        hint=hint,
                         details=_verification_attempt_details(
                             context.feature,
                             resolved_scope,
@@ -771,6 +805,7 @@ def _verify_scope(
                             revision=commit.revision,
                             fact_index=fact_index,
                             status=assessment.status,
+                            run=run_payload,
                         ),
                     ),
                     exit_code=ExitCode.FATAL,
@@ -780,46 +815,89 @@ def _verify_scope(
                             action=ops.CommandAction(
                                 ops.Verify(resolved_scope, feature=context.feature)
                             ),
-                            reason=(
-                                f"repair the check or command before retrying "
-                                f"verification for {resolved_scope}"
-                            ),
+                            reason=reason,
                         ),
                     ),
                 )
     if result.error is not None and not result.error.details.get("recorded"):
-        result = replace(
+        result = _unrecorded_attempt(
+            context,
             result,
-            error=replace(
-                result.error,
-                details={
-                    **result.error.details,
-                    **_verification_attempt_details(
-                        context.feature,
-                        resolved_scope,
-                        command,
-                        exit_code,
-                        log_relpath,
-                        recorded=False,
-                        counts=counts,
-                        evidence=fact["evidence"],
-                    ),
-                },
+            _verification_attempt_details(
+                context.feature,
+                resolved_scope,
+                command,
+                exit_code,
+                log_relpath,
+                recorded=False,
+                counts=counts,
+                evidence=fact["evidence"],
+                run=run_payload,
             ),
-            diagnostics=(
-                *result.diagnostics,
-                Diagnostic(
-                    severity=Severity.ADVISORY,
-                    code="verification-log-unrecorded",
-                    message=(
-                        f"verification log retained at {log_relpath}; "
-                        "no verification fact was recorded"
-                    ),
-                    source=log_path.relative_to(context.config.root).as_posix(),
-                ),
-            ),
+            log_path,
+            log_relpath,
         )
     return result
+
+
+def _verification_failure_text(
+    scope: str, status: str, run: dict[str, Any], log: str
+) -> tuple[str, str, str]:
+    """The message, hint and next-action reason of a recorded unusable run.
+
+    A run Heddle stopped names the limit and its override, not a broken check;
+    a command that itself exited 124 completed and reads as any other failure.
+    """
+    stopped = stopped_at_limit_text(scope, run)
+    if stopped is not None:
+        return (
+            f"verification for {scope} did not finish: {stopped}",
+            f"inspect {log} for how far it got, then retry verification for "
+            f"{scope} with the limit raised",
+            f"raise the limit before retrying verification for {scope}",
+        )
+    if run["termination"] == LAUNCH_FAILED:
+        # A missing executable exits 127 through the shell and completes; this
+        # is the shell itself failing to start.
+        return (
+            f"verification for {scope} could not start its shell",
+            f"check that /bin/sh can start in the repository root, then retry "
+            f"verification for {scope}",
+            f"repair the host environment before retrying verification for {scope}",
+        )
+    return (
+        f"verification for {scope} produced unusable evidence ({status})",
+        f"inspect {log}, repair the check or command, then retry verification "
+        f"for {scope}",
+        f"repair the check or command before retrying verification for {scope}",
+    )
+
+
+def _unrecorded_attempt(
+    context: ResolvedSnapshotContext,
+    result: HeddleResult,
+    details: dict[str, Any],
+    log_path: Path,
+    log_relpath: str,
+) -> HeddleResult:
+    """A run whose fact was not recorded: its attempt and retained log."""
+    assert result.error is not None
+    return replace(
+        result,
+        error=replace(result.error, details={**result.error.details, **details}),
+        diagnostics=(
+            *result.diagnostics,
+            Diagnostic(
+                severity=Severity.ADVISORY,
+                code="verification-log-unrecorded",
+                message=(
+                    f"verification log retained at {log_relpath}; "
+                    "no verification fact was recorded"
+                ),
+                source=log_path.relative_to(context.config.root).as_posix(),
+            ),
+        ),
+    )
 
 
 def _verification_attempt_details(
@@ -835,6 +913,7 @@ def _verification_attempt_details(
     fact_index: int | None = None,
     status: str | None = None,
     evidence: Any | None = None,
+    run: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     details: dict[str, Any] = {
         "feature": feature,
@@ -845,6 +924,8 @@ def _verification_attempt_details(
         "recorded": recorded,
         "counts": counts,
     }
+    if run is not None:
+        details["run"] = run
     if revision is not None:
         details["revision"] = revision
     if fact_index is not None:
@@ -886,6 +967,10 @@ def _verify_stale(context: ResolvedSnapshotContext, *, dry_run: bool) -> HeddleR
     ]
     state = context.snapshot.state
     if dry_run:
+        try:
+            limits = verification_limits()
+        except KernelError as error:
+            return write_failure(error, context.diagnostics)
         planned = []
         for scope in selected:
             declaration = resolve_source_declaration(state, scope)
@@ -911,6 +996,7 @@ def _verify_stale(context: ResolvedSnapshotContext, *, dry_run: bool) -> HeddleR
                 "verifications": planned,
                 "skipped": skipped,
                 "unrun": [],
+                "limits": limits.payload(),
             },
             diagnostics=context.diagnostics,
         )
@@ -980,6 +1066,12 @@ def _verify_stale(context: ResolvedSnapshotContext, *, dry_run: bool) -> HeddleR
         return _mutation_success(
             context, command_name="verify", revision=revision, wrote=wrote, extra=body
         )
+    stopped = [
+        text
+        for row in rows
+        if row["scope"] in failed and isinstance(row.get("run"), dict)
+        if (text := stopped_at_limit_text(row["scope"], row["run"])) is not None
+    ]
     return HeddleResult.failure(
         HeddleError(
             code="verification-failed",
@@ -989,6 +1081,7 @@ def _verify_stale(context: ResolvedSnapshotContext, *, dry_run: bool) -> HeddleR
             hint=(
                 "inspect each listed row's log, repair the check or command, then "
                 "retry verification for each listed scope"
+                + "".join(f"; {text}" for text in stopped)
             ),
             details={"feature": context.feature, "revision": revision, **body},
         ),
@@ -1021,6 +1114,7 @@ def _stale_batch_row(scope: str, result: HeddleResult) -> dict[str, Any]:
             "exit_code": fact["exit_code"],
             "log": fact["log"],
             "counts": result.data["counts"],
+            "run": result.data["run"],
         }
     assert result.error is not None
     details = result.error.details
@@ -1033,6 +1127,7 @@ def _stale_batch_row(scope: str, result: HeddleResult) -> dict[str, Any]:
         "exit_code": details.get("child_exit_code"),
         "log": details.get("log"),
         "counts": details.get("counts"),
+        "run": details.get("run"),
     }
     if result.error.code != "verification-failed":
         row["error"] = result.error.code
@@ -1040,7 +1135,14 @@ def _stale_batch_row(scope: str, result: HeddleResult) -> dict[str, Any]:
 
 
 def _stale_skip_reason(row: VerificationFreshness, leading: tuple[str, ...]) -> str:
-    """Why ``verify --stale`` does not run a scope."""
+    """Why ``verify --stale`` does not run a scope, and a witness lane's route."""
+    reason = _stale_skip_cause(row, leading)
+    if (route := row.rerun_route) is None:
+        return reason
+    return f"{reason}; {route.route}: {route.reason}"
+
+
+def _stale_skip_cause(row: VerificationFreshness, leading: tuple[str, ...]) -> str:
     if row.waived_by is not None:
         return f"{row.status}; the owner waived this rerun ({row.waived_by})"
     if row.accepted_decision is not None:
@@ -1909,6 +2011,8 @@ def _render_human(result: HeddleResult) -> None:
             print(f"  hint: {error.hint}", file=sys.stderr)
         if isinstance(counts := error.details.get("counts"), dict):
             print(f"  pytest: {_counts_text(counts)}", file=sys.stderr)
+        if isinstance(run := error.details.get("run"), dict):
+            print(f"  run: {_run_text(run)}", file=sys.stderr)
         for action in result.next_actions:
             print(f"  next: {action.command} - {action.reason}", file=sys.stderr)
     else:
@@ -1955,10 +2059,33 @@ def _render_human(result: HeddleResult) -> None:
             print(f"{command} [{feature}] revision {data.get('revision')}")
         if isinstance(counts := data.get("counts"), dict):
             print(f"  pytest: {_counts_text(counts)}")
+        if isinstance(run := data.get("run"), dict):
+            print(f"  run: {_run_text(run)}")
+        if isinstance(limits := data.get("limits"), dict):
+            print(f"  limits: {_limits_text(limits)}")
         for action in result.next_actions:
             print(f"  next: {action.command} - {action.reason}")
     for diagnostic in result.diagnostics:
         print(f"note: {diagnostic.code}: {diagnostic.message}", file=sys.stderr)
+
+
+def _run_text(run: dict[str, Any]) -> str:
+    """``completed in 12.3 s; limits …`` for a verification run."""
+    elapsed = run.get("elapsed_s")
+    ended = run.get("termination")
+    took = "did not start" if elapsed is None else f"after {elapsed:g} s"
+    if ended == "completed" and elapsed is not None:
+        took = f"in {elapsed:g} s"
+    return f"{ended} {took}; limits {_limits_text(run.get('limits', {}))}"
+
+
+def _limits_text(limits: dict[str, Any]) -> str:
+    """``hard 2700 s (default, HEDDLE_…), inactivity 900 s (env, HEDDLE_…)``."""
+    return ", ".join(
+        f"{name} {value['seconds']:g} s ({value['source']}, {value['override']})"
+        for name, value in limits.items()
+        if isinstance(value, dict)
+    )
 
 
 def _counts_text(counts: dict[str, Any]) -> str:
