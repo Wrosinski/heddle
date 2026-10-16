@@ -395,7 +395,10 @@ def test_test_deletion_ids_follow_lexical_class_nesting() -> None:
         b"class TestOuter:\n    def test_method(self):\n        pass\n\n"
         b"    class TestNested:\n        def test_deep(self):\n            pass\n\n"
         b"class Helpers:\n    def test_on_plain_class(self):\n        pass\n\n"
-        b"if sys.platform:\n    def test_conditional():\n        pass\n"
+        b"if sys.platform:\n    def test_conditional():\n        pass\n\n"
+        b'NOTE = """\ndef test_in_a_string():\n"""\n'
+        b"# def test_in_a_comment():\n"
+        b'TEMPLATE = t"{NOTE[0]}"  # newer syntax than some interpreters read\n'
     )
 
     assert hook._test_ids("tests/test_a.py", source) == {
@@ -409,6 +412,37 @@ def test_test_deletion_ids_follow_lexical_class_nesting() -> None:
         "tests/test_a.py::test_conditional",
     }
     assert hook._test_ids("tests/test_a.py", b"def test_broken(:\n") is None
+
+
+def test_test_deletion_ids_match_a_syntax_tree_reading() -> None:
+    """The token reading agrees with the syntax tree wherever one parses."""
+    hook = _load_hook("check-test-deletions")
+
+    def tree_ids(path: str, tree: ast.AST) -> set[str]:
+        ids: set[str] = set()
+
+        def visit(node: ast.AST, prefix: str) -> None:
+            for child in ast.iter_child_nodes(node):
+                if isinstance(child, ast.ClassDef):
+                    if child.name.startswith("Test"):
+                        ids.add(f"{prefix}::{child.name}")
+                    visit(child, f"{prefix}::{child.name}")
+                elif isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    if child.name.startswith("test"):
+                        ids.add(f"{prefix}::{child.name}")
+                elif not isinstance(child, ast.expr):
+                    visit(child, prefix)
+
+        visit(tree, path)
+        return ids
+
+    compared = 0
+    for module in sorted((REPO_ROOT / "tests").rglob("*.py")):
+        source = module.read_bytes()
+        path = module.relative_to(REPO_ROOT).as_posix()
+        assert hook._test_ids(path, source) == tree_ids(path, ast.parse(source)), path
+        compared += 1
+    assert compared > 100
 
 
 _A = "tests/test_a.py"
@@ -687,63 +721,68 @@ def test_test_deletions_flags_a_deleted_file_unless_its_tests_moved(
 
 
 @pytest.mark.toolchain
-def test_test_deletions_unparsable_file_falls_back_to_removed_lines(
-    tmp_path: Path,
-) -> None:
+def test_test_deletions_untokenizable_file_holds_no_tests(tmp_path: Path) -> None:
     _init_git_repo(tmp_path)
     _stage(tmp_path, {"tests/test_a.py": TWO_TESTS})
     _commit_all(tmp_path)
-    _stage(tmp_path, {"tests/test_a.py": "def test_b(:\n    assert True\n"})
-    # User diff settings cannot hide the removed lines.
-    for key, value in (("color.ui", "always"), ("diff.external", "true")):
-        subprocess.run(["git", "config", key, value], cwd=tmp_path, check=True)
+    _stage(tmp_path, {"tests/test_a.py": "def test_a():\n    pass\n\n\ndef test_b(:\n"})
 
     result = _deletions(tmp_path)
 
     assert result.returncode == 1
-    assert "note: tests/test_a.py does not parse under Python" in result.stdout
-    assert "tests/test_a.py: -def test_a():" in result.stdout
-    # Definitions are compared by name, so a changed signature is no removal.
-    resigned = "def test_a(tmp_path):\n    assert True\n\n\ndef test_b(:\n    pass\n"
-    _stage(tmp_path, {"tests/test_a.py": resigned})
+    assert (
+        "note: tests/test_a.py staged does not tokenize under Python" in result.stdout
+    )
+    assert "  tests/test_a.py::test_a\n  tests/test_a.py::test_b\n" in result.stdout
+    # Syntax newer than the interpreter still reads, and a string holds no test.
+    newer = 'type Alias[T = int] = T\n\n\ndef test_a():\n    assert t"{Alias}"\n'
+    _stage(tmp_path, {"tests/test_a.py": newer + "\n\ndef test_b():\n    pass\n"})
     assert _deletions(tmp_path).returncode == 0
+    _stage(tmp_path, {"tests/test_a.py": newer + '"""\ndef test_b():\n"""\n'})
+    documented = _deletions(tmp_path)
+    assert documented.returncode == 1
+    assert "  tests/test_a.py::test_b\n" in documented.stdout
 
+    # A committed file that does not tokenize held no tests to remove.
+    _stage(tmp_path, {"tests/test_a.py": "def test_a(:\n"})
     _commit_all(tmp_path)
+    _stage(tmp_path, {"tests/test_a.py": TWO_TESTS})
+    repaired = _deletions(tmp_path)
+    assert repaired.returncode == 0
+    assert "tests/test_a.py at HEAD does not tokenize" in repaired.stdout
     _stage(tmp_path, {"tests/test_a.py": None})
     deleted = _deletions(tmp_path)
     assert deleted.returncode == 1
-    assert "it counts as a deleted test file" in deleted.stdout
     assert "Deleted test files:\n  tests/test_a.py\n" in deleted.stdout
+
+
+def _git_in(root: Path, *args: str, check: bool = True) -> None:
+    subprocess.run(["git", *args], cwd=root, check=check, capture_output=True)
 
 
 @pytest.mark.toolchain
 def test_test_deletions_merge_counts_what_every_parent_kept(tmp_path: Path) -> None:
-    def git(*args: str) -> None:
-        subprocess.run(["git", *args], cwd=tmp_path, check=True, capture_output=True)
-
     _init_git_repo(tmp_path)
     _stage(tmp_path, {"tests/test_a.py": TWO_TESTS})
     assert _deletions(tmp_path).returncode == 0  # an unborn branch deletes nothing
-    broken = "def test_x():\n    pass\n\n\ndef test_y(:\n    pass\n"
-    _stage(tmp_path, {"tests/test_c.py": CLASS_TEST, "tests/test_x.py": broken})
+    _stage(tmp_path, {"tests/test_c.py": CLASS_TEST, "tests/test_x.py": TWO_TESTS})
     _commit_all(tmp_path)
-    git("checkout", "-q", "-b", "side")
+    _git_in(tmp_path, "checkout", "-q", "-b", "side")
     _stage(
         tmp_path,
         {
             "tests/test_a.py": None,
             "tests/test_d.py": CLASS_TEST,
-            "tests/test_x.py": broken.replace("def test_x():\n    pass\n\n\n", ""),
+            "tests/test_x.py": "def test_b():\n    assert True\n",
         },
     )
-    _commit_all(tmp_path, "side drops test_a.py and test_x, and adds test_d.py")
-    git("checkout", "-q", "-")
+    _commit_all(tmp_path, "side drops test_a.py and test_a, and adds test_d.py")
+    _git_in(tmp_path, "checkout", "-q", "-")
     _stage(tmp_path, {"README.md": "notes\n"})
     _commit_all(tmp_path, "the main line moves on")
-    git("merge", "--no-ff", "--no-commit", "side")
+    _git_in(tmp_path, "merge", "--no-ff", "--no-commit", "side")
 
-    # What the side dropped, even in a file that does not parse, was checked
-    # where it was dropped.
+    # What the side dropped was checked where it was dropped.
     assert _deletions(tmp_path).returncode == 0
     # A test the side added is no move target for a deletion made here.
     _stage(tmp_path, {"tests/test_c.py": None})
@@ -751,81 +790,164 @@ def test_test_deletions_merge_counts_what_every_parent_kept(tmp_path: Path) -> N
     assert result.returncode == 1
     assert "tests/test_c.py::TestOld::test_m" in result.stdout
     assert "tests/test_a.py" not in result.stdout
-    assert "test_x" not in result.stdout.replace("tests/test_x.py does not", "")
+    assert "test_x.py" not in result.stdout
 
 
 @pytest.mark.toolchain
 def test_test_deletions_merge_discounts_only_what_a_parent_deleted(
     tmp_path: Path,
 ) -> None:
-    def git(*args: str) -> None:
-        subprocess.run(["git", *args], cwd=tmp_path, check=True, capture_output=True)
-
-    unparsable = (
-        "def test_keep():\n    pass\n\n\ndef test_sig():\n    pass\n\n\ndef x(:\n"
+    pairs = (
+        "class TestOne:\n    def test_a(self):\n        pass\n\n\n"
+        "class TestTwo:\n    def test_a(self):\n        pass\n\n"
+        "    def test_b(self):\n        pass\n"
     )
     ours = TWO_TESTS + "\n\ndef test_main_new():\n    assert True\n"
+    side_new = "\n\ndef test_side_new():\n    assert True\n"
     _init_git_repo(tmp_path)
     _stage(
         tmp_path,
         {
             "tests/test_x.py": TWO_TESTS,
-            "tests/test_u.py": unparsable,
+            "tests/test_k.py": pairs,
             "tests/conftest.py": "import pytest\n",
             "tests/helpers.py": "VALUE = 1\n",
         },
     )
     _commit_all(tmp_path)
-    git("checkout", "-q", "-b", "side")
+    _git_in(tmp_path, "checkout", "-q", "-b", "side")
     _stage(
         tmp_path,
         {
-            "tests/test_x.py": TWO_TESTS
-            + "\n\ndef test_side_new():\n    assert True\n",
-            "tests/test_u.py": unparsable.replace("test_sig()", "test_sig(tmp_path)"),
+            "tests/test_x.py": TWO_TESTS + side_new,
+            "tests/test_k.py": pairs.replace(
+                "class TestTwo:\n    def test_a(self):\n        pass\n\n",
+                "class TestTwo:\n",
+            ),
             "tests/sub/conftest.py": "import pytest\n",
             "tests/helpers.py": None,
         },
     )
     _commit_all(tmp_path, "side")
-    git("checkout", "-q", "-")
-    main_u = "\n\ndef test_main_u():\n    pass\n"
-    _stage(tmp_path, {"tests/test_x.py": ours, "tests/test_u.py": unparsable + main_u})
+    _git_in(tmp_path, "checkout", "-q", "-")
+    _stage(tmp_path, {"tests/test_x.py": ours})
     _commit_all(tmp_path, "main")
-    subprocess.run(
-        ["git", "merge", "--no-ff", "--no-commit", "side"],
-        cwd=tmp_path,
-        capture_output=True,
-    )
+    _git_in(tmp_path, "merge", "--no-ff", "--no-commit", "side", check=False)
 
     # Taking the side's file drops a test this branch added since the fork.
-    git("checkout", "--theirs", "tests/test_x.py")
-    git("add", "tests/test_x.py")
+    _git_in(tmp_path, "checkout", "--theirs", "tests/test_x.py")
+    _git_in(tmp_path, "add", "tests/test_x.py")
     theirs = _deletions(tmp_path)
     assert theirs.returncode == 1
     assert "tests/test_x.py::test_main_new" in theirs.stdout
+    # Taking this branch's file drops the test the side added.
     _stage(tmp_path, {"tests/test_x.py": ours})
-    assert _deletions(tmp_path).returncode == 0, "the side's own changes pass"
-
-    # The side changed the signature, and dropping the test is still a removal.
-    side_u = unparsable.replace("test_sig()", "test_sig(tmp_path)")
-    assert (tmp_path / "tests/test_u.py").read_text() == side_u + main_u
-    _stage(tmp_path, {"tests/test_u.py": unparsable.replace("def test_sig():", "")})
-    dropped = _deletions(tmp_path)
-    assert dropped.returncode == 1
-    assert "tests/test_u.py: -def test_sig():" in dropped.stdout
-    # So is dropping, by name, a test this branch added since the fork.
-    _stage(tmp_path, {"tests/test_u.py": side_u})
-    dropped = _deletions(tmp_path)
-    assert dropped.returncode == 1
-    assert "tests/test_u.py: -def test_main_u():" in dropped.stdout
-    _stage(tmp_path, {"tests/test_u.py": side_u + main_u})
+    kept_ours = _deletions(tmp_path)
+    assert kept_ours.returncode == 1
+    assert "tests/test_x.py::test_side_new" in kept_ours.stdout
+    # Keeping both passes, with the side's own deletions: one of two tests
+    # named test_a and a support module.
+    _stage(tmp_path, {"tests/test_x.py": ours + side_new})
+    both = _deletions(tmp_path)
+    assert both.returncode == 0, both.stdout
 
     # A file the side added is no rename target for a deletion made here.
-    git("rm", "-q", "tests/conftest.py")
+    _git_in(tmp_path, "rm", "-q", "tests/conftest.py")
     deleted = _deletions(tmp_path)
     assert deleted.returncode == 1
     assert "Deleted test files:\n  tests/conftest.py\n" in deleted.stdout
+
+
+@pytest.mark.toolchain
+def test_test_deletions_merge_keeps_what_only_a_merged_in_head_had(
+    tmp_path: Path,
+) -> None:
+    _init_git_repo(tmp_path)
+    _stage(
+        tmp_path,
+        {
+            "tests/test_x.py": TWO_TESTS,
+            "tests/test_c.py": CLASS_TEST,
+            "tests/test_h.py": TWO_TESTS,
+        },
+    )
+    _commit_all(tmp_path)
+    _git_in(tmp_path, "checkout", "-q", "-b", "side")
+    _stage(
+        tmp_path,
+        {
+            "tests/test_x.py": "def test_a():\n    assert True\n",
+            "tests/test_c.py": CLASS_TEST + "\n\ndef test_b():\n    assert True\n",
+            "tests/test_h.py": TWO_TESTS + "\n\ndef test_h_new():\n    pass\n",
+        },
+    )
+    _commit_all(tmp_path, "side moves test_b and adds test_h_new")
+    _git_in(tmp_path, "checkout", "-q", "-")
+    _stage(
+        tmp_path,
+        {
+            "tests/test_c.py": CLASS_TEST + "\n\nVALUE = 1\n",
+            "tests/test_h.py": None,
+        },
+    )
+    _commit_all(tmp_path, "main edits test_c.py and drops test_h.py")
+    _git_in(tmp_path, "merge", "--no-ff", "--no-commit", "side", check=False)
+    _git_in(tmp_path, "checkout", "--ours", "tests/test_c.py")
+    _git_in(tmp_path, "add", "tests/test_c.py")
+    _git_in(tmp_path, "rm", "-q", "tests/test_h.py")
+
+    result = _deletions(tmp_path)
+
+    # The side's move and the test it added are lost; what this branch
+    # deleted, and the move's source, are not removals here.
+    assert result.returncode == 1
+    removed = result.stdout.split("Removed tests:\n")[1].split("\n\n")[0]
+    assert removed.split() == ["tests/test_c.py::test_b", "tests/test_h.py::test_h_new"]
+
+
+@pytest.mark.toolchain
+@pytest.mark.parametrize("kept_base_first", [True, False])
+def test_test_deletions_merge_reads_every_merge_base(
+    tmp_path: Path, kept_base_first: bool
+) -> None:
+    """A criss-cross merge discounts what the side deleted since any base."""
+    clock = iter(range(1_700_000_000, 1_700_100_000, 1000))
+
+    def commit(message: str, at: int | None = None) -> None:
+        stamp = f"@{next(clock) if at is None else at} +0000"
+        subprocess.run(
+            ["git", "commit", "-q", "--allow-empty", "-m", message],
+            cwd=tmp_path,
+            check=True,
+            capture_output=True,
+            env={**os.environ, "GIT_AUTHOR_DATE": stamp, "GIT_COMMITTER_DATE": stamp},
+        )
+
+    _init_git_repo(tmp_path)
+    _stage(tmp_path, {"tests/test_k.py": "def test_keep():\n    pass\n"})
+    commit("root")
+    early, late = 1_800_000_000, 1_800_000_500
+    _git_in(tmp_path, "checkout", "-q", "-b", "side")
+    _stage(tmp_path, {"tests/test_a.py": "def test_a():\n    pass\n"})
+    commit("A adds test_a", early if kept_base_first else late)
+    _git_in(tmp_path, "checkout", "-q", "-")
+    _stage(tmp_path, {"README.md": "notes\n"})
+    commit("B", late if kept_base_first else early)
+    _git_in(tmp_path, "branch", "b-tip")
+    _git_in(tmp_path, "merge", "--no-ff", "--no-commit", "side")
+    commit("main merges A")
+    _git_in(tmp_path, "checkout", "-q", "side")
+    _git_in(tmp_path, "merge", "--no-ff", "--no-commit", "b-tip")
+    commit("side merges B")
+    _stage(tmp_path, {"tests/test_a.py": None})
+    commit("side deletes test_a.py")
+    _git_in(tmp_path, "checkout", "-q", "-")
+    _git_in(tmp_path, "merge", "--no-ff", "--no-commit", "side")
+    assert not (tmp_path / "tests/test_a.py").exists()
+
+    result = _deletions(tmp_path)
+
+    assert result.returncode == 0, result.stdout
 
 
 @pytest.mark.toolchain

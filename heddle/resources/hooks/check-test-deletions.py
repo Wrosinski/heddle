@@ -18,28 +18,28 @@ under the tests root:
   ``Bypass-Justification:`` trailer contract).
 
 The census proves definitions are kept, not pytest collection or parameter
-cases. A file that does not parse under the running interpreter is checked
-by the names of its test definitions instead. When a commit concludes a
-merge, a removal counts unless a merged-in parent deleted the test or file
-since its merge base with HEAD, since that deletion was checked where it was
-made; only a test or file no parent had can be a move or rename target. The
-census starts from HEAD, so a test that only a merged-in side had and that
-the resolution drops is not checked. Rebase and cherry-pick replay most
-commits without commit hooks, and ``--no-verify`` skips them.
+cases. It reads tokens, so strings and comments hold no tests and syntax
+newer than the running interpreter still reads; a file that does not
+tokenize holds none. When a commit concludes a merge, every parent counts: a
+test any parent has must stay unless some parent lacks it that one of its
+merge bases with HEAD had, a deletion checked where it was made, and only a
+test or file no parent had can be a move or rename target. A file only a
+merged-in head had is checked through its tests. Rebase and cherry-pick
+replay most commits without commit hooks, and ``--no-verify`` skips them.
 """
 
 from __future__ import annotations
 
-import ast
+import io
 import os
 import re
 import subprocess
 import sys
+import tokenize
 from collections import Counter
 from collections.abc import Iterable
 from pathlib import Path
 
-DEFINITION = re.compile(r"\s*(?:(?:async\s+)?def\s+(test\w*)|class\s+(Test\w*))")
 RENAMED = re.compile(r"^Test-Renamed:\s*(\S.*?)\s+->\s+(\S.*?)\s*$", re.IGNORECASE)
 
 
@@ -59,10 +59,12 @@ class GitError(Exception):
     """A git call failed, so the staged change cannot be read."""
 
 
-def _git(*args: str, ok: Iterable[int] = (0,)) -> subprocess.CompletedProcess[bytes]:
+def _git(
+    *args: str, ok: Iterable[int] = (0,), stdin: bytes | None = None
+) -> subprocess.CompletedProcess[bytes]:
     try:
         result = subprocess.run(
-            ["git", *args], check=False, capture_output=True, timeout=30
+            ["git", *args], input=stdin, check=False, capture_output=True, timeout=30
         )
     except (OSError, subprocess.TimeoutExpired) as error:
         raise GitError(f"git {' '.join(args)}: {error}") from error
@@ -82,11 +84,37 @@ def _fields(*args: str) -> list[str]:
     return _text(raw.stdout).split("\0")[:-1]
 
 
-def _blob(spec: str) -> bytes | None:
-    """The blob at ``rev:path`` or ``:path``, or None where it is absent."""
-    if _git("rev-parse", "--verify", "--quiet", spec, ok=(0, 1)).returncode:
-        return None
-    return _git("cat-file", "blob", spec).stdout
+def _statuses(rev: str | None) -> dict[str, str]:
+    """Each path under the root the index changes from ``rev`` (HEAD if None)."""
+    fields = _fields("--no-renames", *([rev] if rev else []))
+    return {fields[index + 1]: fields[index] for index in range(0, len(fields), 2)}
+
+
+def _blobs(specs: list[str]) -> dict[str, bytes | None]:
+    """The blob at each ``rev:path`` or ``:path``, or None where it is absent."""
+    if not specs:
+        return {}
+    if any("\n" in spec for spec in specs):
+        raise GitError("a path under the tests root contains a newline")
+    batch = "".join(f"{spec}\n" for spec in specs).encode("utf-8", "surrogateescape")
+    raw = _git("cat-file", "--batch", stdin=batch).stdout
+    blobs: dict[str, bytes | None] = {}
+    at = 0
+    for spec in specs:
+        end = raw.index(b"\n", at)
+        header, at = raw[at:end], end + 1
+        if header.endswith((b" missing", b" ambiguous")):
+            blobs[spec] = None
+            continue
+        _oid, kind, size = header.split(b" ")
+        blobs[spec] = raw[at : at + int(size)] if kind == b"blob" else None
+        at += int(size) + 1
+    return blobs
+
+
+def _bases(head: str) -> list[str]:
+    """The merge bases of HEAD and ``head``; none for unrelated histories."""
+    return _text(_git("merge-base", "--all", "HEAD", head, ok=(0, 1)).stdout).split()
 
 
 def _merge_heads() -> list[str]:
@@ -116,32 +144,45 @@ def _renames_detected() -> list[tuple[str, str]]:
 
 
 def _test_ids(path: str, source: bytes) -> set[str] | None:
-    """Path-qualified test ids by lexical class nesting; None if unparsable.
+    """Path-qualified test ids by lexical class nesting; None if untokenizable.
 
     Functions named ``test*`` and classes named ``Test*`` count wherever only
-    classes enclose them; a function's own body holds no test ids.
+    classes enclose them; a function's own body holds no test ids. Each
+    logical line that begins a definition names it, and an indented block
+    takes the prefix its header line opens.
     """
     try:
-        tree = ast.parse(source, filename=path)
-    except (SyntaxError, ValueError):
+        tokens = list(tokenize.tokenize(io.BytesIO(source).readline))
+    except (tokenize.TokenError, SyntaxError, ValueError):
         return None
+    skipped = {tokenize.ENCODING, tokenize.NL, tokenize.COMMENT}
     ids: set[str] = set()
-
-    def visit(node: ast.AST, prefix: str) -> None:
-        for child in ast.iter_child_nodes(node):
-            if isinstance(child, ast.ClassDef):
-                qualified = f"{prefix}::{child.name}"
-                if child.name.startswith("Test"):
-                    ids.add(qualified)
-                visit(child, qualified)
-            elif isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                if child.name.startswith("test"):
-                    ids.add(f"{prefix}::{child.name}")
-            elif not isinstance(child, ast.expr):
-                visit(child, prefix)
-
-    visit(tree, path)
+    blocks: list[str | None] = [path]  # the prefix in each open block, None in a def
+    opens: str | None = path
+    words: list[str] = []
+    for token in tokens:
+        if token.type == tokenize.INDENT:
+            blocks.append(opens)
+        elif token.type == tokenize.DEDENT:
+            blocks.pop()
+        elif token.type == tokenize.NEWLINE:
+            opens = _header(words, blocks[-1], ids)
+            words = []
+        elif token.type not in skipped and len(words) < 3:
+            words.append(token.string)
     return ids
+
+
+def _header(words: list[str], prefix: str | None, ids: set[str]) -> str | None:
+    """Record a definition a logical line begins; the prefix its block opens."""
+    if words[:1] == ["async"]:
+        words = words[1:]
+    if prefix is None or len(words) < 2 or words[0] not in {"def", "class"}:
+        return prefix
+    kind, name = words[0], words[1]
+    if name.startswith("test" if kind == "def" else "Test"):
+        ids.add(f"{prefix}::{name}")
+    return None if kind == "def" else f"{prefix}::{name}"
 
 
 def _name(test_id: str) -> tuple[str, str]:
@@ -218,149 +259,103 @@ def _renames(message: Path) -> list[tuple[str, str]]:
     ]
 
 
-def _definitions(source: bytes | None) -> dict[str, list[str]]:
-    """Test definition lines by name, read as text for a file that won't parse."""
-    found: dict[str, list[str]] = {}
-    for line in _text(source or b"").splitlines():
-        match = DEFINITION.match(line)
-        if match:
-            name = match.group(1) or match.group(2)
-            found.setdefault(name, []).append(line.strip())
-    return found
+class _Census:
+    """Test ids at the index and each revision it is compared with, read once.
 
-
-def _removed_definitions(old: bytes | None, new: bytes | None) -> list[tuple[str, str]]:
-    """(name, line) per test definition the new text no longer repeats."""
-    before, after = _definitions(old), _definitions(new)
-    return [
-        (name, line)
-        for name, lines in before.items()
-        for line in lines[len(after.get(name, ())) :]
-    ]
-
-
-class _Merge:
-    """The parents a commit concluding a merge joins, and their merge bases.
-
-    A parent dropped something when it lacks what its merge base with HEAD
-    had; a side that does not parse is taken to keep its tests.
+    ``parents`` maps HEAD, and each head a merge joins, to the merge bases it
+    descends from; every base descends to HEAD too. ``""`` names the index.
     """
 
     def __init__(self, heads: list[str]) -> None:
-        self.bases = {
-            head: _text(_git("merge-base", "HEAD", head, ok=(0, 1)).stdout).strip()
-            or None
-            for head in heads
-        }
-        self._sources: dict[tuple[str, str], bytes | None] = {}
+        own = {head: _bases(head) for head in heads}
+        every = [base for bases in own.values() for base in bases]
+        self.parents: dict[str, list[str]] = {"HEAD": every, **own}
+        self.unreadable: set[tuple[str, str]] = set()
+        self._sources: dict[str, bytes | None] = {}
+        self._ids: dict[tuple[str, str], set[str]] = {}
 
-    def _source(self, rev: str | None, path: str) -> bytes | None:
-        if rev is None:
-            return None
-        if (rev, path) not in self._sources:
-            self._sources[rev, path] = _blob(f"{rev}:{path}")
-        return self._sources[rev, path]
+    def read(self, revs: Iterable[str], paths: Iterable[str]) -> None:
+        """Read every ``rev:path`` blob not yet read in one git call."""
+        paths = list(paths)
+        specs = [f"{rev}:{path}" for rev in revs for path in paths]
+        self._sources.update(_blobs([s for s in specs if s not in self._sources]))
 
-    def _holds(self, rev: str | None, test_id: str) -> bool | None:
-        """Whether ``rev`` has the test; None where its file does not parse."""
+    def source(self, rev: str, path: str) -> bytes | None:
+        self.read([rev], [path])
+        return self._sources[f"{rev}:{path}"]
+
+    def ids(self, rev: str, path: str) -> set[str]:
+        if (rev, path) not in self._ids:
+            source = self.source(rev, path)
+            found = set() if source is None else _test_ids(path, source)
+            if found is None:
+                self.unreadable.add((rev, path))
+            self._ids[rev, path] = found or set()
+        return self._ids[rev, path]
+
+    def held(self, path: str) -> set[str]:
+        """The test ids any parent has in ``path``."""
+        return set().union(*(self.ids(parent, path) for parent in self.parents))
+
+    def deleted(self, test_id: str) -> bool:
+        """Whether a parent lacks the test that a merge base it descends from had."""
         path = _name(test_id)[0]
-        source = self._source(rev, path)
-        if source is None:
-            return False
-        ids = _test_ids(path, source)
-        return None if ids is None else test_id in ids
-
-    def dropped(self, test_id: str) -> bool:
         return any(
-            self._holds(head, test_id) is False and self._holds(base, test_id) is True
-            for head, base in self.bases.items()
+            test_id not in self.ids(parent, path)
+            and any(test_id in self.ids(base, path) for base in bases)
+            for parent, bases in self.parents.items()
         )
 
-    def dropped_file(self, path: str) -> bool:
+    def deleted_file(self, path: str) -> bool:
         return any(
-            self._source(head, path) is None and self._source(base, path) is not None
-            for head, base in self.bases.items()
+            self.source(parent, path) is None
+            and any(self.source(base, path) is not None for base in bases)
+            for parent, bases in self.parents.items()
         )
-
-    def dropped_definition(self, path: str, name: str) -> bool:
-        return any(
-            name not in _definitions(self._source(head, path))
-            and name in _definitions(self._source(base, path))
-            for head, base in self.bases.items()
-        )
-
-    def new(self, test_id: str) -> bool:
-        return all(self._holds(head, test_id) is False for head in self.bases)
-
-    def new_file(self, path: str) -> bool:
-        return all(self._source(head, path) is None for head in self.bases)
 
 
 def _check(message: Path) -> int:
-    before: dict[str, set[str]] = {}
-    after: dict[str, set[str]] = {}
-    deleted: list[str] = []
-    unparsed: dict[str, list[tuple[str, str]]] = {}
     heads = _merge_heads()
-    merge = _Merge(heads) if heads else None
-    fields = _fields("--no-renames")
-    for index in range(0, len(fields), 2):
-        status, path = fields[index], fields[index + 1]
-        old = None if status == "A" else _blob(f"HEAD:{path}")
-        new = None if status == "D" else _blob(f":{path}")
-        old_ids = set() if old is None else _test_ids(path, old)
-        new_ids = set() if new is None else _test_ids(path, new)
-        if status == "D":
-            deleted.append(path)
-        if old_ids is None or new_ids is None:
-            unparsed[path] = [] if status == "D" else _removed_definitions(old, new)
-            continue
-        before[path], after[path] = old_ids, new_ids
-    removed = {i for path, ids in before.items() for i in ids - after[path]}
-    added = {i for path, ids in after.items() for i in ids - before[path]}
-    gone = set(deleted)
-    if merge is not None:
-        removed = {i for i in removed if not merge.dropped(i)}
-        added = {i for i in added if merge.new(i)}
-        deleted = [path for path in deleted if not merge.dropped_file(path)]
-        unparsed = {
-            path: [
-                (name, line)
-                for name, line in definitions
-                if not merge.dropped_definition(path, name)
-            ]
-            for path, definitions in unparsed.items()
-        }
+    census = _Census(heads)
+    statuses = _statuses(None)
+    paths = sorted(set(statuses).union(*(_statuses(head) for head in heads)))
+    census.read(["", *census.parents], paths)
+    removed: set[str] = set()
+    added: set[str] = set()
+    for path in paths:
+        held, staged = census.held(path), census.ids("", path)
+        removed |= held - staged
+        added |= staged - held
+    ancestors = {base for bases in census.parents.values() for base in bases}
+    census.read(ancestors, {_name(test_id)[0] for test_id in removed})
+    removed = {test_id for test_id in removed if not census.deleted(test_id)}
+    deleted = [
+        path
+        for path, status in statuses.items()
+        if status == "D" and not census.deleted_file(path)
+    ]
     unaccounted, unpaired, conflicting, unmatched = _account(
         removed, added, _renames(message)
     )
     renamed = {
         source
         for source, destination in (_renames_detected() if deleted else [])
-        if merge is None or merge.new_file(destination)
+        if all(census.source(parent, destination) is None for parent in census.parents)
     }
     flagged_files = [
         path
         for path in deleted
-        if path in unparsed
-        or any(i in unaccounted for i in before[path])
-        or (not before[path] and path not in renamed)
+        if any(test_id in unaccounted for test_id in census.ids("HEAD", path))
+        or (not census.ids("HEAD", path) and path not in renamed)
     ]
-    unparsed_lines = {path: lines for path, lines in unparsed.items() if lines}
     python = f"Python {sys.version_info.major}.{sys.version_info.minor}"
-    for path in sorted(unparsed):
-        if path in gone and path not in deleted:
-            continue
+    for rev, path in sorted(census.unreadable, key=lambda pair: pair[::-1]):
+        where = {"": "staged", "HEAD": "at HEAD"}.get(rev, f"at {rev[:12]}")
         print(
-            f"note: {path} does not parse under {python}; "
-            + (
-                "it counts as a deleted test file"
-                if path in deleted
-                else "its test definitions were compared by name instead, and "
-                "trailers do not apply to them"
-            )
+            f"note: {path} {where} does not tokenize under {python}, "
+            "so it holds no tests here"
         )
-    if not unaccounted and not flagged_files and not unparsed_lines:
+    if not unaccounted and not flagged_files:
         return 0
 
     print("ERROR: Test deletions detected.")
@@ -394,11 +389,6 @@ def _check(message: Path) -> int:
             "A deleted file passes when every test in it moved or was renamed, "
             "or, for a file without tests, when Git detects it as renamed."
         )
-    if unparsed_lines:
-        print("\nRemoved test definitions in files that do not parse:")
-        for path, definitions in sorted(unparsed_lines.items()):
-            for _defined, line in definitions:
-                print(f"  {path}: -{line}")
     print(
         "\nTo allow a deletion, set ALLOW_TEST_DELETION=1 with a "
         "Bypass-Justification: trailer."

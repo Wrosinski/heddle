@@ -153,9 +153,10 @@ cherry-pick replay commits without commit hooks, except a reworded commit, a
 conflicted cherry-pick or revert concluded with `--continue`, and a conflicted
 rebase step committed with `git commit`; `git rebase --continue` commits a
 resolved step without them. The test-deletion census proves test definitions
-are kept, not that pytest still collects them or their parameter cases. When
-a commit concludes a merge, a removal counts unless a merged-in parent
-deleted the test or file since its merge base with HEAD, since that deletion
-was checked where it was made, and only a test or file no parent had can be a
-move or rename target. The census starts from HEAD, so a test that only a
-merged-in side had and that the resolution drops is not checked.
+are kept, not that pytest still collects them or their parameter cases. It
+reads test definitions from tokens, so a file that does not tokenize holds no
+tests. When a commit concludes a merge, every parent counts: a test any
+parent has must stay unless a parent lacks it that one of its merge bases
+with HEAD had, since that deletion was checked where it was made, and only a
+test or file no parent had can be a move or rename target. A file only a
+merged-in head had is checked through its tests.

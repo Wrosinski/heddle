@@ -18,14 +18,13 @@ authority for the installed version.
   trailer in the message's trailer block; a class rename covers the members
   it keeps. A deleted file under the tests root passes when every test in it
   moved or was renamed, or, for a file without tests, when Git sees it
-  renamed. Tests removed inside a renamed file are now caught. When a commit
-  concludes a merge, a removal counts unless a merged-in parent deleted the
-  test or file since its merge base with HEAD, and only a test or file no
-  parent had can be a move or rename target; a test that only a merged-in
-  side had is not checked. A file
-  that does not parse under the hook's interpreter falls back to comparing
-  its test definitions by name, and a failed git call
-  fails the hook. The commit-msg snippets declare `stages: [commit-msg]` and
+  renamed. Tests removed inside a renamed file are now caught. The ids come
+  from tokens, so a definition inside a string or comment is no test, syntax
+  newer than the hook's interpreter still reads, and a file that does not
+  tokenize holds no tests. When a commit concludes a merge, every parent
+  counts: a test any parent has must stay unless a parent lacks it that one
+  of its merge bases with HEAD had, and only a test or file no parent had can
+  be a move or rename target. A failed git call fails the hook. The commit-msg snippets declare `stages: [commit-msg]` and
   `always_run: true`, and the hook manifest lists the
   `default_install_hook_types` a host needs before `pre-commit install`.
 
