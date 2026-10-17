@@ -43,7 +43,11 @@ def _prepare_alpha_loop_host(tmp_path: Path) -> Path:
     state["authorized_through"] = "implement"
     for milestone in state["milestones"]:
         if milestone["id"] == "m1":
+            # m1's implementation is finished, so its review is exit evidence.
             milestone["status"] = "current"
+            milestone["tasks"] = [
+                {"id": "t1", "text": "Parse screening criteria", "status": "done"}
+            ]
             milestone["verification"]["command"] = (
                 f"{sys.executable} -c \"print('m1 verification ok')\""
             )
