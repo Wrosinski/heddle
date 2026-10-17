@@ -204,7 +204,7 @@ def test_concurrent_reviews_installed_journey(installed, tmp_path):
         ),
     )
     _orient, revision, calls = _concurrent_round(case, providers, "r1")
-    ran = case.run("run-gates", expected=(3,))
+    ran = case.run("run-gates", expected=(4,))
     assert ran["ok"], f"FAIL AC-7: unconverged verdicts failed the batch: {ran}"
     assert ran["data"]["gates"] == ["spec-review"]
     members = ran["data"]["members"]
