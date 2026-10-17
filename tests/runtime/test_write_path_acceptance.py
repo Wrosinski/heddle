@@ -90,7 +90,9 @@ def _prepare_alpha_loop_host(tmp_path: Path) -> Path:
                 authored_milestone_verification(state_path, milestone)
             )
     state["commands"].update(
-        smoke_test="python3 -c 'print(1)'", acceptance_test="python3 -c 'print(1)'"
+        smoke_test="python3 -c 'print(1)'",
+        acceptance_test="python3 -c 'print(1)'",
+        live_e2e_test="python3 -c 'print(1)'",
     )
     _write_yaml(state_path, state)
     import subprocess
@@ -296,7 +298,7 @@ class TestWritePathAcceptance:
             f"FAIL AC-5: m2 should be done after advance, got {statuses}"
         )
 
-        for scope in ("acceptance", "smoke"):
+        for scope in ("acceptance", "smoke", "live"):
             code, out, _err = run_cli(
                 ["verify", "--scope", scope, "--feature", "nl-screening", "--json"]
             )
