@@ -43,6 +43,11 @@ REVIEWED_ROLES = (
     "milestone-review",
     "peer-review-sequential",
 )
+# Fields added after receipts were first sealed: a receipt digest leaves each
+# out while it is unset, so older receipts keep their identity.
+ADDITIVE_RECORD_FIELDS = frozenset(
+    {"witness_waiver", "basis_evidence", "reference_equivalence", "rebound_by"}
+)
 
 
 @pytest.fixture(scope="module")
@@ -458,8 +463,13 @@ def test_sealed_boundaries_installed_completion_retains_receipts_and_dependencie
                         else state[family]
                     )
                     row = rows[reference["index"]]
+                    digested = {
+                        key: value
+                        for key, value in row.items()
+                        if value is not None or key not in ADDITIVE_RECORD_FIELDS
+                    }
                     canonical = json.dumps(
-                        row, sort_keys=True, separators=(",", ":")
+                        digested, sort_keys=True, separators=(",", ":")
                     ).encode()
                     assert sha256(canonical).hexdigest() == reference["sha256"]
                     if family == "verifications":
