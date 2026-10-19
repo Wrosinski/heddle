@@ -294,14 +294,14 @@ heddle init --no-session-entry
 
 `git status` must show none of Heddle's files afterwards. Because Git ignores
 `.heddle.yaml`, Heddle delivers the rules for this mode itself: `heddle kickoff`
-appends the packaged `local-checkout.md` to every briefing, and `heddle orient`
-names it in a `local-checkout` note. The rules keep Heddle paths and AC and
-finding IDs out of code, tests, shared docs, commit messages and pull requests,
-and take precedence where a briefing would cite them. Your agents need only be
-told to begin sessions with `heddle orient`. Say so in your personal
-instructions, such as `~/.claude/CLAUDE.md` or `~/.codex/AGENTS.md`, never in a
-hidden file inside the checkout: when a teammate commits a file at the same
-path, such as `AGENTS.md`, a merge replaces your copy without warning.
+appends the packaged `local-checkout.md` to its briefing, and `heddle orient`
+names it in a `local-checkout` note. The rules keep Heddle paths and AC,
+finding and decision IDs out of code, tests, shared docs, commit messages and
+pull requests, and take precedence where a briefing would cite them. Your
+agents need only be told to begin sessions with `heddle orient`. Say so in your
+personal instructions, such as `~/.claude/CLAUDE.md` or `~/.codex/AGENTS.md`,
+never in a hidden file inside the checkout: when a teammate commits a file at
+the same path, such as `AGENTS.md`, a merge replaces your copy without warning.
 
 A new worktree or another clone has none of these files, and a checkout
 without its own `.heddle.yaml` fails with `workspace-invalid` instead of
