@@ -292,17 +292,21 @@ heddle init --no-session-entry --dry-run
 heddle init --no-session-entry
 ```
 
-`git status` must show none of Heddle's files afterwards. Through your
-personal instructions rather than a shared file, tell your agents to begin
-sessions with `heddle orient`, never to add Heddle files with `git add -f`,
-and to keep Heddle paths and AC and finding IDs out of code, tests, shared
-docs, commit messages and pull requests; Heddle's briefings otherwise cite
-them in tests and remediation commits, and the completion briefing has
-agents update `AGENTS.md`.
+`git status` must show none of Heddle's files afterwards. Because Git ignores
+`.heddle.yaml`, Heddle delivers the rules for this mode itself: `heddle kickoff`
+appends the packaged `local-checkout.md` to every briefing, and `heddle orient`
+names it in a `local-checkout` note. The rules keep Heddle paths and AC and
+finding IDs out of code, tests, shared docs, commit messages and pull requests,
+and take precedence where a briefing would cite them. Your agents need only be
+told to begin sessions with `heddle orient`. Say so in your personal
+instructions, such as `~/.claude/CLAUDE.md` or `~/.codex/AGENTS.md`, never in a
+hidden file inside the checkout: when a teammate commits a file at the same
+path, such as `AGENTS.md`, a merge replaces your copy without warning.
 
 A new worktree or another clone has none of these files, and a checkout
 without its own `.heddle.yaml` fails with `workspace-invalid` instead of
-using an enclosing checkout's project. Copy `.heddle.yaml`, `.heddle.lock`,
+using an enclosing checkout's project; in a linked worktree of the clone, its
+next action is to copy them. Copy `.heddle.yaml`, `.heddle.lock`,
 the principles file and any `.heddle/overrides/` or `.heddle/generated/`
 into it as regular files, then run `heddle doctor` there; it fails on a
 missing or symlinked adoption file. [Add another host](#add-another-host)
