@@ -11,7 +11,7 @@ briefing instead of a not-implemented stub.
 from __future__ import annotations
 
 import sys
-from dataclasses import asdict
+from dataclasses import asdict, replace
 
 from heddle.contracts import operations as ops
 from heddle.contracts.result import (
@@ -31,6 +31,7 @@ from heddle.runtime.auto_close import close_obligation, close_obligation_text
 from heddle.runtime.cli_args import parse_feature_flag
 from heddle.runtime.diagnostics import kernel_error_result
 from heddle.runtime.feature_context import (
+    ResolvedSnapshotContext,
     ResolveFeatureFailure,
     resolve_snapshot_from_cwd,
 )
@@ -54,6 +55,23 @@ def kickoff(operation: ops.Kickoff) -> HeddleResult:
             exit_codes=_RESOLUTION_EXITS,
             diagnostics=resolved.diagnostics,
         )
+    try:
+        local = local_checkout_guidance(resolved.config)
+    except KernelError as error:
+        return kernel_error_result(
+            error,
+            exit_codes=_RESOLUTION_EXITS,
+            diagnostics=resolved.diagnostics,
+        )
+    result = _briefing_result(resolved)
+    if local is None or result.data is None:
+        return result
+    # Last, so the local rules read as overriding the briefing before them.
+    briefing = result.data["briefing"] + "\n\n---\n\n" + local
+    return replace(result, data={**result.data, "briefing": briefing})
+
+
+def _briefing_result(resolved: ResolvedSnapshotContext) -> HeddleResult:
     config = resolved.config
     snapshot = resolved.snapshot
     if is_terminal(snapshot.state):
@@ -87,10 +105,6 @@ def kickoff(operation: ops.Kickoff) -> HeddleResult:
             )
         policy = load_decision_guidance(config)
         briefing = compose_decision_guidance(policy, briefing)
-        # Last, so the local rules read as overriding the briefing before them.
-        local = local_checkout_guidance(config)
-        if local is not None:
-            briefing = briefing + "\n\n---\n\n" + local
         from heddle.runtime.review_assignments import projection
 
         policy_data = projection(config, snapshot)

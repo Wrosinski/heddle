@@ -25,7 +25,7 @@ from heddle.kernel.project_config import (
 )
 from heddle.kernel.state import INCOMPATIBLE_STATE_SCHEMA
 from heddle.runtime.identity import attach_runtime_identity
-from heddle.runtime.local_checkout import is_local_checkout
+from heddle.runtime.local_checkout import missing_project_first_move
 
 
 def envelope_diagnostics(
@@ -82,35 +82,12 @@ def kernel_error_result(
 
 
 def missing_project_root_next_actions(error: KernelError) -> tuple[NextAction, ...]:
-    """The first legal move for every project-scoped pre-init failure. A clone
-    that keeps Heddle local adopts without the shared session entry, and its
-    linked worktrees copy that adoption."""
+    """The first legal move for every project-scoped pre-init failure; a
+    clone that keeps Heddle local has its own."""
     git_root = error.details.get("git_root")
-    if git_root is not None and is_local_checkout(Path(git_root)):
-        if (Path(git_root) / ".git").is_file():
-            return (
-                NextAction(
-                    action=ManualAction(
-                        "Copy this clone's hidden Heddle files into this "
-                        "checkout from the checkout that has them: "
-                        ".heddle.yaml, .heddle.lock, every target the lock "
-                        "lists, and any .heddle/overrides/ or .heddle/generated/"
-                    ),
-                    reason=(
-                        "Git ignores .heddle.yaml here, so this clone keeps "
-                        "Heddle local and its worktrees copy one adoption"
-                    ),
-                ),
-            )
-        return (
-            NextAction(
-                action=CommandAction(Init(dry_run=True, session_entry=False)),
-                reason=(
-                    "Git ignores .heddle.yaml here, so adopt this clone without "
-                    "the shared AGENTS.md session entry"
-                ),
-            ),
-        )
+    local = None if git_root is None else missing_project_first_move(Path(git_root))
+    if local is not None:
+        return (local,)
     return (
         NextAction(
             action=CommandAction(Init(dry_run=True)),

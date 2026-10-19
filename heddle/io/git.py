@@ -341,19 +341,39 @@ def tracked_files(repo_root: Path) -> tuple[list[str], str | None]:
 
 def is_ignored(directory: Path, relpath: str) -> bool:
     """True when Git's ignore rules hide the untracked ``relpath`` under
-    ``directory``. A tracked path, a directory outside any repository, or a
-    Git that cannot answer reports False."""
+    ``directory``; False for a tracked or unignored path. Raises ``GitError``
+    when Git cannot answer, as outside any repository."""
+    command = ["git", "check-ignore", "--quiet", "--", relpath]
     try:
         result = subprocess.run(
-            ["git", "check-ignore", "--quiet", "--", relpath],
+            command,
             cwd=directory,
             check=False,
             capture_output=True,
             timeout=GIT_TIMEOUT_SECONDS,
         )
-    except (OSError, subprocess.TimeoutExpired):
-        return False
+    except (OSError, subprocess.TimeoutExpired) as error:
+        raise GitError(f"{' '.join(command)} failed: {error}") from error
+    if result.returncode not in (0, 1):
+        stderr = result.stderr.decode("utf-8", "replace").strip().replace("\n", " ")
+        detail = f": {stderr[:200]}" if stderr else ""
+        raise GitError(f"{' '.join(command)} exited {result.returncode}{detail}")
     return result.returncode == 0
+
+
+def is_linked_worktree(checkout: Path) -> bool:
+    """True when ``checkout`` is a linked worktree, whose own Git directory
+    differs from the common one its clone's checkouts share; a submodule or a
+    main checkout with a separate Git directory has one directory for both.
+    Raises ``GitError`` when Git cannot answer."""
+    data, warning = run_git(
+        ["git", "rev-parse", "--git-dir", "--git-common-dir"], checkout
+    )
+    lines = data.splitlines()
+    if warning is not None or len(lines) != 2:
+        raise GitError(warning or f"git rev-parse returned {data!r}")
+    git_dir, common_dir = ((checkout / line).resolve() for line in lines)
+    return git_dir != common_dir
 
 
 def oldest_add_commit(

@@ -338,15 +338,16 @@ authority for the installed version.
   reject a lock without the `AGENTS.md` entry.
 - When Git ignores a project's `.heddle.yaml`, the owner is keeping Heddle out
   of a shared repository, and Heddle delivers the rules for that itself:
-  `heddle kickoff` appends the packaged `local-checkout.md` to every briefing,
-  a `heddle drive` session's included, and `heddle orient` adds a
-  `local-checkout` note naming the file. The rules keep Heddle paths and AC,
-  finding and decision IDs out of code, tests, tracked docs, commits and pull
-  requests, and take precedence over a briefing that conflicts. A checkout of
-  such a clone without its own Heddle files, such as a new linked worktree, is
-  pointed to copying the clone's hidden Heddle files instead of
-  `heddle init --dry-run`; the missing-project error now names its Git root
-  in `details.git_root`.
+  `heddle kickoff` appends the packaged `local-checkout.md` to its briefing,
+  so every `heddle drive` session prompt carries it too, and `heddle orient`
+  adds a `local-checkout` note naming the file. The rules keep Heddle paths and
+  AC, finding and decision IDs out of code, tests, tracked docs, commits and
+  pull requests, and take precedence over a briefing that conflicts. When Git
+  cannot tell whether the file is ignored, kickoff fails and orient's note is
+  an advisory. A checkout without its own `.heddle.yaml` whose Git root
+  ignores it is pointed to `heddle init --no-session-entry --dry-run`, or, in
+  a linked worktree, to copying the clone's hidden Heddle files; the
+  missing-project error now names its Git root in `details.git_root`.
 - `heddle task edit <task-ref> --text <text>` corrects an open task's text on
   the current milestone, keeping its id and status; a done task is refused.
 - `heddle session log --help` publishes its payload schema,
