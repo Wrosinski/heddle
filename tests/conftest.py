@@ -31,6 +31,19 @@ def scrub_git_locations(environ: MutableMapping[str, str]) -> tuple[str, ...]:
     return removed
 
 
+# A user-level ignore of `.heddle.yaml` would put fixture hosts into
+# local-checkout mode and keep `git add` from staging the file. Command-scope
+# config outranks `core.excludesFile` in every config file and the default
+# `$XDG_CONFIG_HOME/git/ignore`.
+GIT_IGNORE_ISOLATION = {
+    "GIT_CONFIG_COUNT": "1",
+    "GIT_CONFIG_KEY_0": "core.excludesFile",
+    "GIT_CONFIG_VALUE_0": os.devnull,
+}
+
+
 def pytest_configure(config: pytest.Config) -> None:
-    """Scrub before collection so no fixture can spawn git with an override."""
+    """Scrub before collection so no fixture can spawn git with an override
+    or a developer's ignore rules."""
     scrub_git_locations(os.environ)
+    os.environ.update(GIT_IGNORE_ISOLATION)
