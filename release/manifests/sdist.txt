@@ -97,6 +97,7 @@ heddle/resources/hooks/check-test-deletions.py
 heddle/resources/hooks/git-commit-retry.sh
 heddle/resources/hooks/manifest.yaml
 heddle/resources/implement.briefing.md
+heddle/resources/local-checkout.md
 heddle/resources/model-prompting-principles.md
 heddle/resources/peer-review.briefing.md
 heddle/resources/plan-review.briefing.md
@@ -150,6 +151,7 @@ heddle/runtime/identity.py
 heddle/runtime/init_host.py
 heddle/runtime/intake.py
 heddle/runtime/kickoff.py
+heddle/runtime/local_checkout.py
 heddle/runtime/locking.py
 heddle/runtime/output.py
 heddle/runtime/pointer.py
