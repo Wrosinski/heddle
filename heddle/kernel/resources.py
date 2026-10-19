@@ -68,3 +68,27 @@ def resolve_resource(asset: str, config: ProjectConfig) -> tuple[Path, str]:
             "or ship it as a packaged default"
         ),
     )
+
+
+def read_resource_text(
+    asset: str, config: ProjectConfig, *, contents: str
+) -> tuple[Path, str, str]:
+    """Resolve ``asset`` and return ``(path, source, text)``. Raise
+    ``KernelError`` when the selected file is unreadable, not UTF-8, or blank;
+    ``contents`` names what a blank file should hold."""
+    path, source = resolve_resource(asset, config)
+    try:
+        text = path.read_bytes().decode("utf-8")
+    except (OSError, UnicodeError) as error:
+        raise KernelError(
+            code="workspace-invalid",
+            message=f"{asset} is unreadable at {path}: {error}",
+            hint=f"repair the selected {asset} resource as readable UTF-8",
+        ) from error
+    if not text.strip():
+        raise KernelError(
+            code="workspace-invalid",
+            message=f"{asset} is blank at {path}",
+            hint=f"restore {contents} in the selected resource",
+        )
+    return path, source, text

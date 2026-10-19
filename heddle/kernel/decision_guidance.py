@@ -3,8 +3,8 @@
 from dataclasses import dataclass
 from pathlib import Path
 
-from heddle.kernel.project_config import KernelError, ProjectConfig
-from heddle.kernel.resources import resolve_resource
+from heddle.kernel.project_config import ProjectConfig
+from heddle.kernel.resources import read_resource_text
 
 
 @dataclass(frozen=True)
@@ -15,21 +15,9 @@ class DecisionGuidance:
 
 
 def load_decision_guidance(config: ProjectConfig) -> DecisionGuidance:
-    path, source = resolve_resource("decision-routing.md", config)
-    try:
-        text = path.read_bytes().decode("utf-8")
-    except (OSError, UnicodeError) as error:
-        raise KernelError(
-            code="workspace-invalid",
-            message=f"decision-routing.md is unreadable at {path}: {error}",
-            hint="repair the selected decision-routing.md resource as readable UTF-8",
-        ) from error
-    if not text.strip():
-        raise KernelError(
-            code="workspace-invalid",
-            message=f"decision-routing.md is blank at {path}",
-            hint="restore the shared decision policy in the selected resource",
-        )
+    path, source, text = read_resource_text(
+        "decision-routing.md", config, contents="the shared decision policy"
+    )
     return DecisionGuidance(path, source, text)
 
 
