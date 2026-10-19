@@ -305,8 +305,10 @@ the same path, such as `AGENTS.md`, a merge replaces your copy without warning.
 
 A new worktree or another clone has none of these files, and a checkout
 without its own `.heddle.yaml` fails with `workspace-invalid` instead of
-using an enclosing checkout's project; in a linked worktree of the clone, its
-next action is to copy them. Copy `.heddle.yaml`, `.heddle.lock`,
+using an enclosing checkout's project. In a linked worktree of the clone its
+next action is to copy them; in another clone whose exclude file already hides
+them it is `heddle init --no-session-entry --dry-run`, though copying them from
+your first clone keeps its configuration. Copy `.heddle.yaml`, `.heddle.lock`,
 the principles file and any `.heddle/overrides/` or `.heddle/generated/`
 into it as regular files, then run `heddle doctor` there; it fails on a
 missing or symlinked adoption file. [Add another host](#add-another-host)
