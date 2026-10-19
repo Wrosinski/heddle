@@ -52,7 +52,7 @@ from heddle.kernel.project_config import (
     ProjectConfig,
     load_project_config_from_cwd,
 )
-from heddle.kernel.resources import resolve_resource
+from heddle.kernel.resources import read_resource_text, resolve_resource
 from heddle.kernel.state import INCOMPATIBLE_STATE_SCHEMA, state_loader_capability
 from heddle.runtime.cli_args import parse_feature_flag
 from heddle.runtime.completion import absent_optional_evidence
@@ -63,6 +63,7 @@ from heddle.runtime.diagnostics import (
 from heddle.runtime.feature_start import _SCAFFOLD_ASSETS
 from heddle.runtime.identity import runtime_identity_diagnostic
 from heddle.runtime.init_host import INIT_LOCK_MISSING, read_init_lock
+from heddle.runtime.local_checkout import LOCAL_CHECKOUT_ASSET
 from heddle.runtime.output import emit_envelope
 from heddle.runtime.readiness import validate_retained_reviews
 
@@ -191,6 +192,10 @@ def doctor(operation: ops.Doctor) -> HeddleResult:
             if asset == "decision-routing.md":
                 policy = load_decision_guidance(config)
                 source = policy.source
+            elif asset == LOCAL_CHECKOUT_ASSET:
+                _path, source, _text = read_resource_text(
+                    asset, config, contents="the local-checkout rules"
+                )
             else:
                 _path, source = resolve_resource(asset, config)
             diagnostics.append(

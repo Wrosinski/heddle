@@ -3,7 +3,6 @@ rules that keep it out of the shared repository."""
 
 from __future__ import annotations
 
-import os
 import shutil
 import subprocess
 from pathlib import Path
@@ -18,14 +17,6 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 GOLDEN = REPO_ROOT / "tests" / "fixtures" / "workspaces" / "golden"
 SLUG = "tier1-quickfix"
 RULES_PATH = Path(heddle.__file__).parent / "resources" / "local-checkout.md"
-
-
-@pytest.fixture(autouse=True)
-def _only_fixture_ignore_rules(tmp_path, monkeypatch) -> None:
-    """Only each fixture's own exclude file may decide the mode."""
-    monkeypatch.setenv("GIT_CONFIG_GLOBAL", os.devnull)
-    monkeypatch.setenv("GIT_CONFIG_NOSYSTEM", "1")
-    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
 
 
 def _git(cwd: Path, *args: str) -> str:
@@ -95,6 +86,26 @@ def test_kickoff_appends_the_rules_only_in_a_local_checkout(
     assert briefings[True] == briefings[False] + "\n\n---\n\n" + rules
 
 
+def test_kickoff_appends_the_rules_to_an_accepted_features_briefing(
+    tmp_path, monkeypatch
+) -> None:
+    from heddle.contracts import operations as ops
+    from heddle.runtime.application import execute
+    from tests.operational_model_helpers import FEATURE
+    from tests.tiering_completion_helpers import final_host
+
+    host = final_host(tmp_path, monkeypatch)
+    completed = host.complete()
+    assert completed.ok, completed.to_envelope()
+    _git(host.root, "rm", "-q", "--cached", ".heddle.yaml")
+    _hide_config(host.root)
+    kickoff = execute(ops.Kickoff(feature=FEATURE))
+    assert kickoff.ok and kickoff.data is not None, kickoff.to_envelope()
+    briefing = kickoff.data["briefing"]
+    assert briefing.startswith(f"Feature {FEATURE} has accepted completion.")
+    assert briefing.endswith("\n\n---\n\n" + RULES_PATH.read_text(encoding="utf-8"))
+
+
 @pytest.mark.parametrize("feature", [SLUG, "no-such-feature"])
 def test_orient_names_the_rules_only_in_a_local_checkout(
     run_cli, envelope_tools, tmp_path, monkeypatch, feature
@@ -131,6 +142,48 @@ def test_a_git_failure_fails_kickoff_and_warns_in_orient(
         if row["code"] == "local-checkout"
     ]
     assert [row["severity"] for row in notes] == ["advisory"], notes
+
+
+def test_a_blank_rules_override_is_refused_everywhere(
+    run_cli, envelope_tools, tmp_path, monkeypatch
+) -> None:
+    host = _golden_host(tmp_path, local=True)
+    override = host / ".heddle" / "overrides" / "local-checkout.md"
+    override.parent.mkdir(parents=True)
+    override.write_text("\n", encoding="utf-8")
+    monkeypatch.chdir(host)
+    code, _out, _err = run_cli(["kickoff", "--json", "--feature", SLUG])
+    assert code == 3
+    _code, out, _err = run_cli(["orient", "--json", "--feature", SLUG])
+    notes = [
+        row
+        for row in envelope_tools.parse(out)["diagnostics"]
+        if row["code"] == "local-checkout"
+    ]
+    assert [row["severity"] for row in notes] == ["advisory"], notes
+    _code, out, _err = run_cli(["doctor", "--json", "--feature", SLUG])
+    missing = [
+        row["message"]
+        for row in envelope_tools.parse(out)["diagnostics"]
+        if row["code"] == "resource-missing"
+    ]
+    assert any("local-checkout.md is blank" in message for message in missing)
+
+
+@pytest.mark.parametrize("command", ["doctor", "orient"])
+def test_a_git_failure_turns_the_missing_project_first_move_into_a_repair(
+    run_cli, envelope_tools, tmp_path, monkeypatch, command
+) -> None:
+    host = _committed_repo(tmp_path / "host")
+    _hide_config(host)
+    (host / ".git" / "index").write_bytes(b"not an index")
+    monkeypatch.chdir(host)
+    code, out, _err = run_cli([command, "--json"])
+    envelope = envelope_tools.parse(out)
+    assert code == 3 and envelope["error"]["code"] == "workspace-invalid"
+    [action] = envelope["next_actions"]
+    assert action["action"]["kind"] == "manual"
+    assert "repair Git access" in action["action"]["instruction"]
 
 
 @pytest.mark.parametrize("command", ["doctor", "orient"])

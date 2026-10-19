@@ -21,7 +21,7 @@ from heddle.kernel.project_config import (
     is_git_boundary,
     load_project_config,
 )
-from heddle.kernel.resources import read_resource_text, resolve_resource
+from heddle.kernel.resources import read_resource_text
 
 LOCAL_CHECKOUT_ASSET = "local-checkout.md"
 
@@ -63,7 +63,9 @@ def attach_local_checkout(result: HeddleResult) -> HeddleResult:
     try:
         if not is_local_checkout(config.root):
             return result
-        path, _source = resolve_resource(LOCAL_CHECKOUT_ASSET, config)
+        path, _source, _text = read_resource_text(
+            LOCAL_CHECKOUT_ASSET, config, contents="the local-checkout rules"
+        )
     except KernelError as error:
         note = Diagnostic(
             Severity.ADVISORY, "local-checkout", f"{error.message}; {error.hint}"
