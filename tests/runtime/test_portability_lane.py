@@ -238,6 +238,7 @@ def _expected_doctor_resource_assets() -> set[str]:
         *_SCAFFOLD_ASSETS,
         "decision-routing.md",
         "autonomy-addendum.md",
+        "local-checkout.md",
         "gate-failure-guide.md",
         "prompt-authoring-standards.md",
         "heddle-yaml.scaffold.yaml",

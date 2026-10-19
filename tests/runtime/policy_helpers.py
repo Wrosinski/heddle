@@ -202,6 +202,7 @@ RUNTIME_IMPORT_EDGES = {
     "verification.py": {"heddle.io.git", "heddle.io.source"},
     "source_attribution.py": {"heddle.io.source"},
     "completion.py": {"heddle.io.git"},
+    "local_checkout.py": {"heddle.io.git"},
     "verify_exec.py": {"heddle.io.process"},
     "drive.py": {"heddle.driver.results", "heddle.driver.loop"},
     "state_store.py": {"yaml"},

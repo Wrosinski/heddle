@@ -55,6 +55,7 @@ from heddle.runtime.feature_context import (
     resolve_snapshot_from_cwd,
 )
 from heddle.runtime.identity import attach_runtime_identity
+from heddle.runtime.local_checkout import attach_local_checkout
 from heddle.runtime.output import emit_envelope
 from heddle.runtime.readiness import (
     assess_current_readiness,
@@ -207,7 +208,7 @@ def orient(operation: ops.Orient) -> HeddleResult:
             include_journal_audit=False,
             purpose="orient",
         )
-    return attach_runtime_identity(result)
+    return attach_runtime_identity(attach_local_checkout(result))
 
 
 def _pending_intake_orient(feature: str | None) -> HeddleResult | None:

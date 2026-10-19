@@ -231,6 +231,7 @@ def find_project_root_from_cwd() -> Path:
         message=message,
         hint=hint,
         reason=MISSING_PROJECT_ROOT,
+        details={} if boundary is None else {"git_root": str(boundary)},
     )
 
 

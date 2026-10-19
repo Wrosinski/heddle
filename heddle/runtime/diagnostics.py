@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from pathlib import Path
 
 from heddle.contracts import operations as ops
 from heddle.contracts.operations import CommandAction, Init, ManualAction
@@ -24,6 +25,7 @@ from heddle.kernel.project_config import (
 )
 from heddle.kernel.state import INCOMPATIBLE_STATE_SCHEMA
 from heddle.runtime.identity import attach_runtime_identity
+from heddle.runtime.local_checkout import is_local_checkout
 
 
 def envelope_diagnostics(
@@ -60,7 +62,7 @@ def kernel_error_result(
             ),
         )
     elif error.reason == MISSING_PROJECT_ROOT:
-        next_actions = missing_project_root_next_actions()
+        next_actions = missing_project_root_next_actions(error)
     elif error.code == "workspace-invalid":
         next_actions = schema_remediation_actions(error)
     result = HeddleResult.failure(
@@ -79,8 +81,36 @@ def kernel_error_result(
     return result
 
 
-def missing_project_root_next_actions() -> tuple[NextAction, ...]:
-    """The first legal move for every project-scoped pre-init failure."""
+def missing_project_root_next_actions(error: KernelError) -> tuple[NextAction, ...]:
+    """The first legal move for every project-scoped pre-init failure. A clone
+    that keeps Heddle local adopts without the shared session entry, and its
+    linked worktrees copy that adoption."""
+    git_root = error.details.get("git_root")
+    if git_root is not None and is_local_checkout(Path(git_root)):
+        if (Path(git_root) / ".git").is_file():
+            return (
+                NextAction(
+                    action=ManualAction(
+                        "Copy this clone's hidden Heddle files into this "
+                        "checkout from the checkout that has them: "
+                        ".heddle.yaml, .heddle.lock, every target the lock "
+                        "lists, and any .heddle/overrides/ or .heddle/generated/"
+                    ),
+                    reason=(
+                        "Git ignores .heddle.yaml here, so this clone keeps "
+                        "Heddle local and its worktrees copy one adoption"
+                    ),
+                ),
+            )
+        return (
+            NextAction(
+                action=CommandAction(Init(dry_run=True, session_entry=False)),
+                reason=(
+                    "Git ignores .heddle.yaml here, so adopt this clone without "
+                    "the shared AGENTS.md session entry"
+                ),
+            ),
+        )
     return (
         NextAction(
             action=CommandAction(Init(dry_run=True)),

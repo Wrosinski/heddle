@@ -34,6 +34,7 @@ from heddle.runtime.feature_context import (
     ResolveFeatureFailure,
     resolve_snapshot_from_cwd,
 )
+from heddle.runtime.local_checkout import local_checkout_guidance
 from heddle.runtime.output import emit_envelope
 
 # the handler-owned code→exit mapping for the kickoff read surface,
@@ -86,6 +87,10 @@ def kickoff(operation: ops.Kickoff) -> HeddleResult:
             )
         policy = load_decision_guidance(config)
         briefing = compose_decision_guidance(policy, briefing)
+        # Last, so the local rules read as overriding the briefing before them.
+        local = local_checkout_guidance(config)
+        if local is not None:
+            briefing = briefing + "\n\n---\n\n" + local
         from heddle.runtime.review_assignments import projection
 
         policy_data = projection(config, snapshot)

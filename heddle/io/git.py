@@ -339,6 +339,23 @@ def tracked_files(repo_root: Path) -> tuple[list[str], str | None]:
     return list(dict.fromkeys(_git_path_records(data))), warning
 
 
+def is_ignored(directory: Path, relpath: str) -> bool:
+    """True when Git's ignore rules hide the untracked ``relpath`` under
+    ``directory``. A tracked path, a directory outside any repository, or a
+    Git that cannot answer reports False."""
+    try:
+        result = subprocess.run(
+            ["git", "check-ignore", "--quiet", "--", relpath],
+            cwd=directory,
+            check=False,
+            capture_output=True,
+            timeout=GIT_TIMEOUT_SECONDS,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    return result.returncode == 0
+
+
 def oldest_add_commit(
     repo_root: Path, probe_relpath: str
 ) -> tuple[str | None, str | None]:

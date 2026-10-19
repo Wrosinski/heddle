@@ -69,6 +69,7 @@ from heddle.runtime.readiness import validate_retained_reviews
 _STATIC_PROBE_ASSETS = (
     "decision-routing.md",
     "autonomy-addendum.md",
+    "local-checkout.md",
     "gate-failure-guide.md",
     "prompt-authoring-standards.md",
     "heddle-yaml.scaffold.yaml",
@@ -112,7 +113,7 @@ def doctor(operation: ops.Doctor) -> HeddleResult:
                 # adopter hits before `init`, and it is exactly when knowing
                 # whether the wheel or a checkout is running matters.
                 diagnostics=tuple(diagnostics),
-                next_actions=missing_project_root_next_actions(),
+                next_actions=missing_project_root_next_actions(error),
             )
         diagnostics.append(
             Diagnostic(Severity.FATAL, "config-unparsable", error.message)
