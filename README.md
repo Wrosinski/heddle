@@ -172,6 +172,9 @@ from the recorded run and refused the boundary.
    configured close suite, and an explicit grant. Records are retained locally.
 7. **Automate when you choose.** `heddle drive` executes the next legal
    actions until it reaches a decision, a blocker, or the human handoff.
+   It is experimental and not yet recommended for production work. Run
+   production features from an interactive lead session, which does stage
+   work itself or delegates it to subagents it manages.
 
 ### What to expect
 

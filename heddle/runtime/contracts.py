@@ -1572,7 +1572,10 @@ COMMAND_SURFACE: tuple[CommandContract, ...] = (
     ),
     CommandContract(
         name=ops.operation_type_name(ops.Drive),
-        summary="execute the active feature's next actions until terminal or blocked",
+        summary=(
+            "experimental, not for production work: execute the active "
+            "feature's next actions until terminal or blocked"
+        ),
         mutating=True,
         dry_run=False,
         args=(),

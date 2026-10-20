@@ -365,7 +365,9 @@ uv tool uninstall heddle   # only if you installed it
   through evidence-bound dispositions. The
   [workflow model](design/workflow-model.md) states the closure rules.
 - `heddle drive` executes the next legal actions until it reaches a decision, a
-  blocker or the human completion handoff.
+  blocker or the human completion handoff. It is experimental and not yet
+  recommended for production work; run production features from an
+  interactive lead session that delegates to subagents it manages.
 - Adopting a real repository, including existing `AGENTS.md` content and
   principles, follows the [host-integration guide](workflow/host-integration.md).
 - If you are weighing Heddle against Spec Kit or a similar toolkit, read
