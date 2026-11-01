@@ -331,6 +331,10 @@ authority for the installed version.
 
 ### Added
 
+- `milestone edit` can drop a test target from a done milestone's verification
+  command when its file no longer exists under the tests root, as after a later
+  milestone retires the tests. Every other command token and the expected text
+  must stay unchanged.
 - `heddle init --no-session-entry` adopts a host without the `AGENTS.md`
   session entry. The lock records only `.heddle.yaml` and the principles file,
   and `heddle sync` and `heddle validate` then leave `AGENTS.md` alone. A

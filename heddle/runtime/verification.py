@@ -57,6 +57,7 @@ from heddle.kernel.source_manifest import (
 )
 from heddle.kernel.state import DecisionFact, SourceBaseline, StateFile
 from heddle.kernel.test_bindings import (
+    dropped_command_tokens,
     inspect_python_test_source,
     parse_primary_test_target,
     resolve_primary_test_binding,
@@ -155,6 +156,25 @@ def proven_selector_rebinds(
         )
         if old_resolution.kind is None and new_resolution.kind is not None:
             proven.add((old, new))
+    return frozenset(proven)
+
+
+def proven_absent_test_targets(
+    root: Path, current: str, supplied: str
+) -> frozenset[str]:
+    """Prove each token a rewrite drops names a test path that no longer exists."""
+    tests_root = load_project_config(root).layout.tests.removeprefix("./").rstrip("/")
+    proven: set[str] = set()
+    for token in dropped_command_tokens(current, supplied) or ():
+        path = token.partition("::")[0].removeprefix("./")
+        if not path.startswith(f"{tests_root}/") or ".." in path.split("/"):
+            continue
+        try:
+            captured = capture_path(root, path)
+        except KernelError:
+            continue
+        if captured.kind == "missing":
+            proven.add(token)
     return frozenset(proven)
 
 

@@ -32,7 +32,10 @@ from heddle.kernel.state import (
     StateFile,
     parse_state_document,
 )
-from heddle.kernel.test_bindings import selector_rebind_pairs
+from heddle.kernel.test_bindings import (
+    dropped_command_tokens,
+    selector_rebind_pairs,
+)
 from heddle.kernel.verification import latest_verification_is_bound_to_declaration
 
 _STAGES = (
@@ -207,6 +210,7 @@ def edit_milestone(
     payload: Mapping[str, Any],
     *,
     proven_rebinds: frozenset[tuple[str, str]] = frozenset(),
+    proven_absent_targets: frozenset[str] = frozenset(),
 ) -> dict[str, Any]:
     """Shallow per-field merge into one milestone skeleton:
     named fields replace wholly — arrays as whole arrays, never an
@@ -241,7 +245,9 @@ def edit_milestone(
             ),
         )
     if target.get("status") == "done":
-        return _repair_done_milestone(new, target, ref, payload, proven_rebinds)
+        return _repair_done_milestone(
+            new, target, ref, payload, proven_rebinds, proven_absent_targets
+        )
     if "owns" in payload:
         normalize_milestone_source_paths(
             payload["owns"], feature=str(document.get("feature", ""))
@@ -279,14 +285,17 @@ def _repair_done_milestone(
     ref: str,
     payload: Mapping[str, Any],
     proven_rebinds: frozenset[tuple[str, str]],
+    proven_absent_targets: frozenset[str],
 ) -> dict[str, Any]:
     """Repair only explicitly authored missing declarations on a done milestone.
 
     A nonblank verification command may change only alongside a strict ownership
-    expansion, or when every change re-points a test selector that no longer
-    resolves to one that does in the same file. This supports later source
-    consolidation and upstream test renames without allowing a free command
-    rewrite of completed history. The expected result stays fixed.
+    expansion, when every change re-points a test selector that no longer
+    resolves to one that does in the same file, or when it only drops test
+    targets whose files no longer exist under the tests root. This supports
+    later source consolidation, upstream test renames and retired tests without
+    allowing a free command rewrite of completed history. The expected result
+    stays fixed.
     """
     allowed = {"owns", "owns_append", "verification"}
     if not payload or not (set(payload) <= allowed):
@@ -333,7 +342,17 @@ def _repair_done_milestone(
                 current_command, supplied_command, proven_rebinds
             )
         )
-        repairable = command_missing or command_relocated or command_rebound
+        command_pruned = (
+            isinstance(current_command, str)
+            and bool(current_command.strip())
+            and isinstance(supplied_command, str)
+            and _target_drop_is_proven(
+                current_command, supplied_command, proven_absent_targets
+            )
+        )
+        repairable = (
+            command_missing or command_relocated or command_rebound or command_pruned
+        )
         well_formed = (
             isinstance(current_expected, str)
             and isinstance(supplied_command, str)
@@ -363,6 +382,13 @@ def _selector_rebind_is_proven(
     return pairs is not None and set(pairs) <= proven_rebinds
 
 
+def _target_drop_is_proven(
+    current: str, supplied: str, proven_absent_targets: frozenset[str]
+) -> bool:
+    dropped = dropped_command_tokens(current, supplied)
+    return dropped is not None and set(dropped) <= proven_absent_targets
+
+
 def _done_repair_error(ref: str) -> KernelError:
     return KernelError(
         code="milestone-out-of-sequence",
@@ -376,8 +402,10 @@ def _done_repair_error(ref: str) -> KernelError:
             "or an owns list that strictly contains the stored paths and "
             "verification: "
             "{command: <cmd>, expected: <unchanged text>}; a blank command may "
-            "still be filled without expanding owns, and a test selector that no "
-            "longer resolves may be re-pointed to one that resolves in the same file"
+            "still be filled without expanding owns, a test selector that no "
+            "longer resolves may be re-pointed to one that resolves in the same "
+            "file, and a test target whose file no longer exists under the tests "
+            "root may be dropped"
         ),
     )
 

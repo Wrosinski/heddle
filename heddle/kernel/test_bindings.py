@@ -277,6 +277,29 @@ def selector_rebind_pairs(
     return tuple(pairs) or None
 
 
+def dropped_command_tokens(current: str, supplied: str) -> tuple[str, ...] | None:
+    """Return the tokens a rewrite only removes from a shell line.
+
+    Returns ``None`` unless the supplied line keeps every other token of the
+    current one, in order, and drops at least one.
+    """
+    try:
+        before = shlex.split(current)
+        after = iter(shlex.split(supplied))
+    except ValueError:
+        return None
+    kept = next(after, None)
+    dropped: list[str] = []
+    for token in before:
+        if token == kept:
+            kept = next(after, None)
+        else:
+            dropped.append(token)
+    if kept is not None or not dropped:
+        return None
+    return tuple(dropped)
+
+
 def unselected_test_targets(
     targets: tuple[str, ...], commands: tuple[str, ...], *, tests_root: str
 ) -> tuple[str, ...]:

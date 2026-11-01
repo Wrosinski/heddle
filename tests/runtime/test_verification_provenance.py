@@ -1347,6 +1347,79 @@ def test_done_milestone_command_refuses_an_unproven_selector_rebind(
     assert state_path.read_bytes() == before
 
 
+_RETIRED_COMMAND = (
+    "python3 -m pytest tests/test_src.py tests/test_gone.py docs/gone.py -q"
+)
+
+
+def test_done_milestone_command_drops_a_deleted_test_file(
+    run_cli,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    host, state_path = _done_milestone_with_selector(
+        tmp_path, "retired-test", "def test_old():\n    pass\n"
+    )
+    state = yaml.safe_load(state_path.read_text(encoding="utf-8"))
+    state["milestones"][0]["verification"]["command"] = _RETIRED_COMMAND
+    _write_yaml(state_path, state)
+    monkeypatch.chdir(host)
+
+    code, out, _err = _edit_done_command(
+        run_cli,
+        tmp_path,
+        "python3 -m pytest tests/test_src.py docs/gone.py -q",
+        "pass",
+    )
+
+    assert code == 0, f"dropping a deleted test file failed: {out}"
+    milestone = yaml.safe_load(state_path.read_text(encoding="utf-8"))["milestones"][0]
+    assert milestone["verification"] == {
+        "command": "python3 -m pytest tests/test_src.py docs/gone.py -q",
+        "expected": "pass",
+    }
+    assert milestone["owns"] == ["src.py"]
+
+
+@pytest.mark.parametrize(
+    ("command", "expected"),
+    [
+        ("python3 -m pytest tests/test_gone.py docs/gone.py -q", "pass"),
+        ("python3 -m pytest tests/test_src.py tests/test_gone.py docs/gone.py", "pass"),
+        ("python3 -m pytest tests/test_src.py tests/test_gone.py -q", "pass"),
+        ("python3 -m pytest tests/test_src.py docs/gone.py -q", "fail"),
+        ("python3 -m pytest tests/test_src.py docs/gone.py -q -x", "pass"),
+    ],
+    ids=[
+        "existing-file",
+        "non-path-token",
+        "outside-tests-root",
+        "expected-changed",
+        "token-added",
+    ],
+)
+def test_done_milestone_command_refuses_an_unproven_target_drop(
+    command: str,
+    expected: str,
+    run_cli,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    host, state_path = _done_milestone_with_selector(
+        tmp_path, "unproven-drop", "def test_old():\n    pass\n"
+    )
+    state = yaml.safe_load(state_path.read_text(encoding="utf-8"))
+    state["milestones"][0]["verification"]["command"] = _RETIRED_COMMAND
+    _write_yaml(state_path, state)
+    monkeypatch.chdir(host)
+    before = state_path.read_bytes()
+
+    code, out, _err = _edit_done_command(run_cli, tmp_path, command, expected)
+
+    assert code == 3 and "milestone-out-of-sequence" in out
+    assert state_path.read_bytes() == before
+
+
 @pytest.mark.parametrize("missing", ["verification", "command"])
 def test_ac02_incompatible_milestone_refuses_without_a_write(
     missing: str,

@@ -108,6 +108,7 @@ from heddle.runtime.verification import (
     assess_current_verifications,
     assess_recorded_verification,
     observe_current_source,
+    proven_absent_test_targets,
     proven_selector_rebinds,
     publish_source_evidence,
     resolve_source_declaration,
@@ -434,6 +435,7 @@ def milestone_edit(operation: ops.MilestoneEdit) -> HeddleResult:
             ref,
             payload,
             proven_rebinds=_proven_rebinds(root, document, ref, payload),
+            proven_absent_targets=_proven_absent_targets(root, document, ref, payload),
         )
         affected["milestone"] = next(
             milestone
@@ -450,6 +452,24 @@ def milestone_edit(operation: ops.MilestoneEdit) -> HeddleResult:
 def _proven_rebinds(
     root: Path, document: Mapping[str, Any], ref: str, payload: Mapping[str, Any]
 ) -> frozenset[tuple[str, str]]:
+    commands = _command_rewrite(document, ref, payload)
+    if commands is None:
+        return frozenset()
+    return proven_selector_rebinds(root, *commands)
+
+
+def _proven_absent_targets(
+    root: Path, document: Mapping[str, Any], ref: str, payload: Mapping[str, Any]
+) -> frozenset[str]:
+    commands = _command_rewrite(document, ref, payload)
+    if commands is None:
+        return frozenset()
+    return proven_absent_test_targets(root, *commands)
+
+
+def _command_rewrite(
+    document: Mapping[str, Any], ref: str, payload: Mapping[str, Any]
+) -> tuple[str, str] | None:
     supplied = payload.get("verification")
     target = next(
         (
@@ -460,13 +480,13 @@ def _proven_rebinds(
         None,
     )
     if not isinstance(supplied, Mapping) or target is None:
-        return frozenset()
+        return None
     current = target.get("verification")
     current_command = current.get("command") if isinstance(current, Mapping) else None
     supplied_command = supplied.get("command")
     if not isinstance(current_command, str) or not isinstance(supplied_command, str):
-        return frozenset()
-    return proven_selector_rebinds(root, current_command, supplied_command)
+        return None
+    return current_command, supplied_command
 
 
 def _emit_milestone_mutation(

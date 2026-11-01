@@ -9,6 +9,7 @@ from heddle.kernel.knowledge import (
     read_spec_verified_by_lines,
 )
 from heddle.kernel.test_bindings import (
+    dropped_command_tokens,
     inspect_python_test_source,
     parse_primary_test_bindings,
     resolve_primary_test_binding,
@@ -314,3 +315,23 @@ def test_target_selection_is_judged_from_command_tokens_alone() -> None:
         assert unselected_test_targets(targets[-1:], excluding, tests_root=root) == (
             "tests/test_g.py::test_unselected",
         )
+
+
+def test_dropped_command_tokens_only_removals_that_keep_the_rest_in_order() -> None:
+    current = "runner fast tests/test_a.py tests/test_gone.py 'x y'"
+
+    assert dropped_command_tokens(current, "runner fast tests/test_a.py 'x y'") == (
+        "tests/test_gone.py",
+    )
+    assert dropped_command_tokens(current, current) is None
+    assert (
+        dropped_command_tokens(
+            current, "runner fast tests/test_gone.py tests/test_a.py"
+        )
+        is None
+    )
+    assert (
+        dropped_command_tokens(current, "runner fast tests/test_a.py 'x y' extra")
+        is None
+    )
+    assert dropped_command_tokens(current, "runner 'unterminated") is None
