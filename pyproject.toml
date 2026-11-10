@@ -25,7 +25,7 @@ heddle = "heddle.cli:main"
 dev = [
   "build==1.6.1",
   "hatchling==1.32.0",
-  "pytest>=8.0",
+  "pytest==9.1.1",
   "ruff==0.15.21",
   "mypy==2.3.1",
   "types-pyyaml==6.0.12.20260906",
