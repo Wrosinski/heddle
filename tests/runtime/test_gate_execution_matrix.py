@@ -64,7 +64,7 @@ def _selected_matrix() -> dict[tuple[str, str], GateExecutionConfig]:
         )
     for gate in FABLE_SYNTHESIS_GATES:
         expected[(gate, "claude")] = GateExecutionConfig(
-            "claude", "claude-fable-5-1", "xhigh", "auto"
+            "claude", "claude-fable-5-2", "xhigh", "auto"
         )
     return expected
 

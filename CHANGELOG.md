@@ -31,6 +31,11 @@ authority for the installed version.
   and the hook manifest lists the `default_install_hook_types` a host needs
   before `pre-commit install`.
 
+- Fable reviews and sessions run on `claude-fable-5-2` instead of
+  `claude-fable-5-1`. That covers the `spec-review`, `plan-review` and
+  `robustness-analysis` secondaries in the recommended review policy, the Claude
+  lane default for those three gates, and the default `heddle drive`
+  phase-session model. Confirmed policies keep the reviewers they recorded.
 - The recommended review policy under the Full base selects `gpt-6-astra` at
   `xhigh` as the `review-test-scaffolding` secondary for every round, and no
   longer lists it as a suggestion. Under the Light base it stays a suggestion.

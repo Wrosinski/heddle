@@ -75,11 +75,11 @@ CLAUDE_EFFORT = "--effort"
 # errors otherwise); the gate runner uses the same bounded fallback.
 CLAUDE_VERBOSE = "--verbose"
 # Without an explicit pin the session inherits ambient operator settings, which
-# are not a stable execution contract. Fable 5.1 is the default phase-session
+# are not a stable execution contract. Fable 5.2 is the default phase-session
 # model. ``HEDDLE_PHASE_SESSION_MODEL`` overrides it at launch when a supported
 # fallback is needed; unset the variable to restore the default.
 # Read once at import, so the drive process must be launched with the var set.
-DEFAULT_PHASE_SESSION_MODEL = "claude-fable-5-1"
+DEFAULT_PHASE_SESSION_MODEL = "claude-fable-5-2"
 PHASE_SESSION_MODEL = os.environ.get(
     "HEDDLE_PHASE_SESSION_MODEL", DEFAULT_PHASE_SESSION_MODEL
 )
@@ -225,7 +225,7 @@ _CLAUDE_ARGS = (
         _static_arg(CLAUDE_PERMISSION_MODE, CLAUDE_AUTO),
     ),
     _ClaudeArg(
-        "--model claude-fable-5-1",
+        "--model claude-fable-5-2",
         (CLAUDE_MODEL,),
         _static_arg(CLAUDE_MODEL, PHASE_SESSION_MODEL),
     ),

@@ -111,7 +111,7 @@ def legacy_report(
         "sandbox": "danger-full-access" if cli == "codex" else "read-only-tools",
     }
     if policy_id and cli == "claude":
-        execution["model"] = "claude-fable-5-1"
+        execution["model"] = "claude-fable-5-2"
     if model is not None:
         execution["model"] = model
     invocation = {

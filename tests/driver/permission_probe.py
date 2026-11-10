@@ -90,7 +90,7 @@ def run(output_dir: Path) -> int:
     version = subprocess.check_output(["claude", "--version"], text=True).strip()
     record = {
         "cli_version": version,
-        "model": "claude-fable-5-1",
+        "model": "claude-fable-5-2",
         "effort": "high",
         "cwd": str(nested),
         "targets": targets,
@@ -138,7 +138,7 @@ def run(output_dir: Path) -> int:
             spec, sessions._autonomy_addendum_path()
         )
         assert command[command.index("--permission-mode") + 1] == "auto"
-        assert command[command.index("--model") + 1] == "claude-fable-5-1"
+        assert command[command.index("--model") + 1] == "claude-fable-5-2"
         assert command[command.index("--effort") + 1] == "high"
         command.extend(
             [

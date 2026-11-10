@@ -76,7 +76,7 @@ Bindings, current as of 2026-09-29:
 
 - Claude: `CLAUDE_CODE_SUBAGENT_MODEL=claude-opus-5-5` in `.claude/settings.json`
   is the default for sub-agents. An agent definition's `model:` and an explicit
-  per-spawn model take precedence over it, so escalating to Fable 5.1 is a
+  per-spawn model take precedence over it, so escalating to Fable 5.2 is a
   per-call decision. Do not set `CLAUDE_CODE_SUBAGENT_MODEL_FORCE`, which
   removes that escape.
 - Codex: project-scoped custom agents live under `.codex/agents`; the explicit

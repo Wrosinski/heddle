@@ -72,14 +72,14 @@ The recommended reviewer defaults are:
 
 | Review role | Primary model / effort | Secondary model / effort | `secondary_rounds` |
 | --- | --- | --- | --- |
-| `spec-review` | `gpt-6-astra` / `xhigh` | `claude-fable-5-1` / `xhigh` | `all` |
-| `plan-review` | `gpt-6-astra` / `xhigh` | `claude-fable-5-1` / `xhigh` | `all` |
+| `spec-review` | `gpt-6-astra` / `xhigh` | `claude-fable-5-2` / `xhigh` | `all` |
+| `plan-review` | `gpt-6-astra` / `xhigh` | `claude-fable-5-2` / `xhigh` | `all` |
 | `review-test-scaffolding` | `claude-opus-5-5` / `xhigh` | Full: `gpt-6-astra` / `xhigh`; Light: none (suggested: `gpt-6-astra` / `xhigh`) | `all` when selected |
 | `milestone-review` | `claude-opus-5-5` / `xhigh` | None | — |
 | `peer-review-sequential` | `claude-opus-5-5` / `xhigh` | None | — |
 | `behavior-review` | `claude-opus-5-5` / `xhigh` | `gpt-6-astra` / `xhigh` | 1 |
 | `complexity-review` | `claude-opus-5-5` / `xhigh` | None | — |
-| `robustness-analysis` | `gpt-6-astra` / `xhigh` | `claude-fable-5-1` / `xhigh` | 1 |
+| `robustness-analysis` | `gpt-6-astra` / `xhigh` | `claude-fable-5-2` / `xhigh` | 1 |
 
 The Full base selects the scaffolding secondary for every round, because
 tests that cannot fail have passed a single scaffolding reviewer. Under the

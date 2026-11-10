@@ -212,7 +212,7 @@ def _assert_spawn_profile(
     assert _flag_value(argv, "--model") == PHASE_SESSION_MODEL, (
         f"FAIL AC-6: {label} argv must pin --model {PHASE_SESSION_MODEL} — the "
         "configured phase-session model (pre-m6b driver-config batch D-1/D-2: "
-        "default claude-fable-5-1, overridable via HEDDLE_PHASE_SESSION_MODEL) — "
+        "default claude-fable-5-2, overridable via HEDDLE_PHASE_SESSION_MODEL) — "
         "an unpinned session inherits the operator's ambient ~/.claude settings"
     )
     assert _flag_value(argv, "--effort") == "high", (

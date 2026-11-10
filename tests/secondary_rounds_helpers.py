@@ -8,7 +8,7 @@ from dataclasses import fields, replace
 import yaml
 
 ASTRA_HIGH = {"cli": "codex", "model": "gpt-6-astra", "reasoning_effort": "high"}
-FABLE_HIGH = {"cli": "claude", "model": "claude-fable-5-1", "reasoning_effort": "high"}
+FABLE_HIGH = {"cli": "claude", "model": "claude-fable-5-2", "reasoning_effort": "high"}
 SOL_HIGH = {"cli": "codex", "model": "gpt-6-sol", "reasoning_effort": "high"}
 SOL_XHIGH = {**SOL_HIGH, "reasoning_effort": "xhigh"}
 OPUS_XHIGH = {"cli": "claude", "model": "claude-opus-5-5", "reasoning_effort": "xhigh"}

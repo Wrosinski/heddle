@@ -302,7 +302,7 @@ def test_cleanup_preserves_public_runtime_defaults() -> None:
     from heddle.gate.cli import CLI_FALLBACKS
     from heddle.kernel.project_config import DEFAULT_AUTOPILOT
 
-    assert DEFAULT_PHASE_SESSION_MODEL == "claude-fable-5-1"
+    assert DEFAULT_PHASE_SESSION_MODEL == "claude-fable-5-2"
     assert PHASE_SESSION_EFFORT == "high"
     assert (
         CLI_FALLBACKS["claude"].model,
