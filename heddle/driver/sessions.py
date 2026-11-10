@@ -186,7 +186,8 @@ def _static_arg(
 def _append_system_prompt_arg(
     _spec: PhaseSessionSpec, addendum: Path
 ) -> tuple[str, ...]:
-    return (CLAUDE_APPEND_SYSTEM_PROMPT, str(addendum))
+    # The flag takes prompt text; a path would reach the model as a bare string.
+    return (CLAUDE_APPEND_SYSTEM_PROMPT, addendum.read_text(encoding="utf-8"))
 
 
 def _allowed_tools_arg(spec: PhaseSessionSpec, _addendum: Path) -> tuple[str, ...]:

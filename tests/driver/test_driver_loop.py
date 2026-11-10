@@ -221,6 +221,11 @@ def _assert_spawn_profile(
     assert _flag_present(argv, "--append-system-prompt"), (
         f"FAIL AC-6: {label} argv must carry --append-system-prompt"
     )
+    from heddle.driver.sessions import _autonomy_addendum_path
+
+    assert _flag_value(argv, "--append-system-prompt") == (
+        _autonomy_addendum_path().read_text(encoding="utf-8")
+    ), f"FAIL AC-6: {label} argv must carry the autonomy addendum text, not its path"
 
     allow = _allowed_tools(argv)
     assert allow == expected_allow, (
