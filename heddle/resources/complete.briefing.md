@@ -374,7 +374,8 @@ or commits them, and completion does not move the baseline.
    file stays in place with an exact-path conflict. An accepted retry treats an
    already removed disposable as cleaned only when the verified archive still
    contains its exact recorded identity. Never remove
-   the whole `plans/<slug>/` directory. The Feature Spec, decision journal,
+   the whole `plans/<slug>/` directory: it holds the retained records listed
+   here. The Feature Spec, decision journal,
    friction retrospective, gate-effectiveness log, trajectory, raw archive and
    approved durable knowledge also survive.
 

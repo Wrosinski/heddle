@@ -12,7 +12,7 @@ This session owns the Feature Spec, its entries in `_descriptions.yaml` and,
 when the host keeps one, the specs directory's `_index` table, the feature's `brief.md` and `plan.md`, and
 milestone authoring through `heddle milestone add` / `heddle milestone edit`.
 Use `heddle decisions add` for an unresolved user-owned question. Never hand-edit `state.yaml` or intake
-history. Phase exit remains caller- or driver-owned. The stage ends at the
+history; Heddle's commands own those writes and run their checks. Phase exit remains caller- or driver-owned. The stage ends at the
 specification checkpoint: unless it is off, no review starts until the owner
 rules on it.
 

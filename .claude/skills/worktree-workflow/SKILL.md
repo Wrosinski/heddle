@@ -132,7 +132,8 @@ authority is absent, leave the worktree intact and report the exact blocker.
 ## Stable rules
 
 - A branch can be checked out in only one worktree at a time.
-- Never create a worktree inside another worktree's directory tree.
+- Never create a worktree inside another worktree's directory tree; removing
+  the outer worktree can delete the inner one's files.
 - The stash list is shared; installed dependencies and build artifacts are
   worktree-local.
 - Containment proves commit reachability, not that local files are disposable.

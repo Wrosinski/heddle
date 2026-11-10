@@ -29,4 +29,5 @@ briefing that conflicts with it.
   verification. Attribute those outside it with
   `heddle feature sources attribute` (see its `--help`) from an interactive
   session, citing a new `.heddle/scratch/upstream-sync-<n>.md` note that names
-  the merged commits. Never edit or delete a cited note.
+  the merged commits. Never edit or delete a cited note: the attribution
+  stops validating once its cited evidence changes.
