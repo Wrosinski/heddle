@@ -1294,16 +1294,40 @@ def _batch_member_actions(
         if member.publication == "recoverable"
         else f"retry {member.label}"
     )
-    return (NextAction(ops.CommandAction(_retry_operation(member)), reason),)
+    return (NextAction(ops.CommandAction(_retry_operation(resolved, member)), reason),)
 
 
-def _retry_operation(member: _BatchMember) -> RunGate:
-    """A member's retry command, naming the round's fallback once one ran."""
-    execution = member.invocation.exec_config
-    fallback = model_fallback(execution.cli, execution.model)
-    if member.fallback is None or fallback is None:
+def _retry_operation(
+    resolved: ResolvedSnapshotContext, member: _BatchMember
+) -> RunGate:
+    """A member's retry command on the reviewer now serving its slot.
+
+    A recorded Fable provider failure moves the round to the model fallback
+    whether or not the batch reached the fallback rerun.
+    """
+    from heddle.kernel import review_assignments as core
+
+    state = resolved.snapshot.state
+    prepared = member.prepared
+    assignment = next(
+        (
+            a
+            for a in state.review_assignments.assignments
+            if a.id == prepared.assignment_id
+        ),
+        None,
+    )
+    number = prepared.round_number
+    if assignment is None or number is None or not 0 < number <= len(assignment.rounds):
         return member.parsed
-    return replace(member.parsed, model=fallback[0], reasoning_effort=fallback[1])
+    row = assignment.rounds[number - 1]
+    slot = next((s for s in row.slots if s.name == prepared.reviewer_slot), None)
+    if slot is None:
+        return member.parsed
+    reviewer = core.serving_reviewer(state, assignment, row, slot)
+    return replace(
+        member.parsed, model=reviewer.model, reasoning_effort=reviewer.reasoning_effort
+    )
 
 
 def _batch_member_summary(

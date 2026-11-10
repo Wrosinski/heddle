@@ -602,6 +602,27 @@ def test_a_batch_member_whose_fallback_fails_too_fails_the_batch_naming_both(
     assert secondary == ["claude-fable-5-2", "claude-opus-5-5"]
 
 
+def test_a_member_s_retry_names_the_fallback_once_its_failure_is_recorded(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from heddle.runtime import gate_run
+
+    _host, _state_path = same_gate_host(tmp_path, monkeypatch)
+    # The batch stops before its fallback rerun, as an interrupted one would.
+    monkeypatch.setattr(gate_run, "_model_fallback", lambda *_args: None)
+    with multiprocessing.Manager() as manager:
+        install_slot_engine(monkeypatch, manager, failing_models=("claude-fable-5-2",))
+        result = execute_batch()
+    assert not result.ok, result.to_envelope()
+    member = next(
+        row
+        for row in result.to_envelope()["error"]["details"]["members"]
+        if member_key(row) == S
+    )
+    retry = member["next_actions"][0]["command"]
+    assert "--model claude-opus-5-5 --reasoning-effort xhigh" in retry
+
+
 @pytest.mark.parametrize("round_number", (1, 2))
 def test_ac8_worker_crash_stops_recording_and_later_output_recovers_without_a_call(
     round_number: int, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
