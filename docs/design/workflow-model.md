@@ -104,6 +104,20 @@ reviewer's commands time out after 600 s by default and 900 s at most; each
 attempt is capped at 500 turns and 50 USD. Gate runs of either CLI end after
 1200 s without stream activity and 2700 s overall.
 
+Claude Code's refusal fallback is switched off for every Claude launch, so a
+refusal fails the call with `model-refusal` and a model switch that still
+appears fails it with `model-substituted`. Heddle's one model fallback, in the
+[gate-execution contract](../../heddle/contracts/gate_execution.py), replaces
+it: when a slot's `claude-fable-5-2` reviewer fails for a provider reason, the
+same command reruns the slot once on `claude-opus-5-5` at `xhigh`, and that
+reviewer serves the slot for the rest of the round. Both runs are recorded as
+the models that ran, in the same assignment, round and slot; the next round
+starts on the frozen reviewer again. Review evidence stays per reviewer, so a
+fallback run does not count as a later-round review by the frozen reviewer.
+Drive phase sessions follow the same rule: a failed Fable session (refusal,
+model switch, watchdog kill or non-zero exit) is recorded naming both models,
+and the next phase session the drive spawns runs on the fallback.
+
 The [policy resolver](../../heddle/kernel/feature_policy.py) and
 [role catalog](../../heddle/contracts/gates.py) own these rules.
 

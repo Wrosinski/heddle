@@ -25,7 +25,12 @@ from heddle.gate.runners.environment import (
 )
 from heddle.gate.runners.structured import read_native_stream
 from heddle.gate.types import ExecutionResult, FailureReason, GateType, PreparedGateRun
-from heddle.io.claude_events import last_result_event
+from heddle.io.claude_events import (
+    DISABLE_REFUSAL_FALLBACK_ENV,
+    last_result_event,
+    model_refusal,
+    model_substitution,
+)
 from heddle.io.process import MonitorConfig, MonitorResult, Termination, run_monitored
 
 CLAUDE_MAX_TURNS = "500"
@@ -38,6 +43,11 @@ def classify_claude(
     raw_out: Path,
     events: list[dict[str, Any]],
 ) -> FailureReason | None:
+    # Parsed events only: review prose that mentions a refusal never matches.
+    if model_substitution(events) is not None:
+        return FailureReason.MODEL_SUBSTITUTED
+    if model_refusal(events) is not None:
+        return FailureReason.REFUSAL
     content = _diagnostic_prefix(raw_out)
     if (
         monitor.termination is Termination.INACTIVITY or monitor.exit_code != 0
@@ -102,6 +112,7 @@ def execute_claude(
         f"CLAUDE_CODE_EFFORT_LEVEL={execution_config.reasoning_effort}",
         f"BASH_DEFAULT_TIMEOUT_MS={GATE_BASH_DEFAULT_TIMEOUT_S * 1000}",
         f"BASH_MAX_TIMEOUT_MS={GATE_BASH_MAX_TIMEOUT_S * 1000}",
+        f"{DISABLE_REFUSAL_FALLBACK_ENV}=1",
         cli_bin,
         "--print",
         "--input-format",
@@ -156,6 +167,7 @@ def execute_claude(
         )
     else:
         failure_reason = classify_claude(monitor, paths.raw_out, events)
+        _log_model_change(paths, events)
         terminals = [event for event in events if event.get("type") == "result"]
         if failure_reason is None:
             if (
@@ -203,6 +215,30 @@ def execute_claude(
         response_warning=response_warning,
         response_channel=response_channel,
     )
+
+
+def _log_model_change(paths: GatePaths, events: list[dict[str, Any]]) -> None:
+    """Name the refusal or model switch in the gate log, for the failure guide."""
+    for kind, event in (
+        ("ModelSubstituted", model_substitution(events)),
+        ("ModelRefusal", model_refusal(events)),
+    ):
+        if event is None:
+            continue
+        message = event.get("message")
+        detail = {
+            key: event.get(key)
+            for key in (
+                "subtype",
+                "original_model",
+                "fallback_model",
+                "api_refusal_category",
+            )
+            if event.get(key) is not None
+        }
+        if isinstance(message, dict) and message.get("model"):
+            detail["model"] = message["model"]
+        append_log(paths.log, f"{kind}: {json.dumps(detail, sort_keys=True)}")
 
 
 def _claude_meaningful_activity(

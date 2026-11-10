@@ -306,6 +306,7 @@ tests/driver/test_driver_loop.py
 tests/driver/test_escalations.py
 tests/driver/test_gate_verdict_fold.py
 tests/driver/test_session_caps.py
+tests/driver/test_session_model_fallback.py
 tests/driver/test_supported_host_permissions.py
 tests/driver/test_verify_attempt_cap.py
 tests/fixtures/.gitattributes
@@ -601,6 +602,7 @@ tests/runtime/test_install_mode_reporting.py
 tests/runtime/test_kickoff.py
 tests/runtime/test_local_checkout.py
 tests/runtime/test_milestone_authoring.py
+tests/runtime/test_model_fallback.py
 tests/runtime/test_native_routing.py
 tests/runtime/test_operational_core_acceptance.py
 tests/runtime/test_owns_append.py

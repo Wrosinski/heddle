@@ -834,6 +834,8 @@ def test_restarted_driver_routes_capture_to_lead_session_without_reviewer_retry(
     monkeypatch.setattr(loop, "_capability_probe_result", lambda *_args: None)
     monkeypatch.setattr(loop, "_auto_close_suite_result", lambda *_args: None)
     monkeypatch.setattr(loop, "spawn_phase_session", session)
+    # The failed session is the stop; no model-fallback session replaces it.
+    monkeypatch.setattr(loop, "model_fallback", lambda *_args: None)
     before = snapshot(host)
     result = loop.run_loop(load_project_config(host), V7_FEATURE, until=None)
     assert not result.ok and "17" in result.error.message, result.to_envelope()
@@ -864,6 +866,8 @@ def test_restarted_driver_routes_coverage_to_lead_session_without_empty_write(
     monkeypatch.setattr(loop, "_capability_probe_result", lambda *_args: None)
     monkeypatch.setattr(loop, "_auto_close_suite_result", lambda *_args: None)
     monkeypatch.setattr(loop, "spawn_phase_session", session)
+    # The failed session is the stop; no model-fallback session replaces it.
+    monkeypatch.setattr(loop, "model_fallback", lambda *_args: None)
     before = snapshot(host)
     result = loop.run_loop(load_project_config(host), V7_FEATURE, until="plan-review")
     assert not result.ok and "17" in result.error.message, result.to_envelope()

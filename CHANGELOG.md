@@ -10,6 +10,26 @@ authority for the installed version.
 
 ### Changed
 
+- Every Claude gate and `heddle drive` phase session switches off Claude
+  Code's refusal fallback (`CLAUDE_CODE_DISABLE_REFUSAL_FALLBACK=1`), so a
+  refused call can no longer finish on another model while the record names
+  the requested one. A refusal fails the gate with the new reason
+  `model-refusal`; a model switch that still appears fails it with
+  `model-substituted`, and the output earns no credit. Heddle's own model
+  fallback replaces the CLI's: when a `claude-fable-5-2` reviewer fails for a
+  provider reason, `run-gate` and `run-gates` rerun that slot once on
+  `claude-opus-5-5` at `xhigh`. That reviewer serves the slot for the rest of
+  the round, and the next round starts on Fable again. Both runs are recorded
+  as the models that ran in the same assignment, round and slot. The result
+  names the replaced run under `fallback_from` (a `run-gates` member under
+  `fallback`) with a `model-fallback` diagnostic, and fails only when the
+  rerun fails too. A failed Fable phase session (refusal, model switch,
+  watchdog kill or non-zero exit) is recorded with both models in its
+  `key_context`, and the next phase session the drive spawns runs on Opus
+  at `xhigh`; a refusal with no fallback halts the drive. State validation accepts an Opus run in a
+  Fable slot only after a recorded Fable provider failure in that round, so
+  an older runtime refuses a state that holds one.
+
 - The packaged `check-test-deletions` hook compares test ids
   (`path::[Class::...]name`) between HEAD and the index instead of removed
   definition lines, and runs at the commit-msg stage. A signature change or a

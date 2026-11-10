@@ -14,6 +14,7 @@ import heddle.runtime.gate_run as gate_run
 import heddle.runtime.verification as runtime_verification
 from heddle.contracts import decisions as kinds
 from heddle.contracts import operations as ops
+from heddle.contracts.gate_execution import model_fallback
 from heddle.contracts.result import (
     ExitCode,
     HeddleResult,
@@ -89,6 +90,9 @@ Validator = Callable[
 class _SessionStep:
     halt_result: HeddleResult | None
     validation_problem: ValidationProblem | None
+    # The (model, effort) for the next phase session the drive spawns, after
+    # a failed session on a model with a fallback; commands may run between.
+    session_model: tuple[str, str] | None = None
 
 
 def run_loop(config: ProjectConfig, slug: str, *, until: str | None) -> HeddleResult:
@@ -131,6 +135,7 @@ def run_loop(config: ProjectConfig, slug: str, *, until: str | None) -> HeddleRe
             return close_suite_failure
 
     validation_problem: ValidationProblem | None = None
+    session_model: tuple[str, str] | None = None
     conflict_retries = 0
     verify_failures: dict[str, int] = {}
 
@@ -202,11 +207,13 @@ def run_loop(config: ProjectConfig, slug: str, *, until: str | None) -> HeddleRe
                     validation_problem,
                     capability_checked=capability_checked,
                     scratch_dir=scratch_dir,
+                    model=session_model,
                 )
                 if session_step.halt_result is not None:
                     return session_step.halt_result
                 capability_checked = True
                 validation_problem = session_step.validation_problem
+                session_model = session_step.session_model
                 continue
 
             assert isinstance(action, ops.CommandAction)
@@ -380,18 +387,41 @@ def _execute_session_step(
     *,
     capability_checked: bool,
     scratch_dir: Path | None = None,
+    model: tuple[str, str] | None = None,
 ) -> _SessionStep:
     halt_result = _capability_probe_result(capability_checked, snap)
     if halt_result is not None:
         return _SessionStep(halt_result, None)
 
     session_result = _run_phase_session(
-        config, snap, next_action, validation_problem, scratch_dir=scratch_dir
+        config,
+        snap,
+        next_action,
+        validation_problem,
+        scratch_dir=scratch_dir,
+        model=model,
     )
     if isinstance(session_result, HeddleResult):
         # a failed or degenerate kickoff halts before any spawn,
         # preserving the structured failure (never a minimal fallback prompt).
         return _SessionStep(session_result, None)
+    failure = _session_failure(session_result)
+    fallback = (
+        model_fallback("claude", session_result.model) if failure is not None else None
+    )
+    if fallback is not None:
+        # Heddle's model fallback: record the failed session as it ran; the
+        # loop re-derives its next step from current state, and the next
+        # phase session runs on the fallback model.
+        post_snap = resolve_snapshot(config, slug)
+        session_log_failure = _record_session_fact(
+            slug, snap, post_snap, session_result, failure=failure, fallback=fallback
+        )
+        if session_log_failure is not None:
+            return _SessionStep(session_log_failure, None)
+        return _SessionStep(None, validation_problem, session_model=fallback)
+    if session_result.model_failure is not None:
+        return _model_failure_halt(config, slug, snap, session_result)
     if session_result.exit_code != 0:
         timeout_step = _handle_session_timeout(config, slug, snap, session_result)
         if timeout_step is not None:
@@ -405,7 +435,7 @@ def _execute_session_step(
         )
 
     post_snap = resolve_snapshot(config, slug)
-    session_log_failure = _record_session_fact(slug, snap, post_snap)
+    session_log_failure = _record_session_fact(slug, snap, post_snap, session_result)
     if session_log_failure is not None:
         return _SessionStep(session_log_failure, None)
     logged_snap = resolve_snapshot(config, slug)
@@ -444,10 +474,50 @@ def _handle_session_timeout(
     if session_result.termination not in _SESSION_TIMEOUT_TERMINATIONS:
         return None
     post_snap = resolve_snapshot(config, slug)
-    session_log_failure = _record_session_fact(slug, snap, post_snap)
+    session_log_failure = _record_session_fact(slug, snap, post_snap, session_result)
     if session_log_failure is not None:
         return _SessionStep(session_log_failure, None)
     return _SessionStep(None, None)
+
+
+def _session_failure(session_result: SessionResult) -> str | None:
+    """Why a phase session failed, or None when it did not.
+
+    A refusal or model switch, a watchdog kill and a non-zero exit all count;
+    on a model with a fallback each one starts the replacement session.
+    """
+    if session_result.model_failure is not None:
+        return session_result.model_failure
+    if session_result.termination in _SESSION_TIMEOUT_TERMINATIONS:
+        return session_result.termination
+    if session_result.exit_code != 0:
+        return f"exit {session_result.exit_code}"
+    return None
+
+
+def _model_failure_halt(
+    config: ProjectConfig,
+    slug: str,
+    snap: FeatureSnapshot,
+    session_result: SessionResult,
+) -> _SessionStep:
+    """Record a refusal or model switch that no fallback replaces, then halt."""
+    failure = session_result.model_failure
+    post_snap = resolve_snapshot(config, slug)
+    session_log_failure = _record_session_fact(
+        slug, snap, post_snap, session_result, failure=failure
+    )
+    if session_log_failure is not None:
+        return _SessionStep(session_log_failure, None)
+    return _SessionStep(
+        _hard_failure(
+            f"phase session on {session_result.model} at {session_result.effort} "
+            f"ended with {failure}",
+            "inspect the phase-session output and resolve the refusal before "
+            "retrying drive; Heddle runs no further model for this session",
+        ),
+        None,
+    )
 
 
 def _auto_close_suite_result(
@@ -740,6 +810,7 @@ def _run_phase_session(
     problem: ValidationProblem | None,
     *,
     scratch_dir: Path | None = None,
+    model: tuple[str, str] | None = None,
 ) -> SessionResult | HeddleResult:
     try:
         allowed_tools = allowed_tools_for_stage(config, snap)
@@ -764,6 +835,8 @@ def _run_phase_session(
         max_turns=config.autopilot.max_turns,
         max_budget_usd=config.autopilot.max_budget_usd,
     )
+    if model is not None:
+        spec = replace(spec, model=model[0], effort=model[1])
     try:
         return spawn_phase_session(spec, scratch_dir=scratch_dir)
     except MonitorLaunchError as error:
@@ -824,15 +897,30 @@ def _record_session_fact(
     slug: str,
     snap: FeatureSnapshot,
     post_snap: FeatureSnapshot,
+    session_result: SessionResult,
+    *,
+    failure: str | None = None,
+    fallback: tuple[str, str] | None = None,
 ) -> HeddleResult | None:
     now = utc_now_seconds()
+    key_context = (
+        f"autopilot session for {snap.stage} on {session_result.model} "
+        f"at {session_result.effort}"
+    )
+    if failure is not None:
+        key_context += f"; failed with {failure}"
+    if fallback is not None:
+        key_context += (
+            f"; the next session runs on the model fallback {fallback[0]} "
+            f"at {fallback[1]}"
+        )
     operation = ops.RecordSession(
         ops.SessionInput(
             started_at=now,
             ended_at=now,
             completed=("phase session",),
             started=(),
-            key_context=f"autopilot session for {snap.stage}",
+            key_context=key_context,
             next_steps="",
             blockers=(),
             stage=snap.stage,

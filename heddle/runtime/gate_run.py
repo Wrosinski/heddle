@@ -374,6 +374,8 @@ class _BatchMember:
     finished_at: str | None = None
     started_monotonic: float | None = None
     duration_s: int | None = None
+    # The model-fallback rerun of a failed member, when one ran.
+    fallback: HeddleResult | None = None
 
     @property
     def key(self) -> tuple[str, str, str]:
@@ -463,6 +465,9 @@ def execute_gates(parsed: RunGates) -> HeddleResult:
             )
             if interrupted is not None:
                 return interrupted
+            for member in prepared:
+                if member.execution == "failed" and member.error is None:
+                    member.fallback = _model_fallback(member, None)
             return _batch_result(resolved, prepared, current)
     except (KernelError, OSError, UnicodeDecodeError, MemoryError) as error:
         return _batch_input_failure(resolved, "batch admission", error, derived)
@@ -1127,14 +1132,24 @@ def _batch_result(
     failing = [
         member
         for member in members
-        if member.error is not None or member.execution in {"failed", "interrupted"}
+        if member.error is not None
+        or member.execution == "interrupted"
+        or member.execution == "failed"
+        and (member.fallback is None or not member.fallback.ok)
     ]
     if failing:
         selected = failing[0]
-        error = selected.error or HeddleError(
-            "gate-not-converged",
-            f"{selected.label} did not complete its review",
-            "follow every member remedy, then reassess",
+        fallback_error = (
+            selected.fallback.error if selected.fallback is not None else None
+        )
+        error = (
+            selected.error
+            or fallback_error
+            or HeddleError(
+                "gate-not-converged",
+                f"{selected.label} did not complete its review",
+                "follow every member remedy, then reassess",
+            )
         )
         return _batch_failure(
             members,
@@ -1143,13 +1158,15 @@ def _batch_result(
             selected.error_exit,
             actions=member_actions,
             excluded=excluded,
-            diagnostics=resolved.diagnostics + _preparation_notes(members),
+            diagnostics=resolved.diagnostics
+            + _preparation_notes(members)
+            + _fallback_notes(members),
         )
     exit_code = max(
         (
-            member.decision.exit_code
+            exit_for
             for member in members
-            if member.decision is not None
+            if (exit_for := _member_exit(member)) is not None
         ),
         key=_EXIT_SEVERITY.index,
         default=ExitCode.OK,
@@ -1166,7 +1183,9 @@ def _batch_result(
             "excluded_slots": excluded,
             "revision": refreshed.snapshot.state.revision,
         },
-        diagnostics=resolved.diagnostics + _preparation_notes(members),
+        diagnostics=resolved.diagnostics
+        + _preparation_notes(members)
+        + _fallback_notes(members),
         next_actions=_steering_next_actions(resolved.feature),
         exit_code=exit_code,
     )
@@ -1315,6 +1334,7 @@ def _batch_member_summary(
             if member.error is not None
             else None
         ),
+        "fallback": _fallback_summary(member.fallback),
         "next_actions": [
             {
                 "action": ops.action_payload(action.action),
@@ -1324,6 +1344,49 @@ def _batch_member_summary(
             for action in actions
         ],
     }
+
+
+def _member_exit(member: _BatchMember) -> ExitCode | None:
+    """A member's exit as its standalone run reports it, fallback included."""
+    if member.fallback is not None:
+        return member.fallback.exit_code
+    return member.decision.exit_code if member.decision is not None else None
+
+
+def _fallback_summary(result: HeddleResult | None) -> dict[str, Any] | None:
+    """The model-fallback rerun of a failed member, as its standalone run reports it."""
+    if result is None:
+        return None
+    if result.error is not None:
+        return {
+            "ok": False,
+            "exit_code": int(result.exit_code),
+            "error": {
+                "code": result.error.code,
+                "message": result.error.message,
+                "hint": result.error.hint,
+            },
+            "run_id": None,
+        }
+    data = result.data or {}
+    return {
+        "ok": True,
+        "exit_code": int(result.exit_code),
+        "run_id": data.get("run_id"),
+        "status": data.get("status"),
+        "execution": data.get("execution"),
+        "artifact": data.get("artifact"),
+    }
+
+
+def _fallback_notes(members: list[_BatchMember]) -> tuple[Diagnostic, ...]:
+    return tuple(
+        diagnostic
+        for member in members
+        if member.fallback is not None
+        for diagnostic in member.fallback.diagnostics
+        if diagnostic.code == "model-fallback"
+    )
 
 
 def _batch_failure(
@@ -1621,6 +1684,10 @@ def _run_locked(
                     exit_code=_RESOLUTION_EXITS.get(recorded.code, ExitCode.FATAL),
                     diagnostics=resolved.diagnostics,
                 )
+            if outcome.gate_exit != 0:
+                rerun = _model_fallback(member, held_lock_path)
+                if rerun is not None:
+                    return rerun
             if outcome.retained_review is not None:
                 from heddle.kernel.review_assignments import pending_retained
                 from heddle.runtime.review_assignments import retained_response_result
@@ -1698,6 +1765,85 @@ def _run_locked(
         revision=result_revision,
         preparation_diagnostics=member.preparation_diagnostics,
         next_actions=next_actions,
+    )
+
+
+def _model_fallback(
+    member: _BatchMember, held_lock_path: Path | None
+) -> HeddleResult | None:
+    """Rerun a slot whose reviewer just failed on that reviewer's model fallback.
+
+    The failed run is already recorded. When the round's reviewer, derived
+    from that record, is now a different model, the slot runs once more on
+    it under the same locks; the fallback run is recorded as its own model.
+    """
+    current = resolve_snapshot_from_cwd(member.parsed.feature, writable=True)
+    if isinstance(current, ResolveFeatureFailure) or member.run_id is None:
+        return None
+    failed = next(
+        (
+            run
+            for fact in current.snapshot.state.gates
+            for run in fact.runs
+            if run.run_id == member.run_id
+        ),
+        None,
+    )
+    if failed is None:
+        return None
+    try:
+        invocation = _resolve_invocation(
+            current.snapshot, current.config, member.gate_type, member.parsed
+        )
+    except KernelError:
+        return None
+    if invocation.exec_config == member.invocation.exec_config:
+        return None
+    result = _run_locked(
+        member.parsed,
+        gate_type=member.gate_type,
+        invocation=invocation,
+        held_lock_path=held_lock_path,
+    )
+    return _noting_fallback(result, member.parsed.gate, failed)
+
+
+def _noting_fallback(result: HeddleResult, gate: str, failed: GateRun) -> HeddleResult:
+    """Name the failed run a fallback replaced, in the fallback's own envelope."""
+    execution = dict(failed.execution_config or {})
+    origin = {
+        "run_id": failed.run_id,
+        "execution": {
+            key: execution.get(key) for key in ("cli", "model", "reasoning_effort")
+        },
+        "failure_reason": failed.failure_reason,
+    }
+    failed_on = f"{execution.get('model')} at {execution.get('reasoning_effort')}"
+    note = Diagnostic(
+        severity=Severity.ADVISORY,
+        code="model-fallback",
+        message=(
+            f"{gate} on {failed_on} failed with {failed.failure_reason} "
+            f"(run {failed.run_id}); Heddle reran the slot on its model fallback"
+        ),
+    )
+    if result.error is not None:
+        error = result.error
+        return replace(
+            result,
+            error=HeddleError(
+                error.code,
+                f"{error.message} (after {failed_on} failed with "
+                f"{failed.failure_reason})",
+                error.hint,
+                {**error.details, "fallback_from": origin},
+            ),
+            diagnostics=(note, *result.diagnostics),
+        )
+    return replace(
+        result,
+        data={**(result.data or {}), "fallback_from": origin},
+        diagnostics=(note, *result.diagnostics),
     )
 
 

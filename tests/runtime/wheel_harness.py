@@ -344,6 +344,9 @@ def write_claude_shim(bin_dir: Path, event: str, log_path: Path) -> Path:
                 ),
                 "BASH_DEFAULT_TIMEOUT_MS": os.environ.get("BASH_DEFAULT_TIMEOUT_MS"),
                 "BASH_MAX_TIMEOUT_MS": os.environ.get("BASH_MAX_TIMEOUT_MS"),
+                "CLAUDE_CODE_DISABLE_REFUSAL_FALLBACK": os.environ.get(
+                    "CLAUDE_CODE_DISABLE_REFUSAL_FALLBACK"
+                ),
             }}
             with Path({str(log_path)!r}).open("a", encoding="utf-8") as stream:
                 stream.write(
@@ -393,6 +396,7 @@ def write_scripted_claude_shim(
                     "CLAUDE_CODE_EFFORT_LEVEL",
                     "BASH_DEFAULT_TIMEOUT_MS",
                     "BASH_MAX_TIMEOUT_MS",
+                    "CLAUDE_CODE_DISABLE_REFUSAL_FALLBACK",
                 )
             }}
             index = (

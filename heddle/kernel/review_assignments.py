@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+from collections.abc import Iterable, Mapping
 from dataclasses import asdict, fields, is_dataclass, replace
 from typing import TYPE_CHECKING, Any, cast
 
@@ -21,6 +22,7 @@ from heddle.contracts.feature_policy import (
     ReviewResolution,
     ReviewRound,
 )
+from heddle.contracts.gate_execution import FALLBACK_FAILURE_REASONS, model_fallback
 from heddle.contracts.review_assignments import (
     DISPOSITION_STATUSES,
     EVIDENCE_KINDS,
@@ -1184,6 +1186,50 @@ def verification_targets(
     )
 
 
+def round_reviewer(
+    runs: Iterable[GateRun], assignment_id: str, round_number: int, slot: ReviewerSlot
+) -> Reviewer:
+    """The reviewer that serves a slot in one round.
+
+    The frozen reviewer serves until one of its runs in that round fails for a
+    provider reason; Heddle's model fallback then serves the rest of the round.
+    The next round starts on the frozen reviewer again.
+    """
+    reviewer = slot.reviewer
+    fallback = model_fallback(reviewer.cli, reviewer.model)
+    if fallback is None:
+        return reviewer
+    for run in runs:
+        execution = run.execution_config or {}
+        if (
+            (run.assignment_id, run.round_number, run.reviewer_slot)
+            == (assignment_id, round_number, slot.name)
+            and run.verdict.get("status") == "error"
+            and run.failure_reason in FALLBACK_FAILURE_REASONS
+            and _executed_by(execution, reviewer)
+        ):
+            return Reviewer(reviewer.cli, *fallback)
+    return reviewer
+
+
+def assignment_runs(state: StateFile, assignment: ReviewAssignment) -> list[GateRun]:
+    """Every recorded run of one assignment, in append order."""
+    return [
+        run
+        for fact in state.gates
+        if (fact.gate, fact.scope) == (assignment.role, assignment.scope)
+        for run in fact.runs
+        if run.assignment_id == assignment.id
+    ]
+
+
+def _executed_by(execution: Mapping[str, Any], reviewer: Reviewer) -> bool:
+    return all(
+        execution.get(key) == getattr(reviewer, key)
+        for key in ("cli", "model", "reasoning_effort")
+    )
+
+
 def source_run(state: StateFile, run_id: str) -> GateRun:
     for fact in state.gates:
         for run in fact.runs:
@@ -1579,7 +1625,7 @@ def validate_assignments(state: StateFile) -> None:
         ):
             raise invalid("source differs from the accepted invocation binding")
     for fact in state.gates:
-        for run in fact.runs:
+        for index, run in enumerate(fact.runs):
             if attempts:
                 attempt = attempts.get(run.run_id)
                 if attempt is None:
@@ -1636,9 +1682,14 @@ def validate_assignments(state: StateFile) -> None:
             row = run_assignment.rounds[run.round_number - 1]
             slot = next((s for s in row.slots if s.name == run.reviewer_slot), None)
             execution = run.execution_config or {}
-            if slot is None or any(
-                execution.get(key) != getattr(slot.reviewer, key)
-                for key in ("cli", "model", "reasoning_effort")
+            if slot is None or not (
+                _executed_by(execution, slot.reviewer)
+                or _executed_by(
+                    execution,
+                    round_reviewer(
+                        fact.runs[:index], run_assignment.id, row.number, slot
+                    ),
+                )
             ):
                 raise invalid("gate execution differs from frozen reviewer slot")
             if run.verdict.get("status") != "error" and run.run_id not in sources:

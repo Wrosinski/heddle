@@ -225,7 +225,13 @@ def review_content(role="spec-review", *, findings=(), altitude=True):
     return result
 
 
-def provider_transport(monkeypatch, artifact, *, error_attempts=0):
+def provider_transport(monkeypatch, artifact, *, error_attempts=0, refuse_models=()):
+    """Answer provider calls in process; ``refuse_models`` refuse every call.
+
+    A refused Claude call writes the stream Claude Code emits when no refusal
+    fallback runs: the refused assistant turn, ``model_refusal_no_fallback``
+    and a result with no structured output.
+    """
     from heddle.gate.runners import claude, codex
     from heddle.io.process import MonitorResult, Termination
 
@@ -234,6 +240,31 @@ def provider_transport(monkeypatch, artifact, *, error_attempts=0):
     def transport(cli, command, raw_out, *, stdin_source):
         prompt = stdin_source.read_text()
         calls.append((cli, prompt, tuple(command)))
+        model = command[command.index("--model") + 1] if "--model" in command else None
+        if cli == "claude" and model in refuse_models:
+            refusal = [
+                {
+                    "type": "assistant",
+                    "parent_tool_use_id": None,
+                    "message": {"model": model, "stop_reason": "refusal"},
+                },
+                {
+                    "type": "system",
+                    "subtype": "model_refusal_no_fallback",
+                    "original_model": model,
+                    "api_refusal_category": "cyber",
+                },
+                {"type": "result", "subtype": "success", "is_error": False},
+            ]
+            raw_out.write_text("\n".join(json.dumps(event) for event in refusal) + "\n")
+            return MonitorResult(
+                exit_code=0,
+                termination=Termination.COMPLETED,
+                saw_stream_activity=True,
+                inactivity_seconds=0,
+                inactivity_marker="",
+                checkpoints=[],
+            )
         if len(calls) <= error_attempts:
             raw_out.write_text("injected provider failure\n")
             return MonitorResult(

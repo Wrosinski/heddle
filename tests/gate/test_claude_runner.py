@@ -37,6 +37,7 @@ OBSERVED_ENV = (
     "BASH_MAX_TIMEOUT_MS",
     "HEDDLE_AGENT_SESSION",
     "CLAUDECODE",
+    "CLAUDE_CODE_DISABLE_REFUSAL_FALLBACK",
 )
 
 
@@ -122,6 +123,7 @@ def test_every_claude_gate_runs_commands_under_auto_mode(
         "BASH_MAX_TIMEOUT_MS": "900000",
         "HEDDLE_AGENT_SESSION": "gate",
         "CLAUDECODE": None,
+        "CLAUDE_CODE_DISABLE_REFUSAL_FALLBACK": "1",
     }
 
 
@@ -192,3 +194,54 @@ def _retire_auto(value: object, old_digest: str, new_digest: str) -> object:
     if isinstance(value, str):
         return value.replace(old_digest, new_digest)
     return value
+
+
+def test_a_refused_assigned_review_fails_instead_of_awaiting_interpretation(
+    tmp_path: Path,
+) -> None:
+    from heddle.gate.types import FailureReason
+
+    events = [
+        {
+            "type": "assistant",
+            "parent_tool_use_id": None,
+            "message": {"model": "claude-fable-5-2", "stop_reason": "refusal"},
+        },
+        {
+            "type": "system",
+            "subtype": "model_refusal_no_fallback",
+            "original_model": "claude-fable-5-2",
+            "api_refusal_category": "cyber",
+        },
+        {"type": "result", "subtype": "success", "is_error": False},
+    ]
+    binary = write_executable_script(
+        tmp_path / "claude",
+        f"#!{sys.executable}\n"
+        "import sys\n"
+        "sys.stdin.read()\n"
+        f"print({chr(10).join(json.dumps(event) for event in events)!r})\n",
+    )
+    gate_type = GATES["spec-review"]
+    prepared = SimpleNamespace(
+        invocation=resolve_gate_execution(
+            gate_type, GateInvocationOverrides(cli="claude")
+        ),
+        transport=SimpleNamespace(system="constraint"),
+        output_contract=SimpleNamespace(schema_json="{}"),
+        assignment_id="assignment",
+    )
+    args = GateArgs(
+        gate_name="spec-review",
+        cli_bin=str(binary),
+        workdir=tmp_path,
+        poll_seconds=0.05,
+    )
+    paths = _paths(tmp_path)
+
+    result = execute_claude(gate_type, args, paths, "review", prepared)  # type: ignore[arg-type]
+
+    assert result.failure_reason is FailureReason.REFUSAL
+    assert result.response_warning is None
+    log = paths.log.read_text(encoding="utf-8")
+    assert "ModelRefusal:" in log and '"api_refusal_category": "cyber"' in log

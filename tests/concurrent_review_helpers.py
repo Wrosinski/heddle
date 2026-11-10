@@ -343,6 +343,7 @@ def install_slot_engine(
     parties: int = 2,
     first: tuple[str, str] | None = None,
     failures: tuple[tuple[str, str], ...] = (),
+    failing_models: tuple[str, ...] = (),
     crashes: tuple[tuple[str, str], ...] = (),
     findings: dict[tuple[str, str], tuple] | None = None,
     hold_until_recorded: dict[tuple[str, str], tuple[str, str]] | None = None,
@@ -350,12 +351,14 @@ def install_slot_engine(
 ):
     """A fork-safe engine double keyed by (gate, reviewer slot).
 
-    Every started call waits at a ``parties``-wide barrier, so no call can
-    finish before all have started. ``first`` finishes before every other call.
-    ``failures`` return a typed provider failure; ``crashes`` exit the worker
-    without a result. ``hold_until_recorded`` maps a held key to the key whose
-    state record it waits for (``recorded`` is the shared event map that the
-    parent's recording wrapper sets).
+    The first ``parties`` started calls wait at a ``parties``-wide barrier, so
+    none of them can finish before all have started; a later call is a model
+    fallback, run after the batch. ``first`` finishes before every other call.
+    ``failures`` return a typed provider failure, as does every call on one of
+    ``failing_models``; ``crashes`` exit the worker without a result.
+    ``hold_until_recorded`` maps a held key to the key whose state record it
+    waits for (``recorded`` is the shared event map that the parent's
+    recording wrapper sets).
     """
     starts = manager.list()
     finishes = manager.list()
@@ -384,9 +387,10 @@ def install_slot_engine(
                 "pid": os.getpid(),
             }
         )
-        if barrier is not None:
+        concurrent = len(starts) <= parties
+        if barrier is not None and concurrent:
             barrier.wait(timeout=10)
-        if first is not None and key != first:
+        if first is not None and key != first and concurrent:
             assert first_finished.wait(timeout=10)
         if hold_until_recorded and key in hold_until_recorded:
             awaited = hold_until_recorded[key]
@@ -394,7 +398,10 @@ def install_slot_engine(
         try:
             if key in crashes:
                 os._exit(17)
-            if key in failures:
+            if (
+                key in failures
+                or prepared.invocation.exec_config.model in failing_models
+            ):
                 return typed_failure(context, key)
             return canonical_outcome(
                 gate_type, context, feature, findings=(findings or {}).get(key, ())

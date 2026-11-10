@@ -174,3 +174,90 @@ class TestClaudeClassification:
             classify_claude(monitor, tmp_path / "raw.out", events)
             is FailureReason.MAX_TURNS
         )
+
+
+def _completed(exit_code: int = 0):
+    from heddle.io.process import MonitorResult, Termination
+
+    return MonitorResult(
+        exit_code=exit_code,
+        termination=Termination.COMPLETED,
+        saw_stream_activity=True,
+        inactivity_seconds=0,
+        inactivity_marker="",
+        checkpoints=[],
+    )
+
+
+SUCCESS = {"type": "result", "subtype": "success", "is_error": False}
+REFUSED_TURN = {
+    "type": "assistant",
+    "parent_tool_use_id": None,
+    "message": {"model": "claude-fable-5-2", "stop_reason": "refusal"},
+}
+NO_FALLBACK = {
+    "type": "system",
+    "subtype": "model_refusal_no_fallback",
+    "original_model": "claude-fable-5-2",
+}
+
+
+class TestClaudeRefusal:
+    @pytest.mark.parametrize(
+        "events",
+        (
+            [REFUSED_TURN, SUCCESS],
+            [NO_FALLBACK, SUCCESS],
+            [REFUSED_TURN, NO_FALLBACK, {**SUCCESS, "is_error": True}],
+        ),
+    )
+    @pytest.mark.parametrize("exit_code", (0, 1))
+    def test_a_refusal_fails_the_call(
+        self, tmp_path: Path, events: list[dict], exit_code: int
+    ) -> None:
+        from heddle.gate.runners.claude import classify_claude
+        from heddle.gate.types import FailureReason
+
+        assert (
+            classify_claude(_completed(exit_code), tmp_path / "raw.out", events)
+            is FailureReason.REFUSAL
+        )
+
+    @pytest.mark.parametrize("subtype", ("model_refusal_fallback", "model_fallback"))
+    def test_another_model_answering_fails_even_a_successful_call(
+        self, tmp_path: Path, subtype: str
+    ) -> None:
+        from heddle.gate.runners.claude import classify_claude
+        from heddle.gate.types import FailureReason
+
+        switch = {
+            "type": "system",
+            "subtype": subtype,
+            "original_model": "claude-fable-5-2",
+            "fallback_model": "claude-opus-5-5",
+        }
+        events = [switch, {**SUCCESS, "structured_output": {"role": "spec-review"}}]
+        assert (
+            classify_claude(_completed(), tmp_path / "raw.out", events)
+            is FailureReason.MODEL_SUBSTITUTED
+        )
+
+    def test_refusal_words_in_review_text_or_a_subagent_do_not_fail_the_call(
+        self, tmp_path: Path
+    ) -> None:
+        from heddle.gate.runners.claude import classify_claude
+
+        raw = tmp_path / "raw.out"
+        raw.write_text('"stop_reason": "refusal" model_refusal_no_fallback\n')
+        events = [
+            {
+                "type": "assistant",
+                "message": {
+                    "stop_reason": "end_turn",
+                    "content": [{"type": "text", "text": "a refusal path"}],
+                },
+            },
+            {**REFUSED_TURN, "parent_tool_use_id": "toolu_1"},
+            {**SUCCESS, "result": "the model_refusal_fallback event"},
+        ]
+        assert classify_claude(_completed(), raw, events) is None

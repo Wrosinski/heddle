@@ -55,6 +55,8 @@ class FailureReason(StrEnum):
     CAPTURE_STORAGE = "capture-storage-failure"
     REVIEWED_SOURCE_CHANGED = "reviewed-source-changed"
     REVIEWED_SOURCE_UNAVAILABLE = "reviewed-source-unavailable"
+    REFUSAL = "model-refusal"
+    MODEL_SUBSTITUTED = "model-substituted"
 
 
 @dataclass(frozen=True)

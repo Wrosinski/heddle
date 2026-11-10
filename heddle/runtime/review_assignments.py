@@ -183,10 +183,24 @@ def resolve_invocation(
     )
     if slot is None:
         raise _slot_refusal(state, gate_type.name, row, overrides.cli)
-    for key in ("model", "reasoning_effort"):
-        explicit = getattr(overrides, key)
-        if explicit is not None and explicit != getattr(slot.reviewer, key):
-            raise core.invalid(f"{key} differs from the confirmed reviewer tuple")
+    # After the frozen reviewer fails for a provider reason in this round, its
+    # model fallback serves the slot; explicit axes may name either reviewer.
+    reviewer = core.round_reviewer(
+        core.assignment_runs(state, assignment), assignment.id, row.number, slot
+    )
+    if not any(
+        all(
+            getattr(overrides, key) in (None, getattr(named, key))
+            for key in ("model", "reasoning_effort")
+        )
+        for named in (slot.reviewer, reviewer)
+    ):
+        key = next(
+            key
+            for key in ("model", "reasoning_effort")
+            if getattr(overrides, key) not in (None, getattr(slot.reviewer, key))
+        )
+        raise core.invalid(f"{key} differs from the confirmed reviewer tuple")
     if admit:
         policy = core.selected_policy(state, gate_type.name)
         if policy.mode == "off":
@@ -194,7 +208,7 @@ def resolve_invocation(
         try:
             validate_host_review_selection(
                 gate_type.name,
-                (slot.reviewer,),
+                (reviewer,),
                 gates_enabled=config.gates_enabled,
                 agents=config.agents,
             )
@@ -223,7 +237,7 @@ def resolve_invocation(
                     details=details,
                 )
     invocation = resolve_gate_execution(
-        gate_type, GateInvocationOverrides(**asdict(slot.reviewer))
+        gate_type, GateInvocationOverrides(**asdict(reviewer))
     )
     return invocation
 
@@ -417,13 +431,25 @@ def validate_retained_access(
             round_ = assignment.rounds[row.round_number - 1]
             slot = next(s for s in round_.slots if s.name == row.reviewer_slot)
             invocation = capture.invocation
+            reviewers = (
+                slot.reviewer,
+                core.round_reviewer(
+                    core.assignment_runs(state, assignment),
+                    assignment.id,
+                    round_.number,
+                    slot,
+                ),
+            )
             if (invocation.feature, invocation.gate, invocation.scope) != (
                 access.feature,
                 assignment.role,
                 assignment.scope,
-            ) or any(
-                getattr(invocation.execution, key) != getattr(slot.reviewer, key)
-                for key in ("cli", "model", "reasoning_effort")
+            ) or not any(
+                all(
+                    getattr(invocation.execution, key) == getattr(reviewer, key)
+                    for key in ("cli", "model", "reasoning_effort")
+                )
+                for reviewer in reviewers
             ):
                 raise core.invalid(
                     "retained response differs from its original reviewer"

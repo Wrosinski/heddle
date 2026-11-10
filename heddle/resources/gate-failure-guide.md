@@ -2,7 +2,8 @@
 
 Use the reason printed by `heddle run-gate` to find the matching entry below.
 Inspect the named gate summary and log before retrying. A retry must preserve
-the requested provider, model, reasoning effort, sandbox, and review budget.
+the round's reviewer (provider, model, reasoning effort and sandbox) and the
+review budget; the runtime selects that reviewer, including its model fallback.
 
 Current writable work uses `heddle.state/v9`,
 `heddle.review-assignments/v3`, and content-addressed
@@ -25,6 +26,32 @@ is needed. A review stop (round cap, no progress or no decrease) recorded
 through `heddle review round-open` also returns `ok: true` with exit 4 and
 names its stop decision. An `ok: false` result, usually exit 3, means the command failed
 or was refused: follow its `error` and the matching entry below.
+
+## Model fallback
+
+Claude Code's own refusal fallback is switched off for every gate and drive
+session, so a refusal fails the call instead of finishing on another model.
+Heddle's single model fallback replaces it: when a slot's reviewer on
+`claude-fable-5-2` fails for a provider reason, the same command reruns that
+slot once on `claude-opus-5-5` at `xhigh`. Provider reasons are
+`model-refusal`, `model-substituted`, `unsupported-model`,
+`claude-overloaded`, `exit`, `budget-exhausted`, `max-turns`, `timeout`,
+`inactivity-timeout`, `empty-output`, `truncated-output`,
+`invalid-output-structure` and `execution-failure`; preflight,
+reviewed-source and capture-storage failures keep the frozen reviewer. The
+failed run stays recorded as Fable and the rerun is recorded as Opus, in the
+same assignment, round and slot. The result names the replaced run under
+`fallback_from` (a `run-gates` member under `fallback`) with a
+`model-fallback` diagnostic; the command fails only when the rerun fails too,
+and its message then names both reasons.
+
+For the rest of that round the slot runs on the fallback; the next round
+starts on Fable again. Review evidence is per reviewer, so an Opus fallback
+run is not a later-round review by the Fable reviewer: a finding retained with
+`requires_inspection` from a Fable run still needs a Fable run in a later
+round. Under `heddle drive` a failed Fable phase session is recorded with
+both models named, and the next phase session the drive spawns runs on the
+fallback.
 
 ## Completed responses awaiting interpretation
 
@@ -247,7 +274,23 @@ separate native stop-resolution and round-open route afterward.
 
 **Evidence:** The provider stream reports model or account rejection and the summary records the requested execution tuple.
 
-**Remedy:** Verify account access and the authorized model identifier; do not substitute a different model without an explicit policy change.
+**Remedy:** Verify account access and the authorized model identifier; do not substitute a different model beyond the runtime's model fallback without an explicit policy change.
+
+## `model-refusal`
+
+**Status:** emitted
+
+**Evidence:** The Claude stream reports a refusal: a `model_refusal_no_fallback` system event or a main-thread assistant message with `stop_reason: refusal`. The log's `ModelRefusal` line names the model and, when the provider gave one, the refusal category.
+
+**Remedy:** A refusal is never a clean review: its findings are unavailable, not zero. On Fable the runtime has already rerun the slot on its model fallback (see Model fallback). When the fallback refused too, or the reviewer has none, read the refusal category in the log and the reviewed inputs it touched, and take the review gap to the owner; do not reword the prompt or the inputs to get past a refusal.
+
+## `model-substituted`
+
+**Status:** emitted
+
+**Evidence:** The Claude stream reports that another model answered (`model_refusal_fallback` or `model_fallback`), although every Heddle launch switches Claude Code's fallback off. The log's `ModelSubstituted` line names the original and fallback models.
+
+**Remedy:** The output is not credited, because the recorded reviewer did not produce it. Check that the installed Claude Code honors `CLAUDE_CODE_DISABLE_REFUSAL_FALLBACK` and that no wrapper strips the variable, then rerun the gate.
 
 ## `transport-error`
 

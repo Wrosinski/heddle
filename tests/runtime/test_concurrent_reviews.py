@@ -533,6 +533,41 @@ def test_ac8_several_failures_select_the_first_in_publication_order(
     ]
 
 
+def test_a_failed_fable_member_reruns_on_its_model_fallback_after_the_batch(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _host, state_path = same_gate_host(tmp_path, monkeypatch)
+    with multiprocessing.Manager() as manager:
+        starts, _finishes, _seen = install_slot_engine(
+            monkeypatch, manager, failing_models=("claude-fable-5-2",)
+        )
+        result = execute_batch()
+        launched = [
+            (row["reviewer_slot"], row["model"], row["reasoning_effort"])
+            for row in starts
+        ]
+    assert result.ok, result.to_envelope()
+    assert sorted(launched[:2]) == sorted(
+        [
+            (PRIMARY, "gpt-6-astra", "high"),
+            (SECONDARY, "claude-fable-5-2", "high"),
+        ]
+    )
+    assert launched[2:] == [(SECONDARY, "claude-opus-5-5", "xhigh")]
+    secondary = [
+        run for run in gate_runs(state_path) if run["reviewer_slot"] == SECONDARY
+    ]
+    assert [
+        (run["execution_config"]["model"], run["verdict"]["status"] == "error")
+        for run in secondary
+    ] == [("claude-fable-5-2", True), ("claude-opus-5-5", False)]
+    member = next(row for row in result.data["members"] if member_key(row) == S)
+    assert member["execution"] == "failed"
+    assert member["fallback"]["ok"] and member["fallback"]["exit_code"] == 0
+    assert member["fallback"]["run_id"] == secondary[1]["run_id"]
+    assert "model-fallback" in {row.code for row in result.diagnostics}
+
+
 @pytest.mark.parametrize("round_number", (1, 2))
 def test_ac8_worker_crash_stops_recording_and_later_output_recovers_without_a_call(
     round_number: int, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

@@ -56,6 +56,8 @@ def _drive(monkeypatch, host, *, until):
     monkeypatch.setattr(loop, "_capability_probe_result", lambda *_args: None)
     monkeypatch.setattr(loop, "_auto_close_suite_result", lambda *_args: None)
     monkeypatch.setattr(loop, "spawn_phase_session", session)
+    # The failed session is the stop; no model-fallback session replaces it.
+    monkeypatch.setattr(loop, "model_fallback", lambda *_args: None)
     monkeypatch.setattr(application, "execute", recording)
     result = loop.run_loop(load_project_config(host), V7_FEATURE, until=until)
     return result, prompts, executed

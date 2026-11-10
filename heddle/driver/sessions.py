@@ -12,7 +12,11 @@ from typing import Any
 
 from heddle.contracts.limits import DEFAULT_SESSION_HARD_TIMEOUT_S
 from heddle.driver.tempfiles import empty_temp_path
-from heddle.io.claude_events import last_result_event_from_path
+from heddle.io.claude_events import (
+    DISABLE_REFUSAL_FALLBACK_ENV,
+    last_result_event_from_path,
+    model_failure_from_path,
+)
 from heddle.io.process import MonitorConfig, run_monitored
 from heddle.kernel.model import FeatureSnapshot
 from heddle.kernel.project_config import KernelError, ProjectConfig
@@ -102,6 +106,9 @@ class PhaseSessionSpec:
     # is an explicit configuration opt-in.
     max_turns: int | None
     max_budget_usd: float
+    # Heddle's model fallback replaces these for the session after a failure.
+    model: str = PHASE_SESSION_MODEL
+    effort: str = PHASE_SESSION_EFFORT
 
 
 @dataclass(frozen=True)
@@ -116,6 +123,10 @@ class SessionResult:
     exit_code: int
     termination: str
     output: Mapping[str, Any]
+    model: str = PHASE_SESSION_MODEL
+    effort: str = PHASE_SESSION_EFFORT
+    # ``model-refusal`` or ``model-substituted`` when the stream reports one.
+    model_failure: str | None = None
 
 
 _MILESTONE_TOOLS = (
@@ -228,12 +239,12 @@ _CLAUDE_ARGS = (
     _ClaudeArg(
         "--model claude-fable-5-2",
         (CLAUDE_MODEL,),
-        _static_arg(CLAUDE_MODEL, PHASE_SESSION_MODEL),
+        lambda spec, _addendum: (CLAUDE_MODEL, spec.model),
     ),
     _ClaudeArg(
         "--effort high",
         (CLAUDE_EFFORT,),
-        _static_arg(CLAUDE_EFFORT, PHASE_SESSION_EFFORT),
+        lambda spec, _addendum: (CLAUDE_EFFORT, spec.effort),
     ),
     _ClaudeArg(
         "--append-system-prompt",
@@ -512,6 +523,9 @@ def spawn_phase_session(
         exit_code=monitor.exit_code,
         termination=monitor.termination.value,
         output=last_result_event_from_path(raw_out),
+        model=spec.model,
+        effort=spec.effort,
+        model_failure=model_failure_from_path(raw_out),
     )
 
 
@@ -529,6 +543,7 @@ def _phase_session_command(spec: PhaseSessionSpec, addendum: Path) -> list[str]:
         "env",
         f"BASH_DEFAULT_TIMEOUT_MS={PHASE_SESSION_BASH_DEFAULT_TIMEOUT_MS}",
         f"BASH_MAX_TIMEOUT_MS={PHASE_SESSION_BASH_MAX_TIMEOUT_MS}",
+        f"{DISABLE_REFUSAL_FALLBACK_ENV}=1",
         "claude",
     ]
     for arg in _CLAUDE_ARGS:
