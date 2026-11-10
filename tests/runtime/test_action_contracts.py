@@ -389,6 +389,8 @@ def test_ac3_public_interpretation_action_preserves_capture_context(
     monkeypatch.setattr(loop, "_capability_probe_result", lambda *_args: None)
     monkeypatch.setattr(loop, "_auto_close_suite_result", lambda *_args: None)
     monkeypatch.setattr(loop, "spawn_phase_session", session)
+    # The failed session is the stop; no model-fallback session replaces it.
+    monkeypatch.setattr(loop, "model_fallback", lambda *_args: None)
     before = path.read_bytes()
     stopped = loop.run_loop(load_project_config(host), V7_FEATURE, until="plan-review")
     assert not stopped.ok and "17" in stopped.error.message
@@ -598,6 +600,8 @@ def test_ac11_driver_consumes_authoring_variant_without_provider_retry(
     monkeypatch.setattr(loop, "_capability_probe_result", lambda *_args: None)
     monkeypatch.setattr(loop, "_auto_close_suite_result", lambda *_args: None)
     monkeypatch.setattr(loop, "spawn_phase_session", session)
+    # The failed session is the stop; no model-fallback session replaces it.
+    monkeypatch.setattr(loop, "model_fallback", lambda *_args: None)
     before = path.read_bytes()
     stopped = loop.run_loop(load_project_config(host), V7_FEATURE, until="plan-review")
     assert not stopped.ok and "17" in stopped.error.message

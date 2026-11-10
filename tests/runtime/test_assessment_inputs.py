@@ -108,6 +108,8 @@ def test_ac1_reads_transition_and_driver_share_original_duty(
     monkeypatch.setattr(loop, "_capability_probe_result", lambda *_args: None)
     monkeypatch.setattr(loop, "_auto_close_suite_result", lambda *_args: None)
     monkeypatch.setattr(loop, "spawn_phase_session", session)
+    # The failed session is the stop; no model-fallback session replaces it.
+    monkeypatch.setattr(loop, "model_fallback", lambda *_args: None)
     stopped = loop.run_loop(load_project_config(host), V7_FEATURE, until="plan-review")
     assert not stopped.ok and "17" in stopped.error.message
     assert len(prompts) == 1
