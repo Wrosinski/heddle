@@ -184,22 +184,28 @@ def resolve_invocation(
     if slot is None:
         raise _slot_refusal(state, gate_type.name, row, overrides.cli)
     # After the frozen reviewer fails for a provider reason in this round, its
-    # model fallback serves the slot; explicit axes may name either reviewer.
-    reviewer = core.round_reviewer(
-        core.assignment_runs(state, assignment), assignment.id, row.number, slot
-    )
-    if not any(
-        all(
-            getattr(overrides, key) in (None, getattr(named, key))
-            for key in ("model", "reasoning_effort")
-        )
-        for named in (slot.reviewer, reviewer)
-    ):
-        key = next(
-            key
-            for key in ("model", "reasoning_effort")
-            if getattr(overrides, key) not in (None, getattr(slot.reviewer, key))
-        )
+    # model fallback serves the slot, and explicit axes must name the fallback.
+    reviewer = core.serving_reviewer(state, assignment, row, slot)
+    for key in ("model", "reasoning_effort"):
+        explicit = getattr(overrides, key)
+        if explicit is None or explicit == getattr(reviewer, key):
+            continue
+        if reviewer != slot.reviewer and explicit == getattr(slot.reviewer, key):
+            raise KernelError(
+                code="workspace-invalid",
+                message=(
+                    f"review assignment: {gate_type.name} slot {slot.name} round "
+                    f"{row.number} runs on Heddle's model fallback {reviewer.model} "
+                    f"at {reviewer.reasoning_effort}, because "
+                    f"{slot.reviewer.model} failed for a provider reason in this "
+                    f"round; --{key.replace('_', '-')} {explicit} names the "
+                    "frozen reviewer"
+                ),
+                hint=(
+                    "omit --model and --reasoning-effort, or name the fallback; "
+                    "the next round starts on the frozen reviewer again"
+                ),
+            )
         raise core.invalid(f"{key} differs from the confirmed reviewer tuple")
     if admit:
         policy = core.selected_policy(state, gate_type.name)
@@ -433,12 +439,7 @@ def validate_retained_access(
             invocation = capture.invocation
             reviewers = (
                 slot.reviewer,
-                core.round_reviewer(
-                    core.assignment_runs(state, assignment),
-                    assignment.id,
-                    round_.number,
-                    slot,
-                ),
+                core.serving_reviewer(state, assignment, round_, slot),
             )
             if (invocation.feature, invocation.gate, invocation.scope) != (
                 access.feature,
@@ -2312,11 +2313,10 @@ def next_action(snapshot: FeatureSnapshot, row: dict[str, Any]) -> NextAction:
         current = core.launch_round(snapshot.state, assignment)
         missing = row["missing_slots"] or ["primary"]
         slot = next(s for s in current.slots if s.name in missing)
+        reviewer = core.serving_reviewer(snapshot.state, assignment, current, slot)
         return NextAction(
             ops.CommandAction(
-                ops.RunGate(
-                    row["role"], feature=snapshot.feature, **asdict(slot.reviewer)
-                )
+                ops.RunGate(row["role"], feature=snapshot.feature, **asdict(reviewer))
             ),
             f"complete {row['role']} {row['scope']} slot {slot.name}",
         )

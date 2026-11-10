@@ -19,16 +19,22 @@ authority for the installed version.
   fallback replaces the CLI's: when a `claude-fable-5-2` reviewer fails for a
   provider reason, `run-gate` and `run-gates` rerun that slot once on
   `claude-opus-5-5` at `xhigh`. That reviewer serves the slot for the rest of
-  the round, and the next round starts on Fable again. Both runs are recorded
-  as the models that ran in the same assignment, round and slot. The result
-  names the replaced run under `fallback_from` (a `run-gates` member under
-  `fallback`) with a `model-fallback` diagnostic, and fails only when the
-  rerun fails too. A failed Fable phase session (refusal, model switch,
-  watchdog kill or non-zero exit) is recorded with both models in its
-  `key_context`, and the next phase session the drive spawns runs on Opus
-  at `xhigh`; a refusal with no fallback halts the drive. State validation accepts an Opus run in a
-  Fable slot only after a recorded Fable provider failure in that round, so
-  an older runtime refuses a state that holds one.
+  the round, readiness suggests it, and an explicit Fable `--model` is
+  refused until the next round starts on Fable again. Both runs are recorded
+  as the models that ran in the same assignment, round and slot, and the
+  fallback run's review evidence speaks for the slot's frozen reviewer. The
+  result names the replaced run under `fallback_from` (a `run-gates` member
+  under `fallback`) with a `model-fallback` diagnostic, and fails only when
+  the rerun fails too or cannot start. `execution-failure`, which also
+  covers a missing binary and local errors, does not trigger the fallback.
+  A failed Fable phase session (refusal, model switch, watchdog kill,
+  non-zero exit or error result) is recorded with both models in its
+  `key_context`, and that drive's next phase session runs on Opus at
+  `xhigh`; a refusal with no fallback halts the drive. Phase sessions' Bash
+  default and hard timeout now cover two gate attempts (5700 s and 6300 s).
+  State validation accepts an Opus run in a Fable slot only after a
+  recorded Fable provider failure in that round, so an older runtime
+  refuses a state that holds one.
 
 - The packaged `check-test-deletions` hook compares test ids
   (`path::[Class::...]name`) between HEAD and the index instead of removed

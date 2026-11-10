@@ -154,12 +154,14 @@ def launch_set(
                     LaunchExclusion(operation.gate, scope, slot.name, "slot-recorded")
                 )
                 continue
+            # The reviewer serving this round, model fallback included.
+            reviewer = core.serving_reviewer(state, assignment, current, slot)
             try:
                 resolve_invocation(
                     snapshot,
                     config,
                     gate_type,
-                    GateInvocationOverrides(**asdict(slot.reviewer)),
+                    GateInvocationOverrides(**asdict(reviewer)),
                     admit=True,
                 )
             except KernelError as error:
@@ -178,9 +180,7 @@ def launch_set(
             ranked.append(
                 (
                     (_CATALOG_ORDER[operation.gate], position),
-                    LaunchMember(
-                        operation.gate, scope, slot.name, slot.reviewer, index
-                    ),
+                    LaunchMember(operation.gate, scope, slot.name, reviewer, index),
                 )
             )
     return LaunchSet(

@@ -12,6 +12,8 @@ import json
 from dataclasses import replace
 from pathlib import Path
 
+import pytest
+
 from heddle.driver import loop, sessions
 from heddle.driver.sessions import SessionResult
 from heddle.kernel.project_config import load_project_config
@@ -64,8 +66,8 @@ def test_a_refused_fable_session_is_recorded_and_the_next_runs_on_opus(
     assert launched == [FABLE, OPUS]
     assert contexts == [
         "autopilot session for implement on claude-fable-5-2 at high; failed "
-        "with model-refusal; the next session runs on the model fallback "
-        "claude-opus-5-5 at xhigh"
+        "with model-refusal; this drive's next phase session runs on the model "
+        "fallback claude-opus-5-5 at xhigh"
     ]
     # The replacement's own failure keeps its ordinary handling.
     assert not result.ok and "exit 17" in result.error.message
@@ -81,6 +83,79 @@ def test_a_crashed_fable_session_is_followed_by_an_opus_session(
     assert launched == [FABLE, OPUS]
     assert len(contexts) == 1 and "failed with exit 17" in contexts[0]
     assert not result.ok and "exit 17" in result.error.message
+
+
+@pytest.mark.parametrize(
+    ("failed", "reason"),
+    (
+        (
+            SessionResult(
+                exit_code=0,
+                termination="completed",
+                output={
+                    "type": "result",
+                    "subtype": "error_max_budget",
+                    "is_error": True,
+                },
+            ),
+            "error_max_budget",
+        ),
+        (SessionResult(exit_code=-15, termination="timeout", output={}), "timeout"),
+    ),
+)
+def test_an_error_result_or_a_timeout_on_fable_sends_the_next_session_to_opus(
+    monkeypatch, driver_corpus, auto_tier2_workspace, failed, reason
+):
+    def answer(spec):
+        return failed if spec.model == FABLE[0] else _crashed(spec)
+
+    _result, launched, contexts = _drive(
+        monkeypatch, driver_corpus, auto_tier2_workspace, answer
+    )
+
+    assert launched[:2] == [FABLE, OPUS]
+    assert f"failed with {reason}; this drive's next phase session" in contexts[0]
+
+
+def test_the_batch_summary_names_a_member_s_fallback_review():
+    from heddle.contracts.result import HeddleResult
+
+    failed_member = {
+        "gate": "spec-review",
+        "reviewer_slot": "secondary",
+        "run_id": "r-fable",
+        "execution": "failed",
+        "publication": "recorded-error",
+        "status": None,
+        "findings": {},
+        "artifact": "reviews/spec-review.secondary.failed.json",
+        "next_actions": [],
+    }
+    fallback = {
+        "ok": True,
+        "exit_code": 4,
+        "run_id": "r-opus",
+        "status": "pass_with_conditions",
+        "findings": {"by_classification": {"implement": 1, "report": 0}},
+        "execution": {"cli": "claude", "model": OPUS[0], "reasoning_effort": OPUS[1]},
+        "artifact": "plans/demo/reviews/spec-review.secondary.opus.json",
+    }
+    rows = []
+    for member_fallback in (fallback, {**fallback, "status": "retained"}):
+        result = HeddleResult.success(
+            {
+                "workspace": "plans/demo",
+                "members": [{**failed_member, "fallback": member_fallback}],
+            }
+        )
+        rows.append(loop._gate_verdict_problem(result).detail)
+
+    assert (
+        "this slot's review is the model fallback run r-opus on claude-opus-5-5, "
+        "verdict pass_with_conditions, findings: 1 IMPLEMENT, 0 REPORT, "
+        "artifact plans/demo/reviews/spec-review.secondary.opus.json"
+    ) in rows[0]
+    assert "findings unavailable until interpreted, not zero, artifact" in rows[1]
 
 
 def test_a_refusal_with_no_fallback_is_recorded_and_halts_the_drive(

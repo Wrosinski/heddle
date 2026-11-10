@@ -568,6 +568,40 @@ def test_a_failed_fable_member_reruns_on_its_model_fallback_after_the_batch(
     assert "model-fallback" in {row.code for row in result.diagnostics}
 
 
+def test_a_batch_member_whose_fallback_fails_too_fails_the_batch_naming_both(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _host, state_path = same_gate_host(tmp_path, monkeypatch)
+    with multiprocessing.Manager() as manager:
+        starts, _finishes, _seen = install_slot_engine(
+            monkeypatch,
+            manager,
+            failing_models=("claude-fable-5-2", "claude-opus-5-5"),
+        )
+        result = execute_batch()
+        launched = [(row["reviewer_slot"], row["model"]) for row in starts]
+    assert not result.ok, result.to_envelope()
+    assert launched[2:] == [(SECONDARY, "claude-opus-5-5")]
+    assert result.error is not None
+    assert "after claude-fable-5-2 at high failed with" in result.error.message
+    assert int(result.exit_code) == 3
+    member = next(
+        row
+        for row in result.to_envelope()["error"]["details"]["members"]
+        if member_key(row) == S
+    )
+    assert member["fallback"]["ok"] is False
+    assert "model-refusal" in member["fallback"]["error"]["message"]
+    retry = member["next_actions"][0]["command"]
+    assert "--model claude-opus-5-5 --reasoning-effort xhigh" in retry
+    secondary = [
+        run["execution_config"]["model"]
+        for run in gate_runs(state_path)
+        if run["reviewer_slot"] == SECONDARY
+    ]
+    assert secondary == ["claude-fable-5-2", "claude-opus-5-5"]
+
+
 @pytest.mark.parametrize("round_number", (1, 2))
 def test_ac8_worker_crash_stops_recording_and_later_output_recovers_without_a_call(
     round_number: int, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

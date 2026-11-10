@@ -1193,23 +1193,46 @@ def round_reviewer(
 
     The frozen reviewer serves until one of its runs in that round fails for a
     provider reason; Heddle's model fallback then serves the rest of the round.
+    A run that completed binds the round to the reviewer that produced it, so
+    a frozen-reviewer retry accepted before this rule existed keeps serving.
     The next round starts on the frozen reviewer again.
     """
-    reviewer = slot.reviewer
-    fallback = model_fallback(reviewer.cli, reviewer.model)
+    frozen = slot.reviewer
+    fallback = model_fallback(frozen.cli, frozen.model)
     if fallback is None:
-        return reviewer
+        return frozen
+    substitute = Reviewer(frozen.cli, *fallback)
+    reviewer = frozen
     for run in runs:
-        execution = run.execution_config or {}
-        if (
-            (run.assignment_id, run.round_number, run.reviewer_slot)
-            == (assignment_id, round_number, slot.name)
-            and run.verdict.get("status") == "error"
-            and run.failure_reason in FALLBACK_FAILURE_REASONS
-            and _executed_by(execution, reviewer)
+        if (run.assignment_id, run.round_number, run.reviewer_slot) != (
+            assignment_id,
+            round_number,
+            slot.name,
         ):
-            return Reviewer(reviewer.cli, *fallback)
+            continue
+        execution = run.execution_config or {}
+        if run.verdict.get("status") != "error":
+            reviewer = next(
+                (r for r in (frozen, substitute) if _executed_by(execution, r)),
+                reviewer,
+            )
+        elif run.failure_reason in FALLBACK_FAILURE_REASONS and _executed_by(
+            execution, frozen
+        ):
+            reviewer = substitute
     return reviewer
+
+
+def serving_reviewer(
+    state: StateFile,
+    assignment: ReviewAssignment,
+    row: AssignmentRound,
+    slot: ReviewerSlot,
+) -> Reviewer:
+    """The reviewer that runs ``slot`` next in ``row``, model fallback included."""
+    return round_reviewer(
+        assignment_runs(state, assignment), assignment.id, row.number, slot
+    )
 
 
 def assignment_runs(state: StateFile, assignment: ReviewAssignment) -> list[GateRun]:
@@ -1249,9 +1272,46 @@ def reviewer_identity(run: GateRun) -> str:
 def inspection_identity(
     state: StateFile, run_id: str, *, origin: str | None = None
 ) -> str:
-    """Bind review evidence to the actual current reviewer identity."""
+    """Bind review evidence to the reviewer that a slot's run speaks for.
+
+    A model-fallback run stands in for its slot's frozen reviewer, so its
+    evidence carries that reviewer's identity: a later round on the frozen
+    reviewer can inspect the fallback's findings, and the reverse.
+    """
     del origin
-    return reviewer_identity(source_run(state, run_id))
+    run = source_run(state, run_id)
+    frozen = _frozen_reviewer(state, run)
+    if frozen is not None:
+        fallback = model_fallback(frozen.cli, frozen.model)
+        if fallback is not None and _executed_by(
+            run.execution_config or {}, Reviewer(frozen.cli, *fallback)
+        ):
+            return json.dumps(
+                {
+                    "cli": frozen.cli,
+                    "model": frozen.model,
+                    "reasoning_effort": frozen.reasoning_effort,
+                },
+                sort_keys=True,
+            )
+    return reviewer_identity(run)
+
+
+def _frozen_reviewer(state: StateFile, run: GateRun) -> Reviewer | None:
+    """The frozen reviewer of the slot and round a run was recorded in."""
+    assignment = next(
+        (a for a in state.review_assignments.assignments if a.id == run.assignment_id),
+        None,
+    )
+    if (
+        assignment is None
+        or run.round_number is None
+        or not 0 < run.round_number <= len(assignment.rounds)
+    ):
+        return None
+    row = assignment.rounds[run.round_number - 1]
+    slot = next((s for s in row.slots if s.name == run.reviewer_slot), None)
+    return slot.reviewer if slot is not None else None
 
 
 def continuation_authorized(state: StateFile, assignment: ReviewAssignment) -> bool:

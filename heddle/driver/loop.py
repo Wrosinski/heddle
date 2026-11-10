@@ -480,11 +480,39 @@ def _handle_session_timeout(
     return _SessionStep(None, None)
 
 
+def _fallback_row(fallback: object) -> str:
+    """A batch member's model-fallback rerun, for the convergence summary."""
+    if not isinstance(fallback, dict):
+        return ""
+    if not fallback.get("ok"):
+        error = fallback.get("error") or {}
+        return f"; model fallback failed: {error.get('message') or 'no result'}"
+    findings = fallback.get("findings")
+    counts = (
+        findings.get("by_classification") or {} if isinstance(findings, dict) else {}
+    )
+    found = (
+        "findings unavailable until interpreted, not zero"
+        if fallback.get("status") == "retained"
+        else f"findings: {counts.get('implement', 0)} IMPLEMENT, "
+        f"{counts.get('report', 0)} REPORT"
+    )
+    execution = fallback.get("execution") or {}
+    model = execution.get("model") if isinstance(execution, dict) else None
+    return (
+        f"; this slot's review is the model fallback run "
+        f"{fallback.get('run_id') or 'unrecorded'} on {model or 'the fallback'}, "
+        f"verdict {fallback.get('status') or 'unknown'}, {found}, "
+        f"artifact {fallback.get('artifact') or 'none'}"
+    )
+
+
 def _session_failure(session_result: SessionResult) -> str | None:
     """Why a phase session failed, or None when it did not.
 
-    A refusal or model switch, a watchdog kill and a non-zero exit all count;
-    on a model with a fallback each one starts the replacement session.
+    A refusal or model switch, a watchdog kill, a non-zero exit and an error
+    result all count; on a model with a fallback each one sends the drive's
+    next phase session to the fallback.
     """
     if session_result.model_failure is not None:
         return session_result.model_failure
@@ -492,6 +520,10 @@ def _session_failure(session_result: SessionResult) -> str | None:
         return session_result.termination
     if session_result.exit_code != 0:
         return f"exit {session_result.exit_code}"
+    output = session_result.output or {}
+    subtype = str(output.get("subtype") or "")
+    if output.get("is_error") is True or subtype.startswith("error"):
+        return subtype or "error result"
     return None
 
 
@@ -742,6 +774,7 @@ def _gate_verdict_problem(result: HeddleResult) -> ValidationProblem:
                 f"{found}, "
                 f"artifact {artifact or 'none'}, "
                 f"remedies {commands or ['reassess native readiness']}"
+                + _fallback_row(member.get("fallback"))
             )
         return ValidationProblem(
             detail=(
@@ -911,8 +944,8 @@ def _record_session_fact(
         key_context += f"; failed with {failure}"
     if fallback is not None:
         key_context += (
-            f"; the next session runs on the model fallback {fallback[0]} "
-            f"at {fallback[1]}"
+            f"; this drive's next phase session runs on the model fallback "
+            f"{fallback[0]} at {fallback[1]}"
         )
     operation = ops.RecordSession(
         ops.SessionInput(

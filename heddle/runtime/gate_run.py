@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any, cast
 
 from heddle.contracts import operations as ops
+from heddle.contracts.gate_execution import FALLBACK_FAILURE_REASONS, model_fallback
 from heddle.contracts.operations import RunGate, RunGates
 from heddle.contracts.result import (
     LAUNCH_REFUSAL_CAUSES,
@@ -1155,7 +1156,11 @@ def _batch_result(
             members,
             selected,
             error,
-            selected.error_exit,
+            selected.fallback.exit_code
+            if selected.error is None
+            and selected.fallback is not None
+            and fallback_error is not None
+            else selected.error_exit,
             actions=member_actions,
             excluded=excluded,
             diagnostics=resolved.diagnostics
@@ -1289,7 +1294,16 @@ def _batch_member_actions(
         if member.publication == "recoverable"
         else f"retry {member.label}"
     )
-    return (NextAction(ops.CommandAction(member.parsed), reason),)
+    return (NextAction(ops.CommandAction(_retry_operation(member)), reason),)
+
+
+def _retry_operation(member: _BatchMember) -> RunGate:
+    """A member's retry command, naming the round's fallback once one ran."""
+    execution = member.invocation.exec_config
+    fallback = model_fallback(execution.cli, execution.model)
+    if member.fallback is None or fallback is None:
+        return member.parsed
+    return replace(member.parsed, model=fallback[0], reasoning_effort=fallback[1])
 
 
 def _batch_member_summary(
@@ -1374,7 +1388,9 @@ def _fallback_summary(result: HeddleResult | None) -> dict[str, Any] | None:
         "exit_code": int(result.exit_code),
         "run_id": data.get("run_id"),
         "status": data.get("status"),
+        "findings": data.get("findings") or {},
         "execution": data.get("execution"),
+        # Repo-relative, as a standalone run-gate reports it.
         "artifact": data.get("artifact"),
     }
 
@@ -1594,9 +1610,9 @@ def _run_locked(
         pending = _retained_reuse(resolved, parsed)
         if pending is not None:
             return pending
-        invocation = invocation or _resolve_invocation(
-            snapshot, config, gate_type, parsed
-        )
+        # Resolve again under the lock: a run that waited on it may find the
+        # round's reviewer changed by another run's model fallback.
+        invocation = _resolve_invocation(snapshot, config, gate_type, parsed)
         from heddle.runtime.review_assignments import (
             ReviewEvidenceAccess,
             validate_sources,
@@ -1776,10 +1792,17 @@ def _model_fallback(
     The failed run is already recorded. When the round's reviewer, derived
     from that record, is now a different model, the slot runs once more on
     it under the same locks; the fallback run is recorded as its own model.
+    A fallback that is due but cannot start fails loudly instead.
     """
-    current = resolve_snapshot_from_cwd(member.parsed.feature, writable=True)
-    if isinstance(current, ResolveFeatureFailure) or member.run_id is None:
+    execution = member.invocation.exec_config
+    if member.run_id is None or model_fallback(execution.cli, execution.model) is None:
         return None
+    # Heddle chooses this rerun's model, so the caller's explicit model axes,
+    # which named the failed reviewer, do not apply; the CLI keeps the slot.
+    parsed = replace(member.parsed, model=None, reasoning_effort=None)
+    current = resolve_snapshot_from_cwd(parsed.feature, writable=True)
+    if isinstance(current, ResolveFeatureFailure):
+        return _fallback_not_started(member, None, current.error)
     failed = next(
         (
             run
@@ -1789,23 +1812,43 @@ def _model_fallback(
         ),
         None,
     )
-    if failed is None:
+    if failed is None or failed.failure_reason not in FALLBACK_FAILURE_REASONS:
         return None
     try:
         invocation = _resolve_invocation(
-            current.snapshot, current.config, member.gate_type, member.parsed
+            current.snapshot, current.config, member.gate_type, parsed
         )
-    except KernelError:
-        return None
-    if invocation.exec_config == member.invocation.exec_config:
+    except KernelError as error:
+        return _fallback_not_started(member, failed, error)
+    if invocation.exec_config == execution:
         return None
     result = _run_locked(
-        member.parsed,
+        parsed,
         gate_type=member.gate_type,
         invocation=invocation,
         held_lock_path=held_lock_path,
     )
     return _noting_fallback(result, member.parsed.gate, failed)
+
+
+def _fallback_not_started(
+    member: _BatchMember, failed: GateRun | None, error: KernelError
+) -> HeddleResult:
+    """A due model fallback that could not start, reported as the failure."""
+    execution = member.invocation.exec_config
+    reason = failed.failure_reason if failed is not None else "a provider failure"
+    return HeddleResult.failure(
+        HeddleError(
+            error.code,
+            f"{member.parsed.gate} on {execution.model} at "
+            f"{execution.reasoning_effort} failed with {reason} (run "
+            f"{member.run_id}), and Heddle's model fallback could not start: "
+            f"{error.message}",
+            error.hint,
+            {"fallback_not_started": {"run_id": member.run_id}},
+        ),
+        exit_code=_RESOLUTION_EXITS.get(error.code, ExitCode.FATAL),
+    )
 
 
 def _noting_fallback(result: HeddleResult, gate: str, failed: GateRun) -> HeddleResult:

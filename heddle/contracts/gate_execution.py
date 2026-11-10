@@ -33,7 +33,9 @@ MODEL_FALLBACKS: Mapping[tuple[str, str], tuple[str, str]] = MappingProxyType(
 
 # Gate failure reasons raised by the provider call itself, where another model
 # can succeed. Preflight, reviewed-source and capture-storage failures are not
-# here: a different model would meet the same inputs.
+# here: a different model would meet the same inputs. Nor is
+# ``execution-failure``: the runner also reports a missing binary, a launch
+# error and its own internal errors with it, and none of those reached a model.
 FALLBACK_FAILURE_REASONS = frozenset(
     {
         "model-refusal",
@@ -48,7 +50,6 @@ FALLBACK_FAILURE_REASONS = frozenset(
         "empty-output",
         "truncated-output",
         "invalid-output-structure",
-        "execution-failure",
     }
 )
 

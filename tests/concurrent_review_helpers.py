@@ -311,7 +311,7 @@ def _cover_verification_targets(payload, prepared) -> None:
         )
 
 
-def typed_failure(context, key: tuple[str, str]):
+def typed_failure(context, key: tuple[str, str], reason: str = "execution-failure"):
     """A typed provider failure with its diagnostic artifact."""
     from heddle.contracts.review_assignments import ArtifactRef
     from heddle.gate.types import GateEngineFailure
@@ -323,7 +323,7 @@ def typed_failure(context, key: tuple[str, str]):
     raw = diagnostic.read_bytes()
     return GateEngineFailure(
         gate_exit=1,
-        reason="execution-failure",
+        reason=reason,
         rerun_recommended=None,
         structure_warnings=("controlled provider failure",),
         artifacts=(
@@ -398,11 +398,11 @@ def install_slot_engine(
         try:
             if key in crashes:
                 os._exit(17)
-            if (
-                key in failures
-                or prepared.invocation.exec_config.model in failing_models
-            ):
+            if key in failures:
                 return typed_failure(context, key)
+            if prepared.invocation.exec_config.model in failing_models:
+                # A model refusal, which Heddle's model fallback answers.
+                return typed_failure(context, key, "model-refusal")
             return canonical_outcome(
                 gate_type, context, feature, findings=(findings or {}).get(key, ())
             )

@@ -485,12 +485,13 @@ def test_phase_session_command_carries_bash_timeout_envelope():
     assert (
         f"BASH_MAX_TIMEOUT_MS={sessions.PHASE_SESSION_BASH_MAX_TIMEOUT_MS}" in envelope
     )
-    # A session-run gate attempt may use the whole gate hard timeout: the Bash
-    # default must outlast it, and the session deadline must outlast that call.
+    # A session-run gate command may use the whole gate hard timeout twice (a
+    # failed Fable attempt and its model-fallback rerun): the Bash default must
+    # outlast both, and the session deadline must outlast that call.
     gate_hard_timeout_ms = GateArgs(gate_name="spec-review").timeout_seconds * 1000
     session_hard_timeout_ms = sessions.PHASE_SESSION_HARD_TIMEOUT_S * 1000
     assert (
-        gate_hard_timeout_ms
+        2 * gate_hard_timeout_ms
         < sessions.PHASE_SESSION_BASH_DEFAULT_TIMEOUT_MS
         < session_hard_timeout_ms
         <= sessions.PHASE_SESSION_BASH_MAX_TIMEOUT_MS

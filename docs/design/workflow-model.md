@@ -110,13 +110,15 @@ appears fails it with `model-substituted`. Heddle's one model fallback, in the
 [gate-execution contract](../../heddle/contracts/gate_execution.py), replaces
 it: when a slot's `claude-fable-5-2` reviewer fails for a provider reason, the
 same command reruns the slot once on `claude-opus-5-5` at `xhigh`, and that
-reviewer serves the slot for the rest of the round. Both runs are recorded as
+reviewer serves the slot for the rest of the round. One gate command can
+therefore hold two runs, each with its own timeouts. Both runs are recorded as
 the models that ran, in the same assignment, round and slot; the next round
-starts on the frozen reviewer again. Review evidence stays per reviewer, so a
-fallback run does not count as a later-round review by the frozen reviewer.
-Drive phase sessions follow the same rule: a failed Fable session (refusal,
-model switch, watchdog kill or non-zero exit) is recorded naming both models,
-and the next phase session the drive spawns runs on the fallback.
+starts on the frozen reviewer again. A fallback run's review evidence speaks
+for its slot's frozen reviewer, so findings close across the two models in
+later rounds. Drive phase sessions follow the same rule: a failed Fable
+session (refusal, model switch, watchdog kill, non-zero exit or error result)
+is recorded naming both models, and the next phase session of that drive runs
+on the fallback.
 
 The [policy resolver](../../heddle/kernel/feature_policy.py) and
 [role catalog](../../heddle/contracts/gates.py) own these rules.

@@ -10,10 +10,16 @@ from __future__ import annotations
 import pytest
 import yaml
 
-from tests.tiering_helpers import FABLE, OPUS, entry
+from tests.structured_review_helpers import disposition as reviewer_disposition
+from tests.structured_review_helpers import finding, finding_ref
+from tests.tiering_helpers import FABLE, OPUS, entry, invoke
 from tests.tiering_review_helpers import (
+    V7_FEATURE,
     current_host,
+    dispose,
+    disposition,
     gate_command,
+    open_round,
     provider_transport,
     review_content,
     review_status,
@@ -163,6 +169,175 @@ def test_state_refuses_a_fallback_run_without_a_recorded_provider_failure(
     assert "differs from frozen reviewer slot" in status.error.message
 
 
+def test_a_round_on_the_fallback_refuses_an_explicit_fable_run_and_suggests_opus(
+    tmp_path, monkeypatch, run_cli
+):
+    _host_root, _path = _host(tmp_path, monkeypatch, FABLE)
+    calls = provider_transport(
+        monkeypatch,
+        review_content(),
+        refuse_models=(FABLE["model"], OPUS["model"]),
+    )
+    gate_command(run_cli, "run-gate", "spec-review")
+
+    code, refused = gate_command(
+        run_cli,
+        "run-gate",
+        "spec-review",
+        "--cli",
+        "claude",
+        "--model",
+        FABLE["model"],
+        "--reasoning-effort",
+        FABLE["reasoning_effort"],
+    )
+
+    assert code != 0 and not refused["ok"], refused
+    message = refused["error"]["message"]
+    assert "model fallback claude-opus-5-5 at xhigh" in message
+    assert "--model claude-fable-5-2 names the frozen reviewer" in message
+    assert len(calls) == 2
+    status = invoke("Status", feature=V7_FEATURE)
+    command = next(
+        action.command for action in status.next_actions if "run-gate" in action.command
+    )
+    assert f"--model {OPUS['model']} --reasoning-effort xhigh" in command
+
+
+def test_a_fable_round_inspects_the_findings_of_an_opus_fallback_run(
+    tmp_path, monkeypatch, run_cli
+):
+    _host_root, path = current_host(
+        tmp_path,
+        monkeypatch,
+        overrides={"spec-review": entry("spec-review", primary=FABLE, limit=3)},
+    )
+    provider_transport(
+        monkeypatch,
+        review_content(findings=[finding("SP-I1", classification="implement")]),
+        refuse_models=(FABLE["model"],),
+    )
+    code, result = gate_command(run_cli, "run-gate", "spec-review")
+    assert code != 3 and result["ok"], result
+    origin = runs(path)[-1]["run_id"]
+    assert runs(path)[-1]["execution_config"]["model"] == OPUS["model"]
+    recorded = dispose(
+        path,
+        [
+            disposition(origin, status="retained", requires_inspection=True),
+            disposition(origin, "@coverage", status="settled"),
+        ],
+    )
+    assert recorded.ok, recorded.to_envelope()
+    opened = open_round(path)
+    assert opened.ok, opened.to_envelope()
+
+    second_round = review_content()
+    second_round["prior_dispositions"] = [
+        reviewer_disposition(finding_ref(origin, "SP-I1"), action="addressed"),
+        reviewer_disposition(finding_ref(origin, "@coverage"), action="addressed"),
+    ]
+    calls = provider_transport(monkeypatch, second_round)
+    code, result = gate_command(run_cli, "run-gate", "spec-review")
+    assert code != 3 and result["ok"], result
+    assert [call[2][call[2].index("--model") + 1] for call in calls] == [FABLE["model"]]
+    second = runs(path)[-1]["run_id"]
+
+    recorded = dispose(
+        path,
+        [
+            disposition(origin, "SP-I1", evidence_kind="review", review_run_id=second),
+            disposition(second, "@coverage", status="settled"),
+        ],
+    )
+    assert recorded.ok, recorded.to_envelope()
+
+
+def test_a_run_that_waited_on_the_lock_takes_the_round_s_current_reviewer(
+    tmp_path, monkeypatch, run_cli
+):
+    from heddle.gate.cli import GateInvocationOverrides, resolve_gate_execution
+    from heddle.runtime import gate_run
+
+    _host_root, path = _host(tmp_path, monkeypatch, FABLE)
+    calls = provider_transport(
+        monkeypatch,
+        review_content(),
+        refuse_models=(FABLE["model"], OPUS["model"]),
+    )
+    gate_command(run_cli, "run-gate", "spec-review")
+    del calls[:]
+
+    # Resolved before the lock, as if another run's fallback had not happened.
+    resolve = gate_run._resolve_invocation
+    stale = []
+
+    def before_the_lock(snapshot, config, gate_type, parsed):
+        invocation = resolve(snapshot, config, gate_type, parsed)
+        if not stale:
+            stale.append(invocation)
+            return resolve_gate_execution(gate_type, GateInvocationOverrides(**FABLE))
+        return invocation
+
+    monkeypatch.setattr(gate_run, "_resolve_invocation", before_the_lock)
+    code, result = gate_command(run_cli, "run-gate", "spec-review")
+
+    assert code != 0, result
+    assert [call[2][call[2].index("--model") + 1] for call in calls] == [OPUS["model"]]
+    assert runs(path)[-1]["execution_config"]["model"] == OPUS["model"]
+
+
+def test_a_due_fallback_that_cannot_start_fails_loudly(tmp_path, monkeypatch, run_cli):
+    from heddle.kernel.project_config import KernelError
+    from heddle.runtime import gate_run
+
+    _host_root, path = _host(tmp_path, monkeypatch, FABLE)
+    calls = provider_transport(
+        monkeypatch, review_content(), refuse_models=(FABLE["model"],)
+    )
+    resolve = gate_run._resolve_invocation
+    resolutions = []
+
+    def third_fails(*args):
+        resolutions.append(args)
+        if len(resolutions) == 3:
+            raise KernelError(
+                code="workspace-invalid", message="injected", hint="injected hint"
+            )
+        return resolve(*args)
+
+    monkeypatch.setattr(gate_run, "_resolve_invocation", third_fails)
+    code, result = gate_command(run_cli, "run-gate", "spec-review")
+
+    assert code != 0 and not result["ok"], result
+    message = result["error"]["message"]
+    assert "failed with model-refusal" in message
+    assert "Heddle's model fallback could not start: injected" in message
+    assert len(calls) == 1
+    assert [run["failure_reason"] for run in runs(path)] == ["model-refusal"]
+
+
+def test_a_local_launch_failure_keeps_the_frozen_reviewer(
+    tmp_path, monkeypatch, run_cli
+):
+    _host_root, path = _host(tmp_path, monkeypatch, FABLE)
+    calls = provider_transport(monkeypatch, review_content())
+    monkeypatch.setattr("heddle.gate.runner._binary_available", lambda _name: False)
+
+    code, result = gate_command(run_cli, "run-gate", "spec-review")
+
+    assert code != 0 and not result["ok"], result
+    assert "fallback_from" not in result["error"]["details"]
+    assert [
+        (run["execution_config"]["model"], run["failure_reason"]) for run in runs(path)
+    ] == [(FABLE["model"], "execution-failure")]
+
+    monkeypatch.setattr("heddle.gate.runner._binary_available", lambda _name: True)
+    code, result = gate_command(run_cli, "run-gate", "spec-review")
+    assert code == 0, result
+    assert [call[2][call[2].index("--model") + 1] for call in calls] == [FABLE["model"]]
+
+
 def _run(run_id, *, execution, status="error", reason="model-refusal", round_=1):
     from heddle.kernel.state import GateRun
 
@@ -193,6 +368,23 @@ def _run(run_id, *, execution, status="error", reason="model-refusal", round_=1)
         ((_run("r1", execution=FABLE, reason="reviewed-source-changed"),), FABLE),
         ((_run("r1", execution=FABLE, reason="missing-plan-path"),), FABLE),
         ((_run("r1", execution=FABLE, status="pass", reason=None),), FABLE),
+        ((_run("r1", execution=FABLE, reason="execution-failure"),), FABLE),
+        # A Fable retry accepted before the fallback existed keeps serving.
+        (
+            (
+                _run("r1", execution=FABLE),
+                _run("r2", execution=FABLE, status="pass", reason=None),
+            ),
+            FABLE,
+        ),
+        (
+            (
+                _run("r1", execution=FABLE),
+                _run("r2", execution=OPUS),
+                _run("r3", execution=OPUS),
+            ),
+            OPUS,
+        ),
     ),
 )
 def test_round_reviewer_switches_only_after_a_provider_failure_in_that_round(

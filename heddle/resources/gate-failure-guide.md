@@ -36,22 +36,24 @@ Heddle's single model fallback replaces it: when a slot's reviewer on
 slot once on `claude-opus-5-5` at `xhigh`. Provider reasons are
 `model-refusal`, `model-substituted`, `unsupported-model`,
 `claude-overloaded`, `exit`, `budget-exhausted`, `max-turns`, `timeout`,
-`inactivity-timeout`, `empty-output`, `truncated-output`,
-`invalid-output-structure` and `execution-failure`; preflight,
-reviewed-source and capture-storage failures keep the frozen reviewer. The
-failed run stays recorded as Fable and the rerun is recorded as Opus, in the
-same assignment, round and slot. The result names the replaced run under
-`fallback_from` (a `run-gates` member under `fallback`) with a
-`model-fallback` diagnostic; the command fails only when the rerun fails too,
-and its message then names both reasons.
+`inactivity-timeout`, `empty-output`, `truncated-output` and
+`invalid-output-structure`. A truncated review is first retried once on the
+same model inside the call. Preflight, reviewed-source, capture-storage and
+`execution-failure` results keep the frozen reviewer, because a missing
+binary or a local error never reached a model. The failed run stays recorded
+as Fable and the rerun as Opus, in the same assignment, round and slot. The
+result names the replaced run under `fallback_from` (a `run-gates` member
+under `fallback`) with a `model-fallback` diagnostic. The command fails only
+when the rerun fails too, or when the fallback cannot start, and its message
+then names both.
 
-For the rest of that round the slot runs on the fallback; the next round
-starts on Fable again. Review evidence is per reviewer, so an Opus fallback
-run is not a later-round review by the Fable reviewer: a finding retained with
-`requires_inspection` from a Fable run still needs a Fable run in a later
-round. Under `heddle drive` a failed Fable phase session is recorded with
-both models named, and the next phase session the drive spawns runs on the
-fallback.
+For the rest of that round the slot runs on the fallback, and readiness's
+suggested command names it. An explicit `--model claude-fable-5-2` is refused
+until the next round, which starts on Fable again. A fallback run speaks for
+its slot: a later Fable round can inspect the findings of an Opus fallback
+run, and the reverse. Under `heddle drive` a failed Fable phase session is
+recorded with both models named, and the drive's next phase session runs on
+the fallback; a new `heddle drive` starts on Fable.
 
 ## Completed responses awaiting interpretation
 

@@ -47,13 +47,16 @@ _BOUNDARY_DENIALS = (
     "Bash(heddle flow set*)",
 )
 # A session may run `heddle run-gate` itself, and gate reviewers run commands,
-# so one gate attempt may use the whole gate hard timeout. The session's Bash
-# default covers that attempt plus run-gate's own preparation and recording,
-# and the session's hard timeout adds room for its work around the call.
+# so one gate attempt may use the whole gate hard timeout, and a failed Fable
+# attempt is followed by its model-fallback rerun in the same command. The
+# session's Bash default covers both attempts plus run-gate's own preparation
+# and recording, and the session's hard timeout adds room for its work around
+# the call.
+PHASE_SESSION_GATE_ATTEMPTS = 2
 PHASE_SESSION_GATE_OVERHEAD_S = 300
 PHASE_SESSION_HANDLING_S = 600
 PHASE_SESSION_HARD_TIMEOUT_S = (
-    DEFAULT_SESSION_HARD_TIMEOUT_S
+    PHASE_SESSION_GATE_ATTEMPTS * DEFAULT_SESSION_HARD_TIMEOUT_S
     + PHASE_SESSION_GATE_OVERHEAD_S
     + PHASE_SESSION_HANDLING_S
 )
@@ -65,7 +68,8 @@ PHASE_SESSION_POLL_S = 0.1
 # the paid attempt with no fact recorded. The max lets a session extend one
 # call explicitly up to its own hard timeout.
 PHASE_SESSION_BASH_DEFAULT_TIMEOUT_MS = (
-    DEFAULT_SESSION_HARD_TIMEOUT_S + PHASE_SESSION_GATE_OVERHEAD_S
+    PHASE_SESSION_GATE_ATTEMPTS * DEFAULT_SESSION_HARD_TIMEOUT_S
+    + PHASE_SESSION_GATE_OVERHEAD_S
 ) * 1000
 PHASE_SESSION_BASH_MAX_TIMEOUT_MS = PHASE_SESSION_HARD_TIMEOUT_S * 1000
 CLAUDE_PRINT = "--print"
