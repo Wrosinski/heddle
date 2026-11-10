@@ -40,11 +40,16 @@ receive the complete operative contract without depending on this design note.
    session acts and completes independent work while a question is open.
    If a file requires a stop, identify its instruction and the actual
    checkpoint. Do not infer a new permission requirement from a caution.
+   An approval rule names the exact actions it covers and the routine steps
+   that need none, and keeps its exception inside the rule. A reviewer
+   condition binds only what it names.
 5. **Show artifact shapes.** Apply "Show the bar". Where an artifact's form
    matters — a decision
    payload, a coverage matrix, a session handoff — name the exact fields or
    show a minimal example. For summaries, preserve outcome, evidence, material
-   caveat, and next action; let length follow the content.
+   caveat, and next action; let length follow the content. Write a summary or
+   handoff for a reader who did not see the work: lead with the outcome and
+   expand workflow shorthand.
 6. **Evidence over claims.** Progress statements bind to recorded facts
    (verification runs, gate facts, counts, dates, exact commands).
    Tie workflow records to their real events, such as milestone completion.

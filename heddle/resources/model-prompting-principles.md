@@ -2,8 +2,8 @@
 
 Canonical model-guidance reference for authors of Heddle prompts, briefings,
 skills, and agent instructions. Models covered:
-Claude Fable 5.1, Claude Fable 5, Claude Opus 5.5, Claude Opus 5, GPT-6 Astra,
-and GPT-5.6.
+Claude Fable 5.2, Claude Fable 5.1, Claude Fable 5, Claude Opus 5.5,
+Claude Opus 5, GPT-6 Astra, and GPT-5.6.
 The notes describe guidance inputs, not Heddle's configured model selection.
 
 This reference ships beside [prompt-authoring-standards.md](prompt-authoring-standards.md).
@@ -44,8 +44,12 @@ Cite these entries by name; ordering and numbering may change.
    work benefits from it. Avoid blanket nudges to do more or less of a behavior.
 3. **Define done and the boundaries, once.** Name the complete requested
    deliverable, actions already authorized, decisions that need the user,
-   and the verification warranted by the change. Continue independent,
-   authorized work while a question is open. Ground progress in session
+   and the verification warranted by the change. An approval rule names the
+   exact actions it covers and the routine steps that need none, such as
+   retrying a command that is safe to repeat; an exception belongs inside the
+   rule it qualifies. Separate ordinary obstacles, which the session diagnoses
+   and works through, from deliberate blockers, which it leaves in place and
+   reports. Continue independent, authorized work while a question is open. Ground progress in session
    evidence and identify failed or skipped checks. Broaden verification when
    a change, failure, or unresolved concern justifies it; scratch checks need
    not become permanent tests.
@@ -63,6 +67,9 @@ Cite these entries by name; ordering and numbering may change.
    needed; preserve contracts and decisive evidence even when they need detail.
    A generation change triggers an audit of redundant, conflicting, or dated
    instructions, especially corrections to the previous model's defaults.
+   Carried context accumulates caution: memory, notes, reviewer conditions,
+   and handoffs. Remove a caution whose reason no longer holds, and give an
+   absolute rule its scope and reason.
    Stable obligations do not expire with a model generation. Prefer a relevant
    example, rubric, or test to its prose restatement. Compare representative
    outputs; token reduction alone does not establish better judgment.
@@ -71,13 +78,17 @@ Cite these entries by name; ordering and numbering may change.
    Describe an unwanted pattern by its cause so the instruction generalizes:
    for example, replace decorative metaphor with the concrete claim it hides.
    Prescribe output fields when a reader or tool consumes them; extra
-   templates otherwise invite padding. The number of examples follows the
-   ambiguity they resolve, not a universal quota.
+   templates otherwise invite padding. Describe the reader a summary serves,
+   such as one who did not see the work, rather than capping its sentences;
+   numeric style limits can make prose choppy. The number of examples follows
+   the ambiguity they resolve, not a universal quota.
 7. **Behavior knobs are configuration.** Model, effort, verbosity, tool
    availability, delegation limits, and history handling belong to the harness.
    Model-specific reminders belong in explicitly owned injected blocks,
-   rather than shared gate text. Compare effort on fixed cases instead of
-   assuming a level name means the same thing across generations. Append
+   rather than shared gate text. Start from the vendor's recommended effort
+   for the class of work and raise it only for a measured gain. Compare
+   effort on fixed cases instead of assuming a level name means the same
+   thing across generations. Append
    turn-specific reminders without rewriting earlier conversation turns.
 
 ## Model-specific notes
@@ -102,6 +113,26 @@ decision: the guide requires Responses for tool calling, removes several
 sampling parameters, and documents effort and cache changes. Check that guide
 and runner compatibility when evaluating adoption; a documentation refresh
 does not establish transport support.
+
+### Claude Fable 5.2
+
+The Fable 5.1 guidance remains the baseline. Thinking is always on and the
+API default effort is `high`. The vendor reports most of the capability gain by
+`high`, uneven gains above it, and more early stops at `low` and `medium`;
+re-run the effort comparison on fixed cases instead of carrying a 5.1 setting.
+An instruction to think less does not reduce thinking at `medium` and above;
+lower the effort instead. The model applies approval rules, "never" rules,
+style limits, and cautions carried in notes, memory, and reviewer conditions
+closely. Name the exact actions an approval rule covers and the routine steps
+that need none, keep an exception inside the rule it qualifies, and drop
+carried cautions whose reason no longer holds. What a prompt says about code
+ownership changes how much the model restructures and fixes nearby code;
+Heddle's footprint and ownership rules decide that, so do not add a general
+ownership grant. Delegation follows the prompts' invitations, and at `xhigh`
+and `max` the model may start subagents to review its own work. Write final
+reports for a reader who did not see the work. Every account enforces the
+preserved-thinking prefix check, so a harness keeps conversation history
+append-only.
 
 ### Claude Fable 5.1
 
@@ -152,8 +183,9 @@ effect on the selected model.
   evidence. Follow the packaged prompt-authoring standard's model-generation
   audit trigger; include both skill mirrors and examine pause language as well
   as output quality.
-- `heddle/gate/registry.py` owns resolved gate model and effort policy;
-  shared guidance does not override it. The host's delegation policy owns the
+- The confirmed feature policy owns each review's model and effort, and
+  `heddle/gate/registry.py` supplies the lane defaults; shared guidance does
+  not override them. The host's delegation policy owns the
   exploration model tier and its dated provider bindings; briefings and skills
   consume that policy rather than restating model names. Provider-specific
   transport and delegation changes require their own implementation and evidence.
@@ -167,6 +199,9 @@ instructions or configuration.
 - [OpenAI: GPT-6 Astra model guidance](https://developers.openai.com/api/docs/guides/latest-model?model=gpt-6-astra)
 - [OpenAI: GPT-6 Astra model card](https://developers.openai.com/api/docs/models/gpt-6-astra)
 - [OpenAI: GPT-5.6 prompting guidance](https://developers.openai.com/api/docs/guides/prompt-guidance-gpt-5p6)
+- [Anthropic: prompting Claude Fable 5.2](https://platform.claude.com/docs/en/build-with-claude/prompt-engineering/prompting-claude-fable-5-2)
+- [Anthropic: Fable 5.2 migration guide](https://platform.claude.com/docs/en/models/fable-5-2/migration-guide)
+- [Anthropic: what's new in Claude Fable 5.2](https://platform.claude.com/docs/en/models/fable-5-2/whats-new-fable-5-2)
 - [Anthropic: prompting Claude Fable 5.1](https://platform.claude.com/docs/en/build-with-claude/prompt-engineering/prompting-claude-fable-5-1)
 - [Anthropic: Fable 5.1 migration guide](https://platform.claude.com/docs/en/models/fable-5-1/migration-guide)
 - [Anthropic: prompting Claude Fable 5](https://platform.claude.com/docs/en/build-with-claude/prompt-engineering/prompting-claude-fable-5)
