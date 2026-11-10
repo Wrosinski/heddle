@@ -10,6 +10,15 @@ To escalate a genuine conflict or another owner choice, use
 `heddle decisions add --input-json` and follow the native stop.
 Headless sessions cannot call `decisions resolve`, change scope or advance phases.
 
+Separate ordinary obstacles from deliberate blockers. Diagnose and work
+through an ordinary obstacle, such as a timeout, a transient failure or an
+empty result, with the access you have; re-reading files, rerunning a narrow
+hermetic test and retrying a read-only or hermetic command need no approval.
+Leave a deliberate blocker in place and report it: a runtime refusal, a denied
+tool, a pending decision, an owner checkpoint or a runtime-owned write. Two
+sessions in a row that make no progress stop the drive, so an ordinary obstacle
+is not a reason to end the session.
+
 Preserve actor and authority in the existing rationale. An explicit user answer
 and a lead applying a specifically identified standing user grant both use
 `heddle decisions resolve` and therefore record `resolution_source: user`; that

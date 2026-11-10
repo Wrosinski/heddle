@@ -15,11 +15,19 @@ is wrong, surface it rather than patching around a broken assumption.
 
 The same holds when Heddle itself is wrong: a command,
 gate, briefing, or projection behaving against its contract or your
-expectation is a tooling discovery. Stop, append a row to
-`plans/friction-log.md` with observed versus expected behavior, classify the
-cause, and propose the simplest principled fix — through `heddle decisions add`
-when it blocks you. Never patch the runtime inside this feature; treat those
-steps as the Tooling Discovery Protocol.
+expectation is a tooling discovery. Append a row to `plans/friction-log.md`
+with observed versus expected behavior, classify the cause, and propose the
+simplest principled fix. When it blocks your work, also record it through
+`heddle decisions add` and stop the dependent work; otherwise continue. Never
+patch the runtime inside this feature; treat those steps as the Tooling
+Discovery Protocol.
+
+Separate ordinary obstacles from deliberate blockers. Diagnose and work
+through an ordinary obstacle, such as a timeout, a transient failure or an
+empty result, with the access you have; re-reading files, rerunning a narrow
+hermetic test and retrying a read-only or hermetic command need no approval.
+Leave a deliberate blocker in place and report it: a runtime refusal, a denied
+tool, a pending decision, an owner checkpoint or a runtime-owned write.
 
 ## Authority
 
