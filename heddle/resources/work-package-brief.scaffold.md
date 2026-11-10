@@ -36,7 +36,8 @@ that prevent checks from running concurrently.>
 
 ## Return
 
-State the outcome and provide a criterion-by-criterion evidence table:
+Write for a lead who did not watch the work: lead with the outcome, then
+provide a criterion-by-criterion evidence table:
 
 | Criterion | Met / not met / not verified | Evidence and limits |
 | --------- | ---------------------------- | ------------------- |

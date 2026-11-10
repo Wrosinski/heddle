@@ -510,7 +510,9 @@ require another run. If proof fails, diagnose, fix, rerun affected milestone/
 consumer tests and the witness lanes, and commit the fix. After the
 last relevant milestone-review fix, refresh affected-consumer selection before the
 witness run. Record a final session handoff naming the evidence, the passing
-witness lanes, remaining decisions, and readiness for peer review. Report provider
+witness lanes, remaining decisions, and readiness for peer review. Write it for
+a reader who did not see the session: lead with the outcome and expand workflow
+shorthand. Report provider
 transport completion, parsed verdict, and native assignment closure separately;
 do not infer any one from either of the others. The selected final boundary owns
 smoke and the default post-review rerun. A deferral
