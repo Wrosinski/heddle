@@ -16,6 +16,9 @@ schema owns representation; native assignments and dispositions own closure.
 
 [partial-review-evidence-depth]
 
+This role runs no tests; the command guidance below covers only reading the
+Feature Spec and the runtime files you were given.
+
 [partial-test-execution-scope]
 
 ## Inputs

@@ -16,6 +16,9 @@ progress, commands, policy, assignments, and closure.
 
 [partial-review-evidence-depth]
 
+This role runs no tests or providers; the command guidance below covers reading
+the plan, spec and repository.
+
 [partial-test-execution-scope]
 
 ## Inputs and scope

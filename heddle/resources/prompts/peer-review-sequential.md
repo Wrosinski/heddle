@@ -159,7 +159,7 @@ Focus analysis on:
 - Whether Implementation Plan decisions diverged from the Feature Spec without updating it
 - For each AC, actively hypothesize conditions under which the AC might not hold, then check whether the code handles them
 
-Do not spend analysis effort on:
+Out of scope (do not report findings on):
 
 - Code style that follows the project's established patterns (even if you'd prefer different patterns)
 - Hypothetical improvements, optimizations, or alternative designs
@@ -353,7 +353,7 @@ Stop after producing the review document. Do not suggest improvements outside th
 
 ---
 
-Use short, literal sentences and precise technical terms. Prefer direct statements to metaphor or flourish. Separate different ideas into paragraphs where the prescribed field structure permits. Use lists or tables for parallel content only where the output contract allows them. Give enough explanation to make findings actionable; do not compress several ideas into one sentence. Preserve the required schema fields, coverage, Summary limits, and non-narration rules.
+Use short, literal sentences and precise technical terms. Prefer direct statements to metaphor or flourish. Separate different ideas into paragraphs where the prescribed field structure permits. Use lists or tables for parallel content only where the output contract allows them. Give enough explanation to make findings actionable; do not compress several ideas into one sentence. Preserve the required schema fields, coverage, and non-narration rules.
 
 ## Validation
 
