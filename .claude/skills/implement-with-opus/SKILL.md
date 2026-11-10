@@ -2,7 +2,7 @@
 name: implement-with-opus
 description: Explicitly opt into Fable-led implementation with bounded Opus workers during an authorized Heddle implement milestone. Use only when the user selects this approach; ordinary implementation remains direct work by the lead.
 disable-model-invocation: true
-effort: xhigh
+effort: high
 ---
 
 # Implement with Opus
@@ -46,7 +46,8 @@ choices. A defect in those inputs is a discovery to resolve through the
 governing workflow, not permission to weaken the contract.
 
 Use `opus-implementer`, defined in `.claude/agents/opus-implementer.md`. The
-skill and worker definition pin `xhigh` effort as the default. Surface an
+skill runs the Fable lead at `high` effort, and the worker definition pins
+`xhigh` for Opus. Surface an
 unavailable agent, model, or effort level rather than silently substituting one
 or claiming the requested configuration ran. Agent instructions and tool lists
 constrain behavior; workers still inherit the active harness permissions.

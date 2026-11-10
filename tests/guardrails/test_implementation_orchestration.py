@@ -32,7 +32,7 @@ def test_provider_skills_are_explicit_and_share_the_canonical_contract():
 
     assert claude_metadata["name"] == "implement-with-opus"
     assert claude_metadata["disable-model-invocation"] is True
-    assert claude_metadata["effort"] == "xhigh"
+    assert claude_metadata["effort"] == "high"
     assert codex_metadata["name"] == "implement-with-sol"
     assert codex_ui["policy"]["allow_implicit_invocation"] is False
     assert "$implement-with-sol" in codex_ui["interface"]["default_prompt"]
