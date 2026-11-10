@@ -25,7 +25,7 @@ CLAUDE_STANDARD_POLICY = GateLanePolicy(
 CLAUDE_FABLE_POLICY = GateLanePolicy(
     cli="claude",
     model="claude-fable-5-2",
-    reasoning_effort="xhigh",
+    reasoning_effort="high",
     sandbox="auto",
 )
 CODEX_ASTRA_POLICY = GateLanePolicy(

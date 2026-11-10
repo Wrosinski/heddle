@@ -22,7 +22,7 @@ def test_ac5_execution_matrix_resolves_recommended_primary_and_secondary_lanes()
     from heddle.gate.types import GateInvocationOverrides
 
     astra = {**ASTRA, "reasoning_effort": "xhigh"}
-    fable = {**FABLE, "reasoning_effort": "xhigh"}
+    fable = {**FABLE, "reasoning_effort": "high"}
     sol = {"cli": "codex", "model": "gpt-6.1-sol", "reasoning_effort": "high"}
     sol_xhigh = {**sol, "reasoning_effort": "xhigh"}
     codex = {

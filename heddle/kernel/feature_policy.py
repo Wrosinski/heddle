@@ -248,7 +248,7 @@ def recommend_policy(axes: FeatureAxes) -> Recommendation:
     validate_axes(axes)
     base = _base(axes)
     astra = Reviewer("codex", "gpt-6-astra", "xhigh")
-    fable = Reviewer("claude", "claude-fable-5-2", "xhigh")
+    fable = Reviewer("claude", "claude-fable-5-2", "high")
     opus = Reviewer("claude", "claude-opus-5-5", "xhigh")
     reviewers = {
         "spec-review": astra,

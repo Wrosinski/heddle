@@ -20,7 +20,7 @@ from tests.tiering_helpers import (
 )
 
 ASTRA_XHIGH = {**ASTRA, "reasoning_effort": "xhigh"}
-FABLE_XHIGH = {**FABLE, "reasoning_effort": "xhigh"}
+FABLE_HIGH = {**FABLE, "reasoning_effort": "high"}
 
 
 @pytest.mark.parametrize(
@@ -88,10 +88,10 @@ def test_ac2_all_axis_boundaries_recommend_the_declared_base(
         "robustness-analysis": ASTRA_XHIGH,
     }
     secondaries = {
-        "spec-review": FABLE_XHIGH,
-        "plan-review": FABLE_XHIGH,
+        "spec-review": FABLE_HIGH,
+        "plan-review": FABLE_HIGH,
         "behavior-review": ASTRA_XHIGH,
-        "robustness-analysis": FABLE_XHIGH,
+        "robustness-analysis": FABLE_HIGH,
         # The full base reviews scaffolded tests with a second model.
         **({"review-test-scaffolding": ASTRA_XHIGH} if base == "full" else {}),
     }
@@ -158,7 +158,7 @@ def test_ac2_large_high_default_roles_tuples_and_dual_first_schedule():
     rows = {row.role: row for row in result.entries}
     for role in ("spec-review", "plan-review"):
         assert asdict(rows[role].primary) == ASTRA_XHIGH
-        assert asdict(rows[role].secondary) == FABLE_XHIGH
+        assert asdict(rows[role].secondary) == FABLE_HIGH
         assert (rows[role].mode, rows[role].limit) == ("upper-limit", 3)
     assert rows["review-test-scaffolding"].mode == "convergence"
     assert rows["review-test-scaffolding"].limit is None
@@ -174,7 +174,7 @@ def test_ac2_large_high_default_roles_tuples_and_dual_first_schedule():
     assert rows["robustness-analysis"].trigger is None
     assert rows["robustness-analysis"].mode == "off"
     assert asdict(rows["robustness-analysis"].primary) == ASTRA_XHIGH
-    assert asdict(rows["robustness-analysis"].secondary) == FABLE_XHIGH
+    assert asdict(rows["robustness-analysis"].secondary) == FABLE_HIGH
 
 
 def test_ac2_confirmed_overrides_not_base_recommendations_are_effective():
@@ -276,7 +276,7 @@ def test_ac4_budget_counts_dual_first_calls_and_symbolic_milestones():
                 limit=None,
                 minimum_rounds=0,
                 primary=ASTRA_XHIGH,
-                secondary=FABLE_XHIGH,
+                secondary=FABLE_HIGH,
             ),
         }
     )

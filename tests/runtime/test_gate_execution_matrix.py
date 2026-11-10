@@ -116,7 +116,7 @@ def test_ac1_lane_policy_and_resolved_invocation_are_immutable() -> None:
 @pytest.mark.parametrize(
     ("gate", "model", "expected_effort"),
     [
-        ("plan-review", "claude-opus-5-5", "xhigh"),
+        ("plan-review", "claude-opus-5-5", "high"),
     ],
 )
 def test_ac2_model_override_preserves_lane_effort(

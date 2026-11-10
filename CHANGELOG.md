@@ -36,6 +36,11 @@ authority for the installed version.
   `robustness-analysis` secondaries in the recommended review policy, the Claude
   lane default for those three gates, and the default `heddle drive`
   phase-session model. Confirmed policies keep the reviewers they recorded.
+- The recommended review policy runs the Fable secondary of `spec-review`,
+  `plan-review` and `robustness-analysis` at `high` reasoning effort instead
+  of `xhigh`, and the Claude lane default for those gates matches. Anthropic
+  advises starting Claude Fable 5.2 at `high` and raising it only where a gain
+  is measured. Confirmed policies keep the reviewers they recorded.
 - The recommended review policy under the Full base selects `gpt-6-astra` at
   `xhigh` as the `review-test-scaffolding` secondary for every round, and no
   longer lists it as a suggestion. Under the Light base it stays a suggestion.
