@@ -340,6 +340,15 @@ tests/fixtures/source-manifest/tree/nested/c.txt
 tests/fixtures/toolchains/prettier-3.9.6/package-lock.json
 tests/fixtures/toolchains/prettier-3.9.6/package.json
 tests/fixtures/workspaces/README.md
+tests/fixtures/workspaces/change-impact-upgrade-prompts/overrides/_partials/boundary-and-proof.md
+tests/fixtures/workspaces/change-impact-upgrade-prompts/overrides/_partials/nothing-found-evidence.md
+tests/fixtures/workspaces/change-impact-upgrade-prompts/overrides/_partials/review-evidence-depth.md
+tests/fixtures/workspaces/change-impact-upgrade-prompts/overrides/_partials/review-evidence-kinds.md
+tests/fixtures/workspaces/change-impact-upgrade-prompts/overrides/_partials/settled-ground.md
+tests/fixtures/workspaces/change-impact-upgrade-prompts/overrides/_partials/severity-threat-actor-anchor.md
+tests/fixtures/workspaces/change-impact-upgrade-prompts/overrides/_partials/test-execution-scope.md
+tests/fixtures/workspaces/change-impact-upgrade-prompts/overrides/decision-routing.md
+tests/fixtures/workspaces/change-impact-upgrade-prompts/overrides/robustness-analysis.prompt.md
 tests/fixtures/workspaces/change-impact-upgrade/blobs.json
 tests/fixtures/workspaces/change-impact-upgrade/history.json
 tests/fixtures/workspaces/change-impact-upgrade/robustness-open.json
