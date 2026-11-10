@@ -470,6 +470,9 @@ authority for the installed version.
 
 ### Fixed
 
+- `heddle drive` phase sessions receive the autonomy addendum's text. They
+  were passed the file's path, so headless sessions ran without its
+  decision-recording rules.
 - An outside-feature attribution no longer blocks coverage while Git reports
   no change to its path since the feature baseline, for example after a
   merge reverts it. Such a path needs no coverage and could not be
