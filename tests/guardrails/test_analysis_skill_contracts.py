@@ -5,7 +5,8 @@ Behavior contract: direct-mirrored-skill-refresh
 
 FG-2026-09-09 replaces RCA depth/fan-out proxies with causal evidence,
 conditional delegation, and explicit incomplete-analysis outcomes. The
-pre-implementation candidate was withheld; its baseline contract remains.
+pre-implementation candidate was withheld then; on 2026-11-10 the owner
+directed the same conditional delegation for it.
 These are text-delivery guards; retained provider cases assess actual judgment.
 """
 
@@ -87,10 +88,10 @@ def _analysis_contract_errors(name: str, text: str) -> list[str]:
         ),
     }
     if name == "pre-implementation-analysis":
-        # Its candidate was withheld after comparative overclaims; retain its
-        # existing delivered contract and historical guard.
+        # Its 2026-09 candidate was withheld; the owner directed conditional
+        # delegation for it on 2026-11-10, so it shares the delegation contract.
         shared = {
-            "model-neutral fan-out": ("fan out sub-agents", "agent team only if"),
+            "delegation contract": shared["delegation contract"],
             "proportional empty output": (
                 'Sections with nothing to report say "None found"',
                 "length follows the change footprint",
@@ -110,6 +111,10 @@ def _analysis_contract_errors(name: str, text: str) -> list[str]:
                 "Both the change itself and its blast radius are covered",
             ),
             "native search": ('heddle search "<intent>" --titles-only',),
+            "conditional delegation": (
+                "while the caller continues useful work",
+                "alone does not require parallel agents",
+            ),
         },
         "root-cause-analysis": {
             "evidence-based stopping": (
@@ -142,6 +147,7 @@ def _analysis_contract_errors(name: str, text: str) -> list[str]:
     stale_proxies = {
         "pre-implementation-analysis": (
             "Work through each phase completely before moving to the next.",
+            "fan out sub-agents",
         ),
         "root-cause-analysis": (
             "fewer than three levels",
@@ -166,13 +172,10 @@ def test_w5_ac11_reflow_preserves_obligations_but_removal_does_not(name):
     assert not _analysis_contract_errors(name, reflowed), (
         "FAIL W5 AC-11: wrapping changed an obligation verdict"
     )
-    clause, error = (
-        ("fan out sub-agents", "model-neutral fan-out")
-        if name == "pre-implementation-analysis"
-        else ("docs/workflow/subagent-exploration-patterns.md", "delegation contract")
+    removed = original.replace(
+        "docs/workflow/subagent-exploration-patterns.md", "unbound delegation"
     )
-    removed = original.replace(clause, "unbound delegation")
-    assert error in _analysis_contract_errors(name, removed)
+    assert "delegation contract" in _analysis_contract_errors(name, removed)
 
 
 def test_p0_ac1_selected_skill_mirrors_have_valid_identity() -> None:

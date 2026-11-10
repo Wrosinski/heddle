@@ -57,7 +57,9 @@ The six phases below are lenses on one change and feed a single analysis documen
 
 ### Phase 1: Codebase Immersion
 
-Coverage is defined by the Completion Bar below. Focus on: behavior that exists by accident rather than design, implicit contracts between modules that aren't captured in interfaces or tests, patterns that are followed by convention without enforcement, and the gap between what documentation says and what the code actually does. Review related tests not just for coverage but for what invariants they reveal about expected behavior.
+Coverage is defined by the Completion Bar below. Cover the areas the change reaches: upstream dependencies (data sources, configuration, initialization paths), downstream dependencies (consumers, API callers, downstream effects), patterns and precedent (similar implementations, related tests, conventions), and adjacent systems (integration points, external service contracts). For patterns and precedent, lead with `heddle search "<intent>" --titles-only` to surface prior Feature Spec and pattern sections by content match before scanning directories; on command failure, fall back to `docs/features/_descriptions.yaml` and spec filenames; canonical contract: `docs/workflow/document-structure.md` § Knowledge Index.
+
+Focus on: behavior that exists by accident rather than design, implicit contracts between modules that aren't captured in interfaces or tests, patterns that are followed by convention without enforcement, and the gap between what documentation says and what the code actually does. Review related tests not just for coverage but for what invariants they reveal about expected behavior.
 
 ### Phase 2: Requirements Analysis
 
@@ -98,28 +100,9 @@ The analysis is complete when:
 3. Every open question carries a resolution approach — a question without a resolution path is an observation, not an actionable finding.
 4. Both the change itself and its blast radius are covered — not just "what we're changing" but "what could break because of what we're changing."
 
-## Parallel Sub-Agent Analysis (Complex Scope)
+## Delegation
 
-When the change touches three or more distinct modules, dependency chains are deep, or the codebase is unfamiliar and broad exploration is needed, fan out sub-agents for parallel immersion (an agent team only if the explorers must challenge each other directly).
-
-### Decomposition
-
-Pre-implementation analysis has a natural two-stage structure:
-
-**Stage 1 — Parallel Codebase Immersion (Phase 1):** Spawn Explore agents to examine different areas simultaneously. Natural splits:
-
-- Upstream dependencies — data sources, configuration, initialization paths
-- Downstream dependencies — consumers, API callers, downstream effects
-- Patterns and precedent — similar implementations, related tests, conventions (lead with `heddle search "<intent>" --titles-only` to surface prior Feature Spec and pattern sections by content match before scanning directories; on command failure, fall back to `docs/features/_descriptions.yaml` and spec filenames; canonical contract: `docs/workflow/document-structure.md` § Knowledge Index)
-- Adjacent systems (if needed) — integration points, external service contracts
-
-Each agent reports: files examined, key findings, patterns observed, questions encountered.
-
-**Stage 2 — Synthesis and Phases 2–6:** After Stage 1, synthesize immersion findings, then work through the remaining phases with the full context assembled. These later phases benefit from a single analyst holding the complete picture.
-
-### Briefing and Synthesis
-
-Brief and synthesize per `docs/workflow/subagent-exploration-patterns.md` (§ Model tier, § Spawn Prompt Design Principles, § Synthesizing Fan-Out Findings). Stage 1 contract traces and consumer surveys are exploration work and run at the exploration tier; the compatibility judgment, the conflict between recorded intent and current behavior, and the Stage 2 synthesis stay with the caller. Task-specific: synthesize the Stage 1 briefs into a unified codebase map, then use it to work Phases 2–6 with depth a single pass couldn't achieve.
+Delegate an independent area of the immersion, such as a contract trace or a consumer survey, when a bounded report saves context or time while the caller continues useful work. The number of modules a change touches or an unfamiliar codebase alone does not require parallel agents. Follow `docs/workflow/subagent-exploration-patterns.md` for bounded briefs, model tier, current tool capabilities, and evidence synthesis. Contract traces and consumer surveys are exploration work; the compatibility judgment, the conflict between recorded intent and current behavior, and the synthesis stay with the caller.
 
 ## Output Format
 
