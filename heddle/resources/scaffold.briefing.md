@@ -191,7 +191,7 @@ register in prose. Store commands without editing YAML directly:
 
 ```bash
 heddle commands set smoke_test --command "<exact smoke command>"
-heddle commands set test_command --command "<exact progressive-regression command>"
+heddle commands set test_command --command "<exact focused-regression command>"
 heddle commands set acceptance_test --command "<exact acceptance command>"
 heddle commands set live_e2e_test --command "<exact live command>"
 heddle commands set lint_command --command "<exact lint command>"
@@ -210,10 +210,13 @@ and Re-Plan. Test both irrelevant record edits and relevant dependency changes.
 
 Keep the command roles distinct:
 
-- `smoke_test` is an always-green, fast check of pre-existing repository
-  health.
-- `test_command` is an always-green progressive regression selection covering
-  survivor pins plus current and completed milestone behavior. Future-red
+- `smoke_test` is a small check of pre-existing functionality relevant to the
+  feature, with execution governed by the required smoke scope.
+- `test_command` is a focused regression selection covering changed behavior,
+  relevant survivor pins and directly affected consumers. Reuse applicable
+  results; rerun failed or affected checks after relevant changes, rather than
+  after every edit or workflow boundary. It creates no standing obligation to
+  keep unrelated repository tests green. Future-red
   discriminators belong to their milestone verification, acceptance, or live
   scopes until their activation seam is reached.
 - Milestone verification drives that milestone's discriminators red-to-green;
@@ -222,11 +225,16 @@ Keep the command roles distinct:
 
 Progressive `test_command` output and session prose are feedback. Native proof
 comes only from a verification action allowed at the current stage.
+Report unrelated broken tests for on-demand maintenance; fix defects in the
+requested implementation. Required milestone, smoke, acceptance and live proof
+retain their scope and freshness requirements.
 
 Treat `.heddle.yaml`'s `autopilot.test_command` as host tooling configuration for
 the additional close suite, not as feature proof. The completion path does not
 create a clean environment and invokes that command from the current host
-checkout.
+checkout. Hosts may leave it unset when completion has an explicit user-sourced
+grant; do not add a generic repository suite or tooling qualification to every
+close.
 
 Design failure output for the next model: keep stdout concise, make failures
 grep-friendly with `FAIL` or `ERROR` beside the cause, summarize counts, give

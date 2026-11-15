@@ -135,10 +135,13 @@ formal gate artifacts retain their required structure and non-narration rules.
    that stays inside. Tests, fixtures and docs follow the area they serve.
    Continue unaffected work; the boundary owner widens `owns` only after the
    owner accepts. A concept without a Footprint sets no approved footprint.
-3. Run the authorized `heddle verify --scope <milestone>` and exact relevant
-   consumer tests discovered by the contract sweep. Diagnose the first causal failure; do
-   not weaken a scaffolded contract to obtain green. Keep the progressive
-   `test_command` green for survivor pins and current/completed behavior;
+3. Run the authorized `heddle verify --scope <milestone>` and the smallest
+   relevant consumer selection after a coherent implementation change. Reuse
+   applicable results; rerun failed or affected checks after relevant changes,
+   not after every edit or workflow boundary. Diagnose the first causal failure;
+   fix defects in the requested implementation and report unrelated broken tests
+   for on-demand maintenance. Do not weaken a scaffolded contract to obtain
+   green. Scope `test_command` to changed behavior and affected survivor pins;
    future-red tests remain in their milestone, acceptance, or live scopes.
    Progressive command output and session prose are feedback; native proof is
    recorded only through a verification action authorized for this stage.

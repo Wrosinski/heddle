@@ -10,6 +10,13 @@ contracts and directly affected consumers. Consult the host's test-selection
 map when available and check actual fixtures and dependencies; missing mappings
 require investigation, not a no-tests assumption or automatic full-suite run.
 
+Prefer a small selection after a coherent implementation change and reuse
+applicable evidence; an edit or workflow boundary alone does not require a
+repeat run. Nonbehavioral changes may use appropriate static checks. Report
+unrelated broken tests for on-demand maintenance instead of expanding the task
+into suite repair. Defects in the requested implementation remain in scope.
+Required verification scopes and source-freshness rules still apply.
+
 Start with the host's chosen time budget. Within it, select core behavior,
 uncertain, complex or risky interactions, and consequential failures at the
 cheapest adequate layer. Keep independently selectable fast feedback and fast

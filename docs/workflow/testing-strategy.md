@@ -6,6 +6,17 @@ feedback, hermetic toolchain checks, installed end-to-end workflows, and live
 provider work. Current capabilities and pending qualification are stated here;
 private delivery records are not required to apply the policy.
 
+Ordinary regression feedback uses a small relevant selection after a coherent
+implementation change. Reuse applicable results and rerun failed or affected
+checks after relevant changes; an edit or workflow boundary alone is not a
+reason to repeat them. Nonbehavioral changes may use appropriate static checks.
+Report unrelated broken tests for on-demand maintenance and fix defects in the
+requested implementation. Required milestone, smoke, acceptance and declared
+E2E/live proof retain their existing scope, execution grants and freshness rules.
+Host-wide close suites are optional with explicit user-sourced completion
+authority; do not configure unrelated repository or tooling qualification as
+a default feature close obligation.
+
 ## Test-class time boundaries
 
 These are starting design ceilings for a documented development reference
@@ -324,7 +335,7 @@ execution evidence; imports and collection hooks must not launch external work.
 | Research and specification | Inspect contracts/tests and propose integrated witness lanes, prerequisites, caps and grants; no broad baseline by default |
 | Specification checkpoint | Confirm witness shape and explicit execution grants with scope before any review, including when reviewers are Off; settle owner-required prerequisites. The review change confirmation asks only about review-driven changes |
 | Plan review and scaffolding | Review feasibility, realize the confirmed design, bind exact commands, and retain meaningful red/green expectations, costs and fixtures |
-| Task implementation | Run affected behavior and direct-consumer checks; include related slow cases for a concrete reason |
+| Task implementation | Run a small affected selection after a coherent change; reuse applicable results and include related slow cases for a concrete reason |
 | Milestone boundary | Execute the applicable recorded milestone proof within its authority; preserve required unrun obligations |
 | Implement exit | Run every declared e2e/live witness lane within its grant; reviews start only after each passes, or after the owner accepts an earlier passing witness that only formatting-only changes made stale |
 | Review and remediation | Reuse applicable evidence; rerun affected checks after fixes; reviewers retain their role limits |
