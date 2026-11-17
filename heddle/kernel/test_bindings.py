@@ -5,6 +5,7 @@ from __future__ import annotations
 import ast
 import re
 import shlex
+import sys
 from collections.abc import Iterator
 from dataclasses import dataclass
 from typing import Literal
@@ -153,6 +154,17 @@ def _unfenced_lines(markdown: str) -> Iterator[tuple[int, str]]:
         yield number, line
 
 
+# Bound test sources are parsed by Heddle's own interpreter, which may be older
+# than the host project's, so a parse failure names the parser's version.
+PARSER_PYTHON = f"{sys.version_info.major}.{sys.version_info.minor}"
+_PYTHON_SOURCE_ISSUE = "source is not valid Python"
+
+
+def is_python_source_issue(reason: str) -> bool:
+    """Whether a binding issue reports a source that did not parse."""
+    return reason.startswith(_PYTHON_SOURCE_ISSUE)
+
+
 def inspect_python_test_source(source: bytes) -> PythonSymbolInspection:
     """Discover supported top-level symbols from supplied bytes without execution."""
     try:
@@ -161,8 +173,14 @@ def inspect_python_test_source(source: bytes) -> PythonSymbolInspection:
         return PythonSymbolInspection(None, "source is not valid UTF-8")
     try:
         module = ast.parse(text)
-    except (SyntaxError, ValueError):
-        return PythonSymbolInspection(None, "source is not valid Python")
+    except SyntaxError as error:
+        where = f"line {error.lineno}: " if error.lineno else ""
+        return PythonSymbolInspection(
+            None,
+            f"{_PYTHON_SOURCE_ISSUE} {PARSER_PYTHON} syntax ({where}{error.msg})",
+        )
+    except ValueError as error:
+        return PythonSymbolInspection(None, f"{_PYTHON_SOURCE_ISSUE} ({error})")
 
     module_functions: set[str] = set()
     classes: set[str] = set()

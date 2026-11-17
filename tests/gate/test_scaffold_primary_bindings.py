@@ -325,6 +325,50 @@ def test_invalid_binding_source_is_captured_before_refusal(
     assert reason in raised.value.message
 
 
+def test_unparsed_binding_source_names_the_parser_python_in_the_hint(
+    tmp_path: Path, monkeypatch
+) -> None:
+    from heddle.gate import entry
+    from heddle.kernel.test_bindings import PARSER_PYTHON
+
+    host, _state_path = current_host(tmp_path, monkeypatch, stage="scaffold")
+    (host / "tests/test_newer.py").write_text("def test_behavior(:\n")
+    _write_spec(host, (("AC-1", "tests/test_newer.py::test_behavior"),))
+    context = _scaffold_context(host)
+    invocation = _invocation(context)
+
+    with pytest.raises(KernelError) as raised:
+        entry.prepare_gate_run(
+            context, gate_type=context.gate_type, invocation=invocation
+        )
+    assert f"source is not valid Python {PARSER_PYTHON} syntax" in (
+        raised.value.message
+    )
+    assert f"its own Python {PARSER_PYTHON}" in raised.value.hint
+
+
+def test_unparsed_test_still_selects_the_helpers_it_imports(tmp_path: Path) -> None:
+    from heddle.gate.preparation import _local_test_dependencies
+
+    (tmp_path / "tests/support").mkdir(parents=True)
+    (tmp_path / "tests/support/__init__.py").write_text("")
+    (tmp_path / "tests/helper_values.py").write_text("VALUE = 7\n")
+    (tmp_path / "tests/fixtures_lib.py").write_text("")
+    test = tmp_path / "tests/test_newer.py"
+    test.write_text(
+        "from tests.helper_values import VALUE\n"
+        "import os, tests.support as support\n"
+        "from tests import fixtures_lib\n\n"
+        "def test_value(:\n"
+        "    assert VALUE == 7\n"
+    )
+
+    assert _local_test_dependencies(tmp_path, test, "tests") == (
+        "tests/helper_values.py",
+        "tests/support/__init__.py",
+    )
+
+
 def _validate_refusals(host: Path) -> list[str]:
     from heddle.contracts import operations as ops
     from heddle.runtime.validate import validate

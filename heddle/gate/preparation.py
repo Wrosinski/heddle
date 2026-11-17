@@ -77,10 +77,12 @@ from heddle.kernel.source_manifest import (
     safe_relative_parts,
 )
 from heddle.kernel.test_bindings import (
+    PARSER_PYTHON,
     PrimaryTestBinding,
     PythonSymbolInspection,
     TestBindingIssue,
     inspect_python_test_source,
+    is_python_source_issue,
     parse_primary_test_bindings,
     resolve_primary_test_binding,
 )
@@ -379,12 +381,18 @@ def prepare_gate_run(
             f"{issue.ac_id}: {issue.target}: {issue.reason}"
             for issue in captured.binding_issues
         )
+        hint = (
+            "add or repair each Verified-by target using a module test function "
+            "or a Test class-qualified method"
+        )
+        if any(is_python_source_issue(i.reason) for i in captured.binding_issues):
+            hint = (
+                f"Heddle parses bound test files with its own Python {PARSER_PYTHON}; "
+                "fix the reported source, or run Heddle on a Python version that "
+                f"accepts its syntax; otherwise {hint}"
+            )
         raise _input_error(
-            f"review-test-scaffolding primary bindings are invalid: {details}",
-            (
-                "add or repair each Verified-by target using a module test function "
-                "or a Test class-qualified method"
-            ),
+            f"review-test-scaffolding primary bindings are invalid: {details}", hint
         )
     current = _prepare_variant(context, captured, gate_type, invocation)
     if context.review_assignment is not None:
@@ -1312,28 +1320,57 @@ def missing_scaffold_paths(context: GateContext) -> tuple[str, ...]:
     )
 
 
+_FROM_IMPORT_LINE = re.compile(r"\s*from\s+([A-Za-z_][\w.]*)\s+import\b")
+_IMPORT_LINE = re.compile(r"\s*import\s+(.+)")
+_DOTTED_NAME = re.compile(r"[A-Za-z_][\w.]*")
+
+
 def _local_test_dependencies(
     repo_root: Path, path: Path, tests_root: str
 ) -> tuple[str, ...]:
     try:
-        module = ast.parse(path.read_text(encoding="utf-8"))
-    except (OSError, SyntaxError, ValueError):
+        text = path.read_text(encoding="utf-8")
+    except (OSError, ValueError):
         return ()
-
-    dependencies: set[str] = set()
-    for node in ast.walk(module):
-        names: tuple[str, ...] = ()
-        if isinstance(node, ast.ImportFrom) and node.module:
-            names = (node.module,)
-        elif isinstance(node, ast.Import):
-            names = tuple(alias.name for alias in node.names)
-        for module_name in names:
-            dependency = _tests_module_to_relative_path(
+    try:
+        names = _imported_module_names(ast.parse(text))
+    except (SyntaxError, ValueError):
+        # Newer syntax than Heddle's interpreter parses: scan import lines. The
+        # scan can select an extra helper but never drops an imported one.
+        names = _scanned_module_names(text)
+    dependencies = {
+        dependency
+        for module_name in names
+        if (
+            dependency := _tests_module_to_relative_path(
                 repo_root, module_name, tests_root
             )
-            if dependency is not None:
-                dependencies.add(dependency)
+        )
+        is not None
+    }
     return tuple(sorted(dependencies, key=lambda value: value.encode("utf-8")))
+
+
+def _imported_module_names(module: ast.Module) -> set[str]:
+    names: set[str] = set()
+    for node in ast.walk(module):
+        if isinstance(node, ast.ImportFrom) and node.module:
+            names.add(node.module)
+        elif isinstance(node, ast.Import):
+            names.update(alias.name for alias in node.names)
+    return names
+
+
+def _scanned_module_names(text: str) -> set[str]:
+    names: set[str] = set()
+    for line in text.splitlines():
+        if match := _FROM_IMPORT_LINE.match(line):
+            names.add(match.group(1))
+        elif match := _IMPORT_LINE.match(line):
+            for part in match.group(1).split(","):
+                if name := _DOTTED_NAME.match(part.strip()):
+                    names.add(name.group(0))
+    return names
 
 
 def _tests_module_to_relative_path(

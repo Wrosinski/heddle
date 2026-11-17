@@ -9,8 +9,10 @@ from heddle.kernel.knowledge import (
     read_spec_verified_by_lines,
 )
 from heddle.kernel.test_bindings import (
+    PARSER_PYTHON,
     dropped_command_tokens,
     inspect_python_test_source,
+    is_python_source_issue,
     parse_primary_test_bindings,
     resolve_primary_test_binding,
     selector_rebind_pairs,
@@ -210,7 +212,11 @@ def test_source_is_inspected_without_execution_and_invalid_bytes_are_reported() 
     assert invalid_utf8.issue is not None
     assert invalid_utf8.issue.reason == "source is not valid UTF-8"
     assert invalid_python.issue is not None
-    assert invalid_python.issue.reason == "source is not valid Python"
+    assert invalid_python.issue.reason.startswith(
+        f"source is not valid Python {PARSER_PYTHON} syntax (line 1: "
+    )
+    assert is_python_source_issue(invalid_python.issue.reason)
+    assert not is_python_source_issue(invalid_utf8.issue.reason)
 
 
 def test_selector_rebind_pairs_only_same_file_selector_changes() -> None:
