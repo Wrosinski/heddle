@@ -96,9 +96,11 @@ and testability assessments. Those axes still select the Light or Full role
 schedule. Every active role is recommended in `convergence` mode with a minimum
 of one round, so no round limit stops a review by default and the call budget
 has no ceiling. Closure ends a review, or a no-progress stop, which every role
-has; spec, plan and scaffolding reviews also stop on no decrease. Further
-rounds are otherwise the lead's judgement, which may stop at the latest round
-when the remaining findings are of low importance. The
+has; spec, plan and scaffolding reviews also stop on no decrease, which
+round-open applies even after the lead has closed every row, so closing rows
+cannot carry such a review past it. Further rounds are otherwise the lead's
+judgement, which may end a review at the latest round when the remaining
+findings are of low importance. The
 owner can still confirm an `upper-limit` for a role. An Off role may retain
 both reviewer selections, but schedules no calls and adds nothing to the call
 budget. Robustness remains Off until explicitly selected with an integration gap.

@@ -2274,6 +2274,61 @@ def test_a_stop_resolved_by_disposition_offers_no_inspection_round(
     assert f"No round can open to inspect {origin}#SP-I1" in routed.reason
 
 
+def test_a_report_claiming_a_duty_settled_without_evidence_goes_to_the_lead(
+    tmp_path, monkeypatch, run_cli
+):
+    """A clean report that marks an inspection duty addressed with no
+    references does not affirm it; readiness hands it to the lead rather
+    than opening round after round with no session between them."""
+    from heddle.contracts import operations as ops
+    from heddle.runtime.application import execute
+    from tests.readiness_helpers import current_readiness
+    from tests.structured_review_helpers import disposition as reviewer_disposition
+    from tests.structured_review_helpers import finding_ref
+
+    host, path = current_host(
+        tmp_path,
+        monkeypatch,
+        overrides={"spec-review": entry("spec-review", mode="convergence", limit=None)},
+    )
+
+    def report(_cli, _prompt):
+        if not runs(path):
+            return review_content(
+                findings=[finding("SP-I1", classification="implement")]
+            )
+        result = review_content()
+        claim = reviewer_disposition(finding_ref(origin, "SP-I1"), action="addressed")
+        claim["evidence"]["references"] = []
+        result["prior_dispositions"] = [
+            claim,
+            reviewer_disposition(finding_ref(origin, "@coverage"), action="addressed"),
+        ]
+        return result
+
+    calls = provider_transport(monkeypatch, report)
+    code, result = gate_command(run_cli, "run-gate", "spec-review")
+    assert code in (0, 4), result
+    origin = runs(path)[0]["run_id"]
+    assert dispose(
+        path,
+        [
+            disposition(origin, status="retained", requires_inspection=True),
+            disposition(origin, "@coverage", status="settled"),
+        ],
+    ).ok
+    routed = current_readiness(host).next_actions[0]
+    assert isinstance(routed.action.operation, ops.ReviewRoundOpen), routed
+    assert execute(routed.action.operation).ok
+    code, result = gate_command(run_cli, "run-gate", "spec-review")
+    assert code in (0, 4) and result["data"]["accepted"], result
+    routed = current_readiness(host).next_actions[0]
+    assert isinstance(routed.action, ops.AuthoringAction), routed
+    assert routed.action.work == "review-disposition"
+    assert f"The latest report claims {origin}#SP-I1 settled" in routed.reason
+    assert len(calls) == 2
+
+
 @pytest.mark.parametrize(
     "findings",
     [(), (finding("SP-I1"),)],

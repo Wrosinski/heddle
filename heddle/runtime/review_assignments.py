@@ -79,6 +79,7 @@ from heddle.kernel.readiness import (
 )
 from heddle.kernel.review_closure import (
     assess_review_closure,
+    no_decrease,
     required_obligation,
     settles_decision_route,
 )
@@ -320,6 +321,45 @@ def _inspected_duties(frame: _Qualification, assignment: ReviewAssignment) -> li
         ):
             inspected.append(f"{run_id}#{finding_id}")
     return inspected
+
+
+def _claimed_duties(frame: _Qualification, assignment: ReviewAssignment) -> list[str]:
+    """Retained inspection duties the latest round's report, by a reviewer that
+    may inspect them, claims addressed or settled without affirming evidence.
+
+    Another automatic round could repeat that claim without end, so readiness
+    hands these to the lead instead.
+    """
+    state = frame.snapshot.state
+    latest_round = len(assignment.rounds)
+    reports = [
+        (source.run_id, result)
+        for source in state.review_assignments.sources
+        if source.assignment_id == assignment.id
+        and core.source_run(state, source.run_id).round_number == latest_round
+        and (result := frame.results.get(source.run_id)) is not None
+    ]
+    latest = {
+        (d.run_id, d.finding_id): d for d in state.review_assignments.dispositions
+    }
+    claimed = []
+    for (run_id, finding_id), disposition in latest.items():
+        if disposition.status != "retained" or not disposition.requires_inspection:
+            continue
+        reference = (run_id, finding_id)
+        if any(
+            review_id != run_id
+            and core.stands_for_origin(state, run_id, review_id)
+            and not _affirms(result, reference)
+            and any(
+                (row.source.run_id, row.source.finding_id) == reference
+                and row.disposition in {"addressed", "settled"}
+                for row in result.content.prior_dispositions
+            )
+            for review_id, result in reports
+        ):
+            claimed.append(f"{run_id}#{finding_id}")
+    return claimed
 
 
 def source_projection(
@@ -2145,6 +2185,11 @@ def projection(
                 if receipt is None and basis_applies
                 else []
             )
+            row["claimed_duties"] = (
+                _claimed_duties(frame, assignment)
+                if receipt is None and basis_applies
+                else []
+            )
             row["calls_completed"] += len(pending)
             if pending:
                 row["next_step"] = "interpret"
@@ -2502,9 +2547,10 @@ def _reaffirm_stop_note(stops: list[str]) -> str:
 
 def _inspection_duties(
     snapshot: FeatureSnapshot, row: dict[str, Any]
-) -> tuple[list[str], list[str], list[str]]:
+) -> tuple[list[str], list[str], list[str], list[str]]:
     """Retained open rows with an inspection duty, as `run#finding` refs: those
-    a later report that may inspect them already affirms, and of the rest those
+    a later report that may inspect them already affirms, those the latest
+    round's report claims settled without affirming, and of the rest those
     whose raising reviewer can serve a further round and those whose reviewer
     cannot."""
     state = snapshot.state
@@ -2513,7 +2559,9 @@ def _inspection_duties(
         for item in state.review_assignments.dispositions
     }
     inspected = set(row.get("inspected_duties", ()))
+    unsupported = set(row.get("claimed_duties", ()))
     affirmed: list[str] = []
+    claimed: list[str] = []
     serving: list[str] = []
     spent: list[str] = []
     for run_id, finding_id in row["open_refs"]:
@@ -2527,11 +2575,13 @@ def _inspection_duties(
         label = f"{run_id}#{finding_id}"
         if label in inspected:
             affirmed.append(label)
+        elif label in unsupported:
+            claimed.append(label)
         elif core.originating_reviewer_exhausted(state, run_id):
             spent.append(label)
         else:
             serving.append(label)
-    return affirmed, serving, spent
+    return affirmed, claimed, serving, spent
 
 
 def _inspection_round_reason(
@@ -2545,7 +2595,7 @@ def _inspection_round_reason(
     """
     if not _inspection_round_can_open(row):
         return None
-    _affirmed, serving, spent = _inspection_duties(snapshot, row)
+    _affirmed, _claimed, serving, spent = _inspection_duties(snapshot, row)
     if serving:
         return (
             f"Open the originating-reviewer verification pass for "
@@ -2555,7 +2605,8 @@ def _inspection_round_reason(
         return (
             f"Open a verification round for {row['role']} {row['scope']}: the "
             f"reviewer that raised {', '.join(spent)} serves no further round, so "
-            "this round's report that accounts for them is their review evidence"
+            "this round's reviewer inspects them itself, and its report that "
+            "affirms one with its own evidence is that finding's review evidence"
         )
     return None
 
@@ -2584,12 +2635,19 @@ def _inspection_round_can_open(row: dict[str, Any]) -> bool:
 
 def _inspection_note(snapshot: FeatureSnapshot, row: dict[str, Any]) -> str:
     """Name the routes for inspection duties no round is offered for."""
-    affirmed, serving, spent = _inspection_duties(snapshot, row)
+    affirmed, claimed, serving, spent = _inspection_duties(snapshot, row)
     note = ""
     if affirmed:
         note += (
             f" A later report affirms {', '.join(affirmed)}: cite it as their "
             "review evidence (review_run_id)."
+        )
+    if claimed:
+        note += (
+            f" The latest report claims {', '.join(claimed)} settled without "
+            "evidence that affirms it, so no further round is offered for it: "
+            "inspect it yourself and re-record it, or open a verification "
+            "round if a reviewer must look again."
         )
     # Only an active stop or spent allowance needs the owner; stale evidence or
     # missing slots route their own repair, after which the round is offered.
@@ -3413,7 +3471,20 @@ def _apply_round_open(
             f"use decisions resolve for stop decision {owner.id} "
             "before opening another round"
         )
-    if closed.stop_reason:
+    stop_reason = closed.stop_reason
+    if (
+        stop_reason is None
+        and closed.closed
+        and no_decrease(
+            core.closure_facts(
+                current.state, assignment, current_basis="", valid_dispositions=()
+            )
+        )
+    ):
+        # Closing every row does not reset the comparison: a round after two
+        # that found no fewer new Important findings still asks the owner.
+        stop_reason = "no-decrease"
+    if stop_reason:
         if core.continuation_authorized(current.state, assignment):
             raise core.invalid(
                 "continuation is authorized but the confirmed cap is reached; "
@@ -3429,7 +3500,7 @@ def _apply_round_open(
                     "kind": "question",
                     "class": 2,
                     "source": "session",
-                    "title": f"{assignment.role} stopped: {closed.stop_reason}",
+                    "title": f"{assignment.role} stopped: {stop_reason}",
                     "question": "How should the original open work be "
                     "handled within explicit policy?",
                     "options": [
@@ -3439,7 +3510,7 @@ def _apply_round_open(
                         "--kind continue-review"
                         + (
                             ", then raise the reached cap with review allowance"
-                            if closed.stop_reason == "round-limit"
+                            if stop_reason == "round-limit"
                             else ""
                         ),
                     ],
@@ -3458,7 +3529,7 @@ def _apply_round_open(
             stored["stop_decision_id"] = identifier
         response = {
             "assignment_id": assignment.id,
-            "stop_reason": closed.stop_reason,
+            "stop_reason": stop_reason,
             "decision_id": next(
                 a["stop_decision_id"]
                 for a in ledger["assignments"]

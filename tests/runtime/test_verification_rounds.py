@@ -82,6 +82,60 @@ def test_closed_unsealed_verification_preserves_before_open_and_new_coverage(
     assert all(f in prompt for f in (origins[0], "PC-I1", "PC-I2", "@coverage"))
 
 
+def test_closing_every_row_keeps_the_no_decrease_stop_before_another_round(
+    tmp_path, monkeypatch, capsys
+):
+    """Two verification rounds each found one new Important finding. Closing
+    every row does not let a third open: round-open records the stop."""
+    from tests.structured_review_helpers import evidence
+    from tests.tiering_review_helpers import current_host as host_with
+
+    _root, path = host_with(
+        tmp_path,
+        monkeypatch,
+        overrides={"spec-review": entry("spec-review", mode="convergence", limit=None)},
+    )
+    content = review_content(findings=[finding("PC-I1", classification="implement")])
+    calls = provider_transport(monkeypatch, content)
+    code, first = launch(capsys)
+    assert code == 4 and first["data"]["accepted"], first
+    targets = [
+        (first["data"]["run_id"], "PC-I1"),
+        (first["data"]["run_id"], "@coverage"),
+    ]
+    affirm_all(path, targets)
+    for number in (2, 3):
+        assert review_status(path)["closed"]
+        opened = open_round(path)
+        assert opened.ok, opened.to_envelope()
+        identifier = f"PC-I{number}"
+        content.clear()
+        content.update(
+            review_content(findings=[finding(identifier, classification="implement")])
+        )
+        content["prior_dispositions"] = [
+            reviewer_disposition(finding_ref(run, item), action="addressed")
+            for run, item in targets
+        ]
+        content["regressions"] = [{"finding_id": identifier, "evidence": evidence()}]
+        code, result = launch(capsys)
+        assert code == 4 and result["data"]["accepted"], result
+        run_id = result["data"]["run_id"]
+        affirm_all(path, [(run_id, identifier), (run_id, "@coverage")])
+        targets += [(run_id, identifier), (run_id, "@coverage")]
+    assert review_status(path)["closed"]
+    before = len(read(path)["review_assignments"]["assignments"][0]["rounds"])
+    stopped = open_round(path)
+    assert stopped.ok and stopped.data["stop_reason"] == "no-decrease", (
+        stopped.to_envelope()
+    )
+    state = read(path)
+    assert len(state["review_assignments"]["assignments"][0]["rounds"]) == before
+    pending = [d for d in state["decisions"] if d["status"] == "pending"]
+    assert [d["title"] for d in pending] == ["spec-review stopped: no-decrease"]
+    assert len(calls) == 3
+
+
 def test_driven_session_opens_only_a_verification_round_in_scope(
     tmp_path, monkeypatch, capsys
 ):

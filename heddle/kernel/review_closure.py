@@ -182,6 +182,25 @@ def _resolved(
     return True
 
 
+def no_decrease(facts: ReviewClosureFacts) -> bool:
+    """A document review whose latest round found no fewer new Important
+    findings than the round before, in the same scope and purpose.
+
+    It depends on the rounds alone, so it also guards opening a round after
+    the lead has closed every row.
+    """
+    if len(facts.rounds) < 2 or facts.continuation_authorized:
+        return False
+    previous, current = facts.rounds[-2:]
+    return (
+        facts.policy.role in ITERATIVE_DOCUMENT_ROLES
+        and previous.scope_identity == current.scope_identity
+        and previous.purpose == current.purpose
+        and previous.new_important > 0
+        and current.new_important >= previous.new_important
+    )
+
+
 def assess_review_closure(facts: ReviewClosureFacts) -> ReviewClosure:
     _validate(facts)
     latest = {_ref(row): row for row in facts.resolutions}
@@ -236,13 +255,7 @@ def assess_review_closure(facts: ReviewClosureFacts) -> ReviewClosure:
                 and not current.material_progress
             ):
                 stop = "no-progress"
-            elif (
-                policy.role in ITERATIVE_DOCUMENT_ROLES
-                and same_scope
-                and previous.purpose == current.purpose
-                and previous.new_important > 0
-                and current.new_important >= previous.new_important
-            ):
+            elif no_decrease(facts):
                 stop = "no-decrease"
         next_step = (
             "decision"
