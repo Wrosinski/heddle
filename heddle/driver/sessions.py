@@ -422,14 +422,18 @@ def allowed_tools_for_stage(
     commands = _STAGE_COMMANDS[stage]
     if snapshot.state.feature_policy is not None and RUN_GATE_TOOL in commands:
         # Current review stages own evidence-bound lead dispositions. Historical
-        # profiles keep their old authority; round opening/owner decisions are
-        # not added by this briefing-delivery preapproval. An allowance only
-        # records an already ratified cap increase, so stages whose briefing
-        # explains that route must be able to invoke it.
+        # profiles keep their old authority; owner decisions are not added by
+        # this briefing-delivery preapproval. The lead judges whether a change
+        # needs another verification round, and a round it opens runs like any
+        # other gate; round-open's own guards apply, and one past a stop records
+        # an owner question that pauses the driver. An allowance only records
+        # an already ratified cap increase, so stages whose briefing explains
+        # that route must be able to invoke it.
         commands += (
             "Bash(heddle review disposition:*)",
             "Bash(heddle review reaffirm:*)",
             "Bash(heddle review allowance:*)",
+            "Bash(heddle review round-open:*)",
         )
     return READ_BASELINE + commands + tuple(dict.fromkeys(files))
 

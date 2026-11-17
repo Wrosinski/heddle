@@ -861,6 +861,7 @@ def test_restarted_driver_routes_coverage_to_lead_session_without_empty_write(
     def session(spec, **_kwargs):
         sessions.append(spec.prompt_path.read_text())
         assert "Bash(heddle review disposition:*)" in spec.allowed_tools
+        assert "Bash(heddle review round-open:*)" in spec.allowed_tools
         return SessionResult(exit_code=17, termination="completed", output={})
 
     monkeypatch.setattr(loop, "_capability_probe_result", lambda *_args: None)

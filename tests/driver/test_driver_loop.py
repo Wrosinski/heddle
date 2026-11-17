@@ -51,6 +51,7 @@ EXPECTED_COMMAND_SUFFIXES = {
         "Bash(heddle review disposition:*)",
         "Bash(heddle review reaffirm:*)",
         "Bash(heddle review allowance:*)",
+        "Bash(heddle review round-open:*)",
     ),
     "plan-review": ("Bash(heddle run-gate:*)", "Bash(heddle review interpret:*)")
     + MILESTONE_TOOLS
@@ -59,6 +60,7 @@ EXPECTED_COMMAND_SUFFIXES = {
         "Bash(heddle review disposition:*)",
         "Bash(heddle review reaffirm:*)",
         "Bash(heddle review allowance:*)",
+        "Bash(heddle review round-open:*)",
     ),
     "scaffold": (
         "Bash(heddle run-gate:*)",
@@ -68,6 +70,7 @@ EXPECTED_COMMAND_SUFFIXES = {
         "Bash(heddle review disposition:*)",
         "Bash(heddle review reaffirm:*)",
         "Bash(heddle review allowance:*)",
+        "Bash(heddle review round-open:*)",
     ),
     "implement": (
         "Bash(heddle task:*)",
@@ -77,6 +80,7 @@ EXPECTED_COMMAND_SUFFIXES = {
         "Bash(heddle review disposition:*)",
         "Bash(heddle review reaffirm:*)",
         "Bash(heddle review allowance:*)",
+        "Bash(heddle review round-open:*)",
     ),
     "peer-review": (
         "Bash(heddle run-gate:*)",
@@ -86,6 +90,7 @@ EXPECTED_COMMAND_SUFFIXES = {
         "Bash(heddle review disposition:*)",
         "Bash(heddle review reaffirm:*)",
         "Bash(heddle review allowance:*)",
+        "Bash(heddle review round-open:*)",
     ),
     "robustness": (
         "Bash(heddle run-gate:*)",
@@ -95,6 +100,7 @@ EXPECTED_COMMAND_SUFFIXES = {
         "Bash(heddle review disposition:*)",
         "Bash(heddle review reaffirm:*)",
         "Bash(heddle review allowance:*)",
+        "Bash(heddle review round-open:*)",
     ),
 }
 
