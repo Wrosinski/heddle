@@ -1134,6 +1134,25 @@ def test_ac5_targeted_rounds_keep_origins_and_inspect_a_spent_secondary(
     assert (host / "src/example.py").is_file()
 
 
+@pytest.mark.parametrize(
+    ("mode", "limit", "allowed"),
+    [("convergence", None, True), ("upper-limit", 1, False), ("upper-limit", 2, True)],
+)
+def test_a_gate_result_allows_another_round_until_a_confirmed_limit_is_spent(
+    tmp_path, monkeypatch, run_cli, mode, limit, allowed
+):
+    current_host(
+        tmp_path,
+        monkeypatch,
+        overrides={"spec-review": entry("spec-review", mode=mode, limit=limit)},
+    )
+    provider_transport(monkeypatch, review_content())
+    code, result = gate_command(run_cli, "run-gate", "spec-review")
+    assert code in (0, 4), result
+    assert result["data"]["max_attempts"] == limit
+    assert result["data"]["rerun_allowed"] is allowed
+
+
 def test_an_affirming_report_whose_inputs_changed_leaves_the_duty_a_round(
     tmp_path, monkeypatch, run_cli
 ):

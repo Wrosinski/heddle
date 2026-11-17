@@ -2408,8 +2408,9 @@ def _gate_result(
                 ),
                 "attempt": attempt,
                 "max_attempts": policy.max_attempts,
-                "rerun_allowed": policy.max_attempts is not None
-                and attempt < policy.max_attempts,
+                # A policy without a round limit (convergence) bounds no rerun.
+                "rerun_allowed": policy.max_attempts is None
+                or attempt < policy.max_attempts,
                 "cap_decision_recorded": False,
                 "findings": findings,
                 "execution": entry.execution_projection(prepared.invocation),
