@@ -371,9 +371,9 @@ def test_changed_citation_at_round_limit_routes_to_resubmission_not_stop(
     assert action.work == "review-disposition"
     reason = application.execute(ops.Status(feature=V7_FEATURE)).next_actions[0].reason
     assert "The round-limit stop is reached" in reason
-    assert "the lead's judgement" not in reason, (
-        "only implement leaves that round to the lead"
-    )
+    assert "needs another verification round is still the lead's judgement" in (
+        reason
+    ), "every review stage leaves another round to the lead"
     assert set(action.references) == {f"{origin}#SP-I1", f"{origin}#@coverage"}
     assert dispose(path, rows).ok
     assert review_status(path)["closed"] and len(calls) == 1
@@ -524,10 +524,10 @@ def test_verification_behind_a_basis_change_routes_by_its_own_status(
     )
 
 
-def test_changed_citation_at_milestone_round_limit_keeps_the_owed_round(
+def test_changed_citation_at_milestone_round_limit_leaves_the_round_to_the_lead(
     tmp_path, monkeypatch, run_cli
 ):
-    """Re-citing past the stop closes rows; a change still owes its round."""
+    """Re-citing past the stop closes rows; another round stays the lead's call."""
     from tests.tiering_review_helpers import disposition
 
     def rows(origin):
@@ -803,9 +803,9 @@ def test_spent_continuation_leaves_a_stop_reached_again_unresolved(
     assert "Stops are reached for spec-review feature (round-limit)" in (
         action.reason
     ), "a spent continue-review ruling hid the stop reached again"
-    assert "the lead's judgement" not in action.reason, (
-        "only implement leaves that round to the lead"
-    )
+    assert "needs another verification round is still the lead's judgement" in (
+        action.reason
+    ), "every review stage leaves another round to the lead"
 
 
 def test_inspection_duty_without_review_evidence_keeps_the_round_limit_stop(

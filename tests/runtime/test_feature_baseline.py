@@ -161,6 +161,56 @@ def test_ac8_unavailable_baseline_blocks_orient_and_plan_status_with_its_remedy(
     )
 
 
+def test_ac8_unavailable_baseline_reads_an_affirmed_inspection_duty_without_failing(
+    tmp_path, monkeypatch, run_cli
+):
+    """A later report affirming a retained inspection duty is judged against
+    the current subject; with no baseline, status still names the re-point."""
+    from tests.structured_review_helpers import disposition as reviewer_disposition
+    from tests.structured_review_helpers import finding, finding_ref
+    from tests.tiering_review_helpers import open_round
+
+    host = baseline_host(tmp_path, monkeypatch, stage="scaffold")
+
+    def report(_cli, _prompt):
+        if not runs(host.state):
+            return review_content(
+                SCAFFOLD_ROLE, findings=[finding("SC-I1", classification="implement")]
+            )
+        result = review_content(SCAFFOLD_ROLE)
+        result["prior_dispositions"] = [
+            reviewer_disposition(finding_ref(run_id, identifier), action="addressed")
+            for run_id, identifier in (
+                (origin, "SC-I1"),
+                *((run["run_id"], "@coverage") for run in runs(host.state)),
+            )
+        ]
+        return result
+
+    provider_transport(monkeypatch, report)
+    code, result = gate_command(run_cli, "run-gate", SCAFFOLD_ROLE)
+    assert code in (0, 4), result
+    origin = runs(host.state)[0]["run_id"]
+    assert dispose(
+        host.state,
+        [
+            disposition(origin, "SC-I1", status="retained", requires_inspection=True),
+            disposition(origin, "@coverage", status="settled"),
+        ],
+    ).ok
+    assert open_round(host.state, role=SCAFFOLD_ROLE).ok
+    code, result = gate_command(run_cli, "run-gate", SCAFFOLD_ROLE)
+    assert code in (0, 4), result
+    assert review_status(host.state, role=SCAFFOLD_ROLE)["inspected_duties"] == [
+        f"{origin}#SC-I1"
+    ]
+    make_baseline_unavailable(host, "missing")
+    orient = _orient(run_cli)
+    assert orient["ok"], orient
+    assert "baseline-unavailable" in orient["data"]["blocking_conditions"]
+    assert REPOINT_COMMAND in orient["next_actions"][0]["command"]
+
+
 @pytest.mark.parametrize(
     ("stage", "role", "reason"),
     [

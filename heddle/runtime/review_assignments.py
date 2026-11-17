@@ -2138,7 +2138,13 @@ def projection(
                     row["stop_reason"] = recorded_stop
             pending = core.pending_retained(snapshot.state, assignment.id)
             row["retained_responses"] = [ops.decoded_payload(r) for r in pending]
-            row["inspected_duties"] = _inspected_duties(frame, assignment)
+            # Judging a report current needs the subject, which an unavailable
+            # baseline or a sealed receipt leaves without a current basis.
+            row["inspected_duties"] = (
+                _inspected_duties(frame, assignment)
+                if receipt is None and basis_applies
+                else []
+            )
             row["calls_completed"] += len(pending)
             if pending:
                 row["next_step"] = "interpret"
@@ -2363,7 +2369,9 @@ def next_action(snapshot: FeatureSnapshot, row: dict[str, Any]) -> NextAction:
                     expect_revision=snapshot.state.revision,
                 )
             ),
-            inspection,
+            # The round's reason reaches its reviewer; the alternative is the
+            # lead's alone.
+            inspection + _LEAD_INSPECTION,
         )
     if row["next_step"] == "decision" or (
         row["next_step"] == "run" and row["rounds_used"] and not row["missing_slots"]
@@ -2457,8 +2465,8 @@ def _unresolved_kernel_stop(snapshot: FeatureSnapshot, row: dict[str, Any]) -> b
     )
 
 
-# Implement step 5: whether a material change after a milestone's latest round
-# needs a verification round is the lead's judgement, which re-recording leaves.
+# Review rounds: whether a material change after the latest round needs a
+# verification round is the lead's judgement, which re-recording leaves.
 _ROUND_JUDGEMENT = (
     " Whether a change since the latest round needs another verification round "
     "is still the lead's judgement."
@@ -2477,8 +2485,7 @@ def _stop_note(snapshot: FeatureSnapshot, row: dict[str, Any]) -> str:
     return (
         f" The {row['stop_reason']} stop is reached, but every open row closes "
         f"with recorded evidence alone ({closes}), so closing these rows needs "
-        "no review round or owner decision."
-        + (_ROUND_JUDGEMENT if row["role"] == "milestone-review" else "")
+        "no review round or owner decision." + _ROUND_JUDGEMENT
     )
 
 
@@ -2489,12 +2496,7 @@ def _reaffirm_stop_note(stops: list[str]) -> str:
     return (
         f" Stops are reached for {', '.join(stops)}, but their open rows close "
         "by re-recording evidence alone, so closing them needs no review round "
-        "or owner decision."
-        + (
-            _ROUND_JUDGEMENT
-            if any(s.startswith("milestone-review ") for s in stops)
-            else ""
-        )
+        "or owner decision." + _ROUND_JUDGEMENT
     )
 
 
@@ -2547,14 +2549,13 @@ def _inspection_round_reason(
     if serving:
         return (
             f"Open the originating-reviewer verification pass for "
-            f"{row['role']} {row['scope']}" + _LEAD_INSPECTION
+            f"{row['role']} {row['scope']}"
         )
     if spent:
         return (
             f"Open a verification round for {row['role']} {row['scope']}: the "
             f"reviewer that raised {', '.join(spent)} serves no further round, so "
             "this round's report that accounts for them is their review evidence"
-            + _LEAD_INSPECTION
         )
     return None
 

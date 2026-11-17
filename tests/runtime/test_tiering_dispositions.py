@@ -2242,6 +2242,8 @@ def test_a_stop_resolved_by_disposition_offers_no_inspection_round(
     routed = current_readiness(host).next_actions[0]
     assert routed.reason.startswith("Open the originating-reviewer verification")
     assert "re-record those rows without the inspection duty" in routed.reason
+    # The round's own reason reaches its reviewer, so it omits the lead's route.
+    assert "re-record" not in routed.action.operation.payload["reason"]
     assert execute(routed.action.operation).ok
     code, result = gate_command(run_cli, "run-gate", "spec-review")
     assert code in (0, 4), result
