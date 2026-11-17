@@ -1222,6 +1222,11 @@ def test_an_affirming_report_whose_inputs_changed_leaves_the_duty_a_round(
     assert "A later report affirms" in routed.reason, routed.reason
     spec = host / "docs/features/runtime" / f"{V7_FEATURE}.md"
     spec.write_text(spec.read_text() + "\nExpected: The value is now 9.\n")
+    # Stale rows route their own refresh; nothing here needs the owner.
+    stale_routes = invoke("Status", feature=V7_FEATURE).next_actions
+    assert stale_routes and not any(
+        "without the owner" in action.reason for action in stale_routes
+    ), [action.reason for action in stale_routes]
     # The lead closes the primary's concern, so the round made progress.
     recorded = retain_both(*initial, second, primary="addressed")
     assert recorded.ok, recorded.to_envelope()

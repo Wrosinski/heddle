@@ -2590,7 +2590,9 @@ def _inspection_note(snapshot: FeatureSnapshot, row: dict[str, Any]) -> str:
             f" A later report affirms {', '.join(affirmed)}: cite it as their "
             "review evidence (review_run_id)."
         )
-    if (serving or spent) and not _inspection_round_can_open(row):
+    # Only an active stop or spent allowance needs the owner; stale evidence or
+    # missing slots route their own repair, after which the round is offered.
+    if (serving or spent) and (row["stop_reason"] or row["rounds_remaining"] == 0):
         note += (
             f" No round can open to inspect {', '.join(serving + spent)} "
             "without the owner: ask them for allowance or continuation, or, if "

@@ -399,7 +399,9 @@ def test_review_gate_verdict_problem_allows_next_rerun_before_cap():
         },
     }
     problem = loop_mod._gate_verdict_problem(HeddleResult.success(envelope["data"]))
-    assert "re-run `heddle run-gate code-quality` once" in problem.detail
+    assert "re-run" not in problem.detail
+    assert "follows **Review rounds**" in problem.detail
+    assert "heddle review round-open" in problem.detail
     assert "attempt 1/4" in problem.detail
 
 
@@ -419,7 +421,7 @@ def test_review_gate_verdict_problem_prohibits_attempt_five():
     problem = loop_mod._gate_verdict_problem(HeddleResult.success(envelope["data"]))
     assert "completed review 4/4" in problem.detail
     assert "do not run the gate again" in problem.detail
-    assert "resolve the recorded cap decision" in problem.detail
+    assert "another round needs the owner's allowance" in problem.detail
 
 
 def test_session_advanced_counts_recorded_gate_runs_as_progress(

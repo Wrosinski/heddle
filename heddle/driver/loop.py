@@ -810,11 +810,12 @@ def _gate_verdict_problem(result: HeddleResult) -> ValidationProblem:
     )
     if at_limit:
         resolution = (
-            f"This was completed review {attempt}/{max_attempts}. Read the "
-            f"review artifact {artifact}, apply or escalate every remaining "
-            "Critical/Important IMPLEMENT or unknown finding, re-verify, and "
-            "do not run the gate again; resolve the recorded cap decision "
-            "before continuing"
+            f"This was completed review {attempt}/{max_attempts}, the confirmed "
+            f"round limit. Read the review artifact {artifact}, apply or "
+            "escalate every remaining Critical/Important IMPLEMENT or unknown "
+            "finding, re-verify, record dispositions, and do not run the gate "
+            "again: another round needs the owner's allowance, so follow the "
+            "native next actions"
         )
     else:
         budget = (
@@ -824,8 +825,11 @@ def _gate_verdict_problem(result: HeddleResult) -> ValidationProblem:
         )
         resolution = (
             f"Read the review artifact {artifact}, apply every "
-            "Critical/Important IMPLEMENT finding to the reviewed documents, "
-            f"then re-run `heddle run-gate {gate}` once{budget}"
+            "Critical/Important IMPLEMENT finding to the reviewed documents "
+            f"and record dispositions{budget}. Whether another verification "
+            "round is needed follows **Review rounds**; open one with "
+            "`heddle review round-open`, and otherwise follow the native next "
+            "actions"
         )
     return ValidationProblem(
         detail=(
