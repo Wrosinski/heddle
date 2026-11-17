@@ -89,9 +89,11 @@ purpose `verification` and a concrete reason. The complete JSON example is in
 Then execute the selected gate. A round includes the policy secondary only
 inside the role's `secondary_rounds` window (rounds 1 to n, or `all`), counted
 from the review's first round. Run each slot readiness names; a round outside
-the window has only the primary slot, so run it without `--cli`. The unsealed
-assignment must have remaining allowance, all prior slots filled and no
-unresolved stop; off roles and sealed acceptances require their own remedies.
+the window has only the primary slot, so run it without `--cli`. Once a
+finding's raising reviewer serves no later round, a later round's report that
+accounts for it is its review evidence, even where inspection is required. The
+unsealed assignment must have remaining allowance, all prior slots filled and
+no unresolved stop; off roles and sealed acceptances require their own remedies.
 Targets cover mandatory concerns from all preceding slots plus open originals.
 Reviewer accounting for every target never substitutes for the lead's acceptance
 of the new `@coverage` obligation.

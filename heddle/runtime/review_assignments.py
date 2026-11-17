@@ -1029,15 +1029,34 @@ def _qualify_evidence(
             )
         original = core.source_run(snapshot.state, disposition.run_id)
         reviewer = core.source_run(snapshot.state, cast(str, disposition.review_run_id))
+        if (
+            reviewer.assignment_id != original.assignment_id
+            or reviewer.round_number is None
+            or original.round_number is None
+            or reviewer.round_number <= original.round_number
+        ):
+            return _rejected_evidence(
+                "review-not-qualifying",
+                "review evidence is not a later round of the original assignment",
+                "use a later round of the assignment that raised this origin",
+                field="review_run_id",
+                reference=disposition.review_run_id,
+            )
+        # Another reviewer's later round inspects the origin only once its own
+        # reviewer can serve no later round.
         if core.inspection_identity(
             snapshot.state, original.run_id
         ) != core.inspection_identity(
             snapshot.state, reviewer.run_id, origin=original.run_id
-        ):
+        ) and not core.originating_reviewer_exhausted(snapshot.state, original.run_id):
             return _rejected_evidence(
                 "review-not-qualifying",
                 "review evidence does not inspect the original concern",
-                "use a later assignment round that explicitly inspects this origin",
+                (
+                    "use a later round of the reviewer that raised this origin; "
+                    "another reviewer's round qualifies only once that reviewer "
+                    "serves no later round"
+                ),
                 field="review_run_id",
                 reference=disposition.review_run_id,
             )
@@ -2269,11 +2288,8 @@ def next_action(snapshot: FeatureSnapshot, row: dict[str, Any]) -> NextAction:
         return interpretation_action(snapshot, retained)
     if row["next_step"] == "decision" and row["decision_id"] is not None:
         return _decision_action(snapshot, row["decision_id"])
-    if _originating_inspection_round_requested(snapshot, row):
-        reason = (
-            f"Open the originating-reviewer verification pass for "
-            f"{row['role']} {row['scope']}"
-        )
+    inspection = _inspection_round_reason(snapshot, row)
+    if inspection is not None:
         return NextAction(
             ops.CommandAction(
                 ops.ReviewRoundOpen(
@@ -2283,12 +2299,12 @@ def next_action(snapshot: FeatureSnapshot, row: dict[str, Any]) -> NextAction:
                         "role": row["role"],
                         "scope": row["scope"],
                         "purpose": "verification",
-                        "reason": reason,
+                        "reason": inspection,
                     },
                     expect_revision=snapshot.state.revision,
                 )
             ),
-            reason,
+            inspection,
         )
     if row["next_step"] == "decision" or (
         row["next_step"] == "run" and row["rounds_used"] and not row["missing_slots"]
@@ -2362,6 +2378,7 @@ def next_action(snapshot: FeatureSnapshot, row: dict[str, Any]) -> NextAction:
         f"Read the original reports and disposition these open references: "
         f"{json.dumps(row['open_refs'])}. Use review disposition --input-json "
         "with schema heddle.review-disposition-input/v1 and authored dispositions."
+        + _inspection_note(snapshot, row)
         + _stop_note(snapshot, row),
     )
 
@@ -2415,26 +2432,92 @@ def _reaffirm_stop_note(stops: list[str]) -> str:
     )
 
 
-def _originating_inspection_round_requested(
+def _inspection_duties(
     snapshot: FeatureSnapshot, row: dict[str, Any]
-) -> bool:
+) -> tuple[list[str], list[str], list[str]]:
+    """Retained open rows with an inspection duty, as `run#finding` refs: those
+    whose raising reviewer can serve a later round, and of the rest those with
+    no later round yet and those a later round already followed."""
+    state = snapshot.state
+    latest = {
+        (item.run_id, item.finding_id): item
+        for item in state.review_assignments.dispositions
+    }
+    sources = {source.run_id: source for source in state.review_assignments.sources}
+    serving: list[str] = []
+    unrun: list[str] = []
+    followed: list[str] = []
+    for reference in row["open_refs"]:
+        run_id, finding_id = reference
+        disposition = latest.get((run_id, finding_id))
+        if (
+            disposition is None
+            or disposition.status != "retained"
+            or not disposition.requires_inspection
+        ):
+            continue
+        label = f"{run_id}#{finding_id}"
+        if not core.originating_reviewer_exhausted(state, run_id):
+            serving.append(label)
+            continue
+        origin = sources.get(run_id)
+        later = origin is not None and any(
+            source.assignment_id == origin.assignment_id
+            and source.round_number > origin.round_number
+            for source in sources.values()
+        )
+        (followed if later else unrun).append(label)
+    return serving, unrun, followed
+
+
+def _inspection_round_reason(
+    snapshot: FeatureSnapshot, row: dict[str, Any]
+) -> str | None:
+    """Why to open a round for retained inspection duties, or None.
+
+    The raising reviewer inspects its own finding while it can serve a later
+    round; once it cannot, any later round that accounts for the finding is its
+    review evidence, so one round is offered only when none has followed.
+    """
     if (
         row["next_step"] != "disposition"
         or row["evidence_state"] != "current"
         or row["missing_slots"]
         or row["rounds_remaining"] == 0
     ):
-        return False
-    latest = {
-        (item.run_id, item.finding_id): item
-        for item in snapshot.state.review_assignments.dispositions
-    }
-    return any(
-        (disposition := latest.get(tuple(reference))) is not None
-        and disposition.status == "retained"
-        and disposition.requires_inspection
-        for reference in row["open_refs"]
-    )
+        return None
+    serving, unrun, _followed = _inspection_duties(snapshot, row)
+    if serving:
+        return (
+            f"Open the originating-reviewer verification pass for "
+            f"{row['role']} {row['scope']}"
+        )
+    if unrun:
+        return (
+            f"Open a verification round for {row['role']} {row['scope']}: the "
+            f"reviewer that raised {', '.join(unrun)} serves no later round, so a "
+            "later round's report that accounts for them is their review evidence"
+        )
+    return None
+
+
+def _inspection_note(snapshot: FeatureSnapshot, row: dict[str, Any]) -> str:
+    """Name the routes for inspection duties whose raising reviewer is done."""
+    _serving, unrun, followed = _inspection_duties(snapshot, row)
+    note = ""
+    if followed:
+        note += (
+            f" The reviewer that raised {', '.join(followed)} serves no later "
+            "round: cite a later round's report that accounts for them as review "
+            "evidence (review_run_id)."
+        )
+    if unrun and row["rounds_remaining"] == 0:
+        note += (
+            f" The reviewer that raised {', '.join(unrun)} serves no later round "
+            "and no round can open: ask the owner for allowance, or, if lead "
+            "inspection now suffices, re-record them without the inspection duty."
+        )
+    return note
 
 
 def _shape(

@@ -333,6 +333,17 @@ The lead records dispositions with exact source references and supporting
 inspection, contract, verification, review or decision evidence. A clean later
 report alone does not settle an earlier finding or coverage obligation.
 
+Review evidence comes from a later round of the same assignment, run by the
+reviewer that raised the finding. A row with an inspection duty takes nothing
+else while that reviewer can still serve a later round. Once it cannot, because
+the secondary's `secondary_rounds` window has passed or an amendment replaced
+or removed that reviewer, any later round of the assignment whose report
+accounts for the finding is its review evidence. Readiness then offers an
+ordinary verification round where none has followed, instead of the
+originating pass. The test reads the current policy: an amendment that brings
+the reviewer back restores the requirement, and a row closed by another
+reviewer's round reopens until the raising reviewer inspects it.
+
 Readiness checks execution, disposition and applicability separately. Relevant
 changes to an assignment's subject or cited evidence can invalidate its current
 closure; a change that is review-equivalent for every changed path does not.

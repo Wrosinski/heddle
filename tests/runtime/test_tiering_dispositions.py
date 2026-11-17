@@ -1006,7 +1006,7 @@ def test_slot_refusal_names_the_round_and_its_slots(
     assert len(calls) == (2 if dual else 0) and snapshot(host) == before
 
 
-def test_ac5_targeted_rounds_keep_all_origins_and_original_secondary_inspection(
+def test_ac5_targeted_rounds_keep_origins_and_inspect_a_spent_secondary(
     tmp_path, monkeypatch, run_cli
 ):
     from tests.structured_review_helpers import disposition as reviewer_disposition
@@ -1076,6 +1076,8 @@ def test_ac5_targeted_rounds_keep_all_origins_and_original_secondary_inspection(
     assert isinstance(routed.action, ops.CommandAction)
     assert isinstance(routed.action.operation, ops.ReviewRoundOpen)
     assert routed.action.operation.payload["purpose"] == "verification"
+    # Fable's window is round 1, so the round offered is not its own pass.
+    assert "serves no later round" in routed.reason
     assert amend(path, entry("spec-review", limit=4, primary=SOL), revision=2).ok
     phase["value"] = 2
     opened = open_round(
@@ -1098,54 +1100,132 @@ def test_ac5_targeted_rounds_keep_all_origins_and_original_secondary_inspection(
         assert run_id in prompt and finding_id in prompt
     assert "SECONDARY_ORIGINAL_CONCERN" in prompt
     assert expected <= {tuple(ref) for ref in review_status(path)["open_refs"]}
-    before = path.read_bytes()
-    wrong = dispose(
+    # Fable served round 1 only, so no further round is offered for its
+    # concern, and the disposition route names the later report as evidence.
+    routed = invoke("Status", feature=V7_FEATURE).next_actions[0]
+    assert isinstance(routed.action, ops.AuthoringAction), routed
+    assert "cite a later round's report" in routed.reason
+    assert f"{origins['secondary']}#SP-I2" in routed.reason
+    closed = dispose(
         path,
         [
+            disposition(origins["primary"]),
             disposition(
                 origins["secondary"],
                 "SP-I2",
                 evidence_kind="review",
                 review_run_id=second["run_id"],
-            )
-        ],
-    )
-    assert not wrong.ok and path.read_bytes() == before
-    repaired_primary = dispose(
-        path,
-        [
-            disposition(origins["primary"]),
+            ),
             disposition(second["run_id"], "@coverage", status="settled"),
         ],
     )
-    assert repaired_primary.ok and not repaired_primary.data["closure"]["closed"]
-    assert [origins["secondary"], "SP-I2"] in repaired_primary.data["closure"][
-        "open_refs"
-    ]
-    assert amend(path, entry("spec-review", limit=4, primary=FABLE), revision=3).ok
-    phase["value"] = 3
-    assert open_round(
-        path, reason="Originating Fable independently verifies its remaining duty"
+    assert closed.ok and closed.data["closure"]["closed"], closed.to_envelope()
+    assert runs(path)[:2] == initial
+    assert len(calls) == 3
+    assert (host / "src/example.py").is_file()
+
+
+def test_a_secondary_serving_later_rounds_inspects_its_own_finding(
+    tmp_path, monkeypatch, run_cli
+):
+    from dataclasses import replace
+
+    from heddle.contracts import operations as ops
+    from tests.structured_review_helpers import disposition as reviewer_disposition
+    from tests.structured_review_helpers import finding_ref
+
+    _host, path = current_host(
+        tmp_path,
+        monkeypatch,
+        overrides={
+            "spec-review": replace(
+                entry("spec-review", limit=4, secondary=FABLE), secondary_rounds="all"
+            )
+        },
+    )
+    origins = {}
+
+    def report(cli, _prompt):
+        if not origins:
+            return review_content(
+                findings=[
+                    finding(
+                        "SP-I1" if cli == "codex" else "SP-I2",
+                        classification="implement",
+                    )
+                ]
+            )
+        result = review_content()
+        result["prior_dispositions"] = [
+            reviewer_disposition(finding_ref(run_id, identifier), action="addressed")
+            for run_id, identifier in (
+                (origins["primary"], "SP-I1"),
+                (origins["secondary"], "SP-I2"),
+                *((run_id, "@coverage") for run_id in origins.values()),
+            )
+        ]
+        return result
+
+    calls = provider_transport(monkeypatch, report)
+    for cli in ("codex", "claude"):
+        code, result = gate_command(run_cli, "run-gate", "spec-review", "--cli", cli)
+        assert code in (0, 4), result
+    initial = runs(path)
+    origins.update({row["reviewer_slot"]: row["run_id"] for row in initial})
+    assert dispose(
+        path,
+        [
+            disposition(origins["primary"], status="retained"),
+            disposition(
+                origins["secondary"],
+                "SP-I2",
+                status="retained",
+                requires_inspection=True,
+            ),
+            *[
+                disposition(row["run_id"], "@coverage", status="settled")
+                for row in initial
+            ],
+        ],
     ).ok
-    code, result = gate_command(run_cli, "run-gate", "spec-review", "--cli", "claude")
-    assert code in (0, 4), result
-    third = runs(path)[-1]
-    assert third["round_number"] == 3 and len(calls) == 4
-    closed = dispose(
+    routed = invoke("Status", feature=V7_FEATURE).next_actions[0]
+    assert isinstance(routed.action, ops.CommandAction)
+    assert routed.reason.startswith("Open the originating-reviewer verification pass")
+    assert open_round(path).ok
+    for cli in ("codex", "claude"):
+        code, result = gate_command(run_cli, "run-gate", "spec-review", "--cli", cli)
+        assert code in (0, 4), result
+    second = {row["reviewer_slot"]: row for row in runs(path)[2:]}
+    assert {row["round_number"] for row in second.values()} == {2}
+
+    before = path.read_bytes()
+    other = dispose(
         path,
         [
             disposition(
                 origins["secondary"],
                 "SP-I2",
                 evidence_kind="review",
-                review_run_id=third["run_id"],
-            ),
-            disposition(third["run_id"], "@coverage", status="settled"),
+                review_run_id=second["primary"]["run_id"],
+            )
         ],
     )
-    assert closed.ok and closed.data["closure"]["closed"], closed.to_envelope()
-    assert runs(path)[:2] == initial
-    assert (host / "src/example.py").is_file()
+    assert not other.ok and path.read_bytes() == before
+    [row] = other.error.details["rows"]
+    assert row["predicate"] == "review-not-qualifying"
+    own = dispose(
+        path,
+        [
+            disposition(
+                origins["secondary"],
+                "SP-I2",
+                evidence_kind="review",
+                review_run_id=second["secondary"]["run_id"],
+            )
+        ],
+    )
+    assert own.ok, own.to_envelope()
+    assert len(calls) == 4
 
 
 def test_ac6_accepted_v3_result_and_exact_replay_add_no_call_event_or_decision(
