@@ -124,10 +124,25 @@ separately authorized action. When authorized, run from another worktree:
 git worktree remove <target>
 ```
 
-This audit does not authorize fetch, merge, push, remote contact, branch
+Authorization to remove the worktree of finished, merged work also covers its
+local branch: once the removal succeeds, delete that branch in the same step.
+Use the safe form, which refuses a branch that is not merged, and run it from
+the checkout whose `HEAD` is the integration ref, because without an upstream
+`-d` checks containment against the current `HEAD`:
+
+```bash
+git branch -d <branch>
+```
+
+This covers only the ordinary eligible case above. Never force the deletion
+with `-D`. A squash- or rebase-merged branch, which `-d` refuses, needs its own
+case-specific decision. Remote branches are out of scope.
+
+This audit does not authorize fetch, merge, push, remote contact, remote branch
 deletion, force removal, manual deletion, or prune. Do not infer any of those
 actions as cleanup steps. If the ordinary eligibility proof or the requested
-authority is absent, leave the worktree intact and report the exact blocker.
+authority is absent, leave the worktree and its branch intact and report the
+exact blocker.
 
 ## Stable rules
 
