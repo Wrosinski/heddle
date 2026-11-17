@@ -65,17 +65,21 @@ def open_round(
     role="spec-review",
     purpose="verification",
     reason="Inspect the remaining original concern",
+    scope_change=None,
 ):
+    payload = {
+        "schema": "heddle.review-round-input/v1",
+        "role": role,
+        "scope": "feature",
+        "purpose": purpose,
+        "reason": reason,
+    }
+    if scope_change is not None:
+        payload["scope_change"] = scope_change
     return invoke(
         "ReviewRoundOpen",
         feature=V7_FEATURE,
-        payload={
-            "schema": "heddle.review-round-input/v1",
-            "role": role,
-            "scope": "feature",
-            "purpose": purpose,
-            "reason": reason,
-        },
+        payload=payload,
         expect_revision=yaml.safe_load(path.read_text())["revision"],
     )
 

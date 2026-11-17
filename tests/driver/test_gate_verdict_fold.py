@@ -478,6 +478,8 @@ def test_phase_session_command_carries_bash_timeout_envelope():
     command = sessions._phase_session_command(spec, sessions._autonomy_addendum_path())
     assert command[0] == "env"
     envelope = command[1 : command.index("claude")]
+    # Round-open reads the stage marker to narrow what a driven session opens.
+    assert "HEDDLE_DRIVEN_SESSION=spec-review" in envelope
     assert (
         f"BASH_DEFAULT_TIMEOUT_MS={sessions.PHASE_SESSION_BASH_DEFAULT_TIMEOUT_MS}"
         in envelope

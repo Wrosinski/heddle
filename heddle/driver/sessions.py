@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from heddle.contracts.limits import DEFAULT_SESSION_HARD_TIMEOUT_S
+from heddle.contracts.review_assignments import DRIVEN_SESSION_ENV
 from heddle.driver.tempfiles import empty_temp_path
 from heddle.io.claude_events import (
     DISABLE_REFUSAL_FALLBACK_ENV,
@@ -425,10 +426,11 @@ def allowed_tools_for_stage(
         # profiles keep their old authority; owner decisions are not added by
         # this briefing-delivery preapproval. The lead judges whether a change
         # needs another verification round, and a round it opens runs like any
-        # other gate; round-open's own guards apply, and one past a stop records
-        # an owner question that pauses the driver. An allowance only records
-        # an already ratified cap increase, so stages whose briefing explains
-        # that route must be able to invoke it.
+        # other gate. Round-open refuses a driven session anything wider than a
+        # verification round in the assignment's scope (DRIVEN_SESSION_ENV),
+        # and one past a stop records an owner question that pauses the driver.
+        # An allowance only records an already ratified cap increase, so stages
+        # whose briefing explains that route must be able to invoke it.
         commands += (
             "Bash(heddle review disposition:*)",
             "Bash(heddle review reaffirm:*)",
@@ -552,6 +554,7 @@ def _phase_session_command(spec: PhaseSessionSpec, addendum: Path) -> list[str]:
         f"BASH_DEFAULT_TIMEOUT_MS={PHASE_SESSION_BASH_DEFAULT_TIMEOUT_MS}",
         f"BASH_MAX_TIMEOUT_MS={PHASE_SESSION_BASH_MAX_TIMEOUT_MS}",
         f"{DISABLE_REFUSAL_FALLBACK_ENV}=1",
+        f"{DRIVEN_SESSION_ENV}={spec.stage}",
         "claude",
     ]
     for arg in _CLAUDE_ARGS:

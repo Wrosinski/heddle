@@ -47,3 +47,8 @@ def pytest_configure(config: pytest.Config) -> None:
     or a developer's ignore rules."""
     scrub_git_locations(os.environ)
     os.environ.update(GIT_IGNORE_ISOLATION)
+    # A suite run inside a driven phase session would otherwise narrow every
+    # fixture's round-open to verification rounds.
+    from heddle.contracts.review_assignments import DRIVEN_SESSION_ENV
+
+    os.environ.pop(DRIVEN_SESSION_ENV, None)

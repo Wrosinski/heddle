@@ -17,6 +17,9 @@ DISPOSITION_STATUSES = (
     "awaiting-decision",
     "settled",
 )
+# The driver sets this in each phase session's environment (to the stage), so
+# operations that only a boundary owner may widen can refuse a driven session.
+DRIVEN_SESSION_ENV = "HEDDLE_DRIVEN_SESSION"
 EVIDENCE_KINDS = (
     "inspection",
     "contract",

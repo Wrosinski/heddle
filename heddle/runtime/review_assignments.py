@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
 import sys
 from collections.abc import Iterable
@@ -27,6 +28,7 @@ from heddle.contracts.review_assignments import (
     DISPOSITION_OPTIONAL_FIELDS,
     DISPOSITION_REQUIRED_FIELDS,
     DISPOSITION_STATUSES,
+    DRIVEN_SESSION_ENV,
     EVIDENCE_KINDS,
     REBOUND_BY_EQUIVALENCE,
     REBOUND_BY_REAFFIRM,
@@ -3200,6 +3202,20 @@ def _apply_round_open(
     )
     if payload["schema"] != "heddle.review-round-input/v1":
         raise core.invalid("unsupported review-round input schema")
+    if os.environ.get(DRIVEN_SESSION_ENV) and (
+        payload["purpose"] != "verification" or payload.get("scope_change") is not None
+    ):
+        raise KernelError(
+            code="usage",
+            message=(
+                "a driven session opens only a verification round within the "
+                "assignment's scope"
+            ),
+            hint=(
+                "open purpose verification without scope_change; other rounds "
+                "come from native next actions, and a scope change needs the owner"
+            ),
+        )
     if payload["role"] not in ROLE_STAGES:
         raise core.invalid("unknown or retired review role")
     if STAGES.index(current.stage) < STAGES.index(ROLE_STAGES[payload["role"]]):

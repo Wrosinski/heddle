@@ -82,6 +82,35 @@ def test_closed_unsealed_verification_preserves_before_open_and_new_coverage(
     assert all(f in prompt for f in (origins[0], "PC-I1", "PC-I2", "@coverage"))
 
 
+def test_driven_session_opens_only_a_verification_round_in_scope(
+    tmp_path, monkeypatch, capsys
+):
+    from heddle.contracts.review_assignments import DRIVEN_SESSION_ENV
+
+    _root, path, _content, calls, _origins = reviewed(tmp_path, monkeypatch, capsys)
+    monkeypatch.setenv(DRIVEN_SESSION_ENV, "spec-review")
+    before = read(path)
+    for refused in (
+        open_round(path, purpose="independent-pass"),
+        open_round(path, purpose="discovery"),
+        open_round(
+            path,
+            scope_change={"reason": "Widen to the plan", "references": [SPEC]},
+        ),
+    ):
+        assert not refused.ok and refused.error.code == "usage", refused
+        assert "verification round" in refused.error.message
+    assert read(path) == before
+
+    opened = open_round(path)
+    assert opened.ok, opened.to_envelope()
+    assert (
+        read(path)["review_assignments"]["assignments"][0]["rounds"][-1]["purpose"]
+        == "verification"
+    )
+    assert len(calls) == 1
+
+
 @pytest.mark.parametrize("omitted", ["PC-I2", "@coverage"])
 @pytest.mark.parametrize("retained", [False, True])
 def test_each_target_is_required_in_direct_and_retained_admission(
