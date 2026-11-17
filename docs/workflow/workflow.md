@@ -179,7 +179,9 @@ authorize one next round with `heddle decisions resolve <id> --kind
 continue-review --resolution <rationale>`; `--routes-to` is optional for a
 continuation and defaults to the feature spec. The resolution binds the exact
 assignment and stopped round; advancing the round consumes it, and replay
-grants no extra pass.
+grants no extra pass. While a round remains under the policy, readiness routes
+that round before the stage exits, even when the lead has since closed every
+row.
 A reached cap still requires an explicit feature-policy amendment, so a
 round-limit stop lists both steps up front: the resolution, then
 `heddle review allowance`. A generic `disposition` ruling does not authorize

@@ -670,6 +670,7 @@ def test_authorized_continuation_routes_rerecordable_rows_to_disposition(
 ):
     """An authorized continuation does not turn re-recording into a policy edit."""
     from tests.operational_model_helpers import SPEC, read
+    from tests.readiness_helpers import current_readiness
     from tests.tiering_helpers import entry
     from tests.tiering_review_helpers import (
         dispose,
@@ -727,7 +728,16 @@ def test_authorized_continuation_routes_rerecordable_rows_to_disposition(
         note in action.reason for note in ("stop is reached", "Stops are reached")
     ), "the action denies the owner decision that authorized the continuation"
     assert application.execute(ops.ReaffirmReview(feature=V7_FEATURE)).ok
-    assert review_status(path)["closed"] and len(calls) == 1
+    row = review_status(path)
+    assert row["closed"] and len(calls) == 1
+    # At the reached cap the unused ruling routes no allowance and blocks no
+    # exit: the round it bought waits for the owner's allowance.
+    assert not row.get("authorized_round") and row["next_step"] == "closed", row
+    readiness = current_readiness(host)
+    assert "gate-not-converged" not in readiness.blockers, readiness
+    assert not any(
+        isinstance(item.action, ops.ManualAction) for item in readiness.next_actions
+    )
 
 
 def test_spent_continuation_leaves_a_stop_reached_again_unresolved(

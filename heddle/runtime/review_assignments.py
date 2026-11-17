@@ -2223,12 +2223,15 @@ def projection(
             elif (
                 closed.closed
                 and receipt is None
+                and closed.rounds_remaining != 0
                 and core.continuation_authorized(snapshot.state, assignment)
             ):
                 # The owner's continue-review ruling on a closed assignment's
-                # stop still buys its round, which runs before the stage moves on.
+                # stop still buys its round, which runs before the stage moves
+                # on. At a reached cap the round needs the owner's allowance
+                # first, so a closed assignment exits as before until then.
                 row["authorized_round"] = True
-                row["next_step"] = "policy" if closed.rounds_remaining == 0 else "run"
+                row["next_step"] = "run"
             explained: tuple[tuple[EvidenceExplanation, bool], ...] = ()
             if receipt is None and basis_applies and closed.open_refs:
                 remedy = next_action(snapshot, row).action
