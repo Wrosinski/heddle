@@ -180,3 +180,37 @@ def test_milestone_verification_routes_without_observing_coverage(
     monkeypatch.setattr(readiness, "observe_feature_coverage", unexpected)
     lead = execute(ops.Status(feature=FEATURE)).next_actions[0]
     assert not isinstance(lead.action, ops.ManualAction), lead
+
+
+def test_a_stale_batch_led_by_milestone_proof_settles_coverage_first(
+    tmp_path, monkeypatch
+):
+    root, path = source_host(tmp_path, monkeypatch)
+    verify(path, "m1")
+    assert execute(ops.MilestoneAdvance(feature=FEATURE)).ok
+    verify(path, "acceptance")
+    (root / "src/example.py").write_text(
+        (root / "src/example.py").read_text() + "# fix\n"
+    )
+    (root / "src/unowned.py").write_text("EXTRA = 1\n")
+
+    first, second, *_ = execute(ops.Status(feature=FEATURE)).next_actions
+    assert isinstance(first.action, ops.ManualAction), first
+    assert "src/unowned.py" in first.reason
+    assert isinstance(second.action, ops.CommandAction)
+    assert second.action.operation.stale, second
+
+
+def test_a_verification_refusal_keeps_the_coverage_step_first(tmp_path, monkeypatch):
+    root, path = source_host(tmp_path, monkeypatch)
+    verify(path, "m1")
+    assert execute(ops.MilestoneAdvance(feature=FEATURE)).ok
+    (root / "src/unowned.py").write_text("EXTRA = 1\n")
+
+    refused = execute(ops.PhaseExit(feature=FEATURE))
+    assert not refused.ok and refused.error.code == "verification-missing"
+    first, second, *_ = refused.next_actions
+    assert isinstance(first.action, ops.ManualAction), refused.to_envelope()
+    assert "src/unowned.py" in first.reason
+    assert isinstance(second.action, ops.CommandAction)
+    assert second.action.operation.scope == "acceptance"

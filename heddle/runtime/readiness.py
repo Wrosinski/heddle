@@ -373,6 +373,17 @@ def _assignment_readiness(
 
 
 _COVERAGE_PATHS_SHOWN = 10
+_COVERAGE_SETTLE = (
+    "Add each feature path to its milestone with `heddle milestone edit "
+    "<milestone> --from-file -` and an `owns_append` list, or attribute "
+    "outside-feature work with `heddle feature sources attribute "
+    "--from-file <json>`"
+)
+
+
+def is_coverage_settle(item: NextAction) -> bool:
+    """Whether an action is readiness's step that settles source coverage."""
+    return item.action == ops.ManualAction(_COVERAGE_SETTLE)
 
 
 def _coverage_before_final_proof(
@@ -394,11 +405,8 @@ def _coverage_before_final_proof(
         isinstance(lead, ops.CommandAction) and isinstance(lead.operation, ops.Verify)
     ):
         return None
-    scopes = (
-        set(stale_batch_scopes(routed, verifications))
-        if lead.operation.stale
-        else {lead.operation.scope}
-    )
+    # Verify --stale runs the leading stale batch, so check what it covers.
+    scopes = {lead.operation.scope, *stale_batch_scopes(routed, verifications)}
     if not scopes & FINAL_SCOPES:
         return None
     coverage = observe_feature_coverage(config, snapshot.state)
@@ -409,11 +417,7 @@ def _coverage_before_final_proof(
     if hidden > 0:
         shown += f" and {hidden} more"
     return NextAction(
-        ops.ManualAction(
-            "Add each feature path to its milestone's owns with `heddle milestone "
-            "edit <milestone> --from-file -`, or attribute outside-feature work "
-            "with `heddle feature sources attribute --from-file <json>`"
-        ),
+        ops.ManualAction(_COVERAGE_SETTLE),
         f"Settle source ownership before final verification: {shown} changed "
         "since the feature baseline without an owner, and changing ownership "
         "after the final scopes run makes their facts source-set-stale",
@@ -852,7 +856,11 @@ def readiness_status_block(
     if not assessment.blockers:
         return None
     if assessment.blockers[0] == "verification-missing":
-        return verification_status_block(assessment.verifications, diagnostics)
+        block = verification_status_block(assessment.verifications, diagnostics)
+        lead = assessment.next_actions[:1]
+        if block is not None and lead and is_coverage_settle(lead[0]):
+            block = replace(block, next_actions=(*lead, *block.next_actions))
+        return block
     return HeddleResult.failure(
         HeddleError(
             code=assessment.blockers[0],
