@@ -60,7 +60,35 @@ def sessions_since_grant(
         ),
         default=0,
     )
+    if stage == "implement" and blocker == "attempt-cap":
+        baseline = max(baseline, _milestone_baseline(state, sessions))
     return sessions[baseline:]
+
+
+def _milestone_baseline(state: StateFile, sessions: tuple[SessionFact, ...]) -> int:
+    """Index of the first implement session after the latest milestone landed.
+
+    The attempt cap budgets each milestone, so a feature that keeps advancing
+    is not paused every five sessions. A milestone lands with a sealed
+    acceptance receipt; without one (milestone review off), or before a
+    session that records no starting revision, the stage-wide count stands.
+    """
+    landed = max(
+        (
+            receipt.revision_after
+            for receipt in state.review_assignments.acceptances
+            if receipt.boundary == "milestone"
+        ),
+        default=None,
+    )
+    if landed is None:
+        return 0
+    for index, session in enumerate(sessions):
+        if session.revision_before is None:
+            return 0
+        if session.revision_before >= landed:
+            return index
+    return len(sessions)
 
 
 def stage_session_count(state: StateFile, stage: str, blocker: str) -> int:

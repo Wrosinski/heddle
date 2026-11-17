@@ -25,6 +25,9 @@ from tests.operational_model_helpers import (
     resolved,
     run,
 )
+from tests.operational_model_helpers import (
+    document as operational_document,
+)
 
 # The decision-raising escalation classes (class 4 is gate-recorded, not added by
 # the decision-batch schema) — Feature Spec → Escalation taxonomy. This enum
@@ -383,6 +386,72 @@ def test_ac12_four_sessions_below_attempt_cap_does_not_block(
         "FAIL AC-12: four recorded sessions are below the cap — attempt-cap must "
         f"NOT fire, got blocks={blocks}"
     )
+
+
+def _cap_state(sessions: list[dict], receipts: tuple[tuple[str, int], ...] = ()):
+    """A parsed implement state with the given sessions and receipt revisions."""
+    from dataclasses import replace
+
+    from heddle.contracts.review_assignments import BoundaryAcceptance
+    from heddle.kernel.state import parse_state_document
+
+    raw = operational_document()
+    raw["sessions"] = sessions
+    state = parse_state_document(raw, source=Path("state.yaml"))
+    acceptances = tuple(
+        BoundaryAcceptance(
+            feature=state.feature,
+            boundary=boundary,
+            scope="m1" if boundary == "milestone" else None,
+            stage_before="implement",
+            stage_after="implement",
+            accepted_at="2026-06-16T09:00Z",
+            revision_before=revision_after - 1,
+            revision_after=revision_after,
+            assignments=(),
+        )
+        for boundary, revision_after in receipts
+    )
+    return replace(
+        state,
+        stage="implement",
+        review_assignments=replace(state.review_assignments, acceptances=acceptances),
+    )
+
+
+def test_attempt_cap_counts_sessions_since_the_latest_accepted_milestone():
+    from heddle.kernel.blockers import attempt_cap_reached, stage_session_count
+
+    # Seven sessions at revisions 3..9; the milestone landed at revision 8,
+    # so only the sessions starting at revision 8 or later count.
+    sessions = [_session_fact("implement", advanced=True, idx=i) for i in range(7)]
+    landed = _cap_state(sessions, (("milestone", 8),))
+    assert stage_session_count(landed, "implement", "attempt-cap") == 2
+    assert not attempt_cap_reached(landed)
+
+    # Without a receipt (milestone review off) the stage-wide count stands, and
+    # a receipt at another boundary does not reset it.
+    assert attempt_cap_reached(_cap_state(sessions))
+    assert attempt_cap_reached(_cap_state(sessions, (("phase", 8),)))
+    # Other blockers keep their stage-wide window.
+    assert stage_session_count(landed, "implement", "no-progress") == 7
+
+
+def test_attempt_cap_keeps_the_stage_count_when_a_session_lacks_its_revision():
+    from heddle.kernel.blockers import attempt_cap_reached
+
+    sessions = [_session_fact("implement", advanced=True, idx=i) for i in range(7)]
+    sessions[0] = {**sessions[0], "revision_before": None, "revision_after": None}
+    sessions[0].pop("advanced")
+    assert attempt_cap_reached(_cap_state(sessions, (("milestone", 8),)))
+
+
+def test_attempt_cap_blocks_five_sessions_inside_one_milestone():
+    from heddle.kernel.blockers import attempt_cap_reached
+
+    # The milestone landed before the first session: every session counts.
+    sessions = [_session_fact("implement", advanced=True, idx=i) for i in range(5)]
+    assert attempt_cap_reached(_cap_state(sessions, (("milestone", 3),)))
 
 
 def test_ac12_one_no_progress_session_below_must_advance_does_not_escalate(
