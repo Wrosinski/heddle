@@ -284,7 +284,7 @@ def _resolution_for(
     if operation.kind == "disposition":
         return kinds.Disposition()
     if operation.kind == "continue-review":
-        from heddle.runtime.review_assignments import projection
+        from heddle.runtime.review_assignments import closed_round_stop, projection
 
         assignment = next(
             (
@@ -309,11 +309,17 @@ def _resolution_for(
             for row in projection(target.config, snap)["review_closure"]["assignments"]
             if row["assignment_id"] == assignment.id
         )
-        if (
-            row["closed"]
-            or row["missing_slots"]
-            or row["stop_reason"] not in {"round-limit", "no-progress", "no-decrease"}
-        ):
+        # Round-open records the same stops on a closed assignment.
+        stopped = (
+            closed_round_stop(state, assignment)
+            if row["closed"]
+            else row["stop_reason"]
+        )
+        if row["missing_slots"] or stopped not in {
+            "round-limit",
+            "no-progress",
+            "no-decrease",
+        }:
             raise _usage_error("continue-review requires an unresolved review stop")
         return kinds.ContinueReview(assignment.id, len(assignment.rounds))
     if decision.target_stage is not None and decision.target_stage != state.stage:

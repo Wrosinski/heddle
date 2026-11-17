@@ -14,7 +14,8 @@ authority for the installed version.
   mode with a minimum of one round, so no round limit stops a review by
   default and the call budget has no ceiling; spec, plan and scaffolding
   reviews still stop on no decrease, which round-open now applies even after
-  every row is closed, and every role on no progress. The Full
+  every row is closed (the owner's continuation still buys the round), and
+  every role on no progress. The Full
   base adds a `gpt-6-astra` milestone-review secondary for each milestone's
   first round and runs the behaviour-review secondary in every round.
   Confirmed policies are unchanged. `run-gate` reports `rerun_allowed: true`
@@ -38,8 +39,8 @@ authority for the installed version.
   that affirms the finding is its review evidence. Readiness offers the
   originating reviewer's pass while it serves, otherwise an ordinary
   verification round, only while a round can open, and names the affirming
-  report once one exists and its inputs are unchanged. When the latest report
-  claims the finding settled without evidence that affirms it, readiness hands
+  report once one exists and its inputs are unchanged. When a current report
+  of the latest round answers the finding without affirming it, readiness hands
   it to the lead instead of opening another round. A sealed assignment keeps
   its closure when an amendment brings the reviewer back.
 - When a final scope's verify (smoke, acceptance or live), or a stale batch

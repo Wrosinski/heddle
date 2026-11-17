@@ -86,11 +86,13 @@ def test_closing_every_row_keeps_the_no_decrease_stop_before_another_round(
     tmp_path, monkeypatch, capsys
 ):
     """Two verification rounds each found one new Important finding. Closing
-    every row does not let a third open: round-open records the stop."""
+    every row does not let another open: round-open records the stop, and the
+    owner's continuation still buys the round."""
+    from tests.readiness_helpers import current_readiness
     from tests.structured_review_helpers import evidence
     from tests.tiering_review_helpers import current_host as host_with
 
-    _root, path = host_with(
+    root, path = host_with(
         tmp_path,
         monkeypatch,
         overrides={"spec-review": entry("spec-review", mode="convergence", limit=None)},
@@ -134,6 +136,27 @@ def test_closing_every_row_keeps_the_no_decrease_stop_before_another_round(
     pending = [d for d in state["decisions"] if d["status"] == "pending"]
     assert [d["title"] for d in pending] == ["spec-review stopped: no-decrease"]
     assert len(calls) == 3
+
+    # The owner can still authorize the round, which readiness then routes
+    # ahead of the phase exit, and which opening it spends.
+    assert execute(
+        ops.ResolveDecision(
+            decision_id=pending[0]["id"],
+            kind="continue-review",
+            rationale="Owner wants the fixes reviewed once more",
+            routes_to=SPEC,
+            feature=FEATURE,
+        )
+    ).ok
+    routed = current_readiness(root).next_actions[0]
+    assert isinstance(routed.action.operation, ops.ReviewRoundOpen), routed
+    assert routed.action.operation.payload["purpose"] == "verification"
+    assert execute(routed.action.operation).ok
+    assert len(read(path)["review_assignments"]["assignments"][0]["rounds"]) == (
+        before + 1
+    )
+    routed = current_readiness(root).next_actions[0]
+    assert isinstance(routed.action.operation, ops.RunGate), routed
 
 
 def test_driven_session_opens_only_a_verification_round_in_scope(

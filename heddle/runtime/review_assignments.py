@@ -323,12 +323,17 @@ def _inspected_duties(frame: _Qualification, assignment: ReviewAssignment) -> li
     return inspected
 
 
-def _claimed_duties(frame: _Qualification, assignment: ReviewAssignment) -> list[str]:
-    """Retained inspection duties the latest round's report, by a reviewer that
-    may inspect them, claims addressed or settled without affirming evidence.
+def _unaffirmed_duties(
+    frame: _Qualification, assignment: ReviewAssignment
+) -> list[str]:
+    """Retained inspection duties a current report of the latest round, by a
+    reviewer that may inspect them, accounts for without affirming, while the
+    lead has recorded no disposition of that report.
 
-    Another automatic round could repeat that claim without end, so readiness
-    hands these to the lead instead.
+    Another automatic round could repeat that answer without end, so readiness
+    hands these to the lead instead. Once the lead has dispositioned the report
+    and kept the duty, or the report's inputs change, the round is offered again:
+    at most one automatic round per lead review.
     """
     state = frame.snapshot.state
     latest_round = len(assignment.rounds)
@@ -342,24 +347,26 @@ def _claimed_duties(frame: _Qualification, assignment: ReviewAssignment) -> list
     latest = {
         (d.run_id, d.finding_id): d for d in state.review_assignments.dispositions
     }
-    claimed = []
+    reviewed = {d.run_id for d in state.review_assignments.dispositions}
+    unaffirmed = []
     for (run_id, finding_id), disposition in latest.items():
         if disposition.status != "retained" or not disposition.requires_inspection:
             continue
         reference = (run_id, finding_id)
         if any(
             review_id != run_id
+            and review_id not in reviewed
             and core.stands_for_origin(state, run_id, review_id)
             and not _affirms(result, reference)
             and any(
                 (row.source.run_id, row.source.finding_id) == reference
-                and row.disposition in {"addressed", "settled"}
                 for row in result.content.prior_dispositions
             )
+            and _review_still_current(frame, core.source_run(state, review_id), result)
             for review_id, result in reports
         ):
-            claimed.append(f"{run_id}#{finding_id}")
-    return claimed
+            unaffirmed.append(f"{run_id}#{finding_id}")
+    return unaffirmed
 
 
 def source_projection(
@@ -2185,8 +2192,8 @@ def projection(
                 if receipt is None and basis_applies
                 else []
             )
-            row["claimed_duties"] = (
-                _claimed_duties(frame, assignment)
+            row["unaffirmed_duties"] = (
+                _unaffirmed_duties(frame, assignment)
                 if receipt is None and basis_applies
                 else []
             )
@@ -2213,6 +2220,15 @@ def projection(
                 snapshot.state, assignment
             ):
                 row["next_step"] = "policy"
+            elif (
+                closed.closed
+                and receipt is None
+                and core.continuation_authorized(snapshot.state, assignment)
+            ):
+                # The owner's continue-review ruling on a closed assignment's
+                # stop still buys its round, which runs before the stage moves on.
+                row["authorized_round"] = True
+                row["next_step"] = "policy" if closed.rounds_remaining == 0 else "run"
             explained: tuple[tuple[EvidenceExplanation, bool], ...] = ()
             if receipt is None and basis_applies and closed.open_refs:
                 remedy = next_action(snapshot, row).action
@@ -2418,6 +2434,27 @@ def next_action(snapshot: FeatureSnapshot, row: dict[str, Any]) -> NextAction:
             # lead's alone.
             inspection + _LEAD_INSPECTION,
         )
+    if row.get("authorized_round") and row["next_step"] == "run":
+        reason = (
+            f"Open the verification round the owner authorized for "
+            f"{row['role']} {row['scope']}"
+        )
+        return NextAction(
+            ops.CommandAction(
+                ops.ReviewRoundOpen(
+                    feature=snapshot.feature,
+                    payload={
+                        "schema": "heddle.review-round-input/v1",
+                        "role": row["role"],
+                        "scope": row["scope"],
+                        "purpose": "verification",
+                        "reason": reason,
+                    },
+                    expect_revision=snapshot.state.revision,
+                )
+            ),
+            reason,
+        )
     if row["next_step"] == "decision" or (
         row["next_step"] == "run" and row["rounds_used"] and not row["missing_slots"]
     ):
@@ -2495,6 +2532,22 @@ def next_action(snapshot: FeatureSnapshot, row: dict[str, Any]) -> NextAction:
     )
 
 
+def closed_round_stop(state: StateFile, assignment: ReviewAssignment) -> str | None:
+    """The stop that asks the owner before a round opens on a closed
+    assignment, or None.
+
+    Closure is assessed before any stop, so closing every row would otherwise
+    carry a document review past no-decrease, which reads the rounds alone.
+    No-progress cannot apply, because such a round opens with nothing open, and
+    a round past a confirmed limit is refused, naming the owner's allowance.
+    """
+    facts = core.closure_facts(
+        state, assignment, current_basis="", valid_dispositions=()
+    )
+    capped = facts.policy.limit is not None and len(facts.rounds) >= facts.policy.limit
+    return "no-decrease" if not capped and no_decrease(facts) else None
+
+
 def _unresolved_kernel_stop(snapshot: FeatureSnapshot, row: dict[str, Any]) -> bool:
     """Whether the row is at a kernel stop no owner decision has resolved."""
     if row["stop_reason"] not in _KERNEL_STOPS:
@@ -2549,8 +2602,8 @@ def _inspection_duties(
     snapshot: FeatureSnapshot, row: dict[str, Any]
 ) -> tuple[list[str], list[str], list[str], list[str]]:
     """Retained open rows with an inspection duty, as `run#finding` refs: those
-    a later report that may inspect them already affirms, those the latest
-    round's report claims settled without affirming, and of the rest those
+    a later report that may inspect them already affirms, those a current report
+    of the latest round accounts for without affirming, and of the rest those
     whose raising reviewer can serve a further round and those whose reviewer
     cannot."""
     state = snapshot.state
@@ -2559,9 +2612,9 @@ def _inspection_duties(
         for item in state.review_assignments.dispositions
     }
     inspected = set(row.get("inspected_duties", ()))
-    unsupported = set(row.get("claimed_duties", ()))
+    unsupported = set(row.get("unaffirmed_duties", ()))
     affirmed: list[str] = []
-    claimed: list[str] = []
+    unaffirmed: list[str] = []
     serving: list[str] = []
     spent: list[str] = []
     for run_id, finding_id in row["open_refs"]:
@@ -2576,12 +2629,12 @@ def _inspection_duties(
         if label in inspected:
             affirmed.append(label)
         elif label in unsupported:
-            claimed.append(label)
+            unaffirmed.append(label)
         elif core.originating_reviewer_exhausted(state, run_id):
             spent.append(label)
         else:
             serving.append(label)
-    return affirmed, claimed, serving, spent
+    return affirmed, unaffirmed, serving, spent
 
 
 def _inspection_round_reason(
@@ -2595,7 +2648,7 @@ def _inspection_round_reason(
     """
     if not _inspection_round_can_open(row):
         return None
-    _affirmed, _claimed, serving, spent = _inspection_duties(snapshot, row)
+    _affirmed, _unaffirmed, serving, spent = _inspection_duties(snapshot, row)
     if serving:
         return (
             f"Open the originating-reviewer verification pass for "
@@ -2635,19 +2688,19 @@ def _inspection_round_can_open(row: dict[str, Any]) -> bool:
 
 def _inspection_note(snapshot: FeatureSnapshot, row: dict[str, Any]) -> str:
     """Name the routes for inspection duties no round is offered for."""
-    affirmed, claimed, serving, spent = _inspection_duties(snapshot, row)
+    affirmed, unaffirmed, serving, spent = _inspection_duties(snapshot, row)
     note = ""
     if affirmed:
         note += (
             f" A later report affirms {', '.join(affirmed)}: cite it as their "
             "review evidence (review_run_id)."
         )
-    if claimed:
+    if unaffirmed:
         note += (
-            f" The latest report claims {', '.join(claimed)} settled without "
-            "evidence that affirms it, so no further round is offered for it: "
-            "inspect it yourself and re-record it, or open a verification "
-            "round if a reviewer must look again."
+            f" The latest round's report answers {', '.join(unaffirmed)} without "
+            "affirming it, so no further round is offered for it: inspect it "
+            "yourself and re-record it, or open a verification round if a "
+            "reviewer must look again."
         )
     # Only an active stop or spent allowance needs the owner; stale evidence or
     # missing slots route their own repair, after which the round is offered.
@@ -3472,18 +3525,8 @@ def _apply_round_open(
             "before opening another round"
         )
     stop_reason = closed.stop_reason
-    if (
-        stop_reason is None
-        and closed.closed
-        and no_decrease(
-            core.closure_facts(
-                current.state, assignment, current_basis="", valid_dispositions=()
-            )
-        )
-    ):
-        # Closing every row does not reset the comparison: a round after two
-        # that found no fewer new Important findings still asks the owner.
-        stop_reason = "no-decrease"
+    if stop_reason is None and closed.closed:
+        stop_reason = closed_round_stop(current.state, assignment)
     if stop_reason:
         if core.continuation_authorized(current.state, assignment):
             raise core.invalid(

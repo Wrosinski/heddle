@@ -2325,8 +2325,78 @@ def test_a_report_claiming_a_duty_settled_without_evidence_goes_to_the_lead(
     routed = current_readiness(host).next_actions[0]
     assert isinstance(routed.action, ops.AuthoringAction), routed
     assert routed.action.work == "review-disposition"
-    assert f"The latest report claims {origin}#SP-I1 settled" in routed.reason
+    assert (
+        f"The latest round's report answers {origin}#SP-I1 without affirming it"
+        in routed.reason
+    )
     assert len(calls) == 2
+
+
+@pytest.mark.parametrize("reoffer", ["lead-reviewed", "stale"])
+def test_a_duty_kept_open_with_a_minor_finding_goes_to_the_lead_once(
+    tmp_path, monkeypatch, run_cli, reoffer
+):
+    """A stand-in that retains the duty behind a Minor finding passes the gate,
+    so no session folds in; readiness hands the duty to the lead. Once the lead
+    has dispositioned that report, or its inputs change, the round is offered
+    again."""
+    from heddle.contracts import operations as ops
+    from heddle.runtime.application import execute
+    from tests.proof_continuity_helpers import SPEC
+    from tests.readiness_helpers import current_readiness
+    from tests.structured_review_helpers import disposition as reviewer_disposition
+    from tests.structured_review_helpers import finding_ref
+
+    host, path = current_host(
+        tmp_path,
+        monkeypatch,
+        overrides={"spec-review": entry("spec-review", mode="convergence", limit=None)},
+    )
+
+    def report(_cli, _prompt):
+        if not runs(path):
+            return review_content(
+                findings=[finding("SP-I1", classification="implement")]
+            )
+        result = review_content(
+            findings=[finding("SP-M1", severity="minor", classification="implement")]
+        )
+        result["prior_dispositions"] = [
+            reviewer_disposition(finding_ref(origin, "SP-I1"), target="SP-M1"),
+            reviewer_disposition(finding_ref(origin, "@coverage"), action="addressed"),
+        ]
+        return result
+
+    provider_transport(monkeypatch, report)
+    code, result = gate_command(run_cli, "run-gate", "spec-review")
+    assert code in (0, 4), result
+    origin = runs(path)[0]["run_id"]
+    assert dispose(
+        path,
+        [
+            disposition(origin, status="retained", requires_inspection=True),
+            disposition(origin, "@coverage", status="settled"),
+        ],
+    ).ok
+    routed = current_readiness(host).next_actions[0]
+    assert execute(routed.action.operation).ok
+    code, result = gate_command(run_cli, "run-gate", "spec-review")
+    assert code == 0 and result["data"]["accepted"], result
+    assert review_status(path)["unaffirmed_duties"] == [f"{origin}#SP-I1"]
+    routed = current_readiness(host).next_actions[0]
+    assert isinstance(routed.action, ops.AuthoringAction), routed
+    assert f"answers {origin}#SP-I1 without affirming it" in routed.reason
+
+    if reoffer == "stale":
+        spec = host / SPEC
+        spec.write_text(spec.read_text() + "\nClarify the declared contract.\n")
+        assert review_status(path)["unaffirmed_duties"] == []
+        return
+    latest = runs(path)[-1]["run_id"]
+    assert dispose(path, [disposition(latest, "@coverage", status="settled")]).ok
+    assert review_status(path)["unaffirmed_duties"] == []
+    routed = current_readiness(host).next_actions[0]
+    assert isinstance(routed.action.operation, ops.ReviewRoundOpen), routed
 
 
 @pytest.mark.parametrize(

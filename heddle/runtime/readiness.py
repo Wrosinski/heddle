@@ -280,7 +280,9 @@ def _assignment_readiness(
                 evidence_basis=row["evidence_basis"],
             )
         )
-        if not row["closed"] and (retained or not implementation_work_pending):
+        if (not row["closed"] or row.get("authorized_round")) and (
+            retained or not implementation_work_pending
+        ):
             if "gate-not-converged" not in blockers:
                 blockers.append("gate-not-converged")
             if unavailable is None:
