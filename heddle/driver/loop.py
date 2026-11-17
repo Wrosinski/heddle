@@ -826,10 +826,10 @@ def _gate_verdict_problem(result: HeddleResult) -> ValidationProblem:
         resolution = (
             f"Read the review artifact {artifact}, apply every "
             "Critical/Important IMPLEMENT finding to the reviewed documents "
-            f"and record dispositions{budget}. Whether another verification "
-            "round is needed follows **Review rounds**; open one with "
-            "`heddle review round-open`, and otherwise follow the native next "
-            "actions"
+            f"and record dispositions{budget}. Decide whether another "
+            "verification round is needed by **Review rounds** in the briefing; "
+            "open one with `heddle review round-open`, and otherwise follow the "
+            "native next actions"
         )
     return ValidationProblem(
         detail=(

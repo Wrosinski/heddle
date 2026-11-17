@@ -400,7 +400,7 @@ def test_review_gate_verdict_problem_allows_next_rerun_before_cap():
     }
     problem = loop_mod._gate_verdict_problem(HeddleResult.success(envelope["data"]))
     assert "re-run" not in problem.detail
-    assert "follows **Review rounds**" in problem.detail
+    assert "by **Review rounds**" in problem.detail
     assert "heddle review round-open" in problem.detail
     assert "attempt 1/4" in problem.detail
 

@@ -112,7 +112,10 @@ During long runs, give the user a one-line progress note before each milestone
 step and each gate invocation. Keep these notes in the session conversation;
 formal gate artifacts retain their required structure and non-narration rules.
 
-1. Expand the milestone into cohesive, dependency-ordered tasks with
+1. When the milestone has just become current, first add each earlier review
+   observation or deferred finding that names it to its Work in `plan.md`,
+   which its review reads; before the advance, `plan.md` is still a reviewed
+   input. Expand the milestone into cohesive, dependency-ordered tasks with
    `heddle task add`; set and maintain the current-task marker. Check the
    list against the milestone's work, scope, and `satisfies` ACs — add what
    is missing, drop what falls outside scope. When a ruling changes an open
@@ -202,10 +205,7 @@ formal gate artifacts retain their required structure and non-narration rules.
    in the session handoff. Reconcile genuine design changes and propagate
    durable Decisions/Discoveries before review where possible; later governing
    edits require fresh evidence at the existing boundary. The next session
-   resumes from native facts. Milestone advance remains boundary-owned. Once
-   a milestone advances, add each review observation or deferred finding that
-   names the new milestone to its Work in `plan.md`, which its review reads;
-   before the advance, `plan.md` is still a reviewed input.
+   resumes from native facts. Milestone advance remains boundary-owned.
 
 Before starting the final milestone, read the Integrated Witness Proposal and
 the exact decisions or research reference it cites, then inspect the live E2E

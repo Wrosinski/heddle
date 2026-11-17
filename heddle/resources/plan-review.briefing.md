@@ -126,7 +126,7 @@ listed rows to re-dispose from fresh inspection; exit 1 means none qualified.
 Run `heddle validate` after changes. Follow native next actions for targeted
 review, stops, and explicit budget decisions; do not invent another fixed pass
 count or restart usage after an amendment.
-Whether another round is worth running follows **Review rounds**.
+Decide whether another round is worth running by **Review rounds** above.
 After structural plan fixes, an
 optional validating round may be opened within the remaining allowance with
 `review round-open` and purpose `verification`; `review round-open --help`

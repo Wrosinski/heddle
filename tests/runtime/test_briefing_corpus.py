@@ -1378,10 +1378,11 @@ def test_implement_carries_a_named_finding_to_its_milestone_after_advance() -> N
     """RR2: plan.md is a reviewed input until the milestone advances."""
     assert _has_passage(
         _text("implement.briefing.md"),
-        "once a milestone advances",
+        "just become current",
         "deferred finding",
-        "names the new milestone to its work in `plan.md`",
+        "names it to its work in `plan.md`",
         "before the advance",
+        "expand the milestone",
     ), "implement does not carry a finding naming a milestone to its Work"
 
 
@@ -1399,6 +1400,7 @@ def test_the_witness_proposal_bounds_live_attempts_and_probes_a_provider() -> No
         "new output mode or tools",
         "one real call",
         "first milestone that can exercise it",
+        "named in that milestone's work",
         "test double refuses what the provider refuses",
     ), "the witness proposal does not plan one early real provider call"
 
@@ -1457,7 +1459,10 @@ def test_the_review_round_rule_is_stated_once_and_cited_by_review_stages() -> No
         rule, "verification round", "weigh what changed", "severity", "session log"
     ), "the rule does not state the lead's judgement and where it is recorded"
     assert _has_passage(
-        rule, "stop at the latest round", "low importance", "minor findings never"
+        rule,
+        "end the review at the latest round",
+        "low importance",
+        "minor findings never",
     ), "the rule does not state the lead's stop"
     assert _has_passage(
         rule, "heddle drive", "verification", "without a scope change", "driver runs"

@@ -188,8 +188,8 @@ add-rate-limit — stage specify (authorized through specify) — fresh entry
 
 `heddle status` shows the same facts with milestone, review and verification
 rows once they exist. `heddle kickoff` renders the briefing an agent would work
-from at this stage: the shared decision-routing policy followed by the stage
-instructions.
+from at this stage: the shared decision-routing policy, then at stages that run
+reviews the shared review-round rule, followed by the stage instructions.
 
 ```console
 $ heddle kickoff | head -5

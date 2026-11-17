@@ -527,6 +527,10 @@ Kickoff and reviewer preparation both capture `decision-routing.md` through
 `.heddle/overrides/` > `.heddle/generated/` > installed package precedence. A host
 can override that resource independently of its stage or gate template. Kickoff
 composes it with the validated stage body; the driver delivers that result once.
+For the six stages that run review gates, kickoff places the shared review-round
+rule, `review-rounds.md`, resolved with the same precedence, between the policy
+and the stage body. It reaches sessions only, so no reviewer identity includes
+it; doctor reports the tier it resolved from.
 Reviewer authoring, effective, and reusable review identities include the policy.
 `show-prompt` and kickoff expose `decision_policy_source` and `decision_policy_path`
 separately from template/stage provenance; doctor validates readable nonblank UTF-8.

@@ -298,7 +298,8 @@ only when it leaves a Python syntax tree, or Markdown text apart from table
 padding and spacing, unchanged. Preserve exact original finding/decision references, coverage
 gaps, and originating inspection duties. Use the remaining round allowance and
 explicit stop/budget decisions, not a hardcoded tier sequence or a new lower
-cap. Whether another round is worth running follows **Review rounds**.
+cap.
+Decide whether another round is worth running by **Review rounds** above.
 At a reached confirmed cap, `heddle review allowance` can raise an
 owner-approved absolute quality round limit. It invokes no provider and does not
 resolve a stop or open a round; follow the separate native actions in their

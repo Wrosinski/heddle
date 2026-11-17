@@ -6,8 +6,9 @@ That document owns the vendor sources, covered-model list, resolution rule,
 and per-model notes. This companion owns their application to packaged stage
 briefings in `heddle/resources/`.
 
-Kickoff composes the shared `decision-routing.md` policy with a separately
-validated stage body. That composed result is delivered byte-identically as the
+Kickoff composes the shared `decision-routing.md` policy, then, for the six
+stages that run review gates, the shared review-round rule
+(`review-rounds.md`), with a separately validated stage body. That composed result is delivered byte-identically as the
 phase-session work-prompt head, so the session must
 receive the complete operative contract without depending on this design note.
 

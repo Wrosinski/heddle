@@ -152,7 +152,7 @@ as pending and request its actual execution scope.
 ## Further rounds and exit readiness
 
 Use native closure and the remaining confirmed allowance.
-Whether another round is worth running follows **Review rounds**.
+Decide whether another round is worth running by **Review rounds** above.
 A disposition rerun
 targets retained concerns and supported changes under
 `prompt-authoring-standards.md#disposition-rerun`; it is not a fresh unrelated

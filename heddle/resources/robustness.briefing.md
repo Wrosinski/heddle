@@ -99,7 +99,8 @@ Settled decisions and documented accepted-risk assumptions are not fresh finding
 without contradictory evidence. Preserve every original run/finding reference,
 coverage duty, and required originating inspection. Use `heddle review disposition`
 for evidence-bound closure and native next actions for another round or an
-explicit stop/budget decision. Whether another round is worth running follows **Review rounds**.
+explicit stop/budget decision.
+Decide whether another round is worth running by **Review rounds** above.
 Do not invent fixed passes, a lower cap, a
 synthesis, or a reset after a policy/model amendment.
 
