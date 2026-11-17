@@ -1005,7 +1005,10 @@ def _qualify_evidence(
             return _EvidenceQualification(by_equivalence=relied)
         return _rejected_evidence(
             "decision-not-qualifying",
-            "decision evidence is not a resolved user decision",
+            (
+                "decision evidence is not a resolved user decision raised for "
+                "this finding"
+            ),
             (
                 "supply the resolved user decision raised for this original "
                 "concern; where the owner's acceptance is recorded elsewhere, "
