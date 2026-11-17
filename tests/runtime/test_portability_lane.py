@@ -237,6 +237,7 @@ def _expected_doctor_resource_assets() -> set[str]:
         *(f"{stage}.briefing.md" for stage in STAGES),
         *_SCAFFOLD_ASSETS,
         "decision-routing.md",
+        "review-rounds.md",
         "autonomy-addendum.md",
         "local-checkout.md",
         "gate-failure-guide.md",
