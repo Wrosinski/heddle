@@ -81,7 +81,7 @@ spacing, unchanged; every other byte change to a cited or reviewed file counts.
 
 ## Follow-up review and evidence reuse
 
-For further inspection after lead closure, request boundary-owned
+For further inspection after lead closure, open a round through
 `review round-open --input-json <file>` with schema
 `heddle.review-round-input/v1`, the selected whole-feature role, scope `feature`,
 purpose `verification` and a concrete reason. The complete JSON example is in

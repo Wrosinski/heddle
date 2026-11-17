@@ -161,9 +161,9 @@ what gap remains. Any material change to a milestone's reviewed code or proof
 after its latest round owes a verification round before the milestone
 advances, whichever finding prompted it; formatting-only changes, later
 milestones' work and reviews that are off owe none. At the round limit, the
-owner decides whether to allow that round. A driven session, which cannot
-open the round, names it in its session handoff, and the milestone advances
-without it.
+owner decides whether to allow that round. A driven session opens the round
+itself, limited to a verification round in the assignment's scope, and the
+milestone advances only once it converges.
 
 When a review stops for no progress, no decrease or its round cap, the native
 round-open operation records an owner question in place of a round. It reports

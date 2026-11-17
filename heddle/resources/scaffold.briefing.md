@@ -302,8 +302,8 @@ cap. At a reached confirmed cap, `heddle review allowance` can raise an
 owner-approved absolute quality round limit. It invokes no provider and does not
 resolve a stop or open a round; follow the separate native actions in their
 emitted order. To check structural scaffold fixes in a round no native action
-requires, request the boundary-owned `review round-open` with purpose
-`verification` while allowance remains; its `--help` lists the payload fields.
+requires, open one with `review round-open` and purpose `verification` while
+allowance remains; its `--help` lists the payload fields.
 
 The reviewed tests are the declared tests, `Verified-by:` bindings and their
 helpers, plus every test under the tests root whose content differs from the

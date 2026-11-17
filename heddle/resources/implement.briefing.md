@@ -269,9 +269,9 @@ clean. Advice adds no acknowledgement flag or execution authority. Ignored
 records still participate whenever the review or citation contract selects them.
 
 When step 5 owes a verification round, or another inspection is warranted,
-the boundary owner can use
-the Heddle `review round-open --input-json <file> --feature <slug>` operation
-with this payload. Round opening remains boundary-owned:
+open it with `heddle review round-open --input-json <file> --feature <slug>`
+and this payload. A driven session may open only a verification round in the
+assignment's scope:
 
 ```json
 {

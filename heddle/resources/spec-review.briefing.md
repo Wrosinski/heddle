@@ -103,9 +103,9 @@ exit 1 means no row could be written.
 Use the runtime's next action for a necessary targeted round or cap/stop
 decision; a limit is not a fixed number of required passes and is not closure.
 Structural fixes may warrant a validating round the runtime does not require.
-While the assignment is unsealed and allowance remains, ask the boundary owner
-to open it through `review round-open` with purpose `verification`; that
-command's `--help` shows the payload.
+While the assignment is unsealed and allowance remains, open it through
+`review round-open` with purpose `verification`; that command's `--help`
+shows the payload.
 
 ## Review change confirmation and exit
 

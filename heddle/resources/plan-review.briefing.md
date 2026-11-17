@@ -125,8 +125,8 @@ listed rows to re-dispose from fresh inspection; exit 1 means none qualified.
 
 Run `heddle validate` after changes. Follow native next actions for targeted
 review, stops, and explicit budget decisions; do not invent another fixed pass
-count or restart usage after an amendment. An optional validating round after
-structural plan fixes is the boundary owner's to open, within the remaining
-allowance, with `review round-open` and purpose `verification`;
-`review round-open --help` describes its payload. Exit toward **scaffold** only
+count or restart usage after an amendment. After structural plan fixes, an
+optional validating round may be opened within the remaining allowance with
+`review round-open` and purpose `verification`; `review round-open --help`
+describes its payload. Exit toward **scaffold** only
 when native readiness and the caller's phase-exit authority permit it.
