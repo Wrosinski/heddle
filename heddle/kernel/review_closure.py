@@ -175,10 +175,7 @@ def _resolved(
         or source.classification == "unknown"
     ):
         return False
-    if source.requires_inspection and (
-        resolution.reviewer is None
-        or (not source.inspector_exhausted and resolution.reviewer != source.reviewer)
-    ):
+    if source.requires_inspection and resolution.reviewer != source.reviewer:
         return False
     if source.classification == "report":
         return settles_decision_route(source, resolution, facts.decisions)

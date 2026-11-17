@@ -1297,28 +1297,25 @@ def inspection_identity(
     return reviewer_identity(run)
 
 
-def originating_reviewer_exhausted(state: StateFile, origin_run_id: str) -> bool:
-    """Whether no round after an origin's can be served by its frozen reviewer.
+def originating_reviewer_exhausted(
+    state: StateFile, origin_run_id: str, *, sealed: bool = False
+) -> bool:
+    """Whether the reviewer that raised an origin can serve no further round.
 
-    A recorded later round whose slots include that reviewer can serve it, as
-    can the confirmed policy's primary or its secondary inside the next round's
-    window. A narrowed window, a removed secondary or a replaced reviewer
-    exhausts it; review evidence for the origin may then come from any later
-    round of the same assignment that accounts for it.
+    A sealed assignment opens no round. Otherwise the confirmed policy's next
+    round decides: a spent or narrowed secondary window, a removed secondary or
+    a replaced reviewer leaves that reviewer out. Without a policy row for the
+    role the reviewer counts as available.
     """
     run = source_run(state, origin_run_id)
     reviewer = _frozen_reviewer(state, run)
-    if reviewer is None or run.round_number is None:
+    if reviewer is None:
         return False
+    if sealed:
+        return True
     assignment = next(
         a for a in state.review_assignments.assignments if a.id == run.assignment_id
     )
-    if any(
-        row.number > run.round_number
-        and any(slot.reviewer == reviewer for slot in row.slots)
-        for row in assignment.rounds
-    ):
-        return False
     policy = next(
         (
             row
@@ -1329,8 +1326,67 @@ def originating_reviewer_exhausted(state: StateFile, origin_run_id: str) -> bool
     )
     if policy is None:
         return False
-    upcoming = max(len(assignment.rounds), run.round_number) + 1
+    upcoming = len(assignment.rounds) + 1
     return all(slot.reviewer != reviewer for slot in round_slots(policy, upcoming))
+
+
+def last_served_round(state: StateFile, origin_run_id: str) -> int:
+    """The latest recorded round of an origin's assignment that froze the
+    reviewer that raised it."""
+    run = source_run(state, origin_run_id)
+    reviewer = _frozen_reviewer(state, run)
+    assert run.round_number is not None
+    assignment = next(
+        a for a in state.review_assignments.assignments if a.id == run.assignment_id
+    )
+    return max(
+        (
+            row.number
+            for row in assignment.rounds
+            if any(slot.reviewer == reviewer for slot in row.slots)
+        ),
+        default=run.round_number,
+    )
+
+
+def stands_for_origin(
+    state: StateFile, origin_run_id: str, review_run_id: str, *, sealed: bool = False
+) -> bool:
+    """Whether a later round's run inspects an origin for its review evidence.
+
+    The raising reviewer's own later run always does. Once that reviewer can
+    serve no further round, so does any run of the same assignment from a round
+    after the last one it served, whatever slot ran it: a round it served
+    itself, or an earlier one, cannot stand in for it.
+    """
+    if inspection_identity(state, origin_run_id) == inspection_identity(
+        state, review_run_id, origin=origin_run_id
+    ):
+        return True
+    origin = source_run(state, origin_run_id)
+    review = source_run(state, review_run_id)
+    return (
+        review.assignment_id == origin.assignment_id
+        and origin.round_number is not None
+        and review.round_number is not None
+        and review.round_number > last_served_round(state, origin_run_id)
+        and originating_reviewer_exhausted(state, origin_run_id, sealed=sealed)
+    )
+
+
+def _inspecting_identity(
+    state: StateFile, disposition: AssignmentDisposition, *, sealed: bool
+) -> str | None:
+    """The reviewer identity a disposition's review evidence inspects for."""
+    if disposition.review_run_id is None:
+        return None
+    if stands_for_origin(
+        state, disposition.run_id, disposition.review_run_id, sealed=sealed
+    ):
+        return inspection_identity(state, disposition.run_id)
+    return inspection_identity(
+        state, disposition.review_run_id, origin=disposition.run_id
+    )
 
 
 def _frozen_reviewer(state: StateFile, run: GateRun) -> Reviewer | None:
@@ -1423,8 +1479,6 @@ def closure_facts(
                     inspection_identity(state, source.run_id),
                     (source.run_id, finding.finding_id) in inspections,
                     owner,
-                    (source.run_id, finding.finding_id) in inspections
-                    and originating_reviewer_exhausted(state, source.run_id),
                 )
             )
     qualified = dispositions if valid_dispositions is None else valid_dispositions
@@ -1436,9 +1490,7 @@ def closure_facts(
             d.references,
             d.evidence_basis,
             d.reason,
-            inspection_identity(state, d.review_run_id, origin=d.run_id)
-            if d.review_run_id
-            else None,
+            _inspecting_identity(state, d, sealed=historical_complete),
             d.decision_id,
         )
         for d in qualified

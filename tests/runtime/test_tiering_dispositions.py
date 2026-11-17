@@ -1077,7 +1077,7 @@ def test_ac5_targeted_rounds_keep_origins_and_inspect_a_spent_secondary(
     assert isinstance(routed.action.operation, ops.ReviewRoundOpen)
     assert routed.action.operation.payload["purpose"] == "verification"
     # Fable's window is round 1, so the round offered is not its own pass.
-    assert "serves no later round" in routed.reason
+    assert "serves no further round" in routed.reason
     assert amend(path, entry("spec-review", limit=4, primary=SOL), revision=2).ok
     phase["value"] = 2
     opened = open_round(
@@ -1104,7 +1104,7 @@ def test_ac5_targeted_rounds_keep_origins_and_inspect_a_spent_secondary(
     # concern, and the disposition route names the later report as evidence.
     routed = invoke("Status", feature=V7_FEATURE).next_actions[0]
     assert isinstance(routed.action, ops.AuthoringAction), routed
-    assert "cite a later round's report" in routed.reason
+    assert "A later report affirms" in routed.reason
     assert f"{origins['secondary']}#SP-I2" in routed.reason
     closed = dispose(
         path,
@@ -1122,6 +1122,15 @@ def test_ac5_targeted_rounds_keep_origins_and_inspect_a_spent_secondary(
     assert closed.ok and closed.data["closure"]["closed"], closed.to_envelope()
     assert runs(path)[:2] == initial
     assert len(calls) == 3
+    # Sealed, the closure stands even when an amendment brings Fable back.
+    from heddle.runtime.application import execute
+
+    exited = execute(ops.PhaseExit(feature=V7_FEATURE))
+    assert exited.ok, exited.to_envelope()
+    amended = amend(path, entry("spec-review", limit=4, primary=FABLE), revision=3)
+    assert amended.ok, amended.to_envelope()
+    sealed = review_status(path)
+    assert sealed["closed"] and sealed["evidence_state"] == "accepted", sealed
     assert (host / "src/example.py").is_file()
 
 
@@ -1226,6 +1235,169 @@ def test_a_secondary_serving_later_rounds_inspects_its_own_finding(
     )
     assert own.ok, own.to_envelope()
     assert len(calls) == 4
+
+
+def test_a_secondary_past_a_two_round_window_is_inspected_by_a_later_round(
+    tmp_path, monkeypatch, run_cli
+):
+    """Fable serves rounds 1 and 2 and keeps its finding open in round 2. A
+    later report then stands in for it, but not the primary's report in a
+    round Fable also served."""
+    from dataclasses import replace
+
+    from heddle.contracts import operations as ops
+    from tests.structured_review_helpers import disposition as reviewer_disposition
+    from tests.structured_review_helpers import finding_ref
+
+    _host, path = current_host(
+        tmp_path,
+        monkeypatch,
+        overrides={
+            "spec-review": replace(
+                entry("spec-review", limit=4, secondary=FABLE), secondary_rounds=2
+            )
+        },
+    )
+    origins = {}
+    phase = {"value": 1}
+
+    def accounted(*references, action="addressed", target=None):
+        return [
+            reviewer_disposition(
+                finding_ref(run_id, identifier), action=action, target=target
+            )
+            for run_id, identifier in references
+        ]
+
+    def report(cli, _prompt):
+        if phase["value"] == 1:
+            return review_content(
+                findings=[
+                    finding(
+                        "SP-I1" if cli == "codex" else "SP-I2",
+                        classification="implement",
+                    )
+                ]
+            )
+        prior = [(run["run_id"], "@coverage") for run in runs(path)]
+        if phase["value"] == 2 and cli == "claude":
+            # Fable keeps its own concern open in round 2.
+            result = review_content(
+                findings=[finding("SP-I3", classification="implement")]
+            )
+            result["prior_dispositions"] = [
+                *accounted((origins["primary"], "SP-I1"), *prior[:2]),
+                *accounted(
+                    (origins["secondary"], "SP-I2"), action="retained", target="SP-I3"
+                ),
+            ]
+            return result
+        result = review_content()
+        result["prior_dispositions"] = accounted(
+            (origins["primary"], "SP-I1"),
+            (origins["secondary"], "SP-I2"),
+            *(((origins["fable2"], "SP-I3"),) if "fable2" in origins else ()),
+            *(prior[:2] if phase["value"] == 2 else prior),
+        )
+        return result
+
+    calls = provider_transport(monkeypatch, report)
+    for cli in ("codex", "claude"):
+        code, result = gate_command(run_cli, "run-gate", "spec-review", "--cli", cli)
+        assert code in (0, 4), result
+    initial = runs(path)
+    origins.update({row["reviewer_slot"]: row["run_id"] for row in initial})
+    assert dispose(
+        path,
+        [
+            disposition(origins["primary"], status="retained"),
+            disposition(
+                origins["secondary"],
+                "SP-I2",
+                status="retained",
+                requires_inspection=True,
+            ),
+            *[
+                disposition(row["run_id"], "@coverage", status="settled")
+                for row in initial
+            ],
+        ],
+    ).ok
+    assert open_round(path).ok
+    phase["value"] = 2
+    for cli in ("codex", "claude"):
+        code, result = gate_command(run_cli, "run-gate", "spec-review", "--cli", cli)
+        assert code in (0, 4), result
+    second = {row["reviewer_slot"]: row for row in runs(path)[2:]}
+    origins["fable2"] = second["secondary"]["run_id"]
+    # The primary's round-2 report affirms SP-I2, but Fable served round 2.
+    same_round = dispose(
+        path,
+        [
+            disposition(
+                origins["secondary"],
+                "SP-I2",
+                evidence_kind="review",
+                review_run_id=second["primary"]["run_id"],
+            )
+        ],
+    )
+    assert not same_round.ok
+    assert dispose(
+        path,
+        [
+            disposition(
+                origins["primary"],
+                evidence_kind="review",
+                review_run_id=second["primary"]["run_id"],
+            ),
+            disposition(
+                origins["secondary"],
+                "SP-I2",
+                status="retained",
+                requires_inspection=True,
+            ),
+            disposition(origins["fable2"], "SP-I3", status="retained"),
+            *[
+                disposition(row["run_id"], "@coverage", status="settled")
+                for row in second.values()
+            ],
+        ],
+    ).ok
+    # Fable serves no round 3, and no report after round 2 affirms SP-I2 yet.
+    routed = invoke("Status", feature=V7_FEATURE).next_actions[0]
+    assert isinstance(routed.action, ops.CommandAction), routed
+    assert isinstance(routed.action.operation, ops.ReviewRoundOpen)
+    assert routed.reason.startswith("Open a verification round"), routed.reason
+    assert open_round(path).ok
+    phase["value"] = 3
+    code, result = gate_command(run_cli, "run-gate", "spec-review")
+    assert code in (0, 4), result
+    third = runs(path)[-1]
+    assert third["round_number"] == 3 and third["reviewer_slot"] == "primary"
+    routed = invoke("Status", feature=V7_FEATURE).next_actions[0]
+    assert isinstance(routed.action, ops.AuthoringAction), routed
+    assert "A later report affirms" in routed.reason
+    closed = dispose(
+        path,
+        [
+            disposition(
+                origins["secondary"],
+                "SP-I2",
+                evidence_kind="review",
+                review_run_id=third["run_id"],
+            ),
+            disposition(
+                origins["fable2"],
+                "SP-I3",
+                evidence_kind="review",
+                review_run_id=third["run_id"],
+            ),
+            disposition(third["run_id"], "@coverage", status="settled"),
+        ],
+    )
+    assert closed.ok and closed.data["closure"]["closed"], closed.to_envelope()
+    assert len(calls) == 5
 
 
 def test_ac6_accepted_v3_result_and_exact_replay_add_no_call_event_or_decision(

@@ -290,7 +290,10 @@ round's concerns across slots and still-open originals, including `@coverage`.
 Every target needs explicit reviewer accounting. A clean result creates its own
 coverage duty: inspect and disposition it normally. Sealed acceptance, off roles,
 missing slots, pending stop decisions and caps still constrain the sequence;
-follow their native remedies and preserve originating inspection duties.
+follow their native remedies and preserve originating inspection duties. When
+the reviewer that raised a duty can serve no further round, as with a milestone
+secondary past its window, readiness offers an ordinary verification round
+instead, and that round's affirming report is the duty's review evidence.
 
 When a later edit stales recorded rows, readiness offers `review-reaffirm`
 authoring work whose references list the rows reaffirm would write and those it

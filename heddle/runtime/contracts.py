@@ -929,8 +929,9 @@ FEATURE_POLICY_INPUT_SCHEMA: dict[str, Any] = {
 _DISPOSITION_STATUS_SUMMARIES = {
     "retained": (
         "not affirmative: the obligation stays open; with requires_inspection "
-        "and rounds remaining, readiness opens a verification pass by the "
-        "originating reviewer"
+        "and rounds remaining, readiness opens a verification round, the "
+        "originating reviewer's while it serves one, until a later report "
+        "affirms the concern"
     ),
     "addressed": (
         "affirmative: closes a required obligation once its cited evidence "

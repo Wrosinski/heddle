@@ -150,9 +150,6 @@ class ReviewObligation:
     reviewer: str
     requires_inspection: bool = False
     decision_id: str | None = None
-    # No round after the origin's can be served by its reviewer, so any later
-    # round of the assignment that accounts for it may inspect it.
-    inspector_exhausted: bool = False
 
 
 @dataclass(frozen=True)

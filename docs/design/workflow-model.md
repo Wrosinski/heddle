@@ -338,14 +338,16 @@ report alone does not settle an earlier finding or coverage obligation.
 
 Review evidence comes from a later round of the same assignment, run by the
 reviewer that raised the finding. A row with an inspection duty takes nothing
-else while that reviewer can still serve a later round. Once it cannot, because
-the secondary's `secondary_rounds` window has passed or an amendment replaced
-or removed that reviewer, any later round of the assignment whose report
-accounts for the finding is its review evidence. Readiness then offers an
-ordinary verification round where none has followed, instead of the
-originating pass. The test reads the current policy: an amendment that brings
-the reviewer back restores the requirement, and a row closed by another
-reviewer's round reopens until the raising reviewer inspects it.
+else while that reviewer can still serve a further round. Once it cannot,
+because the secondary's `secondary_rounds` window has passed, an amendment
+replaced or removed that reviewer, or the assignment is sealed, a report from
+any round after the last one that reviewer served is review evidence when it
+affirms the finding. Until a qualifying report affirms a retained duty,
+readiness offers another round while one can open: the raising reviewer's own
+pass while it serves one, otherwise an ordinary verification round. An unsealed
+assignment reads the current policy, so an amendment that brings the reviewer
+back restores the requirement and reopens a row closed by another reviewer's
+round; a sealed acceptance keeps the closure it was sealed with.
 
 Readiness checks execution, disposition and applicability separately. Relevant
 changes to an assignment's subject or cited evidence can invalidate its current

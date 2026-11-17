@@ -275,6 +275,49 @@ def changed_source_attempt_is_pending(
     )
 
 
+def _affirms(result: entry.ReviewResult, reference: tuple[str, str]) -> bool:
+    """Whether a review result affirmatively accounts for one original concern."""
+    return any(
+        (row.source.run_id, row.source.finding_id) == reference
+        and row.disposition in {"addressed", "settled"}
+        and row.evidence.kind not in {"absence", "unavailable", "speculation"}
+        and bool(row.evidence.references)
+        for row in result.content.prior_dispositions
+    )
+
+
+def _inspected_duties(frame: Any, assignment: ReviewAssignment) -> list[str]:
+    """Retained inspection duties a later report that may inspect them affirms.
+
+    Such a report is their review evidence to cite, so readiness offers no
+    further round for them.
+    """
+    state = frame.snapshot.state
+    sources = [
+        s for s in state.review_assignments.sources if s.assignment_id == assignment.id
+    ]
+    latest = {
+        (d.run_id, d.finding_id): d for d in state.review_assignments.dispositions
+    }
+    inspected = []
+    for (run_id, finding_id), disposition in latest.items():
+        if (
+            disposition.status != "retained"
+            or not disposition.requires_inspection
+            or not any(s.run_id == run_id for s in sources)
+        ):
+            continue
+        if any(
+            (result := frame.results.get(source.run_id)) is not None
+            and core.stands_for_origin(state, run_id, source.run_id)
+            and _affirms(result, (run_id, finding_id))
+            for source in sources
+            if source.run_id != run_id
+        ):
+            inspected.append(f"{run_id}#{finding_id}")
+    return inspected
+
+
 def source_projection(
     result: entry.ReviewResult,
     assignment_id: str | None,
@@ -1042,20 +1085,14 @@ def _qualify_evidence(
                 field="review_run_id",
                 reference=disposition.review_run_id,
             )
-        # Another reviewer's later round inspects the origin only once its own
-        # reviewer can serve no later round.
-        if core.inspection_identity(
-            snapshot.state, original.run_id
-        ) != core.inspection_identity(
-            snapshot.state, reviewer.run_id, origin=original.run_id
-        ) and not core.originating_reviewer_exhausted(snapshot.state, original.run_id):
+        if not core.stands_for_origin(snapshot.state, original.run_id, reviewer.run_id):
             return _rejected_evidence(
                 "review-not-qualifying",
                 "review evidence does not inspect the original concern",
                 (
                     "use a later round of the reviewer that raised this origin; "
-                    "another reviewer's round qualifies only once that reviewer "
-                    "serves no later round"
+                    "once that reviewer serves no further round, a round after "
+                    "the last one it served qualifies"
                 ),
                 field="review_run_id",
                 reference=disposition.review_run_id,
@@ -1119,14 +1156,7 @@ def _qualify_evidence(
                     stale=True,
                 )
             relied = True
-        if any(
-            (row.source.run_id, row.source.finding_id)
-            == (disposition.run_id, disposition.finding_id)
-            and row.disposition in {"addressed", "settled"}
-            and row.evidence.kind not in {"absence", "unavailable", "speculation"}
-            and bool(row.evidence.references)
-            for row in proof.content.prior_dispositions
-        ):
+        if _affirms(proof, (disposition.run_id, disposition.finding_id)):
             return _EvidenceQualification(by_equivalence=relied)
         return _rejected_evidence(
             "review-not-qualifying",
@@ -2080,6 +2110,7 @@ def projection(
                     row["stop_reason"] = recorded_stop
             pending = core.pending_retained(snapshot.state, assignment.id)
             row["retained_responses"] = [ops.decoded_payload(r) for r in pending]
+            row["inspected_duties"] = _inspected_duties(frame, assignment)
             row["calls_completed"] += len(pending)
             if pending:
                 row["next_step"] = "interpret"
@@ -2436,19 +2467,19 @@ def _inspection_duties(
     snapshot: FeatureSnapshot, row: dict[str, Any]
 ) -> tuple[list[str], list[str], list[str]]:
     """Retained open rows with an inspection duty, as `run#finding` refs: those
-    whose raising reviewer can serve a later round, and of the rest those with
-    no later round yet and those a later round already followed."""
+    a later report that may inspect them already affirms, and of the rest those
+    whose raising reviewer can serve a further round and those whose reviewer
+    cannot."""
     state = snapshot.state
     latest = {
         (item.run_id, item.finding_id): item
         for item in state.review_assignments.dispositions
     }
-    sources = {source.run_id: source for source in state.review_assignments.sources}
+    inspected = set(row.get("inspected_duties", ()))
+    affirmed: list[str] = []
     serving: list[str] = []
-    unrun: list[str] = []
-    followed: list[str] = []
-    for reference in row["open_refs"]:
-        run_id, finding_id = reference
+    spent: list[str] = []
+    for run_id, finding_id in row["open_refs"]:
         disposition = latest.get((run_id, finding_id))
         if (
             disposition is None
@@ -2457,17 +2488,13 @@ def _inspection_duties(
         ):
             continue
         label = f"{run_id}#{finding_id}"
-        if not core.originating_reviewer_exhausted(state, run_id):
+        if label in inspected:
+            affirmed.append(label)
+        elif core.originating_reviewer_exhausted(state, run_id):
+            spent.append(label)
+        else:
             serving.append(label)
-            continue
-        origin = sources.get(run_id)
-        later = origin is not None and any(
-            source.assignment_id == origin.assignment_id
-            and source.round_number > origin.round_number
-            for source in sources.values()
-        )
-        (followed if later else unrun).append(label)
-    return serving, unrun, followed
+    return affirmed, serving, spent
 
 
 def _inspection_round_reason(
@@ -2475,9 +2502,9 @@ def _inspection_round_reason(
 ) -> str | None:
     """Why to open a round for retained inspection duties, or None.
 
-    The raising reviewer inspects its own finding while it can serve a later
-    round; once it cannot, any later round that accounts for the finding is its
-    review evidence, so one round is offered only when none has followed.
+    A duty no later report affirms needs another round: the raising reviewer's
+    own while it can serve one, otherwise any round, whose report is then its
+    review evidence.
     """
     if (
         row["next_step"] != "disposition"
@@ -2486,36 +2513,35 @@ def _inspection_round_reason(
         or row["rounds_remaining"] == 0
     ):
         return None
-    serving, unrun, _followed = _inspection_duties(snapshot, row)
+    _affirmed, serving, spent = _inspection_duties(snapshot, row)
     if serving:
         return (
             f"Open the originating-reviewer verification pass for "
             f"{row['role']} {row['scope']}"
         )
-    if unrun:
+    if spent:
         return (
             f"Open a verification round for {row['role']} {row['scope']}: the "
-            f"reviewer that raised {', '.join(unrun)} serves no later round, so a "
-            "later round's report that accounts for them is their review evidence"
+            f"reviewer that raised {', '.join(spent)} serves no further round, so "
+            "this round's report that accounts for them is their review evidence"
         )
     return None
 
 
 def _inspection_note(snapshot: FeatureSnapshot, row: dict[str, Any]) -> str:
-    """Name the routes for inspection duties whose raising reviewer is done."""
-    _serving, unrun, followed = _inspection_duties(snapshot, row)
+    """Name the routes for inspection duties no round is offered for."""
+    affirmed, serving, spent = _inspection_duties(snapshot, row)
     note = ""
-    if followed:
+    if affirmed:
         note += (
-            f" The reviewer that raised {', '.join(followed)} serves no later "
-            "round: cite a later round's report that accounts for them as review "
-            "evidence (review_run_id)."
+            f" A later report affirms {', '.join(affirmed)}: cite it as their "
+            "review evidence (review_run_id)."
         )
-    if unrun and row["rounds_remaining"] == 0:
+    if (serving or spent) and row["rounds_remaining"] == 0:
         note += (
-            f" The reviewer that raised {', '.join(unrun)} serves no later round "
-            "and no round can open: ask the owner for allowance, or, if lead "
-            "inspection now suffices, re-record them without the inspection duty."
+            f" No round can open to inspect {', '.join(serving + spent)}: ask "
+            "the owner for allowance, or, if lead inspection now suffices, "
+            "re-record them without the inspection duty."
         )
     return note
 
