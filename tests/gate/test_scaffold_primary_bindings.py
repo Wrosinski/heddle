@@ -347,25 +347,78 @@ def test_unparsed_binding_source_names_the_parser_python_in_the_hint(
     assert f"its own Python {PARSER_PYTHON}" in raised.value.hint
 
 
+_IMPORT_FORMS = (
+    "import os, tests.support as support\n"
+    "import os, \\\n    tests.helper_values\n"
+    "import os; import tests.semicolon_helper\n"
+    "from tests.parenthesized import (\n    VALUE,  # comment\n    OTHER,\n)\n"
+    "from typing import TYPE_CHECKING\n"
+    "if TYPE_CHECKING: from tests.conditional import Hint\n"
+    "from tests import fixtures_lib\n"
+    "from . import sibling\n"
+    "text = 'import tests.in_string'\n"
+    "# import tests.in_comment\n"
+    "raise ValueError from None\n"
+)
+
+
+def test_import_scan_reads_what_the_parser_reads() -> None:
+    import ast
+
+    from heddle.gate.preparation import (
+        _imported_module_names,
+        _scanned_module_names,
+    )
+
+    assert _scanned_module_names(_IMPORT_FORMS) == _imported_module_names(
+        ast.parse(_IMPORT_FORMS)
+    )
+
+
 def test_unparsed_test_still_selects_the_helpers_it_imports(tmp_path: Path) -> None:
     from heddle.gate.preparation import _local_test_dependencies
 
     (tmp_path / "tests/support").mkdir(parents=True)
     (tmp_path / "tests/support/__init__.py").write_text("")
-    (tmp_path / "tests/helper_values.py").write_text("VALUE = 7\n")
-    (tmp_path / "tests/fixtures_lib.py").write_text("")
+    for helper in (
+        "helper_values",
+        "semicolon_helper",
+        "parenthesized",
+        "conditional",
+        "fixtures_lib",
+        "in_string",
+        "in_comment",
+    ):
+        (tmp_path / f"tests/{helper}.py").write_text("")
     test = tmp_path / "tests/test_newer.py"
+    # Python 3.14's unparenthesized except clause, which 3.13 cannot parse.
     test.write_text(
-        "from tests.helper_values import VALUE\n"
-        "import os, tests.support as support\n"
-        "from tests import fixtures_lib\n\n"
-        "def test_value(:\n"
-        "    assert VALUE == 7\n"
+        _IMPORT_FORMS + "\ndef test_value():\n    try:\n        pass\n"
+        "    except ValueError, TypeError:\n        raise\n"
     )
 
+    # `from tests import ...` names no `tests.` module, as for a parsed file.
     assert _local_test_dependencies(tmp_path, test, "tests") == (
+        "tests/conditional.py",
         "tests/helper_values.py",
+        "tests/parenthesized.py",
+        "tests/semicolon_helper.py",
         "tests/support/__init__.py",
+    )
+
+
+def test_untokenizable_test_selects_every_dotted_tests_name(tmp_path: Path) -> None:
+    from heddle.gate.preparation import _local_test_dependencies
+
+    (tmp_path / "tests/pkg").mkdir(parents=True)
+    (tmp_path / "tests/pkg/__init__.py").write_text("")
+    (tmp_path / "tests/pkg/helper.py").write_text("")
+    test = tmp_path / "tests/test_broken.py"
+    test.write_text('from tests.pkg.helper import VALUE\n"""never closed\n')
+
+    assert _local_test_dependencies(tmp_path, test, "tests") == (
+        "tests/pkg/__init__.py",
+        "tests/pkg/helper.py",
     )
 
 

@@ -198,3 +198,52 @@ def test_binding_admission_is_limited_to_feature_bound_scaffold_preparation(
     )
     assert prompt.effective_instructions
     assert template_context.feature == "[feature]"
+
+
+def test_milestone_review_proceeds_past_a_bound_test_it_need_not_parse(
+    tmp_path: Path, monkeypatch, run_cli
+) -> None:
+    """Only a gate that parses bound tests refuses newer syntax."""
+    from tests.tiering_helpers import SOL, SOL_XHIGH, entry
+    from tests.tiering_review_helpers import (
+        current_host,
+        gate_command,
+        provider_transport,
+        review_content,
+    )
+
+    host, _state_path = current_host(
+        tmp_path,
+        monkeypatch,
+        stage="implement",
+        overrides={
+            "milestone-review": entry("milestone-review", primary=SOL),
+            "review-test-scaffolding": entry(
+                "review-test-scaffolding", primary=SOL_XHIGH
+            ),
+        },
+    )
+    spec = host / SPEC
+    spec.write_text(
+        spec.read_text(encoding="utf-8")
+        + "\nVerified-by: tests/check.py::test_declared_value\n",
+        encoding="utf-8",
+    )
+    (host / "tests/check.py").write_text(
+        "def test_declared_value():\n"
+        "    try:\n"
+        "        pass\n"
+        "    except ValueError, TypeError:\n"
+        "        raise\n",
+        encoding="utf-8",
+    )
+    calls = provider_transport(monkeypatch, review_content("milestone-review"))
+
+    code, result = gate_command(run_cli, "run-gate", "milestone-review")
+
+    assert code in (0, 4) and result["ok"], result
+    assert len(calls) == 1
+    # The binding is live: the gate that parses bound tests refuses it.
+    code, refused = gate_command(run_cli, "run-gate", "review-test-scaffolding")
+    assert code == 3 and "is not valid Python" in refused["error"]["message"], refused
+    assert len(calls) == 1

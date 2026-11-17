@@ -11,7 +11,9 @@ from __future__ import annotations
 
 import ast
 import hashlib
+import io
 import re
+import tokenize
 from dataclasses import asdict, dataclass, replace
 from pathlib import Path, PurePosixPath
 
@@ -1320,9 +1322,8 @@ def missing_scaffold_paths(context: GateContext) -> tuple[str, ...]:
     )
 
 
-_FROM_IMPORT_LINE = re.compile(r"\s*from\s+([A-Za-z_][\w.]*)\s+import\b")
-_IMPORT_LINE = re.compile(r"\s*import\s+(.+)")
-_DOTTED_NAME = re.compile(r"[A-Za-z_][\w.]*")
+# Dotted ``tests.`` names anywhere in text that does not even tokenize.
+_TESTS_DOTTED_NAME = re.compile(r"\btests(?:\.[A-Za-z_]\w*)+")
 
 
 def _local_test_dependencies(
@@ -1335,8 +1336,8 @@ def _local_test_dependencies(
     try:
         names = _imported_module_names(ast.parse(text))
     except (SyntaxError, ValueError):
-        # Newer syntax than Heddle's interpreter parses: scan import lines. The
-        # scan can select an extra helper but never drops an imported one.
+        # Newer syntax than Heddle's interpreter parses still tokenizes, so the
+        # import statements are read from tokens instead.
         names = _scanned_module_names(text)
     dependencies = {
         dependency
@@ -1362,14 +1363,79 @@ def _imported_module_names(module: ast.Module) -> set[str]:
 
 
 def _scanned_module_names(text: str) -> set[str]:
-    names: set[str] = set()
-    for line in text.splitlines():
-        if match := _FROM_IMPORT_LINE.match(line):
-            names.add(match.group(1))
-        elif match := _IMPORT_LINE.match(line):
-            for part in match.group(1).split(","):
-                if name := _DOTTED_NAME.match(part.strip()):
-                    names.add(name.group(0))
+    """The module names `_imported_module_names` reads, found from tokens.
+
+    Tokens follow continuations, semicolons and same-line compound statements
+    and skip strings and comments. Text that does not tokenize falls back to
+    every dotted ``tests.`` name and its prefixes, which can select an extra
+    helper but not drop an imported one.
+    """
+    try:
+        tokens = [
+            token
+            for token in tokenize.generate_tokens(io.StringIO(text).readline)
+            if token.type not in {tokenize.NL, tokenize.COMMENT}
+        ]
+    except (tokenize.TokenError, SyntaxError):
+        names: set[str] = set()
+        for match in _TESTS_DOTTED_NAME.findall(text):
+            parts = match.split(".")
+            names.update(".".join(parts[:end]) for end in range(2, len(parts) + 1))
+        return names
+
+    def dotted(index: int) -> tuple[str | None, int]:
+        if index >= len(tokens) or tokens[index].type != tokenize.NAME:
+            return None, index
+        parts = [tokens[index].string]
+        index += 1
+        while (
+            index + 1 < len(tokens)
+            and tokens[index].string == "."
+            and tokens[index + 1].type == tokenize.NAME
+        ):
+            parts.append(tokens[index + 1].string)
+            index += 2
+        return ".".join(parts), index
+
+    def is_name(index: int, value: str) -> bool:
+        return (
+            index < len(tokens)
+            and tokens[index].type == tokenize.NAME
+            and tokens[index].string == value
+        )
+
+    names = set()
+    index = 0
+    while index < len(tokens):
+        if is_name(index, "from"):
+            cursor = index + 1
+            while cursor < len(tokens) and tokens[cursor].string in {".", "..."}:
+                cursor += 1
+            if is_name(cursor, "import"):
+                # `from . import x` names no module, as for a parsed file.
+                index = cursor + 1
+                continue
+            module, cursor = dotted(cursor)
+            if module is not None and is_name(cursor, "import"):
+                names.add(module)
+                index = cursor + 1
+                continue
+        elif is_name(index, "import"):
+            cursor = index + 1
+            while True:
+                module, cursor = dotted(cursor)
+                if module is None:
+                    break
+                names.add(module)
+                if is_name(cursor, "as"):
+                    cursor += 2
+                if cursor < len(tokens) and tokens[cursor].string == ",":
+                    cursor += 1
+                    continue
+                break
+            index = cursor
+            continue
+        index += 1
     return names
 
 
