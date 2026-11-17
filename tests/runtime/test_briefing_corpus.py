@@ -1362,6 +1362,18 @@ def test_ac16_no_retained_text_keeps_raw_identity_or_a_never_accepted_exit() -> 
     )
 
 
+def test_milestone_review_inverts_each_ordering_rule() -> None:
+    """PR1: an ordering or check-then-write rule names what keeps it true."""
+    assert _has_passage(
+        _text("prompts/milestone-review.md"),
+        "correctness",
+        "check then write rule",
+        "clock or lock it relies on",
+        "every other writer of the state it reads",
+        "schedule that inverts it",
+    ), "milestone review does not ask for the schedule that inverts an ordering rule"
+
+
 def test_implement_carries_a_named_finding_to_its_milestone_after_advance() -> None:
     """RR2: plan.md is a reviewed input until the milestone advances."""
     assert _has_passage(
