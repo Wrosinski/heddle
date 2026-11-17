@@ -202,7 +202,10 @@ formal gate artifacts retain their required structure and non-narration rules.
    in the session handoff. Reconcile genuine design changes and propagate
    durable Decisions/Discoveries before review where possible; later governing
    edits require fresh evidence at the existing boundary. The next session
-   resumes from native facts. Milestone advance remains boundary-owned.
+   resumes from native facts. Milestone advance remains boundary-owned. Once
+   a milestone advances, add each review observation or deferred finding that
+   names the new milestone to its Work in `plan.md`, which its review reads;
+   before the advance, `plan.md` is still a reviewed input.
 
 Before starting the final milestone, read the Integrated Witness Proposal and
 the exact decisions or research reference it cites, then inspect the live E2E

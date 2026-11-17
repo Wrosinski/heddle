@@ -1362,6 +1362,35 @@ def test_ac16_no_retained_text_keeps_raw_identity_or_a_never_accepted_exit() -> 
     )
 
 
+def test_implement_carries_a_named_finding_to_its_milestone_after_advance() -> None:
+    """RR2: plan.md is a reviewed input until the milestone advances."""
+    assert _has_passage(
+        _text("implement.briefing.md"),
+        "once a milestone advances",
+        "deferred finding",
+        "names the new milestone to its work in `plan.md`",
+        "before the advance",
+    ), "implement does not carry a finding naming a milestone to its Work"
+
+
+def test_the_witness_proposal_bounds_live_attempts_and_probes_a_provider() -> None:
+    """WF3 and WF4: what a live attempt counts, and one early real call."""
+    text = _text("plan.scaffold.md")
+    assert _has_passage(
+        text,
+        "witness runs at implement exit and after review changes",
+        "milestone's own live runs are separate",
+        "their own bounded grant",
+    ), "the witness proposal does not say what its live attempts count"
+    assert _has_passage(
+        text,
+        "new output mode or tools",
+        "one real call",
+        "first milestone that can exercise it",
+        "test double refuses what the provider refuses",
+    ), "the witness proposal does not plan one early real provider call"
+
+
 def test_milestone_review_reports_a_stated_departure_as_a_finding() -> None:
     """A stated departure is a finding; a rerun places a new one by change."""
     text = _text("prompts/milestone-review.md")

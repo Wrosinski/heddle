@@ -57,7 +57,12 @@ and idempotency or reversible-effect cleanup/recovery. Propose execution stages
 and bounds for both lanes: each declared lane runs at implement exit, before any
 review, and again by default after review changes. Give live time/turn/retry and
 per-attempt/aggregate cost caps expected to accommodate both healthy runs with
-headroom.)_
+headroom. Those attempts are the witness runs at implement exit and after review
+changes; a milestone's own live runs are separate and need their own bounded
+grant. When the feature adds a provider call with a new output mode or tools,
+propose one real call in that mode at the first milestone that can exercise it,
+under its own grant asked with the live-lane ruling, after which the test double
+refuses what the provider refuses.)_
 
 _(Draft at specify; the lead records the witness rulings at the specification
 checkpoint before any review, including when reviewers are Off. When that
