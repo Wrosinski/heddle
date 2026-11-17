@@ -66,12 +66,15 @@ def sessions_since_grant(
 
 
 def _milestone_baseline(state: StateFile, sessions: tuple[SessionFact, ...]) -> int:
-    """Index of the first implement session after the latest milestone landed.
+    """Index just past the last implement session that started before the latest
+    milestone landed.
 
     The attempt cap budgets each milestone, so a feature that keeps advancing
     is not paused every five sessions. A milestone lands with a sealed
-    acceptance receipt; without one (milestone review off), or before a
-    session that records no starting revision, the stage-wide count stands.
+    acceptance receipt; without one (milestone review off) the stage-wide count
+    stands. Sessions are appended in order and advance is boundary-owned, so no
+    session spans a landing: an entry without revisions (a narrative session
+    log) sits on the side of the landing its position shows.
     """
     landed = max(
         (
@@ -83,16 +86,25 @@ def _milestone_baseline(state: StateFile, sessions: tuple[SessionFact, ...]) -> 
     )
     if landed is None:
         return 0
-    for index, session in enumerate(sessions):
-        if session.revision_before is None:
-            return 0
-        if session.revision_before >= landed:
-            return index
-    return len(sessions)
+    started_before = [
+        index
+        for index, session in enumerate(sessions)
+        if session.revision_before is not None and session.revision_before < landed
+    ]
+    return started_before[-1] + 1 if started_before else 0
 
 
 def stage_session_count(state: StateFile, stage: str, blocker: str) -> int:
-    return len(sessions_since_grant(state, stage, blocker))
+    """Driver-run sessions in the window; a narrative session log is no attempt.
+
+    The driver records each phase session's revisions, while the session's own
+    `heddle session log` entry records none, so counting both would charge one
+    attempt twice.
+    """
+    return sum(
+        session.revision_before is not None
+        for session in sessions_since_grant(state, stage, blocker)
+    )
 
 
 def no_progress_reached(state: StateFile) -> bool:

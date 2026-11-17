@@ -388,7 +388,11 @@ def test_ac12_four_sessions_below_attempt_cap_does_not_block(
     )
 
 
-def _cap_state(sessions: list[dict], receipts: tuple[tuple[str, int], ...] = ()):
+def _cap_state(
+    sessions: list[dict],
+    receipts: tuple[tuple[str, int], ...] = (),
+    decisions: list[dict] | None = None,
+):
     """A parsed implement state with the given sessions and receipt revisions."""
     from dataclasses import replace
 
@@ -397,6 +401,7 @@ def _cap_state(sessions: list[dict], receipts: tuple[tuple[str, int], ...] = ())
 
     raw = operational_document()
     raw["sessions"] = sessions
+    raw["decisions"] = decisions or []
     state = parse_state_document(raw, source=Path("state.yaml"))
     acceptances = tuple(
         BoundaryAcceptance(
@@ -437,13 +442,85 @@ def test_attempt_cap_counts_sessions_since_the_latest_accepted_milestone():
     assert stage_session_count(landed, "implement", "no-progress") == 7
 
 
-def test_attempt_cap_keeps_the_stage_count_when_a_session_lacks_its_revision():
-    from heddle.kernel.blockers import attempt_cap_reached
+def _narrative_log(idx: int) -> dict:
+    """A phase session's own `heddle session log` entry: no revisions."""
+    return {
+        "started_at": f"2026-06-16T09:0{idx}Z",
+        "ended_at": f"2026-06-16T09:1{idx}Z",
+        "completed": ["implemented the task"],
+        "started": [],
+        "key_context": "",
+        "next_steps": "",
+        "blockers": [],
+        "stage": "implement",
+    }
 
-    sessions = [_session_fact("implement", advanced=True, idx=i) for i in range(7)]
-    sessions[0] = {**sessions[0], "revision_before": None, "revision_after": None}
-    sessions[0].pop("advanced")
-    assert attempt_cap_reached(_cap_state(sessions, (("milestone", 8),)))
+
+def _driven(count: int) -> list[dict]:
+    """Driven sessions, each logging its narrative entry before the driver's fact."""
+    sessions = []
+    for idx in range(count):
+        sessions += [
+            _narrative_log(idx),
+            _session_fact("implement", advanced=True, idx=idx),
+        ]
+    return sessions
+
+
+def test_attempt_cap_places_narrative_session_logs_by_position():
+    from heddle.kernel.blockers import attempt_cap_reached, stage_session_count
+
+    # Driver facts start at revisions 3..9; the milestone landed at 8, so the
+    # two driven sessions after it count, narrative logs between them or not.
+    landed = _cap_state(_driven(7), (("milestone", 8),))
+    assert stage_session_count(landed, "implement", "attempt-cap") == 2
+    assert not attempt_cap_reached(landed)
+
+
+def test_attempt_cap_counts_driven_sessions_not_their_narrative_logs():
+    from heddle.kernel.blockers import attempt_cap_reached, stage_session_count
+
+    four = _cap_state(_driven(4))
+    assert stage_session_count(four, "implement", "attempt-cap") == 4
+    assert not attempt_cap_reached(four)
+    assert attempt_cap_reached(_cap_state(_driven(5)))
+
+
+def test_attempt_cap_counts_from_the_later_of_a_grant_and_a_landing():
+    from heddle.kernel.blockers import stage_session_count
+
+    sessions = [_session_fact("implement", advanced=True, idx=i) for i in range(9)]
+
+    def grant(before: int) -> dict:
+        return resolved(
+            decision(
+                "attempt-cap-implement",
+                kind="session-cap",
+                target_stage="implement",
+                target_blocker="attempt-cap",
+                **{"class": 7},
+            ),
+            "continue-session",
+            session_count_before=before,
+        )
+
+    # Sessions start at revisions 3..11; the milestone landed at 5.
+    assert (
+        stage_session_count(
+            _cap_state(sessions, (("milestone", 5),), [grant(6)]),
+            "implement",
+            "attempt-cap",
+        )
+        == 3
+    )
+    assert (
+        stage_session_count(
+            _cap_state(sessions, (("milestone", 5),), [grant(1)]),
+            "implement",
+            "attempt-cap",
+        )
+        == 7
+    )
 
 
 def test_attempt_cap_blocks_five_sessions_inside_one_milestone():

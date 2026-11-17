@@ -152,9 +152,10 @@ The host's execution rules and existing grants continue to apply.
 
 The driver executes typed actions from the same readiness machinery as the CLI.
 It pauses for owner decisions and blockers, and bounds repeated failures or
-non-progress. During implement, the five-session attempt cap counts from the
-latest accepted milestone, so a feature that keeps landing milestones is not
-paused; with milestone review off, the cap counts the whole stage. It does not
+non-progress. The five-session attempt cap counts driver-run sessions, not
+their narrative session logs. During implement it counts from the latest
+accepted milestone, so a feature that keeps landing milestones is not paused;
+with milestone review off, it counts the whole stage. It does not
 run a headless completion session. Entering `complete`
 is not acceptance: `awaiting-human-completion` identifies the human handoff
 until `heddle feature complete` accepts the feature.
