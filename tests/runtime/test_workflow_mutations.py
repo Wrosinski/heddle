@@ -253,7 +253,7 @@ def test_verify_reports_pytest_counts_without_recording_them(
 
     code, out, _err = run_cli(argv)
     assert code == 0
-    assert "  pytest: 2 passed, 1 skipped, 1 warning\n" in out
+    assert "  last pytest invocation: 2 passed, 1 skipped, 1 warning\n" in out
 
 
 def test_failed_verify_reports_pytest_counts_in_details(
@@ -279,7 +279,7 @@ def test_failed_verify_reports_pytest_counts_in_details(
 
     code, _out, err = run_cli(argv)
     assert code == 3
-    assert "  pytest: 1 failed, 3 passed\n" in err
+    assert "  last pytest invocation: 1 failed, 3 passed\n" in err
 
 
 def test_verify_reports_its_run_beside_the_fact(

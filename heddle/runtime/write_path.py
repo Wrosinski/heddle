@@ -2046,7 +2046,7 @@ def _render_human(result: HeddleResult) -> None:
             print(f"heddle: error[{error.code}]: {error.message}", file=sys.stderr)
             print(f"  hint: {error.hint}", file=sys.stderr)
         if isinstance(counts := error.details.get("counts"), dict):
-            print(f"  pytest: {_counts_text(counts)}", file=sys.stderr)
+            print(f"  last pytest invocation: {_counts_text(counts)}", file=sys.stderr)
         if isinstance(run := error.details.get("run"), dict):
             print(f"  run: {_run_text(run)}", file=sys.stderr)
         for line in _batch_run_lines(error.details):
@@ -2096,7 +2096,7 @@ def _render_human(result: HeddleResult) -> None:
         else:
             print(f"{command} [{feature}] revision {data.get('revision')}")
         if isinstance(counts := data.get("counts"), dict):
-            print(f"  pytest: {_counts_text(counts)}")
+            print(f"  last pytest invocation: {_counts_text(counts)}")
         if isinstance(run := data.get("run"), dict):
             print(f"  run: {_run_text(run)}")
         for line in _batch_run_lines(data):
