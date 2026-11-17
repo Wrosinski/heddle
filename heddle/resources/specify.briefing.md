@@ -260,10 +260,10 @@ coverage exemptions and ignore rules never filter those checks.
 
 When a milestone reuses or rebinds an inherited boundary, such as a shared read,
 a matching rule or a validator, name the boundary in its Work. If the confirmed
-policy has no milestone-review secondary (the Light base), record a separate
-owner `question` on a feature policy amendment adding one: a second model on the
-other CLI, which can probe the real component with reduced limits, non-canonical
-input order and unusable inputs. Offer adding it or keeping one reviewer, so the
+policy has no milestone-review secondary, as under the Light recommendation,
+record a separate owner `question` on a feature policy amendment adding one: a
+second model on the other CLI, which can probe the real component with reduced
+limits, non-canonical input order and unusable inputs. Offer adding it or keeping one reviewer, so the
 owner can decline the cost without holding the specification checkpoint; the
 owner applies an approved amendment before implement starts. The policy's one
 milestone-review entry covers every milestone, so that secondary joins each

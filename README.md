@@ -40,7 +40,7 @@ or stale. If you know Spec Kit, start with
 
 - **Review** — Heddle recommends a review policy based on scope, complexity,
   and testability. You confirm the review roles, models, reasoning effort, and
-  round limits, with optional independent reviewers across Codex and Claude
+  round mode, with optional independent reviewers across Codex and Claude
   Code, so one provider can check the other.
 - **Continuity** — Resume with recorded tasks, decisions, verification results,
   and session handoffs. `heddle orient` identifies the next action, while stage
