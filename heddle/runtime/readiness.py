@@ -38,7 +38,7 @@ from heddle.kernel.reviews import (
     run_owner,
 )
 from heddle.kernel.source_manifest import ObservedPath
-from heddle.kernel.verification import VerificationFreshness
+from heddle.kernel.verification import FINAL_SCOPES, VerificationFreshness
 from heddle.kernel.witness_waiver import (
     acceptable_prior_witness,
     verification_refresh_reason,
@@ -49,6 +49,7 @@ from heddle.runtime.flow_changes import phase_exit_grant_blockers
 from heddle.runtime.review_launch import LaunchMember, LaunchSet, launch_set
 from heddle.runtime.verification import (
     assess_current_verifications,
+    observe_feature_coverage,
     required_verification_scopes,
     verify_named_source_evidence,
 )
@@ -352,10 +353,13 @@ def _assignment_readiness(
     ):
         actions = [derived[0], *(item for item in actions if item != derived[0])]
     routed = tuple(actions) or derived
+    settle = _coverage_before_final_proof(config, snapshot, routed, verifications)
     if project_stale:
         # Projected over the final order, so the batch covers exactly the
         # leading scopes `verify --stale` selects from the unprojected actions.
         routed = tuple(project_stale_verify_actions(routed, verifications))
+    if settle is not None:
+        routed = (settle, *routed)
     return BoundaryAssessment(
         boundary,
         tuple(rows),
@@ -365,6 +369,54 @@ def _assignment_readiness(
         purpose,
         obligations,
         identity,
+    )
+
+
+_COVERAGE_PATHS_SHOWN = 10
+
+
+def _coverage_before_final_proof(
+    config: ProjectConfig,
+    snapshot: FeatureSnapshot,
+    routed: Sequence[NextAction],
+    verifications: Iterable[VerificationFreshness],
+) -> NextAction | None:
+    """Settle source ownership first when final verification leads.
+
+    Final scopes bind the feature-owned union, so an ownership change after
+    they run makes their facts source-set-stale. Coverage is observed only
+    when such a run is next, keeping the Git inventory off other routes.
+    """
+    if not routed:
+        return None
+    lead = routed[0].action
+    if not (
+        isinstance(lead, ops.CommandAction) and isinstance(lead.operation, ops.Verify)
+    ):
+        return None
+    scopes = (
+        set(stale_batch_scopes(routed, verifications))
+        if lead.operation.stale
+        else {lead.operation.scope}
+    )
+    if not scopes & FINAL_SCOPES:
+        return None
+    coverage = observe_feature_coverage(config, snapshot.state)
+    if coverage.status != "unresolved":
+        return None
+    shown = ", ".join(coverage.unresolved_paths[:_COVERAGE_PATHS_SHOWN])
+    hidden = len(coverage.unresolved_paths) - _COVERAGE_PATHS_SHOWN
+    if hidden > 0:
+        shown += f" and {hidden} more"
+    return NextAction(
+        ops.ManualAction(
+            "Add each feature path to its milestone's owns with `heddle milestone "
+            "edit <milestone> --from-file -`, or attribute outside-feature work "
+            "with `heddle feature sources attribute --from-file <json>`"
+        ),
+        f"Settle source ownership before final verification: {shown} changed "
+        "since the feature baseline without an owner, and changing ownership "
+        "after the final scopes run makes their facts source-set-stale",
     )
 
 

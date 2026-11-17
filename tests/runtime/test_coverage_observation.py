@@ -130,3 +130,53 @@ def test_empty_ownership_still_qualifies_existing_attribution(
         advice = diagnostics(result)
         assert "src/example.py" in advice and "outside.txt" not in advice, advice
     assert snapshot(root) == before
+
+
+def test_unresolved_coverage_leads_final_verification_until_owned(
+    tmp_path, monkeypatch, capsys
+):
+    from tests.proof_continuity_helpers import edit
+
+    root, path = source_host(tmp_path, monkeypatch)
+    verify(path, "m1")
+    assert execute(ops.MilestoneAdvance(feature=FEATURE)).ok
+    (root / "src/unowned.py").write_text("EXTRA = 1\n")
+
+    first, second, *_ = execute(ops.Status(feature=FEATURE)).next_actions
+    assert isinstance(first.action, ops.ManualAction)
+    assert "src/unowned.py" in first.reason
+    assert "source-set-stale" in first.reason
+    assert "heddle milestone edit" in first.action.instruction
+    assert "heddle feature sources attribute" in first.action.instruction
+    assert isinstance(second.action, ops.CommandAction)
+    assert second.action.operation == ops.Verify(
+        scope="acceptance", feature=FEATURE, expect_revision=read(path)["revision"]
+    )
+
+    code, result = edit(
+        capsys,
+        tmp_path,
+        {"owns": ["src/example.py", "src/unowned.py", "tests/check.py"]},
+    )
+    assert code == 0, result
+    # Owning the path changes m1's declaration too, so its proof reruns first.
+    routed = execute(ops.Status(feature=FEATURE)).next_actions
+    assert not any(isinstance(item.action, ops.ManualAction) for item in routed)
+    assert isinstance(routed[0].action, ops.CommandAction)
+    assert isinstance(routed[0].action.operation, ops.Verify)
+
+
+def test_milestone_verification_routes_without_observing_coverage(
+    tmp_path, monkeypatch
+):
+    from heddle.runtime import readiness
+
+    root, _path = source_host(tmp_path, monkeypatch)
+    (root / "src/unowned.py").write_text("EXTRA = 1\n")
+
+    def unexpected(*_args):
+        raise AssertionError("coverage observed off the final verification route")
+
+    monkeypatch.setattr(readiness, "observe_feature_coverage", unexpected)
+    lead = execute(ops.Status(feature=FEATURE)).next_actions[0]
+    assert not isinstance(lead.action, ops.ManualAction), lead

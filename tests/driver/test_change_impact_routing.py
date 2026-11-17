@@ -159,6 +159,23 @@ def test_ac11_driver_session_names_every_row_of_the_one_review_reaffirm(
         assert verified.ok, verified.to_envelope()
     stale_basis(host)
     change_citation(host, "docs/second.md")
+    # Settled coverage, so readiness reaches the final verification it refreshes.
+    attributed = execute(
+        ops.AttributeSources(
+            {
+                "schema": "heddle.source-attribution-input/v1",
+                "attributions": [
+                    {
+                        "paths": [".heddle.yaml", "docs/first.md", "docs/second.md"],
+                        "references": ["tests/check.py"],
+                        "reason": "Synthetic host setup outside the feature.",
+                    }
+                ],
+            },
+            feature=V7_FEATURE,
+        )
+    )
+    assert attributed.ok, attributed.to_envelope()
     before = _ledger(path)
     result, prompts, executed = _drive(monkeypatch, host, until="robustness")
     assert len(prompts) == 1, f"FAIL AC-11: expected one stage session: {prompts}"

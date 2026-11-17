@@ -287,14 +287,18 @@ def test_ac2_the_batch_keeps_a_later_non_call_action_after_it(
     )
     assert run_slot("complexity-review", PRIMARY).ok
     sequential = commands(status_actions())
-    assert sequential[2].startswith("heddle run-gate behavior-review ") and sequential[
-        3
-    ].startswith("heddle review interpret "), (
+    member = next(
+        index
+        for index, command in enumerate(sequential)
+        if command.startswith("heddle run-gate behavior-review ")
+    )
+    assert sequential[member + 1].startswith("heddle review interpret "), (
         f"fixture precondition: a non-call action follows the member: {sequential}"
     )
     set_launch(host, "concurrent")
     actions = status_actions()
-    assert commands(actions) == [*sequential[:2], batch_command(), *sequential[3:]], (
+    expected = [*sequential[:member], batch_command(), *sequential[member + 1 :]]
+    assert commands(actions) == expected, (
         f"FAIL AC-2: the batch is not in the first member's place: {commands(actions)}"
     )
     reason = _batch_action(actions).reason

@@ -464,7 +464,8 @@ heddle verify --scope live
 
 Settled ownership means every path the feature changed is in a milestone's
 `owns` or attributed with evidence as outside-feature work. Changing ownership
-after these runs makes every fact bound to the source set stale.
+after these runs makes every fact bound to the source set stale, so readiness
+names unresolved paths before routing these runs.
 
 Run the live scope only when the confirmed witness declares it. Phase exit to
 peer review refuses until every declared lane passes on current content, so no

@@ -759,10 +759,10 @@ def _observe_source_coverage(
     )
 
 
-def coverage_diagnostics(
+def observe_feature_coverage(
     config: ProjectConfig, state: StateFile
-) -> tuple[Diagnostic, ...]:
-    """Observe early coverage without granting proof or requiring ownership yet."""
+) -> CoverageReconciliation:
+    """Reconcile feature-baseline changes against the feature-owned union."""
     paths = tuple(
         sorted(
             {
@@ -776,7 +776,7 @@ def coverage_diagnostics(
         )
     )
     controls = workflow_control_paths(config, state)
-    observation = _observe_source_coverage(
+    return _observe_source_coverage(
         config.root,
         state,
         SourceDeclaration("feature-owned-union", paths),
@@ -785,6 +785,13 @@ def coverage_diagnostics(
         runtime_owned_roots=controls.roots,
         excluded_paths=controls.exact,
     )
+
+
+def coverage_diagnostics(
+    config: ProjectConfig, state: StateFile
+) -> tuple[Diagnostic, ...]:
+    """Observe early coverage without granting proof or requiring ownership yet."""
+    observation = observe_feature_coverage(config, state)
     if observation.status == "complete":
         return ()
     return (
@@ -794,7 +801,8 @@ def coverage_diagnostics(
             (
                 f"Source coverage is {observation.status}: {observation.action}. "
                 "Declare product paths in milestone owns or attribute genuinely "
-                "outside-feature work; "
+                "outside-feature work before the final verification runs, since "
+                "changing ownership afterwards makes its facts source-set-stale; "
                 "coverage remains mandatory at completion."
             ),
         ),

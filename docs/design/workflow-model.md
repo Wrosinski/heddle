@@ -293,7 +293,10 @@ roots and neighboring product documents are not exempt.
 
 Validate, status, milestone advance and phase-exit share early coverage advice,
 including unavailable baselines and empty early ownership. Observation does not
-write or block ordinary transitions; integrity errors remain failures. Completion
+write or block ordinary transitions; integrity errors remain failures. When a
+final scope's verification is the next action, readiness observes coverage and,
+if paths are unresolved, routes settling them first, because a later ownership
+change makes the final facts source-set-stale. Completion
 requires full ownership/control/qualified-attribution reconciliation. Repair
 ownership through `milestone edit` with replacement `owns` or `owns_append`, never
 both. Append normalizes and unions on todo/current/done milestones; replay is a
