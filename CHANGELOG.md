@@ -10,6 +10,53 @@ authority for the installed version.
 
 ### Changed
 
+- The recommended review policy now runs every active role in `convergence`
+  mode with a minimum of one round, so no round limit stops a review by
+  default and the call budget has no ceiling; spec, plan and scaffolding
+  reviews still stop on no decrease, and every role on no progress. The Full
+  base adds a `gpt-6-astra` milestone-review secondary for each milestone's
+  first round and runs the behaviour-review secondary in every round.
+  Confirmed policies are unchanged. `run-gate` reports `rerun_allowed: true`
+  when the policy has no round limit.
+- Whether another review round is worth running is the lead's judgement under
+  one shared rule, `review-rounds.md`, which kickoff composes after the
+  decision policy for the six stages that run review gates. The lead weighs
+  what changed, the severity it touches and whether rerun proof covers it,
+  records the judgement in the dispositions' reasons or the session log, and
+  may stop at the latest round when the remaining findings are of low
+  importance; Critical and Important findings still close through
+  dispositions with qualifying evidence. Implement no longer says a material
+  change owes a round. Doctor reports where the rule resolved from.
+- A driven review session may open a verification round in its assignment's
+  scope with `heddle review round-open`, and the driver runs it before the
+  stage moves on. Round-open refuses a driven session any other purpose or a
+  scope change.
+- A retained finding with an inspection duty no longer dead-ends when its
+  raising reviewer serves no further round, as with a secondary past its
+  `secondary_rounds` window: a report from a round after that reviewer's last
+  that affirms the finding is its review evidence. Readiness offers the
+  originating reviewer's pass while it serves, otherwise an ordinary
+  verification round, only while a round can open, and names the affirming
+  report once one exists and its inputs are unchanged. A sealed assignment
+  keeps its closure when an amendment brings the reviewer back.
+- When a final scope's verify (smoke, acceptance or live), or a stale batch
+  that reruns one, is next, readiness first routes settling unowned feature
+  paths: an ownership change after those runs would make their facts
+  source-set-stale.
+- A fresh implement stage promotes its first milestone before any implement
+  session, so a driven first session has a milestone to work on.
+- The implement attempt cap counts driver-recorded sessions since the latest
+  milestone landing, so a feature that keeps landing milestones no longer
+  pauses every five sessions.
+- With robustness off, peer-review exit requires the declared live lane.
+- The implement briefing carries a review observation or deferred finding
+  that names a milestone into that milestone's Work once it becomes current.
+  The plan scaffold's witness proposal says which live attempts its caps count
+  and plans one early real call for each new provider output mode or tool.
+- The milestone-review prompt asks, for each ordering, tie or
+  check-then-write rule, for the clock or lock it relies on, every other
+  writer of the state it reads and a schedule that inverts it.
+
 - Every Claude gate and `heddle drive` phase session switches off Claude
   Code's refusal fallback (`CLAUDE_CODE_DISABLE_REFUSAL_FALLBACK=1`), so a
   refused call can no longer finish on another model while the record names
@@ -496,6 +543,14 @@ authority for the installed version.
 
 ### Fixed
 
+- Review-test-scaffolding names Heddle's own Python version and the syntax
+  error when a bound host test does not parse, instead of advising a repair
+  of the Verified-by target, and dependency discovery reads an unparsed
+  test's imports from tokens, so its helpers stay in the review set.
+- A refused decision-evidence row names the route that works for an owner
+  acceptance recorded elsewhere: cite its file as contract evidence.
+- The verification summary labels the pytest count it prints as the last
+  invocation's.
 - `heddle drive` phase sessions receive the autonomy addendum's text. They
   were passed the file's path, so headless sessions ran without its
   decision-recording rules.
