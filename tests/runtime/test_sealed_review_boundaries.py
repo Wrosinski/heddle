@@ -525,7 +525,9 @@ def test_ac6_readiness_driver_and_completion_share_sealed_and_live_authority(
     assert prior.evidence_state.value == "accepted"
     routed = _next_command(config, snapshot_value, None)
     assert isinstance(routed, tuple)
-    assert isinstance(routed[0].action, ops.SessionAction)
+    # The fresh implement stage promotes its first milestone, not the sealed review.
+    assert isinstance(routed[0].action, ops.CommandAction)
+    assert isinstance(routed[0].action.operation, ops.MilestoneAdvance)
     assert "review-test-scaffolding" not in routed[0].reason
 
     completion = assess_current_readiness(
