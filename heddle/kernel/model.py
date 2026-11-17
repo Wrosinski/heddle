@@ -641,6 +641,17 @@ def derive_next_actions(snapshot: FeatureSnapshot) -> tuple[NextAction, ...]:
 
 def _stage_work_action(snapshot: FeatureSnapshot) -> NextAction | None:
     if snapshot.entry == "fresh":
+        if (
+            snapshot.stage == "implement"
+            and snapshot.current_milestone is None
+            and any(entry.status == "todo" for entry in snapshot.state.milestones)
+        ):
+            # A phase session cannot run the boundary-owned advance, so the
+            # first milestone is promoted before any implement session starts.
+            return NextAction(
+                ops.CommandAction(ops.MilestoneAdvance(feature=snapshot.feature)),
+                "promote the first dependency-satisfied milestone",
+            )
         return NextAction(
             ops.SessionAction(snapshot.feature, "stage-work"),
             f"render the {snapshot.stage} briefing — fresh stage, no facts yet",

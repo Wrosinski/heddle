@@ -273,7 +273,7 @@ def test_ac13_milestone_mutations_reject_control_root_ownership() -> None:
         assert document == original
 
 
-def test_ac13_fresh_implement_entry_routes_to_briefing_before_future_reviews(
+def test_ac13_fresh_implement_entry_promotes_first_milestone_before_reviews(
     run_cli, envelope_tools, tmp_path, monkeypatch
 ) -> None:
     from tests.tiering_helpers import entry
@@ -305,8 +305,10 @@ def test_ac13_fresh_implement_entry_routes_to_briefing_before_future_reviews(
     envelope = envelope_tools.parse(output)
     assert code == 0, envelope
     assert envelope["data"]["current_milestone"] is None
+    # A phase session cannot run the boundary-owned advance, so the first
+    # milestone is promoted before the briefing session and any review.
     assert [row["command"] for row in envelope["next_actions"]] == [
-        "heddle kickoff --feature operational-example"
+        "heddle milestone advance --feature operational-example"
     ], envelope
 
 

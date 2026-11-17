@@ -667,10 +667,13 @@ def test_ac07_session_progress_markers_are_computed_from_pre_post_state(
 
     after = driver_corpus.read_yaml(state_path)
     session = after["sessions"][0]
-    assert session["revision_before"] == before_revision, (
+    # The driver promotes the fresh stage's first milestone (one write) before
+    # it starts the first implement session.
+    pre_session = before_revision + 1
+    assert session["revision_before"] == pre_session, (
         "FAIL AC-7: session progress markers must record the pre-session revision"
     )
-    assert session["revision_after"] == before_revision + 1, (
+    assert session["revision_after"] == pre_session + 1, (
         "FAIL AC-7: session progress markers must record the post-session revision"
     )
     assert session["advanced"] is True, (
