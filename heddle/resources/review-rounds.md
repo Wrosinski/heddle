@@ -3,11 +3,10 @@
 A review's first round runs because the confirmed policy selects the role.
 Readiness offers a further round only for an unmet minimum, a continuation the
 owner authorized or a retained inspection duty; every other round is the lead's
-judgement. Under
-`convergence`, the default mode, no round count ends a review: closure does, or a
-no-progress stop, and for spec, plan and scaffolding reviews a no-decrease stop,
-each of which asks the owner. Under a confirmed `upper-limit`, a round past the
-limit needs the owner's allowance.
+judgement. Under `convergence`, the default mode, no round count ends a review.
+Closure ends it, or a stop that asks the owner: no progress for every role, and
+no decrease for spec, plan and scaffolding reviews. Under a confirmed
+`upper-limit`, a round past the limit needs the owner's allowance.
 
 Open another verification round when the latest round's findings, or a change
 since that round, need a reviewer to look again. Weigh what changed, the
