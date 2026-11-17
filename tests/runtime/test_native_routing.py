@@ -312,6 +312,41 @@ def test_ac13_fresh_implement_entry_promotes_first_milestone_before_reviews(
     ], envelope
 
 
+def test_fresh_implement_awaiting_authorization_renders_the_briefing_first(
+    run_cli, envelope_tools, tmp_path, monkeypatch
+) -> None:
+    """Under hitl the owner authorizes the stage before its first promotion."""
+    from tests.tiering_helpers import entry
+    from tests.tiering_review_helpers import current_host
+
+    _host, state_path = current_host(
+        tmp_path,
+        monkeypatch,
+        stage="implement",
+        overrides={"milestone-review": entry("milestone-review", limit=2)},
+    )
+    document = yaml.safe_load(state_path.read_text())
+    document["flow"] = "hitl"
+    document["authorized_through"] = "implement"
+    document["authorizations"] = [
+        {"through": "implement", "source": "user", "at": document["updated"]}
+    ]
+    for milestone in document["milestones"]:
+        milestone["status"] = "todo"
+        milestone["tasks"] = []
+    state_path.write_text(yaml.safe_dump(document, sort_keys=False))
+
+    code, output, _error = run_cli(
+        ["orient", "--feature", "operational-example", "--json"]
+    )
+    envelope = envelope_tools.parse(output)
+    assert code == 0, envelope
+    assert envelope["data"]["current_milestone"] is None
+    assert [row["command"] for row in envelope["next_actions"]] == [
+        "heddle kickoff --feature operational-example"
+    ], envelope
+
+
 def test_ac13_current_milestone_routes_to_task_expansion_before_exit_evidence(
     run_cli, envelope_tools, tmp_path, monkeypatch
 ) -> None:

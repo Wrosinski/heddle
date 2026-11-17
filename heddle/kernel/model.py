@@ -616,7 +616,8 @@ def derive_next_actions(snapshot: FeatureSnapshot) -> tuple[NextAction, ...]:
         return ()
     code = first_actionable_blocker(snapshot)
     if code == "awaiting-human-authorization":
-        action = _stage_work_action(snapshot)
+        # The owner authorizes the stage before its first milestone is promoted.
+        action = _stage_work_action(snapshot, promote=False)
         if action is not None:
             return (action,)
     if code is not None:
@@ -639,10 +640,13 @@ def derive_next_actions(snapshot: FeatureSnapshot) -> tuple[NextAction, ...]:
     )
 
 
-def _stage_work_action(snapshot: FeatureSnapshot) -> NextAction | None:
+def _stage_work_action(
+    snapshot: FeatureSnapshot, *, promote: bool = True
+) -> NextAction | None:
     if snapshot.entry == "fresh":
         if (
-            snapshot.stage == "implement"
+            promote
+            and snapshot.stage == "implement"
             and snapshot.current_milestone is None
             and any(entry.status == "todo" for entry in snapshot.state.milestones)
         ):
