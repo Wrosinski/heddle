@@ -178,8 +178,8 @@ accept-prior-witness, binds the latest passing pre-review run and the current
 source. File it with `heddle decisions add` (see `--help`). Ask the owner
 only once `heddle decisions add --dry-run` accepts the proposal. Where orient
 lists the lane, offer it only when its `rerun_route` reads `waivable`; a
-`rerun-only` lane has nothing to waive. Where orient lists none, as for live
-here, the dry run decides. An opt-out ruled at
+`rerun-only` lane has nothing to waive. Where orient lists none, the dry run
+decides. An opt-out ruled at
 the specification checkpoint is a standing grant: the lead files that decision
 citing the ruling and resolves it where the session allows; a driven session
 cannot resolve, so the
@@ -187,10 +187,10 @@ pending decision halts the driver until the owner does. The waiver survives a
 later formatting-only change to its covered Python or Markdown files; any other
 relevant edit restores the rerun, and the close records each waiver. A lane whose evidence is
 still current needs neither. A disposition citing a waived lane as verification
-evidence still needs a fresh run. With R Off, discharge declared live via
-`heddle verify --scope live` or its waiver before handoff even though the native
-peer boundary does not require that scope. Native enforcement applies at robustness (traversed
-even with R Off) and complete. Resolve missing or materially changed
+evidence still needs a fresh run. With R Off, peer review owns final proof, so
+its exit requires declared live, rerun with `heddle verify --scope live` or
+waived; robustness, traversed even with R Off, and complete require it again.
+Resolve missing or materially changed
 choices with the original owner; older active work reuses sufficient approvals
 without fabricating a past checkpoint or restarting completed stages.
 

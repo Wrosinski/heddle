@@ -212,9 +212,8 @@ Native enforcement places the witness at two points. Once every milestone is
 done, implement exit requires current passing `acceptance` and, when
 `live_e2e_test` is declared, `live`, so review starts only after the witness
 has passed. At the final boundary the same scopes are required again: acceptance
-at peer review when it owns final proof, declared live at robustness and
-complete. Robustness is traversed even with R Off, so the peer-review lead owes
-live before handoff even though the peer boundary does not enforce it.
+and declared live at peer review when it owns final proof (robustness review
+off), and again at robustness, which is traversed even with R Off, and complete.
 
 A stale lane at those later boundaries reruns by default. While review work at
 that boundary is open, readiness orders that rerun after the review actions;

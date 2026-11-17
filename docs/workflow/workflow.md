@@ -609,10 +609,10 @@ restores the rerun. Failed, missing, unstable or command-stale evidence cannot
 be waived. Each stale witness row in `heddle status` and `heddle orient` states
 its `rerun_route` (`waivable`, `accept-prior` or `rerun-only`) with the reason.
 Where a lane has a row, offer the owner a waiver only where it names one; where
-it has none, such as live at peer review, the dry run decides. Check every
-proposal with `heddle decisions add --dry-run` before asking. With R Off,
-the lead still owes declared live proof here although native enforcement starts
-at robustness, which is traversed even with R Off, and applies again at complete.
+it has none, the dry run decides. Check every proposal with
+`heddle decisions add --dry-run` before asking. With R Off, peer review owns
+final proof, so its exit requires declared live; robustness, which is traversed
+even with R Off, and complete require it again.
 After the last relevant fix and final applicable pass, refresh the assessment
 of retained artifacts against the declared criteria; a waived rerun keeps the
 pre-review assessment with the waiver named among its limitations. Misalignment blocks;

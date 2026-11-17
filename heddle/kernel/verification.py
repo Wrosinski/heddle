@@ -419,7 +419,9 @@ def required_verification_scopes(
         == "robustness"
     ):
         return ()
+    # Peer review reaches here only when it owns final proof (robustness off),
+    # so declared live is due at its exit as at robustness and complete.
     scopes = ["acceptance", "smoke"]
-    if stage in {"robustness", "complete"} and live_declared:
+    if live_declared:
         scopes.append("live")
     return tuple(scopes)

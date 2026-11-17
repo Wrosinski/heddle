@@ -2226,6 +2226,10 @@ def test_ac09_portfolio_status_skips_eager_verification_observation(
         ("peer-review", ("done", "done"), False, ("acceptance", "smoke")),
         ("robustness", ("done", "done"), False, ("acceptance", "smoke")),
         ("complete", ("done", "done"), True, ("acceptance", "smoke", "live")),
+        # Robustness review is off here, so peer review owns final proof and
+        # declared live is due at its exit.
+        ("peer-review", ("done", "done"), True, ("acceptance", "smoke", "live")),
+        ("robustness", ("done", "done"), True, ("acceptance", "smoke", "live")),
     ],
 )
 def test_ac09_required_status_scope_order(
@@ -2257,6 +2261,50 @@ def test_ac09_required_status_scope_order(
     base["verifications"] = []
     typed = parse_state_document(base, source=Path("state.yaml"))
     assert required_verification_scopes(typed) == expected
+
+
+def test_peer_review_owes_no_final_scope_when_robustness_review_is_on(
+    tmp_path: Path,
+) -> None:
+    from dataclasses import replace
+
+    from heddle.kernel.state import parse_state_document
+    from heddle.runtime.verification import required_verification_scopes
+
+    _host, state_path = _v2_host(tmp_path)
+    base = yaml.safe_load(state_path.read_text(encoding="utf-8"))
+    base["stage"] = "peer-review"
+    base["authorized_through"] = "peer-review"
+    base["commands"]["live_e2e_test"] = "python live.py"
+    for milestone in base["milestones"]:
+        milestone["status"] = "done"
+    base["verifications"] = []
+    typed = parse_state_document(base, source=Path("state.yaml"))
+    policy = typed.feature_policy
+    entries = tuple(
+        replace(
+            row,
+            mode="upper-limit",
+            limit=2,
+            minimum_rounds=1,
+            trigger={
+                "gate": "robustness-analysis",
+                "gap": "Failure between final proof and publication",
+                "references": ["src/example.py"],
+            },
+        )
+        if row.role == "robustness-analysis"
+        else row
+        for row in policy.entries
+    )
+    robust = replace(typed, feature_policy=replace(policy, entries=entries))
+
+    assert required_verification_scopes(robust) == ()
+    assert required_verification_scopes(robust, stage="robustness") == (
+        "acceptance",
+        "smoke",
+        "live",
+    )
 
 
 def test_ac09_canonical_documents_name_five_axes_and_close_order() -> None:
