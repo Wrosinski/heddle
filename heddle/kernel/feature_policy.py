@@ -9,7 +9,6 @@ from typing import Any
 from heddle.contracts.feature_policy import (
     COMPLEXITIES,
     CONFIRMED_POLICY_FIELDS,
-    DOCUMENT_ROLES,
     FEATURE_AXES_FIELDS,
     GATE_POLICY_FIELDS,
     GATE_POLICY_OPTIONAL_FIELDS,
@@ -267,9 +266,19 @@ def recommend_policy(axes: FeatureAxes) -> Recommendation:
         "robustness-analysis": fable,
     }
     # The full base reviews scaffolded tests with a second model in every
-    # round; the light base leaves it a suggestion.
+    # round, and each milestone with one in its first round; the light base
+    # leaves the scaffolding secondary a suggestion.
     if base == "full":
         secondary_reviewers["review-test-scaffolding"] = astra
+        secondary_reviewers["milestone-review"] = astra
+    # Secondaries that serve every round: iterative document reviews, and on
+    # the full base behaviour review, which runs once per feature.
+    every_round = {
+        role
+        for role in secondary_reviewers
+        if role in ITERATIVE_DOCUMENT_ROLES
+        or (role == "behavior-review" and base == "full")
+    }
     disabled = (
         {"behavior-review", "complexity-review"}
         if base == "light"
@@ -278,31 +287,21 @@ def recommend_policy(axes: FeatureAxes) -> Recommendation:
     # Axes contain no named integration gap. Only an explicit confirmed
     # gap-bearing selection can activate the conditional robustness overlay.
     disabled.add("robustness-analysis")
-    large_high = axes.scope == "large" and axes.complexity == "high"
     entries = []
     for role in ROLES:
-        mode = (
-            "off"
-            if role in disabled
-            else "convergence"
-            if role == "review-test-scaffolding" and large_high
-            else "upper-limit"
-        )
+        # Every active role reviews to convergence: closure and the
+        # no-progress and no-decrease stops end it, not a round count.
+        mode = "off" if role in disabled else "convergence"
         entries.append(
             GatePolicy(
                 role=role,
                 scope="milestone" if role == "milestone-review" else "feature",
                 mode=mode,
-                limit=(3 if role in DOCUMENT_ROLES and axes.complexity == "high" else 2)
-                if mode == "upper-limit"
-                else None,
+                limit=None,
                 minimum_rounds=0 if mode == "off" else 1,
                 primary=reviewers[role],
                 secondary=secondary_reviewers.get(role),
-                # An iterative document review's secondary serves every round.
-                secondary_rounds=SECONDARY_ROUNDS_ALL
-                if role in ITERATIVE_DOCUMENT_ROLES and role in secondary_reviewers
-                else 1,
+                secondary_rounds=SECONDARY_ROUNDS_ALL if role in every_round else 1,
             )
         )
     suggestions = (

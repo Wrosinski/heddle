@@ -92,36 +92,28 @@ def test_ac2_all_axis_boundaries_recommend_the_declared_base(
         "plan-review": FABLE_HIGH,
         "behavior-review": ASTRA_XHIGH,
         "robustness-analysis": FABLE_HIGH,
-        # The full base reviews scaffolded tests with a second model.
-        **({"review-test-scaffolding": ASTRA_XHIGH} if base == "full" else {}),
+        # The full base reviews scaffolded tests and milestones with a second
+        # model.
+        **(
+            {"review-test-scaffolding": ASTRA_XHIGH, "milestone-review": ASTRA_XHIGH}
+            if base == "full"
+            else {}
+        ),
     }
     every_round = {"spec-review", "plan-review"} | (
-        {"review-test-scaffolding"} if base == "full" else set()
+        {"review-test-scaffolding", "behavior-review"} if base == "full" else set()
     )
     for row in result.entries:
         actual = asdict(row)
         trigger = actual.pop("trigger")
         assert trigger is None  # Axes alone cannot name an integration gap.
         active = row.role in enabled
-        doc = row.role in {"spec-review", "plan-review"}
-        convergence = (
-            row.role == "review-test-scaffolding"
-            and scope == "large"
-            and complexity == "high"
-        )
         expected = {
             "role": row.role,
             "scope": "milestone" if row.role == "milestone-review" else "feature",
-            "mode": "off"
-            if not active
-            else "convergence"
-            if convergence
-            else "upper-limit",
-            "limit": None
-            if not active or convergence
-            else 3
-            if doc and complexity == "high"
-            else 2,
+            # Every active role reviews to convergence, without a round limit.
+            "mode": "convergence" if active else "off",
+            "limit": None,
             "minimum_rounds": 1 if active else 0,
             "primary": reviewers[row.role],
             "secondary": secondaries.get(row.role),
@@ -135,20 +127,10 @@ def test_ac2_all_axis_boundaries_recommend_the_declared_base(
         )
     )
     assert effective.budget.feature_minimum == (6 if base == "light" else 9)
-    assert effective.budget.per_milestone_minimum == 1
-    # AC-7 literal oracle: spec and plan add `all` secondary calls, and under
-    # the full base so does scaffolding (two more calls at its limit of 2).
-    maximum = (
-        None
-        if scope == "large" and complexity == "high"
-        else {
-            ("light", "low"): 12,
-            ("light", "high"): 16,
-            ("full", "low"): 17,
-            ("full", "high"): 21,
-        }[base, complexity]
-    )
-    assert effective.budget.feature_maximum == maximum, "FAIL AC-7: default budget"
+    # The full base's milestone secondary serves each milestone's first round.
+    assert effective.budget.per_milestone_minimum == (1 if base == "light" else 2)
+    # AC-7: convergence sets no call ceiling.
+    assert effective.budget.feature_maximum is None, "FAIL AC-7: default budget"
 
 
 def test_ac2_large_high_default_roles_tuples_and_dual_first_schedule():
@@ -159,7 +141,7 @@ def test_ac2_large_high_default_roles_tuples_and_dual_first_schedule():
     for role in ("spec-review", "plan-review"):
         assert asdict(rows[role].primary) == ASTRA_XHIGH
         assert asdict(rows[role].secondary) == FABLE_HIGH
-        assert (rows[role].mode, rows[role].limit) == ("upper-limit", 3)
+        assert (rows[role].mode, rows[role].limit) == ("convergence", None)
     assert rows["review-test-scaffolding"].mode == "convergence"
     assert rows["review-test-scaffolding"].limit is None
     assert asdict(rows["review-test-scaffolding"].secondary) == ASTRA_XHIGH
@@ -167,8 +149,11 @@ def test_ac2_large_high_default_roles_tuples_and_dual_first_schedule():
     assert result.suggestions == ()
     assert asdict(rows["review-test-scaffolding"].primary) == OPUS
     assert asdict(rows["milestone-review"].primary) == OPUS
+    assert asdict(rows["milestone-review"].secondary) == ASTRA_XHIGH
+    assert rows["milestone-review"].secondary_rounds == 1
     assert asdict(rows["behavior-review"].primary) == OPUS
     assert asdict(rows["behavior-review"].secondary) == ASTRA_XHIGH
+    assert rows["behavior-review"].secondary_rounds == "all"
     assert asdict(rows["complexity-review"].primary) == OPUS
     assert rows["peer-review-sequential"].mode == "off"
     assert rows["robustness-analysis"].trigger is None

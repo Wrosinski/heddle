@@ -75,9 +75,9 @@ The recommended reviewer defaults are:
 | `spec-review` | `gpt-6-astra` / `xhigh` | `claude-fable-5-2` / `high` | `all` |
 | `plan-review` | `gpt-6-astra` / `xhigh` | `claude-fable-5-2` / `high` | `all` |
 | `review-test-scaffolding` | `claude-opus-5-5` / `xhigh` | Full: `gpt-6-astra` / `xhigh`; Light: none (suggested: `gpt-6-astra` / `xhigh`) | `all` when selected |
-| `milestone-review` | `claude-opus-5-5` / `xhigh` | None | — |
+| `milestone-review` | `claude-opus-5-5` / `xhigh` | Full: `gpt-6-astra` / `xhigh`; Light: none | 1 |
 | `peer-review-sequential` | `claude-opus-5-5` / `xhigh` | None | — |
-| `behavior-review` | `claude-opus-5-5` / `xhigh` | `gpt-6-astra` / `xhigh` | 1 |
+| `behavior-review` | `claude-opus-5-5` / `xhigh` | `gpt-6-astra` / `xhigh` | Full: `all`; Light: 1 (role off) |
 | `complexity-review` | `claude-opus-5-5` / `xhigh` | None | — |
 | `robustness-analysis` | `gpt-6-astra` / `xhigh` | `claude-fable-5-2` / `high` | 1 |
 
@@ -85,12 +85,18 @@ The Full base selects the scaffolding secondary for every round, because
 tests that cannot fail have passed a single scaffolding reviewer. Under the
 Light base the recommendation only suggests it: a suggestion selects nothing
 and schedules no call until the owner copies its `secondary` and
-`secondary_rounds` into that role's entry at confirmation.
+`secondary_rounds` into that role's entry at confirmation. The Full base also
+adds a milestone-review secondary for each milestone's first round, and keeps
+the behaviour-review secondary in every round, so a second model verifies the
+fixes to what it found.
 
-GPT models use Codex; Claude models use Claude Code. Apart from the Full
-base's scaffolding secondary, these reviewer choices apply across scope,
-complexity and testability assessments. Those axes still
-select the Light or Full role schedule and round limits. An Off role may retain
+GPT models use Codex; Claude models use Claude Code. Apart from those Full-base
+secondaries and windows, these reviewer choices apply across scope, complexity
+and testability assessments. Those axes still select the Light or Full role
+schedule. Every active role is recommended in `convergence` mode with a minimum
+of one round, so no round limit stops a review by default and the call budget
+has no ceiling; closure and the no-progress and no-decrease stops end it. The
+owner can still confirm an `upper-limit` for a role. An Off role may retain
 both reviewer selections, but schedules no calls and adds nothing to the call
 budget. Robustness remains Off until explicitly selected with an integration gap.
 Existing confirmed policies retain their recorded reviewer choices.
