@@ -1319,8 +1319,17 @@ def originating_reviewer_exhausted(state: StateFile, origin_run_id: str) -> bool
         for row in assignment.rounds
     ):
         return False
+    policy = next(
+        (
+            row
+            for row in (state.feature_policy.entries if state.feature_policy else ())
+            if row.role == assignment.role
+        ),
+        None,
+    )
+    if policy is None:
+        return False
     upcoming = max(len(assignment.rounds), run.round_number) + 1
-    policy = selected_policy(state, assignment.role)
     return all(slot.reviewer != reviewer for slot in round_slots(policy, upcoming))
 
 
