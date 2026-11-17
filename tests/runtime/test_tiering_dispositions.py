@@ -1134,6 +1134,98 @@ def test_ac5_targeted_rounds_keep_origins_and_inspect_a_spent_secondary(
     assert (host / "src/example.py").is_file()
 
 
+def test_an_affirming_report_whose_inputs_changed_leaves_the_duty_a_round(
+    tmp_path, monkeypatch, run_cli
+):
+    """Fable serves round 1 only; Sol's round-2 report affirms its finding. Once
+    the spec changes, that report no longer qualifies, so readiness offers a
+    round rather than naming it as evidence."""
+    from heddle.contracts import operations as ops
+    from tests.structured_review_helpers import disposition as reviewer_disposition
+    from tests.structured_review_helpers import finding_ref
+
+    host, path = current_host(
+        tmp_path,
+        monkeypatch,
+        overrides={"spec-review": entry("spec-review", limit=4, secondary=FABLE)},
+    )
+    origins = {}
+
+    def report(cli, _prompt):
+        if not origins:
+            identifier = "SP-I1" if cli == "codex" else "SP-I2"
+            return review_content(
+                findings=[finding(identifier, classification="implement")]
+            )
+        result = review_content()
+        result["prior_dispositions"] = [
+            reviewer_disposition(finding_ref(run_id, identifier), action="addressed")
+            for run_id, identifier in (
+                (origins["primary"], "SP-I1"),
+                (origins["secondary"], "SP-I2"),
+                *((run["run_id"], "@coverage") for run in runs(path)),
+            )
+        ]
+        return result
+
+    provider_transport(monkeypatch, report)
+    for cli in ("codex", "claude"):
+        code, result = gate_command(run_cli, "run-gate", "spec-review", "--cli", cli)
+        assert code in (0, 4), result
+    initial = runs(path)
+    origins.update({row["reviewer_slot"]: row["run_id"] for row in initial})
+
+    def retain_both(*coverage, primary="retained"):
+        return dispose(
+            path,
+            [
+                disposition(origins["primary"], status=primary),
+                disposition(
+                    origins["secondary"],
+                    "SP-I2",
+                    status="retained",
+                    requires_inspection=True,
+                ),
+                *[
+                    disposition(row["run_id"], "@coverage", status="settled")
+                    for row in coverage
+                ],
+            ],
+        )
+
+    assert retain_both(*initial).ok
+    assert open_round(path).ok
+    code, result = gate_command(run_cli, "run-gate", "spec-review", "--cli", "codex")
+    assert code in (0, 4), result
+    second = runs(path)[-1]
+    assert second["round_number"] == 2
+    routed = invoke("Status", feature=V7_FEATURE).next_actions[0]
+    assert "A later report affirms" in routed.reason, routed.reason
+    spec = host / "docs/features/runtime" / f"{V7_FEATURE}.md"
+    spec.write_text(spec.read_text() + "\nExpected: The value is now 9.\n")
+    # The lead closes the primary's concern, so the round made progress.
+    recorded = retain_both(*initial, second, primary="addressed")
+    assert recorded.ok, recorded.to_envelope()
+    stale = dispose(
+        path,
+        [
+            disposition(
+                origins["secondary"],
+                "SP-I2",
+                evidence_kind="review",
+                review_run_id=second["run_id"],
+            )
+        ],
+        dry_run=True,
+    )
+    assert not stale.ok, stale.to_envelope()
+    routed = invoke("Status", feature=V7_FEATURE).next_actions[0]
+    assert isinstance(routed.action, ops.CommandAction), routed
+    assert isinstance(routed.action.operation, ops.ReviewRoundOpen)
+    assert "serves no further round" in routed.reason, routed.reason
+    assert "A later report affirms" not in routed.reason
+
+
 def test_a_secondary_serving_later_rounds_inspects_its_own_finding(
     tmp_path, monkeypatch, run_cli
 ):
@@ -2074,6 +2166,86 @@ def test_ac4_native_stops_record_one_decision_and_preserve_original_refs(
     assert runs(path)[: len(accepted)] == accepted
     assert [origin, "SP-I1"] in later["open_refs"]
     assert len(calls) == len(accepted) + 1
+
+
+def test_a_stop_resolved_by_disposition_offers_no_inspection_round(
+    tmp_path, monkeypatch, run_cli
+):
+    """After a no-progress stop the owner resolves by disposition, readiness
+    names the routes for a retained inspection duty instead of a round that
+    round-open would only turn into another stop."""
+    from heddle.contracts import operations as ops
+    from heddle.runtime.application import execute
+    from tests.readiness_helpers import current_readiness
+    from tests.structured_review_helpers import disposition as reviewer_disposition
+    from tests.structured_review_helpers import finding_ref
+
+    host, path = current_host(
+        tmp_path,
+        monkeypatch,
+        overrides={"spec-review": entry("spec-review", limit=9)},
+    )
+
+    def report(_cli, _prompt):
+        if not runs(path):
+            return review_content(
+                findings=[finding("SP-I1", classification="implement")]
+            )
+        # The reviewer keeps the concern open as a new finding.
+        result = review_content(findings=[finding("SP-I2", classification="implement")])
+        result["prior_dispositions"] = [
+            reviewer_disposition(finding_ref(origin, "SP-I1"), target="SP-I2"),
+            *(
+                reviewer_disposition(
+                    finding_ref(run["run_id"], "@coverage"), action="addressed"
+                )
+                for run in runs(path)
+            ),
+        ]
+        return result
+
+    provider_transport(monkeypatch, report)
+    code, result = gate_command(run_cli, "run-gate", "spec-review")
+    assert code in (0, 4), result
+    origin = runs(path)[0]["run_id"]
+    assert dispose(
+        path,
+        [
+            disposition(origin, status="retained", requires_inspection=True),
+            disposition(origin, "@coverage", status="settled"),
+        ],
+    ).ok
+    routed = current_readiness(host).next_actions[0]
+    assert routed.reason.startswith("Open the originating-reviewer verification")
+    assert "re-record those rows without the inspection duty" in routed.reason
+    assert execute(routed.action.operation).ok
+    code, result = gate_command(run_cli, "run-gate", "spec-review")
+    assert code in (0, 4), result
+    latest = runs(path)[-1]["run_id"]
+    assert dispose(
+        path,
+        [
+            disposition(latest, "SP-I2"),
+            disposition(latest, "@coverage", status="settled"),
+        ],
+    ).ok
+    action = current_readiness(host).next_actions[0]
+    assert recorded_stop(execute(action.action.operation)), action
+    assert review_status(path)["stop_reason"] == "no-progress"
+    resolved = execute(
+        ops.ResolveDecision(
+            decision_id=review_status(path)["decision_id"],
+            kind="disposition",
+            rationale="Record the owner assessment; no continuation was authorized",
+            routes_to="docs/features/runtime/operational-example.md",
+            feature=V7_FEATURE,
+        )
+    )
+    assert resolved.ok, resolved.to_envelope()
+    routed = current_readiness(host).next_actions[0]
+    assert isinstance(routed.action, ops.AuthoringAction), routed
+    assert routed.action.work == "review-disposition"
+    assert f"No round can open to inspect {origin}#SP-I1" in routed.reason
 
 
 @pytest.mark.parametrize(

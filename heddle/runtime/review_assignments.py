@@ -286,11 +286,12 @@ def _affirms(result: entry.ReviewResult, reference: tuple[str, str]) -> bool:
     )
 
 
-def _inspected_duties(frame: Any, assignment: ReviewAssignment) -> list[str]:
-    """Retained inspection duties a later report that may inspect them affirms.
+def _inspected_duties(frame: _Qualification, assignment: ReviewAssignment) -> list[str]:
+    """Retained inspection duties a current later report that may inspect them
+    affirms.
 
     Such a report is their review evidence to cite, so readiness offers no
-    further round for them.
+    further round for them; one whose inputs changed since is not.
     """
     state = frame.snapshot.state
     sources = [
@@ -311,6 +312,9 @@ def _inspected_duties(frame: Any, assignment: ReviewAssignment) -> list[str]:
             (result := frame.results.get(source.run_id)) is not None
             and core.stands_for_origin(state, run_id, source.run_id)
             and _affirms(result, (run_id, finding_id))
+            and _review_still_current(
+                frame, core.source_run(state, source.run_id), result
+            )
             for source in sources
             if source.run_id != run_id
         ):
@@ -1097,8 +1101,8 @@ def _qualify_evidence(
                 field="review_run_id",
                 reference=disposition.review_run_id,
             )
-        descriptor = GATES.get(proof.invocation.gate)
-        if descriptor is None:
+        current = _current_review_basis(frame, reviewer, proof)
+        if current is None:
             return _rejected_evidence(
                 "review-not-qualifying",
                 "review evidence uses a retired role",
@@ -1106,33 +1110,7 @@ def _qualify_evidence(
                 field="review_run_id",
                 reference=disposition.review_run_id,
             )
-        assert reviewer.execution_config is not None
-        invocation = resolve_gate_execution(
-            descriptor,
-            GateInvocationOverrides(
-                cli=cast(Any, reviewer.execution_config["cli"]),
-                model=reviewer.execution_config["model"],
-                reasoning_effort=cast(
-                    Any, reviewer.execution_config["reasoning_effort"]
-                ),
-            ),
-        )
-        if reviewer.run_id not in frame.review_bases:
-            context = entry.build_gate_context(
-                snapshot,
-                config,
-                descriptor,
-                cli=reviewer.cli,
-                milestone_id=proof.invocation.scope
-                if descriptor.requires_milestone
-                else None,
-                basis_only=True,
-                source_observations=frame.captures,
-            )
-            frame.review_bases[reviewer.run_id] = entry.prepare_current_review_manifest(
-                context, invocation
-            )
-        reviewed_basis, current_manifest = frame.review_bases[reviewer.run_id]
+        reviewed_basis, current_manifest = current
         if reviewer.review_basis_hash != reviewed_basis.review_basis_hash:
             # A row recorded before basis manifests compares raw, like its basis.
             comparison = (
@@ -1166,6 +1144,56 @@ def _qualify_evidence(
             reference=disposition.review_run_id,
         )
     return _EvidenceQualification(by_equivalence=relied)
+
+
+def _current_review_basis(
+    frame: _Qualification, reviewer: Any, proof: entry.ReviewResult
+) -> tuple[Any, Any] | None:
+    """The basis a review run's inputs have now, or None for a retired role."""
+    descriptor = GATES.get(proof.invocation.gate)
+    if descriptor is None:
+        return None
+    if reviewer.run_id not in frame.review_bases:
+        assert reviewer.execution_config is not None
+        invocation = resolve_gate_execution(
+            descriptor,
+            GateInvocationOverrides(
+                cli=cast(Any, reviewer.execution_config["cli"]),
+                model=reviewer.execution_config["model"],
+                reasoning_effort=cast(
+                    Any, reviewer.execution_config["reasoning_effort"]
+                ),
+            ),
+        )
+        context = entry.build_gate_context(
+            frame.snapshot,
+            frame.config,
+            descriptor,
+            cli=reviewer.cli,
+            milestone_id=proof.invocation.scope
+            if descriptor.requires_milestone
+            else None,
+            basis_only=True,
+            source_observations=frame.captures,
+        )
+        frame.review_bases[reviewer.run_id] = entry.prepare_current_review_manifest(
+            context, invocation
+        )
+    return frame.review_bases[reviewer.run_id]
+
+
+def _review_still_current(
+    frame: _Qualification, reviewer: Any, proof: entry.ReviewResult
+) -> bool:
+    """A review run whose inputs are unchanged, or changed only equivalently."""
+    current = _current_review_basis(frame, reviewer, proof)
+    if current is None:
+        return False
+    reviewed_basis, current_manifest = current
+    if reviewer.review_basis_hash == reviewed_basis.review_basis_hash:
+        return True
+    comparison = frame.review_comparison(reviewer.run_id, current_manifest)
+    return comparison is not None and comparison.equivalent
 
 
 def _qualify_resolution(
@@ -2509,30 +2537,48 @@ def _inspection_round_reason(
 ) -> str | None:
     """Why to open a round for retained inspection duties, or None.
 
-    A duty no later report affirms needs another round: the raising reviewer's
-    own while it can serve one, otherwise any round, whose report is then its
-    review evidence.
+    A duty no current later report affirms needs another round: the raising
+    reviewer's own while it can serve one, otherwise any round, whose report is
+    then its review evidence. The lead may instead drop the duty.
     """
-    if (
-        row["next_step"] != "disposition"
-        or row["evidence_state"] != "current"
-        or row["missing_slots"]
-        or row["rounds_remaining"] == 0
-    ):
+    if not _inspection_round_can_open(row):
         return None
     _affirmed, serving, spent = _inspection_duties(snapshot, row)
     if serving:
         return (
             f"Open the originating-reviewer verification pass for "
-            f"{row['role']} {row['scope']}"
+            f"{row['role']} {row['scope']}" + _LEAD_INSPECTION
         )
     if spent:
         return (
             f"Open a verification round for {row['role']} {row['scope']}: the "
             f"reviewer that raised {', '.join(spent)} serves no further round, so "
             "this round's report that accounts for them is their review evidence"
+            + _LEAD_INSPECTION
         )
     return None
+
+
+# The lead judges whether a retained duty still needs a reviewer (RR1b).
+_LEAD_INSPECTION = (
+    "; if lead inspection now suffices, re-record those rows without the "
+    "inspection duty instead"
+)
+
+
+def _inspection_round_can_open(row: dict[str, Any]) -> bool:
+    """Round-open would open a round here rather than record a stop.
+
+    An active stop, one the owner resolved by disposition included, keeps any
+    round closed until the owner authorizes continuation.
+    """
+    return (
+        row["next_step"] == "disposition"
+        and row["evidence_state"] == "current"
+        and not row["missing_slots"]
+        and row["rounds_remaining"] != 0
+        and not row["stop_reason"]
+    )
 
 
 def _inspection_note(snapshot: FeatureSnapshot, row: dict[str, Any]) -> str:
@@ -2544,11 +2590,12 @@ def _inspection_note(snapshot: FeatureSnapshot, row: dict[str, Any]) -> str:
             f" A later report affirms {', '.join(affirmed)}: cite it as their "
             "review evidence (review_run_id)."
         )
-    if (serving or spent) and row["rounds_remaining"] == 0:
+    if (serving or spent) and not _inspection_round_can_open(row):
         note += (
-            f" No round can open to inspect {', '.join(serving + spent)}: ask "
-            "the owner for allowance, or, if lead inspection now suffices, "
-            "re-record them without the inspection duty."
+            f" No round can open to inspect {', '.join(serving + spent)} "
+            "without the owner: ask them for allowance or continuation, or, if "
+            "lead inspection now suffices, re-record them without the "
+            "inspection duty."
         )
     return note
 
