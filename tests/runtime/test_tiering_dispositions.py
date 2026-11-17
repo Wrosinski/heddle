@@ -211,6 +211,42 @@ def test_disposition_reference_refusal_names_what_a_reference_must_be(
     assert snapshot(host) == before and len(calls) == 1
 
 
+def test_unqualified_decision_evidence_names_the_contract_route(
+    tmp_path, monkeypatch, run_cli
+):
+    """Only a user decision raised for the finding is decision evidence; an
+    acceptance recorded elsewhere is cited as contract evidence."""
+    host, path = current_host(tmp_path, monkeypatch)
+    calls = provider_transport(
+        monkeypatch,
+        review_content(findings=[finding("SP-I1", classification="implement")]),
+    )
+    code, review = gate_command(run_cli, "run-gate", "spec-review")
+    assert code == 4 and review["ok"], review
+    before = snapshot(host)
+
+    result = dispose(
+        path,
+        [
+            disposition(
+                review["data"]["run_id"],
+                status="settled",
+                evidence_kind="decision",
+                decision_id="D1",
+            )
+        ],
+    )
+
+    assert not result.ok and result.error.code == "disposition-batch-invalid"
+    [row] = result.error.details["rows"]
+    assert (row["predicate"], row["field"]) == (
+        "decision-not-qualifying",
+        "decision_id",
+    )
+    assert "evidence_kind contract" in row["remedy"], row["remedy"]
+    assert snapshot(host) == before and len(calls) == 1
+
+
 def test_scope_change_reference_refusal_names_the_file_to_cite(
     tmp_path, monkeypatch, run_cli
 ):

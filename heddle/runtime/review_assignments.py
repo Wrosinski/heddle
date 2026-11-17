@@ -1004,7 +1004,11 @@ def _qualify_evidence(
         return _rejected_evidence(
             "decision-not-qualifying",
             "decision evidence is not a resolved user decision",
-            "supply the resolved user decision for this original concern",
+            (
+                "supply the resolved user decision raised for this original "
+                "concern; where the owner's acceptance is recorded elsewhere, "
+                "use evidence_kind contract citing the file that records it"
+            ),
             field="decision_id",
             reference=disposition.decision_id,
         )
