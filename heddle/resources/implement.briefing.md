@@ -168,11 +168,12 @@ formal gate artifacts retain their required structure and non-narration rules.
    recording a run's `@coverage`, state in it how each MUST AC or decision such
    an item names is satisfied, or what supported gap remains. Apply supported
    Critical/Important IMPLEMENT fixes, rerun affected milestone/consumer proof,
-   and commit the remediation. Any material change after the latest round to
-   the milestone's reviewed code or proof (production code, tests, fixtures or
-   its verification command) owes a verification round before advance, even
-   when it follows a Minor finding; formatting-only changes, later milestones'
-   work and reviews that are off owe none. Record dispositions only after that commit, once
+   and commit the remediation. After any material change since the latest round
+   to the milestone's reviewed code or proof (production code, tests, fixtures
+   or its verification command), judge by **Review rounds** whether it needs a
+   verification round before advance, whichever finding prompted it;
+   formatting-only changes, later milestones' work and reviews that are off need
+   none. Record dispositions only after that commit, once
    its hooks have rewritten what they will: a later change to a cited file
    stops the row counting unless it only re-lays out Python or re-pads
    Markdown tables and spacing. Even such a reformat leaves a verification-backed
@@ -181,13 +182,12 @@ formal gate artifacts retain their required structure and non-narration rules.
    exact witnesses, and required pending witnesses. A neighboring failure's
    location alone does not establish that it is unrelated. Record exact original findings and coverage
    through `heddle review disposition`; preserve independent inspection duties
-   and REPORT owners. Then open a round a change owes; readiness that routes
-   re-recording past a stop closes rows, not that round. Beyond it, native
+   and REPORT owners. Then open the round you judged necessary; readiness that
+   routes re-recording past a stop closes rows, not that round. Beyond it, native
    closure and next actions determine whether another targeted round or
-   explicit stop/budget decision is needed. If round-open refuses the owed
-   round at the confirmed round limit, ask the owner before advance whether to
-   raise the limit. A driven session opens the round the same way; the driver
-   then runs it before advance. Do not invent a
+   explicit stop/budget decision is needed. If round-open refuses that round at
+   a confirmed round limit, ask the owner before advance whether to raise the
+   limit. Do not invent a
    synthesis, fixed pass count, or reset allowance after a policy/model change.
    If the confirmed cap is reached, `heddle review allowance` records only an
    owner-approved absolute quality round increase. It invokes no provider and
@@ -268,10 +268,10 @@ staged, unstaged or untracked changes; Git observation failure is unknown, not
 clean. Advice adds no acknowledgement flag or execution authority. Ignored
 records still participate whenever the review or citation contract selects them.
 
-When step 5 owes a verification round, or another inspection is warranted,
-open it with `heddle review round-open --input-json <file> --feature <slug>`
-and this payload. A driven session may open only a verification round in the
-assignment's scope:
+When step 5's judgement calls for a verification round, or another inspection
+is warranted, open it with
+`heddle review round-open --input-json <file> --feature <slug>` and this
+payload:
 
 ```json
 {

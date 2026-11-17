@@ -53,6 +53,31 @@ def test_kickoff_composes_once_and_driver_preserves_exact_result(tmp_path, monke
     assert state.read_bytes() == before
 
 
+@pytest.mark.parametrize("stage", ["implement", "specify"])
+def test_kickoff_composes_the_review_round_rule_for_review_stages_only(
+    tmp_path, monkeypatch, stage
+):
+    host, _state = current_host(tmp_path, monkeypatch, stage=stage)
+    override = host / ".heddle/overrides"
+    override.mkdir(parents=True)
+    (override / "decision-routing.md").write_text("Unique common policy\n")
+    (override / "review-rounds.md").write_text("Unique round rule\n")
+    (override / f"{stage}.briefing.md").write_text("Unique stage body\n")
+    result = execute(ops.Kickoff(V7_FEATURE))
+    assert result.ok, result
+    briefing = result.data["briefing"]
+    if stage == "implement":
+        # Policy first, then the round rule the stage body cites, then the body.
+        assert briefing.count("Unique round rule") == 1
+        assert (
+            briefing.index("Unique common policy")
+            < briefing.index("Unique round rule")
+            < briefing.index("Unique stage body")
+        )
+    else:
+        assert "Unique round rule" not in briefing
+
+
 @pytest.mark.parametrize(
     "asset,body",
     [

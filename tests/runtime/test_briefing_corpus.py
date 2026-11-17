@@ -400,9 +400,12 @@ class TestAC7KickoffRendersClean:
         assert "{{" not in briefing, (
             f"FAIL {ctx}: unresolved template-variable residue in the served briefing"
         )
-        assert briefing == _text("decision-routing.md") + "\n\n---\n\n" + _text(
-            f"{stage}.briefing.md"
-        )
+        from heddle.kernel.decision_guidance import REVIEW_ROUND_STAGES
+
+        body = _text(f"{stage}.briefing.md")
+        if stage in REVIEW_ROUND_STAGES:
+            body = _text("review-rounds.md") + "\n\n---\n\n" + body
+        assert briefing == _text("decision-routing.md") + "\n\n---\n\n" + body
         # Delivered stage duties survive selected and all-Off review policy.
         # These are instruction-delivery checks, not model-judgment evidence.
         folded = " ".join(briefing.split())
@@ -1378,23 +1381,50 @@ def test_milestone_review_reports_a_stated_departure_as_a_finding() -> None:
     ), "milestone review does not place a departure found on a rerun"
 
 
-def test_implement_owes_a_verification_round_after_a_material_change() -> None:
-    """A change after the latest round owes one; Minor items owe coverage."""
+def test_implement_leaves_a_round_after_a_material_change_to_the_lead() -> None:
+    """The lead judges whether a change needs a round; Minor items owe coverage."""
     text = _text("implement.briefing.md")
     assert _has_passage(
         text,
-        "owes a verification round before advance",
+        "review rounds",
+        "whether it needs a verification round before advance",
         "formatting only changes",
-        "reviews that are off owe none",
+        "reviews that are off need none",
+        "round you judged necessary",
         "round limit",
-        "driven session opens the round the same way",
-        "runs it before advance",
         "closes rows, not that round",
-    ), "implement step 5 does not state the owed verification round"
-    assert "driver pauses before advance" not in _normalized("implement.briefing.md")
+    ), "implement step 5 does not leave another verification round to the lead"
+    normalized = _normalized("implement.briefing.md")
+    assert "driver pauses before advance" not in normalized
+    assert " owe" not in normalized.replace(" owes coverage", ""), (
+        "implement still says a change owes a round"
+    )
     assert _has_passage(
         text, "minor finding", "no correction or rerun", "coverage", "supported gap"
     ), "implement step 5 does not state the Minor coverage duty"
+
+
+def test_the_review_round_rule_is_stated_once_and_cited_by_review_stages() -> None:
+    """RP3 and RR1b: one shared rule, composed by kickoff for review stages."""
+    from heddle.kernel.decision_guidance import REVIEW_ROUND_STAGES
+
+    rule = _text("review-rounds.md")
+    assert _has_passage(
+        rule, "convergence", "default mode", "no round count", "no progress"
+    ), "the rule does not state convergence as the default"
+    assert _has_passage(
+        rule, "verification round", "weigh what changed", "severity", "session log"
+    ), "the rule does not state the lead's judgement and where it is recorded"
+    assert _has_passage(
+        rule, "stop at the latest round", "low importance", "minor findings never"
+    ), "the rule does not state the lead's stop"
+    assert _has_passage(
+        rule, "heddle drive", "verification", "without a scope change", "driver runs"
+    ), "the rule does not bound a driven session's rounds"
+    for stage in REVIEW_ROUND_STAGES:
+        assert "review rounds" in _normalized(f"{stage}.briefing.md"), (
+            f"{stage}.briefing.md does not cite the review-round rule"
+        )
 
 
 @pytest.mark.parametrize(

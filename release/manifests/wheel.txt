@@ -123,6 +123,7 @@ heddle/resources/prompts/plan-review.md
 heddle/resources/prompts/review-test-scaffolding.md
 heddle/resources/prompts/robustness-analysis.md
 heddle/resources/prompts/spec-review.md
+heddle/resources/review-rounds.md
 heddle/resources/robustness.briefing.md
 heddle/resources/scaffold.briefing.md
 heddle/resources/spec-review.briefing.md

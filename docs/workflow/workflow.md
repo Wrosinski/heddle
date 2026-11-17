@@ -158,13 +158,18 @@ lane as a finding, unless it cites evidence that the commitment holds or an
 owner decision that accepts the departure. A Minor finding, limitation or
 observation needs no correction of its own, but before recording `@coverage`
 the lead states how each MUST criterion or decision it names is satisfied or
-what gap remains. Any material change to a milestone's reviewed code or proof
-after its latest round owes a verification round before the milestone
-advances, whichever finding prompted it; formatting-only changes, later
-milestones' work and reviews that are off owe none. At the round limit, the
-owner decides whether to allow that round. A driven session opens the round
-itself, limited to a verification round in the assignment's scope, and the
-milestone advances only once it converges.
+what gap remains. After a material change to a milestone's reviewed code or
+proof since its latest round, the lead judges whether another verification
+round is needed before the milestone advances, weighing what changed, the
+severity of the findings it touches and whether rerun proof covers it, and
+records that judgement in the dispositions' reasons or the session log;
+formatting-only changes, later milestones' work and reviews that are off need
+none. The lead may also stop at the latest round when the remaining findings
+are of low importance. At a confirmed round limit, the owner decides whether to
+allow another round. A driven session opens a round itself, limited to a
+verification round in the assignment's scope, and the milestone advances only
+once its review converges. Kickoff delivers this rule to every review stage as
+the shared [review-round rule](../../heddle/resources/review-rounds.md).
 
 When a review stops for no progress, no decrease or its round cap, the native
 round-open operation records an owner question in place of a round. It reports

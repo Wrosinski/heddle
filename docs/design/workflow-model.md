@@ -373,8 +373,9 @@ citations or verification changed, and, at a round limit, for the latest
 round's undisposed coverage. A row whose evidence fails on its own, a row with
 an inspection duty, a review-backed row whose citation or review source
 changed, and any retained, undisposed or awaiting-decision row keep the stop for
-its round or owner decision. Routing past the stop closes rows; it does not
-discharge a verification round that a change since the latest round owes.
+its round or owner decision. Routing past the stop closes rows; whether a
+change since the latest round needs another verification round stays the lead's
+judgement.
 
 The scaffolding review's test subject is the declared tests, `Verified-by:`
 bindings and their helpers, plus every test under the tests root that differs

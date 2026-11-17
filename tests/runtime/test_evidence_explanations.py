@@ -371,7 +371,9 @@ def test_changed_citation_at_round_limit_routes_to_resubmission_not_stop(
     assert action.work == "review-disposition"
     reason = application.execute(ops.Status(feature=V7_FEATURE)).next_actions[0].reason
     assert "The round-limit stop is reached" in reason
-    assert "still owed" not in reason, "only implement defines an owed round"
+    assert "the lead's judgement" not in reason, (
+        "only implement leaves that round to the lead"
+    )
     assert set(action.references) == {f"{origin}#SP-I1", f"{origin}#@coverage"}
     assert dispose(path, rows).ok
     assert review_status(path)["closed"] and len(calls) == 1
@@ -444,7 +446,10 @@ def test_basis_change_at_round_limit_routes_rerecordable_rows_to_reaffirm(
     assert action.action.work == "review-reaffirm"
     assert "Stops are reached for milestone-review m1 (round-limit)" in action.reason
     assert "closing them needs no review round or owner decision" in action.reason
-    assert "a change since the latest round owes is still owed" in action.reason
+    assert (
+        "needs another verification round is still the lead's judgement"
+        in action.reason
+    )
 
     reaffirmed = application.execute(ops.ReaffirmReview(feature=V7_FEATURE))
     assert reaffirmed.ok, reaffirmed.to_envelope()
@@ -544,7 +549,10 @@ def test_changed_citation_at_milestone_round_limit_keeps_the_owed_round(
     action = _review_action(ops.AuthoringAction)
     assert action.action.work == "review-disposition"
     assert "The round-limit stop is reached" in action.reason
-    assert "a change since the latest round owes is still owed" in action.reason
+    assert (
+        "needs another verification round is still the lead's judgement"
+        in action.reason
+    )
 
 
 def test_basis_change_beside_undisposed_coverage_at_round_limit_needs_no_stop(
@@ -795,7 +803,9 @@ def test_spent_continuation_leaves_a_stop_reached_again_unresolved(
     assert "Stops are reached for spec-review feature (round-limit)" in (
         action.reason
     ), "a spent continue-review ruling hid the stop reached again"
-    assert "still owed" not in action.reason, "only implement defines an owed round"
+    assert "the lead's judgement" not in action.reason, (
+        "only implement leaves that round to the lead"
+    )
 
 
 def test_inspection_duty_without_review_evidence_keeps_the_round_limit_stop(

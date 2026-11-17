@@ -20,8 +20,10 @@ from heddle.contracts.result import (
     HeddleResult,
 )
 from heddle.kernel.decision_guidance import (
+    REVIEW_ROUND_STAGES,
     compose_decision_guidance,
     load_decision_guidance,
+    load_review_rounds,
 )
 from heddle.kernel.model import derive_authoring_guidance, is_terminal
 from heddle.kernel.project_config import KernelError
@@ -104,6 +106,8 @@ def _briefing_result(resolved: ResolvedSnapshotContext) -> HeddleResult:
                 hint=f"restore the selected {asset} resource before starting a session",
             )
         policy = load_decision_guidance(config)
+        if snapshot.stage in REVIEW_ROUND_STAGES:
+            briefing = compose_decision_guidance(load_review_rounds(config), briefing)
         briefing = compose_decision_guidance(policy, briefing)
         from heddle.runtime.review_assignments import projection
 

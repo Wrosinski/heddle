@@ -37,7 +37,7 @@ from heddle.contracts.schemas import AGENTS_KEYS, STAGES
 from heddle.gate import entry as gate_entry
 from heddle.gate import prompt as gate_prompt
 from heddle.gate.registry import GATES
-from heddle.kernel.decision_guidance import load_decision_guidance
+from heddle.kernel.decision_guidance import load_decision_guidance, load_review_rounds
 from heddle.kernel.model import (
     FeatureSnapshot,
     is_terminal,
@@ -69,6 +69,7 @@ from heddle.runtime.readiness import validate_retained_reviews
 
 _STATIC_PROBE_ASSETS = (
     "decision-routing.md",
+    "review-rounds.md",
     "autonomy-addendum.md",
     "local-checkout.md",
     "gate-failure-guide.md",
@@ -192,6 +193,8 @@ def doctor(operation: ops.Doctor) -> HeddleResult:
             if asset == "decision-routing.md":
                 policy = load_decision_guidance(config)
                 source = policy.source
+            elif asset == "review-rounds.md":
+                source = load_review_rounds(config).source
             elif asset == LOCAL_CHECKOUT_ASSET:
                 _path, source, _text = read_resource_text(
                     asset, config, contents="the local-checkout rules"
