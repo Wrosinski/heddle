@@ -1362,6 +1362,29 @@ def test_ac16_no_retained_text_keeps_raw_identity_or_a_never_accepted_exit() -> 
     )
 
 
+@pytest.mark.parametrize(
+    "name",
+    (
+        "spec-review",
+        "plan-review",
+        "milestone-review",
+        "behavior-review",
+        "complexity-review",
+    ),
+)
+def test_a_reviewers_own_inspection_answers_an_originating_duty(name) -> None:
+    """A later round's reviewer may inspect a duty; assurance never answers it."""
+    text = _text(f"prompts/{name}.md")
+    assert _has_passage(
+        text,
+        "addressed or settled claim on",
+        "originating inspection",
+        "your own inspection evidence",
+        "another reviewer's assurance",
+    ), f"{name} does not tie an inspection duty's claim to the reviewer's own evidence"
+    assert "is not that inspection" not in _folded(text)
+
+
 def test_milestone_review_inverts_each_ordering_rule() -> None:
     """PR1: an ordering or check-then-write rule names what keeps it true."""
     assert _has_passage(

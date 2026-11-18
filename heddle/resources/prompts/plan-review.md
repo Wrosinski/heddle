@@ -157,8 +157,9 @@ Account for every supplied prior finding exactly once using its original
 run/finding reference. Retained work names the current output finding ID;
 addressed IMPLEMENT work needs affirmative evidence. Respect the exact existing
 REPORT decision ID, origin, and resolution without creating a duplicate owner.
-Settled awareness remains historical evidence. A later omission, model change,
-or another reviewer's assurance cannot discharge an originating inspection duty.
+Settled awareness remains historical evidence. A later omission or model change
+cannot discharge an originating inspection duty; an addressed or settled claim
+on one needs your own inspection evidence, not another reviewer's assurance.
 A rerun targets prior concerns and supported changes; distinguish an evidenced
 regression from an unverified causal hypothesis or fresh unrelated discovery.
 

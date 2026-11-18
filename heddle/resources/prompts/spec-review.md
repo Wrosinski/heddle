@@ -157,10 +157,11 @@ Account for each supplied prior finding once by its exact run/finding reference.
 Retained findings name their current output finding ID. Addressed IMPLEMENT
 work needs affirmative evidence; settled awareness stays visible in history.
 Prior REPORT dispositions retain the exact decision ID and origin. Preserve
-required originating inspections: another review or an omitted finding does
-not discharge them. A rerun targets prior concerns and supported changes, not
-fresh unrelated discovery. A new finding's regression record needs evidence of
-the change; source references alone do not prove causality.
+required originating inspections: an omitted finding does not discharge one,
+and an addressed or settled claim on one needs your own inspection evidence,
+not another reviewer's assurance. A rerun targets prior concerns and supported
+changes, not fresh unrelated discovery. A new finding's regression record needs
+evidence of the change; source references alone do not prove causality.
 
 ## Native output
 

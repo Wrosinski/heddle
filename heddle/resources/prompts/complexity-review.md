@@ -76,9 +76,10 @@ resolution. Non-REPORT findings carry no decision object.
 Use exact original run/finding references for any prior_dispositions you assess.
 An addressed or settled claim needs affirmative evidence. Omitted origins remain
 open in native state; do not claim that silence closes them. Do not duplicate
-pending REPORT owners. If an originating reviewer's inspection is required,
-another reviewer's assurance is not that inspection. Label an observed regression
-only with evidence of the change. Keep enforcement suggestions evidence-backed
+pending REPORT owners. An addressed or settled claim on an originating
+inspection duty needs your own inspection evidence; another reviewer's
+assurance does not discharge the duty. Label an observed regression only with
+evidence of the change. Keep enforcement suggestions evidence-backed
 and separate from defects; do not invent a new rule merely to fill an array.
 
 [partial-nothing-found-evidence]

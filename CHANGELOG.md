@@ -43,6 +43,12 @@ authority for the installed version.
   of the latest round answers the finding without affirming it, readiness hands
   it to the lead instead of opening another round. A sealed assignment keeps
   its closure when an amendment brings the reviewer back.
+- The spec, plan, milestone, behaviour and complexity review prompts say that
+  an addressed or settled claim on an originating inspection duty needs the
+  reviewer's own inspection evidence and that another reviewer's assurance
+  does not discharge it. They no longer say only that another reviewer's
+  assurance is not the inspection, which the reviewer of a round offered for
+  a spent reviewer's finding could read as barring its own inspection.
 - When a final scope's verify (smoke, acceptance or live), or a stale batch
   that reruns one, is next, readiness first routes settling unowned feature
   paths: an ownership change after those runs would make their facts

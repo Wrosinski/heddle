@@ -80,8 +80,9 @@ resolution and its rationale. Non-REPORT findings carry no decision object.
 Use exact original run/finding references for any prior_dispositions you assess.
 An addressed or settled claim needs affirmative evidence. Omitted origins remain
 open in native state; do not claim that silence closes them. Do not duplicate
-pending REPORT owners. If an originating reviewer's inspection is required,
-another reviewer's assurance is not that inspection.
+pending REPORT owners. An addressed or settled claim on an originating
+inspection duty needs your own inspection evidence; another reviewer's
+assurance does not discharge the duty.
 
 On a verification rerun, distinguish retained concerns from new regressions.
 Retain an unresolved original with its exact source reference and output finding
