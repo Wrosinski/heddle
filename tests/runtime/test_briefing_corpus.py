@@ -1390,10 +1390,11 @@ def test_milestone_review_inverts_each_ordering_rule() -> None:
     assert _has_passage(
         _text("prompts/milestone-review.md"),
         "correctness",
-        "check then write rule",
-        "clock or lock it relies on",
+        "tie break or check then write rule",
+        "clock or lock",
         "every other writer of the state it reads",
-        "schedule that inverts it",
+        "report a schedule that inverts it",
+        "or show what prevents one across all those writers",
     ), "milestone review does not ask for the schedule that inverts an ordering rule"
 
 

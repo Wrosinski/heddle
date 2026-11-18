@@ -63,9 +63,10 @@ authority for the installed version.
   that names a milestone into that milestone's Work once it becomes current.
   The plan scaffold's witness proposal says which live attempts its caps count
   and plans one early real call for each new provider output mode or tool.
-- The milestone-review prompt asks, for each ordering, tie or
-  check-then-write rule, for the clock or lock it relies on, every other
-  writer of the state it reads and a schedule that inverts it.
+- The milestone-review prompt asks, for each ordering, tie-break or
+  check-then-write rule, for the clock or lock it relies on and every other
+  writer of the state it reads, and has the reviewer report a schedule that
+  inverts it or show what prevents one across all those writers.
 
 - Every Claude gate and `heddle drive` phase session switches off Claude
   Code's refusal fallback (`CLAUDE_CODE_DISABLE_REFUSAL_FALLBACK=1`), so a

@@ -10,9 +10,9 @@ evidence.
 
 - correctness: connect the milestone's specified behavior and named failure
   cases to the implementing paths; identify missed contracts or regressions.
-  For each "before", tie or check-then-write rule, name the clock or lock it
-  relies on, every other writer of the state it reads, and a schedule that
-  inverts it.
+  For each "before", tie-break or check-then-write rule, name the clock or lock
+  it relies on and every other writer of the state it reads, then report a
+  schedule that inverts it or show what prevents one across all those writers.
 - code-quality: assess ownership, necessary abstractions, clarity and
   behavior-preserving simplification against repository principles.
 - material-test-changes: check that changed tests exercise the public boundary,
