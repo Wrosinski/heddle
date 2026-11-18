@@ -48,7 +48,10 @@ authority for the installed version.
   reviewer's own inspection evidence and that another reviewer's assurance
   does not discharge it. They no longer say only that another reviewer's
   assurance is not the inspection, which the reviewer of a round offered for
-  a spent reviewer's finding could read as barring its own inspection.
+  a spent reviewer's finding could read as barring its own inspection. The
+  behaviour-review prompt and the robustness briefing name originating
+  inspection duties where they said "required originating-reviewer
+  inspection".
 - When a final scope's verify (smoke, acceptance or live), or a stale batch
   that reruns one, is next, readiness first routes settling unowned feature
   paths: an ownership change after those runs would make their facts

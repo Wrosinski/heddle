@@ -30,8 +30,8 @@ paths beyond the latest diff. Do not design a second architecture review.
   refreshed assessment early. A waived rerun keeps the pre-review evidence by
   owner decision; it is not proof that later changes preserved behavior.
   Do not invent an assessment-only review obligation. An Assessment is authored
-  plan content; native freshness and required originating-reviewer inspection
-  still govern qualification after it changes.
+  plan content; native freshness and originating inspection duties still
+  govern qualification after it changes.
 
 Use BR finding IDs. Describe residual uncertainty and missing execution without
 turning a clean source inspection into feature acceptance.

@@ -189,7 +189,8 @@ observations. Session/spec summaries reference it. Refresh after relevant change
 or replacement output; an old assessment cannot qualify a new run. Judgment is
 not a verification fact. The robustness-analysis gate retains its existing
 charter; there is no separate assessment-only review. Native freshness still
-applies to authored plan edits and required originating-reviewer inspection.
+applies to authored plan edits, and originating inspection duties still govern
+closure.
 Finish the Assessment before a needed qualifying rereview. If it is recorded
 later, revalidate closure and refresh any invalidated disposition or review proof.
 

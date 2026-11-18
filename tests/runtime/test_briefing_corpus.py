@@ -1385,6 +1385,16 @@ def test_a_reviewers_own_inspection_answers_an_originating_duty(name) -> None:
     assert "is not that inspection" not in _folded(text)
 
 
+def test_no_resource_requires_the_raising_reviewer_in_person() -> None:
+    """Inspection duties are named as duties, which a later reviewer may answer."""
+    offenders = sorted(
+        str(path.relative_to(RESOURCES))
+        for path in RESOURCES.rglob("*.md")
+        if "originating reviewer inspection" in _folded(path.read_text())
+    )
+    assert offenders == [], f"resources still require the raising reviewer: {offenders}"
+
+
 def test_milestone_review_inverts_each_ordering_rule() -> None:
     """PR1: an ordering or check-then-write rule names what keeps it true."""
     assert _has_passage(
