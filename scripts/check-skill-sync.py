@@ -9,7 +9,6 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parent.parent
 CLAUDE_ROOT = REPO_ROOT / ".claude" / "skills"
 CODEX_MIRROR_ROOT = REPO_ROOT / ".codex" / "skills"
-CODEX_NATIVE_ROOT = REPO_ROOT / ".agents" / "skills"
 
 SHARED_SKILLS = frozenset(
     {
@@ -21,7 +20,6 @@ SHARED_SKILLS = frozenset(
     }
 )
 CLAUDE_ONLY_SKILLS = frozenset({"implement-with-opus/SKILL.md"})
-CODEX_NATIVE_SKILLS = frozenset({"implement-with-sol/SKILL.md"})
 
 
 def _skill_files(root: Path) -> dict[str, Path]:
@@ -61,19 +59,12 @@ def main() -> int:
     try:
         claude_files = _skill_files(CLAUDE_ROOT)
         codex_mirrors = _skill_files(CODEX_MIRROR_ROOT)
-        codex_native = _skill_files(CODEX_NATIVE_ROOT)
 
-        classifications = (SHARED_SKILLS, CLAUDE_ONLY_SKILLS, CODEX_NATIVE_SKILLS)
-        if any(
-            left & right
-            for index, left in enumerate(classifications)
-            for right in classifications[index + 1 :]
-        ):
+        if SHARED_SKILLS & CLAUDE_ONLY_SKILLS:
             raise ValueError("skill classifications overlap")
 
         expected_claude = SHARED_SKILLS | CLAUDE_ONLY_SKILLS
         _require_inventory(".claude/skills", claude_files, expected_claude)
-        _require_inventory(".agents/skills", codex_native, CODEX_NATIVE_SKILLS)
 
         extra_mirrors = sorted(codex_mirrors.keys() - SHARED_SKILLS)
         if extra_mirrors:

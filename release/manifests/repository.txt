@@ -1,5 +1,3 @@
-.agents/skills/implement-with-sol/SKILL.md
-.agents/skills/implement-with-sol/agents/openai.yaml
 .claude/agents/opus-implementer.md
 .claude/settings.json
 .claude/skills/architecture-proposal-review/SKILL.md

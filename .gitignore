@@ -29,3 +29,6 @@ poetry.lock
 /.heddle/intake/
 /.heddle/live-evidence/
 /.heddle.lock
+
+# Agent skill directories stay local to each checkout.
+/.agents/

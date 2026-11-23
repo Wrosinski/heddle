@@ -19,29 +19,18 @@ def markdown_frontmatter(relative: str) -> tuple[dict, str]:
     return yaml.safe_load(header), body
 
 
-def test_provider_skills_are_explicit_and_share_the_canonical_contract():
+def test_provider_skill_is_explicit_and_carries_the_canonical_contract():
     claude_metadata, claude_body = markdown_frontmatter(
         ".claude/skills/implement-with-opus/SKILL.md"
-    )
-    codex_metadata, codex_body = markdown_frontmatter(
-        ".agents/skills/implement-with-sol/SKILL.md"
-    )
-    codex_ui = yaml.safe_load(
-        (REPO / ".agents/skills/implement-with-sol/agents/openai.yaml").read_text()
     )
 
     assert claude_metadata["name"] == "implement-with-opus"
     assert claude_metadata["disable-model-invocation"] is True
     assert claude_metadata["effort"] == "high"
-    assert codex_metadata["name"] == "implement-with-sol"
-    assert codex_ui["policy"]["allow_implicit_invocation"] is False
-    assert "$implement-with-sol" in codex_ui["interface"]["default_prompt"]
-
-    for body in (claude_body, codex_body):
-        assert IMPLEMENT_BRIEFING in body
-        assert WORK_PACKAGE_BRIEF in body
-        assert "supervise multiple" in body
-        assert "write ownership does\nnot overlap" in body
+    assert IMPLEMENT_BRIEFING in claude_body
+    assert WORK_PACKAGE_BRIEF in claude_body
+    assert "supervise multiple" in claude_body
+    assert "write ownership does\nnot overlap" in claude_body
 
 
 def test_provider_workers_pin_models_and_cannot_delegate_further():

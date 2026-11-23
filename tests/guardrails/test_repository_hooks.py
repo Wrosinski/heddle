@@ -911,7 +911,6 @@ def test_skill_sync_rejects_drifted_and_missing_mirrors(tmp_path: Path) -> None:
     )
     shutil.copytree(REPO_ROOT / ".claude/skills", tmp_path / ".claude/skills")
     shutil.copytree(REPO_ROOT / ".codex/skills", tmp_path / ".codex/skills")
-    shutil.copytree(REPO_ROOT / ".agents/skills", tmp_path / ".agents/skills")
     mirror = tmp_path / ".codex/skills"
     (mirror / "root-cause-analysis/SKILL.md").write_text("drifted\n", encoding="utf-8")
     (mirror / "worktree-workflow/SKILL.md").unlink()
