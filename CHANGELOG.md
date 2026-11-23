@@ -8,6 +8,8 @@ authority for the installed version.
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-11-23
+
 ### Changed
 
 - The recommended review policy now runs every active role in `convergence`
@@ -871,6 +873,7 @@ first commit and this tag.
 - There is no `heddle --version`. `heddle doctor` reports the install mode
   and package location.
 
-[Unreleased]: https://github.com/Wrosinski/heddle/compare/v0.2.0...dev
+[Unreleased]: https://github.com/Wrosinski/heddle/compare/v0.3.0...dev
+[0.3.0]: https://github.com/Wrosinski/heddle/releases/tag/v0.3.0
 [0.2.0]: https://github.com/Wrosinski/heddle/releases/tag/v0.2.0
 [0.1.0]: https://github.com/Wrosinski/heddle/releases/tag/v0.1.0

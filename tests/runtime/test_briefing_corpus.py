@@ -1122,9 +1122,9 @@ def test_run_gates_help_and_changelog_describe_the_launch_rule(run_cli) -> None:
     )
     assert "slot" in summary, f"FAIL AC-12: run-gates help names no slots: {summary!r}"
     changelog = (REPO_ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
-    unreleased = changelog.split("## [Unreleased]", 1)[1].split("\n## [", 1)[0]
-    assert "reviews.launch" in unreleased and "run-gates" in unreleased, (
-        "FAIL AC-12: the [Unreleased] changelog does not announce the launch rule"
+    released = _changelog_section(changelog, "0.3.0")
+    assert "reviews.launch" in released and "run-gates" in released, (
+        "FAIL AC-12: the [0.3.0] changelog does not announce the launch rule"
     )
 
 
@@ -1182,7 +1182,11 @@ def _has_passage(text: str, *anchors: str | tuple[str, ...]) -> bool:
 
 
 def _unreleased(changelog: str) -> str:
-    return changelog.split("## [Unreleased]", 1)[1].split("\n## [", 1)[0]
+    return _changelog_section(changelog, "Unreleased")
+
+
+def _changelog_section(changelog: str, version: str) -> str:
+    return changelog.split(f"## [{version}]", 1)[1].split("\n## [", 1)[0]
 
 
 def _help_commands(run_cli) -> dict[str, dict]:
@@ -1314,9 +1318,10 @@ def test_ac16_help_lists_feature_baseline_set(run_cli) -> None:
 
 
 def test_ac16_changelog_lists_the_change_impact_changes() -> None:
-    """AC-16: the unreleased changelog announces the user-visible changes."""
+    """AC-16: the changelog of the release that shipped them announces the
+    user-visible changes."""
     changelog = (REPO_ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
-    unreleased = " ".join(_unreleased(changelog).split())
+    released = " ".join(_changelog_section(changelog, "0.3.0").split())
     missing = [
         token
         for token in (
@@ -1325,9 +1330,9 @@ def test_ac16_changelog_lists_the_change_impact_changes() -> None:
             "feature baseline set",
             "formatting",
         )
-        if token not in unreleased
+        if token not in released
     ]
-    assert not missing, f"FAIL AC-16: [Unreleased] does not mention {missing}"
+    assert not missing, f"FAIL AC-16: [0.3.0] does not mention {missing}"
 
 
 def test_ac16_no_retained_text_keeps_raw_identity_or_a_never_accepted_exit() -> None:
