@@ -13,10 +13,11 @@ which tests a release must run.
 
 Work lands on `dev` and is pushed there. `main` points at the latest release:
 it moves only when a release ships, by fast-forward to the release commit, so
-it never carries unreleased work. GitHub enforces linear history on `main`,
-which rules out merge commits there, and refuses to move `main` to a commit
-until the `quality` CI check has passed on it. Push the release commit to
-`dev` and let CI finish before shipping. Branch protection on `dev` refuses
+it never carries unreleased work. `main` does not require linear history: a
+fast-forward brings along any merge commits `dev` holds, and `--ff-only` keeps
+a new one from being made on `main` itself. GitHub refuses to move `main` to a
+commit until the `quality` CI check has passed on it. Push the release commit
+to `dev` and let CI finish before shipping. Branch protection on `dev` refuses
 force-pushes and deletion. The GitHub default branch stays `main`, so the
 landing page and an install without a tag show the latest release.
 
@@ -83,13 +84,16 @@ green.
 Fast-forward `main` to the release commit, then create an annotated tag on it
 and push both. `--ff-only` refuses when `main` has a commit the release lacks,
 such as an unmerged hotfix; merge `main` into `dev` and prepare the release
-again rather than forcing it:
+again rather than forcing it. Push `main` before the tag: a tag push starts
+another `quality` run on the same commit, and GitHub refuses to move `main`
+while that run is in progress:
 
 ```bash
 git switch main
 git merge --ff-only <release-commit>
 git tag -a vx.y.z -m "Heddle vx.y.z"
-git push origin main vx.y.z
+git push origin main
+git push origin vx.y.z
 git switch dev
 ```
 
