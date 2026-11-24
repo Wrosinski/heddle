@@ -21,12 +21,13 @@ role's instructions and native actions determine what you may record or do.
 4. Settle ordinary reversible engineering choices inside approved scope and the
    governing consumer contract using the ratified
    `docs/workflow/engineering-principles.md`. Name the decisive principle and
-   evidence. Apply rankings to an ordinary trade-off; do not stretch a principle
-   or ignore a higher-ranked conflict. A genuine unresolved principle conflict
-   requires an owner ruling. With ratified preferences but no decisive principle
-   (silence or a tie), take the smallest reversible contract-preserving choice
-   and flag it for review. Missing or unratified preferences cannot authorize an
-   otherwise-open engineering choice; explicit prior answers still stand.
+   evidence. Apply the document's stated precedence to an ordinary trade-off;
+   do not stretch a principle or ignore one that takes precedence. A genuine
+   unresolved principle conflict requires an owner ruling. With ratified
+   preferences but no decisive principle (silence or a tie), take the smallest
+   reversible contract-preserving choice and flag it for review. Missing or
+   unratified preferences cannot authorize an otherwise-open engineering
+   choice; explicit prior answers still stand.
 5. Ask about material ambiguity remaining after those checks. Stop work dependent
    on the unresolved choice or invalidated contract. Continue independent
    authorized work only where native legal actions permit it; this does not
