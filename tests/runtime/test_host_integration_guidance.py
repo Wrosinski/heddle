@@ -345,8 +345,11 @@ AC24_TOPICS: dict[str, tuple[tuple[str, ...], ...]] = {
         ("gate-session-refused", "refus"),
         ("mutat", "state-changing", "change state", "changes state"),
     ),
+    # Scope and direction are read by _ac24_states_every_lane_scope and
+    # _ac24_precedence_signs; these groups only find the candidate blocks.
     "reviews-rule-on-every-lane": (
         ("reviews/",),
+        LANE_ANCHOR,
         (
             "out-of-scope-access",
             "fail",
@@ -355,32 +358,108 @@ AC24_TOPICS: dict[str, tuple[tuple[str, ...], ...]] = {
             "off limits",
             "forbidden",
         ),
-        (
-            "every lane",
-            "all lanes",
-            "all three lanes",
-            "each lane",
-            "any lane",
-            "claude and codex",
-            "claude, codex",
-            "every reviewer",
-        ),
     ),
     "agy-host-rule-precedence": (
         LANE_ANCHOR,
         ("agents.md",),
-        (
-            "precedence",
-            "outrank",
-            "override",
-            "take priority",
-            "takes priority",
-            "above the prompt",
-            "over the prompt",
-            "ahead of the prompt",
-        ),
+        ("prompt",),
     ),
 }
+# What the two read topics need beyond their term groups, for the message.
+AC24_READINGS = {
+    "reviews-rule-on-every-lane": (
+        "and scope the rule to every lane, by an every-lane phrase or by "
+        "listing Claude, Codex and Antigravity, with no wording that narrows "
+        "it to Claude and Codex or exempts Antigravity"
+    ),
+    "agy-host-rule-precedence": (
+        "and say in one sentence that AGENTS.md, injected as user rules, "
+        "outranks the prompt, with no sentence saying the reverse"
+    ),
+}
+
+# The reviews/ rule holds on every lane, Antigravity included.
+AC24_EVERY_LANE = re.compile(
+    r"\b(?:every|each|any|all(?: three)?) (?:reviewer |review )?lanes?\b"
+    r"|\b(?:every|all) reviewers?\b"
+)
+_AC24_LANE_NAME = r"(claude|codex|antigravity|agy)"
+_AC24_LIST_JOIN = r"(?: lanes?)?(?:,| and| or|, and|, or) (?:the )?"
+AC24_THREE_LANE_LIST = re.compile(
+    rf"\b{_AC24_LANE_NAME}{_AC24_LIST_JOIN}{_AC24_LANE_NAME}\b"
+    rf"{_AC24_LIST_JOIN}{_AC24_LANE_NAME}\b"
+)
+AC24_SCOPE_EXCLUSIONS = (
+    re.compile(r"(?<!not )\bonly (?:on |for |in |to )?(?:the )?claude and codex\b"),
+    re.compile(r"\bclaude and codex (?:lanes? |reviewers? )?only\b"),
+    re.compile(
+        r"\b(?:except|excluding|other than|but not|save for)"
+        r" (?:on |for |in )?(?:the )?(?:antigravity|agy)\b"
+    ),
+    re.compile(r"\b(?:lanes?|reviewers?) but (?:the )?(?:antigravity|agy)\b"),
+    re.compile(
+        r"\bnot (?:(?:apply|applied|extend|extended|enforced|checked) )?"
+        r"(?:to|on|for|in) (?:the )?(?:antigravity|agy)\b"
+    ),
+    re.compile(
+        r"\b(?:antigravity|agy)\b[^.;]{0,40}?\b(?:exempt|excluded|not covered"
+        r"|unaffected|(?:does|do)(?: not|n't) apply)\b"
+    ),
+)
+
+# agy injects the host's AGENTS.md as user rules that outrank the gate prompt.
+# Each pattern reads "subject ... verb ... object" inside one sentence and
+# carries the direction it states: +1 when the host rules win, -1 when the
+# prompt wins. A negation just before the subject or the verb flips it.
+_AC24_HOST_RULES = (
+    r"(?:agents\.md|user_rules|\b(?:host|user|these|those|such|its|their) rules\b)"
+)
+_AC24_PROMPT = r"prompt"
+_AC24_OUTRANKS = (
+    r"outranks?|overrides?|supersedes?|trumps?|wins? over"
+    r"|(?:precedence|priority) over|(?:higher|greater) (?:precedence|priority) than"
+    r"|(?:ranks?|ranked|sits?|placed) (?:above|over|ahead of)|above|ahead of"
+)
+_AC24_OUTRANKED = (
+    r"(?:outranked|overridden|superseded|trumped) by"
+    r"|yields? to|defers? to|gives? way to|subordinate to"
+    r"|(?:lower|less) (?:precedence|priority) than"
+    r"|(?:ranks?|ranked|sits?|placed) below|below"
+)
+AC24_PRECEDENCE_STATEMENTS = tuple(
+    (
+        re.compile(
+            rf"{subject}(?P<mid>(?:(?!{obj}).){{0,120}}?)"
+            rf"\b(?:{verbs})\b(?:(?!{subject}).){{0,40}}?{obj}"
+        ),
+        direction,
+    )
+    for subject, obj, verbs, direction in (
+        (_AC24_HOST_RULES, _AC24_PROMPT, _AC24_OUTRANKS, 1),
+        (_AC24_PROMPT, _AC24_HOST_RULES, _AC24_OUTRANKS, -1),
+        (_AC24_HOST_RULES, _AC24_PROMPT, _AC24_OUTRANKED, -1),
+        (_AC24_PROMPT, _AC24_HOST_RULES, _AC24_OUTRANKED, 1),
+    )
+)
+AC24_NEGATION = re.compile(
+    r"\b(?:not|never|cannot|can't|doesn't|don't|isn't|aren't|no longer)\b"
+)
+
+
+def _ac24_split(text: str) -> list[str]:
+    """Normalized blocks of one text: paragraphs, top-level list items and
+    table rows, casefolded, without code or emphasis marks."""
+    blocks: list[str] = []
+    for paragraph in re.split(r"\n\s*\n", text):
+        lines = paragraph.splitlines()
+        if lines and all(line.lstrip().startswith("|") for line in lines):
+            pieces = lines
+        else:
+            pieces = re.split(r"\n(?=(?:[-*]|\d+\.) )", paragraph)
+        for piece in pieces:
+            plain = re.sub(r"[`*]", "", piece).replace("’", "'")
+            blocks.append(" ".join(plain.casefold().split()))
+    return blocks
 
 
 def _ac24_blocks() -> list[tuple[str, str]]:
@@ -392,30 +471,199 @@ def _ac24_blocks() -> list[tuple[str, str]]:
         if path.suffix == ".yaml":
             # The scaffold is commented YAML: read its comments as prose.
             text = "\n".join(re.sub(r"^#\s?", "", line) for line in text.splitlines())
-        for paragraph in re.split(r"\n\s*\n", text):
-            lines = paragraph.splitlines()
-            if lines and all(line.lstrip().startswith("|") for line in lines):
-                pieces = lines
-            else:
-                pieces = re.split(r"\n(?=(?:[-*]|\d+\.) )", paragraph)
-            blocks.extend(
-                (name, " ".join(piece.casefold().split())) for piece in pieces
-            )
+        blocks.extend((name, block) for block in _ac24_split(text))
     return blocks
+
+
+def _ac24_states_every_lane_scope(block: str) -> bool:
+    """The block scopes the rule to every lane, by an every-lane phrase or a
+    list naming the three lanes, and no wording in it narrows that scope."""
+    listed = any(
+        {"antigravity" if name == "agy" else name for name in match.groups()}
+        == {"claude", "codex", "antigravity"}
+        for match in AC24_THREE_LANE_LIST.finditer(block)
+    )
+    scoped = listed or AC24_EVERY_LANE.search(block) is not None
+    return scoped and not any(rule.search(block) for rule in AC24_SCOPE_EXCLUSIONS)
+
+
+def _ac24_negated(text: str, words: int) -> bool:
+    return AC24_NEGATION.search(" ".join(text.split()[-words:])) is not None
+
+
+def _ac24_precedence_signs(block: str) -> set[int]:
+    """The directions the block's sentences state: +1 where host rules
+    outrank the prompt, -1 where the prompt outranks host rules."""
+    signs: set[int] = set()
+    for sentence in re.split(r"(?<=[.;!?])\s+", block):
+        for pattern, direction in AC24_PRECEDENCE_STATEMENTS:
+            for match in pattern.finditer(sentence):
+                clause = re.split(r"[,:(]", sentence[: match.start()])[-1]
+                flips = _ac24_negated(clause, 3) + _ac24_negated(match["mid"], 2)
+                signs.add(-direction if flips % 2 else direction)
+    return signs
+
+
+def _ac24_describes(topic: str, block: str) -> bool:
+    """One normalized block describes the topic: it holds every term group
+    and, for the reviews/ scope and agy's precedence, states them the
+    contract's way round."""
+    groups = AC24_TOPICS[topic]
+    if not all(any(term in block for term in group) for group in groups):
+        return False
+    if topic == "reviews-rule-on-every-lane":
+        return _ac24_states_every_lane_scope(block)
+    if topic == "agy-host-rule-precedence":
+        return _ac24_precedence_signs(block) == {1}
+    return True
 
 
 @pytest.mark.parametrize("topic", list(AC24_TOPICS))
 def test_ac24_documented_surfaces_describe_the_antigravity_lane(topic: str) -> None:
     """AC-24: README.md, the host-integration guide, the `.heddle.yaml`
     scaffold, the test-selection map and CHANGELOG.md together describe the
-    topic: some block of one of them holds every term group."""
+    topic: some block of one of them holds every term group and states the
+    reviews/ scope and agy's precedence the contract's way round."""
     groups = AC24_TOPICS[topic]
     found = [
-        surface
-        for surface, block in _ac24_blocks()
-        if all(any(term in block for term in group) for group in groups)
+        surface for surface, block in _ac24_blocks() if _ac24_describes(topic, block)
     ]
+    reading = f", {AC24_READINGS[topic]}" if topic in AC24_READINGS else ""
     assert found, (
         f"FAIL AC-24: no block of {sorted(AC24_SURFACES)} describes {topic} "
-        f"(each block needs one term of every group: {groups})"
+        f"(each block needs one term of every group: {groups}{reading})"
+    )
+
+
+# Matcher controls for the two read topics. Pure in-memory text, no surface
+# read; they pass now. Every rejected text holds the topic's old terms (a lane
+# name, reviews/ and a failure word, or AGENTS.md and a precedence word), so
+# each rejection comes from the scope or direction reading.
+AC24_ACCEPTED = {
+    "every-lane-including-antigravity": (
+        "reviews-rule-on-every-lane",
+        "On every lane, including Antigravity, a reviewer that reads "
+        "`reviews/` fails as `out-of-scope-access`.",
+    ),
+    "three-lanes-listed": (
+        "reviews-rule-on-every-lane",
+        "- Claude, Codex and `agy` reviewers may not read `reviews/`; a read "
+        "fails the review as `out-of-scope-access`.",
+    ),
+    "all-three-lanes": (
+        "reviews-rule-on-every-lane",
+        "The `reviews/` rule holds on all three lanes: an Antigravity reviewer "
+        "that opens a sibling review fails like a Claude or Codex one.",
+    ),
+    "user-rules-take-precedence": (
+        "agy-host-rule-precedence",
+        "`agy` injects the host `AGENTS.md` as user rules that take precedence "
+        "over the prompt, so the lane block forbids `heddle` whatever those "
+        "rules say.",
+    ),
+    "prompt-outranked-by-host-rules": (
+        "agy-host-rule-precedence",
+        "In `agy` the gate prompt is outranked by `AGENTS.md`, which arrives "
+        "as user rules.",
+    ),
+    "prompt-cannot-override": (
+        "agy-host-rule-precedence",
+        "Antigravity loads `AGENTS.md` as user rules, and the gate prompt "
+        "cannot override those rules.",
+    ),
+}
+AC24_REJECTED = {
+    "every-lane-omitting-antigravity": (
+        "reviews-rule-on-every-lane",
+        "- On every lane, a reviewer that reads a sibling's output under "
+        "`reviews/` fails as `out-of-scope-access`.",
+    ),
+    "claude-and-codex-named": (
+        "reviews-rule-on-every-lane",
+        "On Claude and Codex, a reviewer that reads `reviews/` fails as "
+        "`out-of-scope-access`; `agy` reviews are audited from their stream.",
+    ),
+    "claude-and-codex-only": (
+        "reviews-rule-on-every-lane",
+        "Reading `reviews/` fails as `out-of-scope-access` on the Claude and "
+        "Codex lanes only, not on Antigravity.",
+    ),
+    "every-lane-except-antigravity": (
+        "reviews-rule-on-every-lane",
+        "On every lane except Antigravity, a reviewer that reads `reviews/` "
+        "fails as `out-of-scope-access`.",
+    ),
+    "rule-not-applied-to-agy": (
+        "reviews-rule-on-every-lane",
+        "The `reviews/` rule applies to all lanes and fails a read as "
+        "`out-of-scope-access`, but it does not apply to `agy`.",
+    ),
+    "prompt-outranks-host-rules": (
+        "agy-host-rule-precedence",
+        "`agy` loads the host `AGENTS.md`, but the gate prompt outranks those rules.",
+    ),
+    "prompt-takes-precedence": (
+        "agy-host-rule-precedence",
+        "In `agy` the gate prompt takes precedence over `AGENTS.md` and other "
+        "host rules.",
+    ),
+    "host-rules-lower-precedence": (
+        "agy-host-rule-precedence",
+        "When `agy` runs, `AGENTS.md` has lower precedence than the review prompt.",
+    ),
+    "host-rules-do-not-override": (
+        "agy-host-rule-precedence",
+        "`agy` reads `AGENTS.md`, yet its rules do not override the gate prompt.",
+    ),
+    "both-directions": (
+        "agy-host-rule-precedence",
+        "`agy` injects `AGENTS.md` as user rules that outrank the prompt. "
+        "Where they conflict, the prompt overrides `AGENTS.md`.",
+    ),
+    "precedence-without-direction": (
+        "agy-host-rule-precedence",
+        "In `agy`, `AGENTS.md` takes precedence; the prompt is a user message.",
+    ),
+}
+# The terms a term-only check accepted; every rejected control holds them.
+AC24_TERM_ONLY = {
+    "reviews-rule-on-every-lane": (
+        ("reviews/",),
+        ("out-of-scope-access",),
+        ("every lane", "all lanes", "claude and codex"),
+    ),
+    "agy-host-rule-precedence": (
+        LANE_ANCHOR,
+        ("agents.md",),
+        ("precedence", "outrank", "override"),
+    ),
+}
+
+
+@pytest.mark.parametrize("case", list(AC24_ACCEPTED))
+def test_ac24_matcher_accepts_the_contract_wording(case: str) -> None:
+    """AC-24 matcher control (passes now): text that scopes the reviews/
+    rule to every lane with Antigravity, or says AGENTS.md outranks the
+    prompt, describes its topic."""
+    topic, text = AC24_ACCEPTED[case]
+    assert any(_ac24_describes(topic, block) for block in _ac24_split(text)), (
+        f"FAIL AC-24: the matcher rejects contract wording for {topic}: {text!r}"
+    )
+
+
+@pytest.mark.parametrize("case", list(AC24_REJECTED))
+def test_ac24_matcher_rejects_omitted_lanes_and_reversed_precedence(
+    case: str,
+) -> None:
+    """AC-24 matcher control (passes now): text that omits Antigravity from
+    the reviews/ rule, narrows it to Claude and Codex, or states agy's
+    precedence reversed, negated or without a direction describes nothing."""
+    topic, text = AC24_REJECTED[case]
+    blocks = _ac24_split(text)
+    assert any(
+        all(any(term in block for term in group) for group in AC24_TERM_ONLY[topic])
+        for block in blocks
+    ), f"control {case} must hold the terms a term-only check would accept"
+    assert not any(_ac24_describes(topic, block) for block in blocks), (
+        f"FAIL AC-24: the matcher accepts {case} wording for {topic}: {text!r}"
     )

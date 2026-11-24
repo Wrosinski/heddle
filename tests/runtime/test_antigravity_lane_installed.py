@@ -25,13 +25,28 @@ Scenarios through the real boundary:
    AC-17);
 3. ceiling refusal, standalone and as a ``run-gates`` member, with zero
    launches of any lane (AC-8);
-4. one run per hard-failure reason, standalone and in a batch (AC-11, AC-14,
-   AC-15, AC-16, AC-19);
+4. one run per hard-failure reason of the outcome table's rows 1-7,
+   standalone and in a batch, each output naming the exact reason and that
+   reason's own remedy (AC-11, AC-14, AC-15, AC-16, AC-19). The one
+   exception is ``inactivity-timeout``: only Heddle's monitor ends a run for
+   inactivity, its bound is 1,200 s and the installed CLI has no override;
 5. recovery before recording after the coordinator is killed (AC-12);
 6. a marked ``heddle`` mutation from the reviewer child, on all three lanes
    (AC-1, AC-2);
 7. a sibling ``reviews/`` read, on all three lanes (AC-21);
 8. coordinator reaping of a killed member's tokens (AC-12).
+
+Every recorded run's persisted audit outcome is clean, and a chunked run's
+credited whole reads are exactly the test's own interval map. Before an owner
+acts on a process, the test proves that the process exists and carries its
+launch's token; every process the test starts is stopped in failure-safe
+teardown.
+
+Activation seam named here: the gate summary persists the run's audit outcome
+as ``summary["audit"]``, with ``credited`` (one row per credited whole read:
+the chunk file's absolute ``path`` and its half-open capture byte range
+``start`` and ``end``), ``uncovered``, ``violations`` and
+``transport_intact`` (``persisted_audit`` is the one reader to re-point).
 
 Every node is red until the lane exists in the installed wheel. Pass
 condition: each scenario's exit code, reason, ledger state, files and
@@ -65,12 +80,12 @@ from tests.gate.test_antigravity_runner import (
     READ_ALL_BUT_LAST,
     READ_BYTES,
     READ_LINES,
+    RUNNER_ROWS,
     TESTED_VERSION,
     WORST_PREFIX,
     WRAPPER_TAG,
     clean_stream,
     init_event,
-    quota_line,
     resolve_refs,
     result_event,
     summary_for,
@@ -101,14 +116,44 @@ LANES = {"antigravity": NEON, "claude": FABLE, "codex": ASTRA}
 MARKER = "HEDDLE_AGENT_SESSION"
 FAILED = tuple(range(1, 128))
 OUT_OF_SCOPE = "out-of-scope-access"
-HARD_FAILURES = (
-    "antigravity-quota",
-    "antigravity-api-error",
-    "antigravity-context-compacted",
-    "antigravity-unapproved-tool",
-    "antigravity-incomplete-coverage",
-    OUT_OF_SCOPE,
-)
+# The outcome table's hard failures (rows 1-7), each with the runner row
+# whose stream yields it. ``None`` marks a stream built here. The monitor's
+# ``inactivity-timeout`` is the one reason left out (see the module doc).
+HARD_FAILURES = {
+    OUT_OF_SCOPE: None,
+    "antigravity-unapproved-tool": None,
+    "model-substituted": "model-mismatch",
+    "antigravity-context-compacted": None,
+    "timeout": "print-timeout",
+    "antigravity-quota": "quota",
+    "antigravity-api-error": "retryable-api-error",
+    "unsupported-model": "invalid-model-selection",
+    "exit": "nonzero-exit",
+    "transport-error": "unparseable-line",
+    "execution-failure": "interrupted",
+    "antigravity-incomplete-coverage": None,
+    "empty-output": "missing-structured-output",
+}
+AUDIT_KEYS = frozenset({"credited", "uncovered", "violations", "transport_intact"})
+# Consumer fields of a failed ``run-gates`` member: where it names its reason,
+# and where it carries its remedy.
+REASON_FIELDS = ("failure_reason", "reason", "error", "message", "summary")
+REMEDY_FIELDS = ("remedy", "hint", "next_actions")
+GUIDE_PROBE = """
+import json
+from importlib.resources import files
+
+path = files("heddle").joinpath("resources/gate-failure-guide.md")
+entries, name = {}, None
+for line in path.read_text(encoding="utf-8").splitlines():
+    if line.startswith("## `") and line.endswith("`"):
+        name = line[4:-1]
+        entries[name] = ""
+    elif name and line.startswith("**Remedy:**"):
+        entries[name] = line[len("**Remedy:**"):].strip()
+print(json.dumps(entries))
+"""
+INSTALLED_GUIDES: dict[str, dict[str, str]] = {}
 HOST_CONFIG = (
     "autopilot:\n  test_command: python3 tests/check.py\n"
     "agents:\n  claude: true\n  codex: true\n  antigravity: true\n"
@@ -578,6 +623,99 @@ def tree(root: Path) -> dict[str, str]:
     }
 
 
+def environ_digests(pid: int, names) -> dict[str, str] | None:
+    """SHA-256 digests of ``names`` in a live process's environment."""
+    try:
+        raw = Path(f"/proc/{pid}/environ").read_bytes()
+    except OSError:
+        return None
+    values = dict(item.split(b"=", 1) for item in raw.split(b"\0") if b"=" in item)
+    return {
+        name: hashlib.sha256(values[name.encode()]).hexdigest()
+        for name in names
+        if name.encode() in values
+    }
+
+
+def assert_tokened_child(child: dict, observation: dict, what: str) -> None:
+    """Before the owner acts: the child runs and carries its launch's token."""
+    assert alive(child["pid"], child["start"]), (
+        f"fixture: {what} was not running before the owner acted"
+    )
+    tokens = observation["launch_digests"]
+    assert tokens, f"FAIL AC-12: the launch behind {what} carries no token"
+    assert environ_digests(child["pid"], tokens) == tokens, (
+        f"FAIL AC-12: {what} does not carry its launch's token"
+    )
+
+
+def persisted_audit(host: LaneHost, ac: str) -> dict:
+    """Seam: the audit outcome the gate summary persists (see the module doc)."""
+    audit = summary_for(host.state).get("audit")
+    assert isinstance(audit, dict) and AUDIT_KEYS <= set(audit), (
+        f"FAIL {ac}: the gate summary persists no audit outcome"
+    )
+    return audit
+
+
+def assert_credited(host: LaneHost, intervals, ac: str) -> None:
+    """A recorded run's audit is clean, and its credited whole reads are
+    exactly the test's own interval map (empty for inline delivery)."""
+    audit = persisted_audit(host, ac)
+    assert audit["violations"] == [], f"FAIL {ac}: violations {audit['violations']}"
+    assert audit["transport_intact"] is True, f"FAIL {ac}: transport not intact"
+    assert audit["uncovered"] == [], f"FAIL {ac}: uncovered {audit['uncovered']}"
+    credited = sorted(
+        {
+            (os.path.realpath(row["path"]), int(row["start"]), int(row["end"]))
+            for row in audit["credited"]
+        }
+    )
+    expected = sorted(
+        (os.path.realpath(path), start, end) for path, start, end in intervals
+    )
+    assert credited == expected, (
+        f"FAIL {ac}: the audit credits {credited}, not the frozen chunks {expected}"
+    )
+
+
+def installed_guide(host: LaneHost) -> dict[str, str]:
+    """The installed wheel's failure guide: each reason's remedy text."""
+    installed = host.case.installed
+    key = str(installed.root)
+    if key not in INSTALLED_GUIDES:
+        probe = installed.python_probe(GUIDE_PROBE, cwd=host.root)
+        assert probe.returncode == 0, f"fixture: the guide probe failed: {probe.stderr}"
+        INSTALLED_GUIDES[key] = json.loads(probe.stdout)
+    return INSTALLED_GUIDES[key]
+
+
+def field_text(row: dict, fields) -> str:
+    return " ".join(
+        value if isinstance(value, str) else json.dumps(value, ensure_ascii=False)
+        for value in (row.get(field) for field in fields)
+        if value
+    )
+
+
+def names_entry(text: str, reason: str) -> bool:
+    """Whether ``text`` points at ``reason``'s own failure-guide entry."""
+    pattern = rf"`{re.escape(reason)}`[^.;\n]*\bentry\b[^.;\n]*failure guide"
+    return re.search(pattern, text, re.I) is not None
+
+
+def assert_matching_remedy(text: str, reason: str, guide: dict[str, str]) -> None:
+    """AC-19: the consumer's remedy is this reason's own, not a generic one."""
+    remedy = guide.get(reason)
+    assert remedy, f"FAIL AC-19: the installed failure guide has no remedy for {reason}"
+    assert names_entry(text, reason) or remedy in text, (
+        f"FAIL AC-19: the remedy neither names the {reason} failure-guide entry nor "
+        f"carries its remedy: {text!r}"
+    )
+    others = [other for other in guide if other != reason and names_entry(text, other)]
+    assert others == [], f"FAIL AC-19: the remedy points at other entries: {others}"
+
+
 # --------------------------------------------------------------------------- #
 # Scenario 1: a healthy inline review
 # --------------------------------------------------------------------------- #
@@ -629,6 +767,7 @@ def test_healthy_inline_review_records_neon_through_the_installed_cli(
         assert wrapped == AGY_WRAPPED_HEADER + INLINE_LIMIT + AGY_WRAPPED_TRAILER
         assert wrapped <= AGY_WRAPPED_CAP
     assert_version_recorded(host)
+    assert_credited(host, [], "AC-4")
 
 
 # --------------------------------------------------------------------------- #
@@ -655,7 +794,9 @@ def test_healthy_chunked_review_reads_every_chunk_whole(installed, tmp_path, hos
     tag is delivered as chunks behind a pointer message. The chunks
     reassemble the recorded capture; the test's interval map tiles it; the
     index binds each chunk to its digest and range; each chunk fits one
-    ``read_file`` call; every chunk is read whole and the run records."""
+    ``read_file`` call. The run records, and its persisted audit credits
+    exactly the interval map's paths and byte ranges, with nothing uncovered,
+    no violation and the transport intact."""
     host = lane_host(installed, tmp_path, primary=NEON)
     hosts.append(host)
     write_prompt(host.root, filler_prompt(175_000, tag=True))
@@ -698,9 +839,7 @@ def test_healthy_chunked_review_reads_every_chunk_whole(installed, tmp_path, hos
     assert {(observation["pid"], path) for path, _, _ in intervals} <= reads, (
         "fixture: the double did not read every chunk whole"
     )
-    log = Path(summary_for(host.state)["io"]["log"]).read_text()
-    unnamed = [path for path, _, _ in intervals if path not in log]
-    assert unnamed == [], f"FAIL AC-17: the audit record omits the reads of {unnamed}"
+    assert_credited(host, intervals, "AC-17")
 
 
 # --------------------------------------------------------------------------- #
@@ -759,17 +898,7 @@ def test_capture_above_the_ceiling_is_refused_before_any_launch(
 # --------------------------------------------------------------------------- #
 def failure_stream(reason: str) -> tuple[list, bool]:
     """The synthetic stream that yields ``reason``; whether it needs chunks."""
-    streams = {
-        "antigravity-quota": [
-            init_event(),
-            quota_line("RESOURCE_EXHAUSTED", False),
-            {"$exit": 3},
-        ],
-        "antigravity-api-error": [
-            init_event(),
-            quota_line("UNAVAILABLE", True),
-            {"$exit": 3},
-        ],
+    built = {
         "antigravity-context-compacted": clean_stream(
             {"$step": {"step_type": "checkpoint"}}
         ),
@@ -783,18 +912,27 @@ def failure_stream(reason: str) -> tuple[list, bool]:
             )
         ),
     }
-    return streams[reason], reason == "antigravity-incomplete-coverage"
+    row = HARD_FAILURES[reason]
+    if row is None:
+        return built[reason], reason == "antigravity-incomplete-coverage"
+    stream, expected = RUNNER_ROWS[row]
+    assert expected == reason, f"fixture: runner row {row} yields {expected}"
+    return stream, False
 
 
 @pytest.mark.parametrize("route", ["run-gate", "run-gates"])
-@pytest.mark.parametrize("reason", HARD_FAILURES)
+@pytest.mark.parametrize("reason", list(HARD_FAILURES))
 def test_each_hard_failure_reaches_standalone_and_batch_output(
     installed, tmp_path, hosts, reason, route
 ):
-    """Scenario 4 (AC-11, AC-14, AC-15, AC-16, AC-19): each reason is
-    recorded on the run, reaches the standalone error or the batch member's
-    output with a remedy naming its failure-guide entry, launches once, and
-    leaves no retained capture."""
+    """Scenario 4 (AC-11, AC-14, AC-15, AC-16, AC-19): each hard-failure
+    reason is recorded on the run and reaches its consumer: the standalone
+    error's message names the exact reason and its hint carries that
+    reason's own remedy; in a batch, the failed member's reason and remedy
+    fields do. A remedy is the reason's
+    own when it names that reason's entry in the failure guide or carries the
+    installed guide's remedy text, and names no other entry. The run launches
+    once and leaves no retained capture."""
     batch = route == "run-gates"
     host = lane_host(
         installed, tmp_path, primary=NEON, secondary=FABLE if batch else None
@@ -804,19 +942,22 @@ def test_each_hard_failure_reaches_standalone_and_batch_output(
     if chunked:
         write_prompt(host.root, filler_prompt(80_000, tag=True))
     host.scenario(stream)
+    guide = installed_guide(host)
 
     if batch:
         envelope = host.run("run-gates", expected=FAILED)
         failed = member(envelope, "primary")
-        text = json.dumps(failed)
+        reason_text = field_text(failed, REASON_FIELDS)
+        remedy_text = field_text(failed, REMEDY_FIELDS)
     else:
         envelope = host.run("run-gate", SPEC_REVIEW, expected=FAILED)
-        text = json.dumps(envelope["error"])
+        reason_text = envelope["error"].get("message") or ""
+        remedy_text = envelope["error"].get("hint") or ""
 
-    assert names(text, reason), f"FAIL AC-19: the output does not name {reason}: {text}"
-    assert "failure guide" in text.lower(), (
-        f"FAIL AC-19: the output has no remedy pointing at the failure guide: {text}"
+    assert names(reason_text, reason), (
+        f"FAIL AC-19: the output does not name {reason}: {reason_text}"
     )
+    assert_matching_remedy(remedy_text, reason, guide)
     rows = [row for row in host.ledger() if row.get("cli") == "antigravity"]
     assert rows and rows[-1].get("failure_reason") == reason, (
         f"FAIL AC-11: recorded {rows[-1].get('failure_reason') if rows else None}"
@@ -837,16 +978,25 @@ def test_killed_coordinator_recovers_published_capture_and_relaunches_the_first(
     publishes its capture with no ledger row. Killing the coordinator's
     process group and restarting records the second from its capture with no
     provider call, relaunches the first, and records both in slot order:
-    three physical launches in all, and the killed run's tokens reaped."""
+    three physical launches in all. The held ``agy`` and its tokened child are
+    shown running, with the launch's token, before the kill, and are gone
+    after the restart."""
     host = lane_host(installed, tmp_path, primary=NEON, secondary=FABLE)
     hosts.append(host)
     host.scenario([init_event(), {"$children": ["daemon"]}, {"$hold": "release"}])
 
-    coordinator = host.spawn("run-gates")
+    coordinator = None
     try:
+        coordinator = host.spawn("run-gates")
         host.wait_for("holding.jsonl")
         host.wait_for("children.jsonl")
         host.wait_for("claude.jsonl")
+        (killed,) = host.observations()
+        (child,) = host.rows("children.jsonl")
+        assert alive(killed["pid"], killed["start"]), (
+            "fixture: the held agy was not running before the kill"
+        )
+        assert_tokened_child(child, killed, "the held run's child")
         deadline = time.monotonic() + 120
         while not host.captures():
             assert time.monotonic() < deadline, "fixture: no capture was published"
@@ -855,10 +1005,10 @@ def test_killed_coordinator_recovers_published_capture_and_relaunches_the_first(
             "FAIL AC-12: the second member recorded before the first, out of order"
         )
     finally:
-        os.killpg(coordinator.pid, signal.SIGKILL)
-        coordinator.wait(timeout=60)
-    (killed,) = host.observations()
-    (child,) = host.rows("children.jsonl")
+        if coordinator is not None:
+            if coordinator.poll() is None:
+                os.killpg(coordinator.pid, signal.SIGKILL)
+            coordinator.wait(timeout=60)
 
     host.scenario()
     envelope = host.run("run-gates")
@@ -981,26 +1131,33 @@ def test_sibling_review_read_fails_on_every_lane(installed, tmp_path, hosts, lan
 # --------------------------------------------------------------------------- #
 def test_coordinator_reaps_a_killed_members_tokens(installed, tmp_path, hosts):
     """Scenario 8 (AC-12): the first member's ``agy`` spawns a daemonised
-    tokened child and holds. Killing that member's worker, found through the
-    double's recorded parent process ID, makes the running coordinator reap
-    the child before any later gate run. The second member then records in
-    slot order, and an unrelated process survives."""
+    tokened child and holds; the child is shown running with the launch's
+    token, and an unrelated process running, before the owner acts. Killing
+    that member's worker, found through the double's recorded parent process
+    ID, makes the running coordinator reap the child before any later gate
+    run. The second member then records in slot order, and the unrelated
+    process survives. Every process the test starts is stopped on any exit."""
     host = lane_host(installed, tmp_path, primary=NEON, secondary=FABLE)
     hosts.append(host)
     host.scenario([init_event(), {"$children": ["daemon"]}, {"$hold": "release"}])
     host.lane("claude", hold="release-second")
-    unrelated = subprocess.Popen(
-        [sys.executable, "-c", "import time; time.sleep(600)"],
-        stdin=subprocess.DEVNULL,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-    )
-    coordinator = host.spawn("run-gates")
+    unrelated = coordinator = None
+    survived = None
     try:
+        unrelated = subprocess.Popen(
+            [sys.executable, "-c", "import time; time.sleep(600)"],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+        coordinator = host.spawn("run-gates")
         host.wait_for("children.jsonl")
         host.wait_for("holding.jsonl", 2)
         (observation,) = host.observations()
         (child,) = host.rows("children.jsonl")
+        assert_tokened_child(child, observation, "the first member's child")
+        assert unrelated.poll() is None, "fixture: the unrelated process is not running"
         worker = observation["ppid"]
         assert worker != coordinator.pid, "fixture: agy's parent is the coordinator"
         os.kill(worker, signal.SIGKILL)
@@ -1012,15 +1169,15 @@ def test_coordinator_reaps_a_killed_members_tokens(installed, tmp_path, hosts):
         )
         host.release("release-second")
         stdout, _stderr = coordinator.communicate(timeout=300)
+        survived = unrelated.poll() is None
     finally:
-        if coordinator.poll() is None:
+        if coordinator is not None and coordinator.poll() is None:
             os.killpg(coordinator.pid, signal.SIGKILL)
             coordinator.wait(timeout=60)
-    try:
-        assert unrelated.poll() is None, "FAIL AC-12: the unrelated process was killed"
-    finally:
-        unrelated.kill()
-        unrelated.wait()
+        if unrelated is not None:
+            unrelated.kill()
+            unrelated.wait()
+    assert survived, "FAIL AC-12: the unrelated process was killed"
     assert stdout.strip(), "fixture: the coordinator printed no envelope"
     slots = [
         (row.get("reviewer_slot"), row["verdict"]["status"]) for row in host.ledger()

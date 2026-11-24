@@ -18,9 +18,11 @@ Parameter names. Observed in `agy` streams: `read_file`'s `Path`,
 The other tools' names are assumptions taken from the CLI's advertised
 parameter vocabulary; m5's canary records the real ones, and the m6
 implementer reconciles ``ASSUMED_PARAMETERS`` and the shell helpers with that
-record. The shown-entry shapes of `grep_search`, `find_by_name` and `list_dir`
-results are unobserved: their observed-entry cases stay pending (see
-``test_ac21_structured_result_entries_on_antigravity``).
+record. The result shapes of `grep_search`, `find_by_name` and `list_dir` are
+unobserved until m5's canary records them in ``RECORDED_RESULT_SHAPES``
+(``test_ac21_structured_result_shapes_on_antigravity``); an entry proof with
+no recorded shape stays pending outside m6's selection
+(``test_ac21_unmeasured_structured_entry_proof_is_pending``).
 
 Activation seams, owned by the m6 implementer (adapt the adapters below, not
 the cases, if the delegated names differ):
@@ -290,6 +292,9 @@ CHUNK_TEXTS = (
     "".join(f"part two line {n:02d} with more\n" for n in range(1, 7)),
     "".join(f"part three line {n:02d}\n" for n in range(1, 8)),
 )
+CHUNK_LINES = tuple(len(text.splitlines()) for text in CHUNK_TEXTS)
+# The byte offset, within the second chunk, where its third line starts.
+THIRD_LINE_OFFSET = len("".join(CHUNK_TEXTS[1].splitlines(keepends=True)[:2]).encode())
 
 
 @pytest.fixture()
@@ -854,6 +859,18 @@ COVERAGE: dict[str, tuple[AuditCase, tuple[int, ...]]] = {
         ),
         (1,),
     ),
+    "line-range-one-line-short-of-the-chunk-end": (
+        lambda s, lay: _whole_reads(s, lay, 1).read(
+            lay.chunks[1].path, StartLine=1, EndLine=CHUNK_LINES[1] - 1
+        ),
+        (1,),
+    ),
+    "byte-offset-read-only": (
+        lambda s, lay: _whole_reads(s, lay, 1).read(
+            lay.chunks[1].path, ByteOffset=THIRD_LINE_OFFSET
+        ),
+        (1,),
+    ),
     "chunk-never-read": (lambda s, lay: _whole_reads(s, lay, 2), (2,)),
     "write-changes-a-chunk-before-its-read-then-restores": (
         _changed_then_restored,
@@ -895,7 +912,9 @@ def test_ac17_whole_chunk_coverage(layout: AuditLayout, case: str) -> None:
     `read_file` of a chunk only when no write tool targeted that chunk and no
     executed text named it before the read. A failed read followed by a whole
     read, a scratch write and a command after the read keep coverage; a
-    partial range, an unread chunk, a changed-then-restored chunk, a chunk
+    partial range (a short line range, one ending a line before the chunk's
+    end, or a read starting at a non-zero `ByteOffset`), an unread chunk, a
+    changed-then-restored chunk, a chunk
     named first by `run_command` or `send_command_input`, and a shell read in
     an unknown location leave exactly that chunk's byte range uncovered.
 
@@ -1217,10 +1236,12 @@ STRUCTURED_KINDS = ("grep_search", "find_by_name", "list_dir")
 @dataclass(frozen=True)
 class RecordedResultShape:
     """
-    One structured kind's result shape as m5's live call recorded it.
-    ``parameters`` searches or lists the feature directory; ``result`` builds
-    that call's result showing the given absolute entries. ``shows_entries``
-    is False for a kind m5 recorded as unmeasured, whose result is a summary.
+    One structured kind's result as m5's live call recorded it.
+
+    ``parameters`` searches or lists the feature directory. ``result`` builds
+    that call's result for the given absolute entries. ``shows_entries`` is
+    True when the stream shows the entries, and False for a kind m5 recorded
+    as unmeasured: its result is a summary that shows none.
     """
 
     shows_entries: bool
@@ -1228,29 +1249,42 @@ class RecordedResultShape:
     result: Callable[[list[str]], object]
 
 
-# Filled from m5's canary record, one row per structured kind. Until a kind
-# has a row, its case below fails as pending; no shape is invented here.
+# Transcribed from m5's canary record, one row per structured kind. m5 records
+# every kind, either showing entries or unmeasured with a summary; no shape is
+# invented here.
 RECORDED_RESULT_SHAPES: dict[str, RecordedResultShape] = {}
+
+# Kinds whose entry proof has no recorded shape: unmeasured, or not yet
+# transcribed. Their entry cases are pending and sit outside m6's selection.
+ENTRY_PROOF_PENDING = tuple(
+    kind
+    for kind in STRUCTURED_KINDS
+    if kind not in RECORDED_RESULT_SHAPES
+    or not RECORDED_RESULT_SHAPES[kind].shows_entries
+)
 
 
 @pytest.mark.parametrize("kind", STRUCTURED_KINDS)
-def test_ac21_structured_result_entries_on_antigravity(
+def test_ac21_structured_result_shapes_on_antigravity(
     layout: AuditLayout, kind: str
 ) -> None:
     """
-    PENDING (AC-21 (b); m6, owner: the m6 implementer, from m5's canary
-    record): fails until ``RECORDED_RESULT_SHAPES`` has the kind's row.
+    Red discriminator (AC-21 (b) and the unrecognized-shape rule; m6): each
+    structured kind in the shape m5 recorded.
 
     - A kind whose results show entries: a result showing an entry under
       `reviews/` fails as out-of-scope-access.
-    - A kind m5 recorded as unmeasured has no such fixture and stays pending
-      in the report. Its summary shape raises no violation and logs no
-      warning.
+    - A kind m5 recorded as unmeasured: its summary shape raises no violation
+      and logs no warning. Its entry proof is pending, outside m6's
+      selection, in ``test_ac21_unmeasured_structured_entry_proof_is_pending``.
+
+    It fails until the kind's ``RECORDED_RESULT_SHAPES`` row is transcribed
+    from m5's canary record.
     """
     shape = RECORDED_RESULT_SHAPES.get(kind)
     assert shape is not None, (
-        f"FAIL AC-21 (b) PENDING: m5 has not recorded the result shape of {kind}; "
-        "add its RECORDED_RESULT_SHAPES row from the canary record"
+        f"FAIL AC-21 (b): m5's canary record of {kind} is not transcribed; add "
+        "its RECORDED_RESULT_SHAPES row, showing entries or unmeasured"
     )
     stream = AgyStream(layout).tool(
         kind,
@@ -1270,6 +1304,23 @@ def test_ac21_structured_result_entries_on_antigravity(
             f"FAIL AC-21: {kind}'s summary shape raised {view.violations} "
             f"and warned {view.warnings}"
         )
+
+
+@pytest.mark.parametrize("kind", ENTRY_PROOF_PENDING)
+def test_ac21_unmeasured_structured_entry_proof_is_pending(kind: str) -> None:
+    """
+    PENDING, outside m6's selection (AC-21 (b)): a structured kind with no
+    recorded entry-showing shape has no observed-entry fixture, so its proof
+    stays pending and is reported, never invented. The case disappears once
+    the kind's row records it as showing entries; the shell fallback and the
+    unrecognized-shape cases stay in m6's required proof.
+    """
+    shape = RECORDED_RESULT_SHAPES.get(kind)
+    state = "not transcribed" if shape is None else "recorded as unmeasured"
+    pytest.fail(
+        f"PENDING AC-21 (b): {kind} is {state}; its observed-entry proof has no "
+        "recorded shape"
+    )
 
 
 @pytest.mark.parametrize("kind", [*STRUCTURED_KINDS, "run_command"])
@@ -1681,26 +1732,57 @@ def _recorded_states(directory: Path) -> list[tuple[int, str, str]]:
     return states
 
 
-def _run_temp_raw_stream(path: str) -> bool:
-    """The spec's one stated exception: a run temp directory's raw stream."""
-    candidate = Path(path)
-    return candidate.name == "raw.out" and ".tmp." in candidate.parent.name
-
-
-def _gate_log(path: str, reviews: Path) -> bool:
-    """A gate log in the feature's `reviews/`; it carries the audit record."""
-    candidate = Path(path)
-    return candidate.suffix == ".log" and str(candidate.parent) == os.path.realpath(
-        reviews
-    )
-
-
 def _token_holders(root: Path) -> list[str]:
     return sorted(
-        str(path)
+        str(path.resolve())
         for path in root.rglob("*")
         if path.is_file() and TOKEN.encode() in path.read_bytes()
     )
+
+
+def _in_run_temp(path: str, reviews: Path) -> bool:
+    """Inside a run temp directory directly under the feature's `reviews/`."""
+    try:
+        relative = Path(path).relative_to(os.path.realpath(reviews))
+    except ValueError:
+        return False
+    return len(relative.parts) > 1 and ".tmp." in relative.parts[0]
+
+
+# Text only an audit record (or the raw stream it is built from) carries: the
+# command lines of the credential steps' tool parameters.
+AUDIT_MARKERS = ("git status --short", "rg -n SERVICE_TOKEN src")
+
+History = dict[str, list[tuple[int, str]]]
+
+
+def _destinations(
+    states: list[tuple[int, str, str]], raw_lines: tuple[str, ...], reviews: Path
+) -> History:
+    """
+    Every gate-log and audit-record destination the runs wrote, located by
+    what was written rather than by a fixed path: any `.log` file, and any
+    file one of whose states carries audit-record text. Unredacted raw-stream
+    copies in a run temp directory, the spec's one stated exception, are left
+    out; they are files there that held an unredacted token-bearing stream
+    line. Each destination maps to its rebuilt states in write order, with the
+    writing process.
+    """
+    raw = {
+        path
+        for _, path, content in states
+        if _in_run_temp(path, reviews) and any(line in content for line in raw_lines)
+    }
+    marked = {
+        path
+        for _, path, content in states
+        if path.endswith(".log") or any(marker in content for marker in AUDIT_MARKERS)
+    }
+    history: History = {}
+    for writer, path, content in states:
+        if path in marked and path not in raw:
+            history.setdefault(path, []).append((writer, content))
+    return history
 
 
 def _require_antigravity_lane() -> None:
@@ -1715,11 +1797,11 @@ def _require_antigravity_lane() -> None:
     audit_api()
 
 
-# The doubled `agy`. Each launch prints `init` with the `--model` it was
-# given, the staged steps and a successful `result` carrying the object, then
-# holds until killed when the scenario says so. `--version` prints a version
-# and exits. It reads no provider data directory and ignores every other
-# argument.
+# The doubled `agy`. Each launch prints `init` with the `--model` it was given
+# and the staged steps. A holding scenario then sleeps until killed, with no
+# terminal event, so the run cannot classify; otherwise it prints a successful
+# `result` carrying the object. `--version` prints a version and exits. It
+# reads no provider data directory and ignores every other argument.
 AGY_DOUBLE_BODY = r"""
 import json
 import os
@@ -1757,6 +1839,9 @@ emit(
 )
 for event in scenario["steps"]:
     emit(event)
+if scenario["hold"]:
+    time.sleep(120)
+    sys.exit(0)
 emit(
     {
         "event": "result",
@@ -1771,10 +1856,6 @@ emit(
         },
     }
 )
-if scenario["hold"]:
-    with open(scenario["hold"], "w", encoding="utf-8") as handle:
-        handle.write("stream written\n")
-    time.sleep(120)
 """
 
 
@@ -1799,7 +1880,7 @@ class AgyDouble:
         steps: list[dict[str, Any]],
         review: dict[str, Any],
         *,
-        hold: Path | None = None,
+        hold: bool = False,
     ) -> None:
         self.scenario.write_text(
             json.dumps(
@@ -1807,7 +1888,7 @@ class AgyDouble:
                     "conversation": CONVERSATION,
                     "steps": steps,
                     "object": review,
-                    "hold": str(hold) if hold else None,
+                    "hold": hold,
                 }
             ),
             encoding="utf-8",
@@ -1842,20 +1923,38 @@ def _credential_steps(host: Path) -> list[dict[str, Any]]:
     )
 
 
+def _stream_lines(steps: list[dict[str, Any]]) -> tuple[str, ...]:
+    """The token-bearing lines exactly as the double writes them."""
+    return tuple(line for line in (json.dumps(step) for step in steps) if TOKEN in line)
+
+
 def _echoing_review() -> dict[str, Any]:
     review = review_content()
     review["summary"] = f"{review['summary']} Observed key {TOKEN}."
     return review
 
 
-def _wait_for(path: Path, child: subprocess.Popen[bytes], output: Path) -> None:
-    deadline = time.monotonic() + 60
-    while not path.exists():
+def _persisted_stream(
+    reviews: Path, last_line: str, child: subprocess.Popen[bytes], output: Path
+) -> Path:
+    """
+    Wait until a file in a run temp directory holds the stream's last line:
+    the stream as the run persisted it, observed on disk before any terminal
+    event lets the run classify.
+    """
+    deadline = time.monotonic() + 30
+    needle = last_line.encode()
+    while True:
+        for path in sorted(reviews.glob("*.tmp.*/*")):
+            if path.is_file() and needle in path.read_bytes():
+                return path.resolve()
         assert child.poll() is None, (
-            "FAIL AC-18: the interrupted run ended before its stream was written: "
-            f"{output.read_text(errors='replace')[-2000:]}"
+            "FAIL AC-18: the interrupted run ended before its stream was "
+            f"persisted: {output.read_text(errors='replace')[-2000:]}"
         )
-        assert time.monotonic() < deadline, "FAIL AC-18: the doubled agy never held"
+        assert time.monotonic() < deadline, (
+            "FAIL AC-18: no run temp directory ever held the persisted stream"
+        )
         time.sleep(0.05)
 
 
@@ -1870,22 +1969,25 @@ def test_ac18_redaction_holds_at_every_write_on_interrupted_and_completed_runs(
     credential-like token is in tool parameters, shown `run_command` output
     and the echoed response.
 
-    The gate log carries the redacted audit record, so the write-time check
-    applies to it: every rebuilt state of the gate log, from its first write,
-    is recorded and checked on both paths.
+    Every gate-log and audit-record destination is checked at write time. The
+    plan puts the redacted audit record in the gate log, but destinations are
+    located by what the runs write: any `.log` file, and any file carrying
+    audit-record text. Every rebuilt state of each one, from its first write
+    and in both processes, must be free of the token.
 
-    - Interrupted: a child `heddle run-gate`, recorded in its own process, is
-      killed after the stream is written and before classification. It must
-      have written its gate log before the kill. Every kept file is then
-      checked: the raw stream in the run temp directory is the only one that
-      may hold the token, since recovery has not yet proved the launcher gone.
+    - Interrupted: a child `heddle run-gate`, recorded in its own process.
+      The doubled `agy` writes its tool steps and holds with no terminal
+      event, so the run cannot classify. The test waits until it observes the
+      persisted stream in a run temp directory, then kills the launcher. The
+      run must have written its gate log by then. Every kept file is then
+      checked: the observed raw stream is the only one that may hold the
+      token, since recovery has not yet proved the launcher gone.
     - Completed: the next gate run, recorded in this process, runs the
       recovery pass, which proves the killed launcher gone and redacts that
-      stream, then completes its own review.
-    - No rebuilt gate-log state in either process holds the token, and the
-      gate log lists every tool name, path and command line. At the end no
-      kept file holds the token, the kept response and both raw streams
-      included.
+      stream, then completes its own review. A recorded destination lists
+      every tool name, path and command line.
+    - At the end no kept file holds the token, the kept response and both
+      raw streams included.
     """
     _require_antigravity_lane()
     monkeypatch.delenv("HEDDLE_AGENT_SESSION", raising=False)
@@ -1899,10 +2001,11 @@ def test_ac18_redaction_holds_at_every_write_on_interrupted_and_completed_runs(
     install = _recorder()
     recordings = tmp_path / "recordings"
     recordings.mkdir()
+    steps = _credential_steps(host)
+    raw_lines = _stream_lines(steps)
 
-    # Interrupted run: a child process, killed once its stream is written.
-    held = tmp_path / "stream-written"
-    double.stage(_credential_steps(host), _echoing_review(), hold=held)
+    # Interrupted run: a child process, killed once its stream is persisted.
+    double.stage(steps, _echoing_review(), hold=True)
     bootstrap = (
         RECORDER_SOURCE
         + f"\ninstall({str(host)!r}, {str(recordings)!r}, setattr)\n"
@@ -1922,7 +2025,7 @@ def test_ac18_redaction_holds_at_every_write_on_interrupted_and_completed_runs(
             start_new_session=True,
         )
     try:
-        _wait_for(held, child, child_output)
+        observed = _persisted_stream(reviews, raw_lines[-1], child, child_output)
         os.killpg(child.pid, signal.SIGKILL)
         child.wait(timeout=10)
     finally:
@@ -1932,12 +2035,12 @@ def test_ac18_redaction_holds_at_every_write_on_interrupted_and_completed_runs(
         double.kill_all()
 
     interrupted = _token_holders(host)
-    assert interrupted and all(_run_temp_raw_stream(path) for path in interrupted), (
-        "FAIL AC-18: after the kill only the interrupted run's raw stream may "
-        f"hold the token, found {interrupted}"
+    assert interrupted == [str(observed)], (
+        "FAIL AC-18: after the kill only the interrupted run's persisted raw "
+        f"stream {observed} may hold the token, found {interrupted}"
     )
     assert any(
-        writer == child.pid and _gate_log(path, reviews)
+        writer == child.pid and path.endswith(".log")
         for writer, path, _ in _recorded_states(recordings)
     ), (
         "FAIL AC-18: the interrupted run wrote no gate log before the kill, so "
@@ -1945,42 +2048,42 @@ def test_ac18_redaction_holds_at_every_write_on_interrupted_and_completed_runs(
     )
 
     # The next gate run: the recovery pass, then a completed review.
-    double.stage(_credential_steps(host), _echoing_review())
+    double.stage(steps, _echoing_review())
     with monkeypatch.context() as patch:
         install(str(host), str(recordings), patch.setattr)
         code, response = command(capsys, "run-gate", "spec-review")
     assert code == 0 and response["ok"] and response["data"]["accepted"], response
     assert double.launches() == 2
 
-    logs = "".join(
-        path.read_text(encoding="utf-8", errors="replace")
-        for path in reviews.glob("*.log")
+    history = _destinations(_recorded_states(recordings), raw_lines, reviews)
+    written_by = {writer for states in history.values() for writer, _ in states}
+    assert {child.pid, os.getpid()} <= written_by, (
+        "FAIL AC-18: gate-log or audit-record writes were not recorded on both "
+        f"paths: destinations {sorted(history)}"
     )
-    for expected in (
+    expected = (
         "read_file",
         "run_command",
         str(host / "src" / "example.py"),
-        "git status --short",
-        "rg -n SERVICE_TOKEN src",
-    ):
-        assert expected in logs, f"FAIL AC-18: the gate log omits {expected!r}"
-
-    log_states = [
-        (writer, path, content)
-        for writer, path, content in _recorded_states(recordings)
-        if _gate_log(path, reviews)
-    ]
-    assert any(writer == os.getpid() for writer, _, _ in log_states), (
-        "FAIL AC-18: no gate-log write of the completed run was recorded"
+        *AUDIT_MARKERS,
+    )
+    assert any(
+        writer == os.getpid() and all(item in content for item in expected)
+        for states in history.values()
+        for writer, content in states
+    ), (
+        "FAIL AC-18: no recorded gate-log or audit-record destination of the "
+        f"completed run lists every tool name, path and command line: {sorted(history)}"
     )
     leaked = sorted(
-        {
-            f"{path} (process {writer})"
-            for writer, path, content in log_states
-            if TOKEN in content
-        }
+        f"{path} (state {index} of {len(states)}, process {writer})"
+        for path, states in history.items()
+        for index, (writer, content) in enumerate(states, 1)
+        if TOKEN in content
     )
-    assert not leaked, f"FAIL AC-18: a rebuilt gate-log state held the token: {leaked}"
+    assert not leaked, (
+        f"FAIL AC-18: a rebuilt gate-log or audit-record state held the token: {leaked}"
+    )
     assert not _token_holders(host), (
         "FAIL AC-18: kept files hold the token after the recovery pass and the "
         f"completed run: {_token_holders(host)}"

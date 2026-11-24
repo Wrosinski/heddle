@@ -620,19 +620,23 @@ def test_ac12_child_surviving_sigkill_warns_and_keeps_the_outcome(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """AC-12 control: a tokened child that ignores SIGTERM and survives SIGKILL
-    produces a cleanup warning naming the condition; the outcome is unchanged.
-    The test removes the survivor afterwards.
+    produces a cleanup warning naming that process and its survival; the run's
+    outcome is the ordinary recorded success. The test removes the survivor.
 
-    Injection seam: ``os.kill``, ``os.killpg`` and ``os.pidfd_send_signal``
-    drop SIGTERM and SIGKILL aimed at the survivor.
+    Injection seam, the platform signal boundary as Python 3.13 exposes it:
+    ``os.kill``, ``os.killpg`` and ``signal.pidfd_send_signal`` (through a
+    descriptor from ``os.pidfd_open``) drop SIGTERM and SIGKILL aimed at the
+    survivor. Every other signal and target passes through.
     """
     lane = _antigravity()
     lane.require_runner("AC-12")
-    agy = lane.install_agy(tmp_path, monkeypatch)
-    tracker = lane.Processes(agy)
     real_kill, real_killpg = os.kill, os.killpg
-    real_open, real_send = os.pidfd_open, os.pidfd_send_signal
+    real_open = getattr(os, "pidfd_open", None)
+    real_send = getattr(signal, "pidfd_send_signal", None)
+    tracker = None
+    agy = lane.install_agy(tmp_path, monkeypatch)
     try:
+        tracker = lane.Processes(agy)
         _host, state_path = lane.spec_host(tmp_path, monkeypatch)
         agy.scenario(lane.clean_stream({"$children": ["stubborn"]}))
         pidfds: dict[int, int] = {}
@@ -652,11 +656,13 @@ def test_ac12_child_surviving_sigkill_warns_and_keeps_the_outcome(
             return real_killpg(pgid, sig)
 
         def pidfd_open(pid, *args):
+            assert real_open is not None
             descriptor = real_open(pid, *args)
             pidfds[descriptor] = pid
             return descriptor
 
         def pidfd_send_signal(fd, sig, *args):
+            assert real_send is not None
             if survivor(pidfds.get(fd, -1)) and sig in stopping:
                 return None
             return real_send(fd, sig, *args)
@@ -664,23 +670,42 @@ def test_ac12_child_surviving_sigkill_warns_and_keeps_the_outcome(
         with monkeypatch.context() as patch:
             patch.setattr(os, "kill", kill)
             patch.setattr(os, "killpg", killpg)
-            patch.setattr(os, "pidfd_open", pidfd_open)
-            patch.setattr(os, "pidfd_send_signal", pidfd_send_signal)
+            if real_open is not None:
+                patch.setattr(os, "pidfd_open", pidfd_open)
+            if real_send is not None:
+                patch.setattr(signal, "pidfd_send_signal", pidfd_send_signal)
             result = lane.run_gate()
 
-        assert result.ok, f"FAIL AC-12: the outcome changed: {result.to_envelope()}"
-        lane.assert_recorded(state_path, "AC-12")
         (child,) = agy.children()
         assert lane.alive(child["pid"], child["start"]), (
             "fixture: the survivor did not survive"
         )
-        log = lane.gate_log(state_path)
-        assert re.search(r"warn", log, re.IGNORECASE) and re.search(
-            r"surviv|SIGKILL|still running", log, re.IGNORECASE
-        ), "FAIL AC-12: no cleanup warning names the surviving process"
+        assert result.ok, f"FAIL AC-12: the outcome changed: {result.to_envelope()}"
+        row = lane.assert_recorded(state_path, "AC-12")
+        assert row.get("failure_reason") is None, (
+            f"FAIL AC-12: the survivor changed the outcome to {row['failure_reason']}"
+        )
+        warnings = [
+            line
+            for line in lane.gate_log(state_path).splitlines()
+            if re.search(r"warn", line, re.IGNORECASE)
+            and str(child["pid"]) in line
+            and re.search(r"surviv|SIGKILL|still running", line, re.IGNORECASE)
+        ]
+        assert warnings, (
+            "FAIL AC-12: no cleanup warning names the surviving process "
+            f"{child['pid']} and its survival of SIGKILL"
+        )
         assert tracker.unrelated_alive()
     finally:
-        tracker.cleanup(kill=real_kill)
+        agy.release()
+        if tracker is not None:
+            tracker.cleanup(kill=real_kill)
+        for row in agy.children():
+            try:
+                real_kill(row["pid"], signal.SIGKILL)
+            except OSError:
+                pass
 
 
 # ---------------------------------------------------------------------------

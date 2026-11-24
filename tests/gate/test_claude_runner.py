@@ -905,17 +905,13 @@ def _replaying_claude(path: Path, events: list[dict[str, object]]) -> Path:
     )
 
 
-def test_ac21_sibling_read_fails_an_assigned_claude_run_with_no_credit(
+def _assigned_claude_run(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
-) -> None:
-    """
-    Red discriminator (AC-21 (a); m6): an assigned `run-gate` whose doubled
-    Claude reads a sibling review under the feature's `reviews/` and returns a
-    valid object fails as out-of-scope-access. The run is not accepted, keeps
-    no artifact and earns the assignment no source credit.
-    """
+    steps: Callable[[ReviewLayout], list[ClaudeStep]],
+) -> tuple[Path, int, dict[str, object]]:
+    """An assigned spec-review `run-gate` on a doubled Claude replaying ``steps``."""
     monkeypatch.delenv("HEDDLE_AGENT_SESSION", raising=False)
     host, state_path = current_host(
         tmp_path,
@@ -925,32 +921,85 @@ def test_ac21_sibling_read_fails_an_assigned_claude_run_with_no_credit(
     feature = host / "plans" / FEATURE
     sibling = feature / "reviews" / "peer-review.md"
     sibling.parent.mkdir(exist_ok=True)
-    sibling.write_text("# Sibling review\n", encoding="utf-8")
+    sibling.write_text("# Sibling review\n\nTODO tighten\n", encoding="utf-8")
     layout = ReviewLayout(host, feature, sibling.parent, sibling.parent, sibling)
-    events = ClaudeStream(
-        layout, [_tool("Read", "1\t# Sibling review", file_path=str(sibling))]
-    ).finish()
     shims = tmp_path / "shims"
     shims.mkdir()
-    _replaying_claude(shims / "claude", events)
+    _replaying_claude(shims / "claude", ClaudeStream(layout, steps(layout)).finish())
     monkeypatch.setenv("PATH", f"{shims}{os.pathsep}{os.environ['PATH']}")
-
     code, response = command(capsys, "run-gate", "spec-review")
+    return state_path, code, response
 
+
+def _assert_refused_assigned_run(
+    state_path: Path, code: int, response: dict[str, object], *, cli: str, case: str
+) -> None:
+    """Out-of-scope-access, nothing interpretable kept, no slot credit."""
     state = yaml.safe_load(state_path.read_text(encoding="utf-8"))
     run = state["gates"][-1]["runs"][-1]
-    assert run["execution_config"]["cli"] == "claude"
+    assert run["execution_config"]["cli"] == cli
     assert run.get("failure_reason") == OUT_OF_SCOPE, (
-        "FAIL AC-21 (a): an assigned Claude run that read a sibling review "
-        f"recorded failure_reason {run.get('failure_reason')!r}"
+        f"FAIL AC-21 ({case}): an assigned {cli} run that reached a sibling "
+        f"review recorded failure_reason {run.get('failure_reason')!r}"
     )
     assert code != 0 and not response["ok"], response
     [attempt] = state["review_assignments"]["attempts"]
     assert attempt["outcome"]["reason"] == OUT_OF_SCOPE, attempt["outcome"]
     assert attempt["interpretation"] is None and attempt["source"] is None, (
-        "FAIL AC-21 (a): the refused run left an interpretation or source credit"
+        f"FAIL AC-21 ({case}): the refused run left an interpretation or source credit"
     )
     reviews = state_path.parent / "reviews"
     assert not sorted(reviews.glob("*.capture.json")), (
-        "FAIL AC-21 (a): the refused run kept a retained capture"
+        f"FAIL AC-21 ({case}): the refused run kept a retained capture"
     )
+
+
+def test_ac21_sibling_read_fails_an_assigned_claude_run_with_no_credit(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """
+    Red discriminator (AC-21 (a); m6): an assigned `run-gate` whose doubled
+    Claude reads a sibling review under the feature's `reviews/` and returns a
+    valid object fails as out-of-scope-access. The run is not accepted, keeps
+    no retained capture or interpretation and earns the assignment no source
+    credit.
+    """
+    state_path, code, response = _assigned_claude_run(
+        tmp_path,
+        monkeypatch,
+        capsys,
+        lambda layout: [
+            _tool("Read", "1\t# Sibling review", file_path=str(layout.sibling))
+        ],
+    )
+
+    _assert_refused_assigned_run(state_path, code, response, cli="claude", case="a")
+
+
+def test_ac21_shown_sibling_entry_fails_an_assigned_claude_run_with_no_credit(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """
+    Red discriminator (AC-21 (b); m6): an assigned `run-gate` whose doubled
+    Claude runs an ancestor search from its process directory, whose shown
+    output lists an entry under the feature's `reviews/`, and returns a valid
+    object fails as out-of-scope-access. The run keeps no retained capture or
+    interpretation and earns the assignment no source credit.
+    """
+    state_path, code, response = _assigned_claude_run(
+        tmp_path,
+        monkeypatch,
+        capsys,
+        lambda layout: [
+            _bash(
+                "rg -n TODO plans",
+                f"plans/{FEATURE}/reviews/peer-review.md:3:TODO tighten",
+            )
+        ],
+    )
+
+    _assert_refused_assigned_run(state_path, code, response, cli="claude", case="b")

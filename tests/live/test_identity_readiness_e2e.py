@@ -17,6 +17,13 @@ is admitted as a ``stage`` attempt through ``admit_live_attempt`` and writes to
 ``identity-antigravity/`` under the root; its disposable host lives outside the
 root, and what the alignment check needs is copied in before the host goes.
 The Claude and Codex case keeps today's behaviour, the root itself.
+
+The Antigravity case reaches ``agy`` only through the admission's version
+gate: a missing or mismatched ``agy``, or an unset root, skips or refuses there
+with no slot claimed and the proof left pending. Its one provider launch
+starts only when the launch's bound and the retention allowance fit before the
+invocation's deadline (``attempt_deadline`` in the same helper module), and the
+case fails if it ends past that deadline.
 """
 
 from __future__ import annotations
@@ -27,6 +34,7 @@ import importlib.util
 import json
 import os
 import shutil
+import time
 from dataclasses import asdict
 from pathlib import Path
 
@@ -66,6 +74,10 @@ LANE_CASES = {
 LIVE_HELPERS = "tests.antigravity_live_helpers"
 GATE = "milestone-review"
 CHECKED = ["src/example.py", "tests/check.py"]
+# Seconds: the gate's own bound for the one launch, and the retention
+# allowance kept free before the invocation's deadline.
+GATE_SECONDS = 1200
+RETENTION_SECONDS = 120
 
 
 def save(path, value):
@@ -191,13 +203,85 @@ def lane_summary(path, lane):
 
 
 def stream_events(summary):
-    """Events of the kept (redacted) stream; it is read here, never copied."""
+    """Events of the kept (redacted) stream; it is read here, never copied.
+    Lines end at ``\\n`` only, since JSON text may hold U+2028."""
     raw = Path(summary["artifacts"]["raw_out"])
     return [
         json.loads(line)
-        for line in raw.read_text(encoding="utf-8").splitlines()
+        for line in raw.read_text(encoding="utf-8").split("\n")
         if line.lstrip().startswith("{")
     ]
+
+
+def usage_record(events):
+    """Each result's usage, whether any was reported, and the total."""
+    usage = [
+        row["result"].get("usage") for row in events if row.get("event") == "result"
+    ]
+    reported = [row for row in usage if isinstance(row, dict)]
+    return {
+        "usage": usage,
+        "reported": bool(reported),
+        "total_tokens": (
+            sum(int(row.get("total_tokens") or 0) for row in reported)
+            if reported
+            else None
+        ),
+    }
+
+
+def retain_launch(evidence, lane, path):
+    """AC-25 retention for the one launch, before anything about it is judged:
+    its ledger rows, native summary, gate log and usage (or the fact that
+    none was reported). The kept stream is already redacted; it is read here,
+    never copied."""
+    save(evidence / f"{lane}-ledger-rows.json", runs(path))
+    found = [
+        json.loads(candidate.read_text())
+        for candidate in sorted((path.parent / "reviews").glob("*.gate-summary.json"))
+        if ".prev." not in candidate.name
+        and not candidate.name.endswith(".review.gate-summary.json")
+    ]
+    summaries = [
+        value
+        for value in found
+        if value.get("gate") == GATE and value.get("cli") == lane
+    ]
+    events = []
+    for number, summary in enumerate(summaries):
+        save(evidence / f"{lane}-summary-{number}.json", summary)
+        log = Path(summary["io"]["log"])
+        if log.is_file():
+            shutil.copyfile(log, evidence / f"{lane}-gate-{number}.log")
+        raw = (summary.get("artifacts") or {}).get("raw_out")
+        if raw and Path(raw).is_file():
+            events.extend(stream_events(summary))
+    save(
+        evidence / f"{lane}-usage.json",
+        {**usage_record(events), "stream_read": bool(events)},
+    )
+
+
+def attempt_deadline(helpers):
+    assert hasattr(helpers, "attempt_deadline"), (
+        "FAIL AC-25: tests.antigravity_live_helpers.attempt_deadline is not implemented"
+    )
+    return helpers.attempt_deadline()
+
+
+def assert_audit_clean(summary):
+    """Seam (named in the canary module): the gate summary's ``audit`` object.
+    The identity review records with no violation, nothing uncovered and its
+    transport intact."""
+    audit = summary.get("audit")
+    assert isinstance(audit, dict), (
+        "FAIL AC-25: the identity run's gate summary persists no audit outcome"
+    )
+    assert (
+        audit.get("violations") == []
+        and audit.get("uncovered") == []
+        and audit.get("transport_intact") is True
+    ), f"FAIL AC-25: the identity run's audit is not clean: {audit}"
 
 
 def settle_every_finding(app, ops, path, event, findings, evidence):
@@ -301,12 +385,11 @@ def test_ac14_real_review_readiness_change_restore_and_exact_replay(
     from heddle.gate import cli, entry
 
     require_current_state()
-    raw_root = os.environ.get("HEDDLE_W4_LIVE_ROOT")
-    assert raw_root, (
-        "FAIL live prerequisite: set HEDDLE_W4_LIVE_ROOT to a new durable path"
-    )
     alone = lanes == ("antigravity",)
+    deadline = None
     if alone:
+        # The admission's version gate checks agy and the root variable: a
+        # missing or mismatched agy skips there, claiming no slot.
         assert importlib.util.find_spec(LIVE_HELPERS) is not None, (
             "FAIL AC-25: tests.antigravity_live_helpers (admit_live_attempt) is "
             "not implemented"
@@ -316,15 +399,19 @@ def test_ac14_real_review_readiness_change_restore_and_exact_replay(
         hosts.mkdir()
         where = {"evidence": None}
     else:
+        raw_root = os.environ.get("HEDDLE_W4_LIVE_ROOT")
+        assert raw_root, (
+            "FAIL live prerequisite: set HEDDLE_W4_LIVE_ROOT to a new durable path"
+        )
         root = Path(raw_root).resolve()
         root.mkdir(parents=True, exist_ok=False)
         print(f"Identity-readiness live evidence: {root}", flush=True)
         hosts = root
         where = {"evidence": root}
-    for lane in lanes:
-        assert shutil.which(BINARIES[lane]), (
-            f"FAIL live prerequisite: missing {BINARIES[lane]} executable"
-        )
+        for lane in lanes:
+            assert shutil.which(BINARIES[lane]), (
+                f"FAIL live prerequisite: missing {BINARIES[lane]} executable"
+            )
     app, ops = application()
     original_args = cli.GateArgs
     original_run = entry.run_gate_for_runtime
@@ -333,7 +420,7 @@ def test_ac14_real_review_readiness_change_restore_and_exact_replay(
     def bounded_args(**kwargs):
         args = original_args(**kwargs)
         args.max_attempts = 1
-        args.timeout_seconds = args.inactivity_timeout_seconds = 1200
+        args.timeout_seconds = args.inactivity_timeout_seconds = GATE_SECONDS
         args.preserve_success_artifacts = True
         return args
 
@@ -369,6 +456,15 @@ def test_ac14_real_review_readiness_change_restore_and_exact_replay(
             where["evidence"] = evidence
             print(f"Identity-readiness live evidence: {evidence}", flush=True)
             save(evidence / f"{lane}-prerequisites.json", prerequisites)
+            deadline = attempt_deadline(helpers)
+            left = deadline - time.monotonic() - RETENTION_SECONDS
+            if GATE_SECONDS > left:
+                pytest.fail(
+                    "FAIL AC-25: the live attempt is exhausted: the identity "
+                    f"launch needs {GATE_SECONDS} s and {max(left, 0.0):.0f} s "
+                    "remain before retention, so it was not started",
+                    pytrace=False,
+                )
         evidence = where["evidence"]
         save(evidence / f"{lane}-verification.json", verified.to_envelope())
         assert verified.ok
@@ -381,6 +477,8 @@ def test_ac14_real_review_readiness_change_restore_and_exact_replay(
         operation = ops.RunGate(GATE, feature=FEATURE, cli=lane, **CONFIG[lane])
         first = app.execute(operation)
         save(evidence / f"{lane}-first.json", first.to_envelope())
+        if alone:
+            retain_launch(evidence, lane, path)
         assert first.ok and not first.data["cached"], first
         event = runs(path)[-1]
         canonical, value = canonical_result(path, event)
@@ -389,6 +487,7 @@ def test_ac14_real_review_readiness_change_restore_and_exact_replay(
         assert value["invocation"]["execution"]["cli"] == lane
         findings = value["content"]["findings"]
         if alone:
+            shutil.copyfile(canonical, evidence / f"{lane}-review.json")
             recorded = value["invocation"]["execution"]
             assert {key: recorded.get(key) for key in CONFIG[lane]} == CONFIG[lane], (
                 f"FAIL AC-25: the review recorded {recorded}"
@@ -399,6 +498,7 @@ def test_ac14_real_review_readiness_change_restore_and_exact_replay(
             assert inits and {row.get("model") for row in inits} == {
                 CONFIG[lane]["model"]
             }, f"FAIL AC-25: init.model {inits} is not the launched model"
+            assert_audit_clean(summary)
             save(evidence / f"{lane}-findings.json", findings)
             rows = settle_every_finding(app, ops, path, event, findings, evidence)
         else:
@@ -478,18 +578,10 @@ def test_ac14_real_review_readiness_change_restore_and_exact_replay(
         assert (path.read_bytes(), canonical.read_bytes()) == frozen
         assert len(runs(path)) == 1
         if alone:
-            # AC-25 retention: what the alignment check needs, before the host
-            # goes. The kept stream is already redacted; it is never copied.
-            shutil.copyfile(summary["io"]["log"], evidence / f"{lane}-gate.log")
-            save(evidence / f"{lane}-summary.json", summary)
-            save(evidence / f"{lane}-ledger-rows.json", runs(path))
-            shutil.copyfile(canonical, evidence / f"{lane}-review.json")
-            usage = [
-                row["result"].get("usage")
-                for row in events
-                if row.get("event") == "result"
-            ]
-            save(evidence / f"{lane}-usage.json", usage)
+            # The launch's evidence was retained right after it ran.
+            assert time.monotonic() <= deadline, (
+                "FAIL AC-25: the identity case ran past the attempt deadline"
+            )
         completed.append(
             {
                 "lane": lane,

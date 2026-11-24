@@ -35,24 +35,29 @@ holds the effective digest, review basis, input hash and the exact replay text:
 the SHA-256 of the provider stdin, the exact system text, and the ordered
 runtime sections by first line and SHA-256.
 
-AC-22 red discriminators (fail now because `_stable_text` rewrites embedded
-bodies and identities are unchanged):
+AC-22 red discriminators:
 
 - Codex: the milestone diff and test-file bodies arrive byte-exact, labels stay
-  checkout-relative, the effective digest and input hash differ from the
-  recorded baseline while the review basis equals it, and a review recorded
-  with that basis stays current;
+  checkout-relative, and the effective digest and input hash differ from the
+  recorded baseline while the review basis equals it. Fails now because
+  `_stable_text` rewrites the embedded bodies;
 - Claude: the same, for the body Claude embeds. Claude embeds no diff and no
   test-file body, so its affected input is a review-test-scaffolding run whose
   verification-command facts carry the checkout path;
-- recovery after landing: a publication whose identity differs from the
-  prepared run is stale, so of the outputs published under the recorded
-  pre-change identities only the unaffected member's is reused and the
-  provider double sees exactly one call, for the affected member.
+- recovery after landing, for each lane (`AFFECTED`): the affected member's
+  output, published under its recorded pre-change identity, is stale and its
+  member makes exactly one provider call, while the other member's output is
+  reused. Fails now because the identity has not changed, so both are reused;
+- the recovery rule, one signal at a time: a publication whose input hash
+  alone, or effective prompt digest alone, differs reruns once beside a reused
+  member. Fails now because recovery refuses any binding difference.
 
-A labelled survivor pins the Claude milestone review, which embeds no diff:
-its identities equal the recorded baseline before and after the fix. The
-Antigravity half belongs to m4.
+AC-22 survivors (pass now and after the fix): the affected input's review basis
+under any checkout path; the Claude milestone review, which embeds no diff and
+keeps its identities; a review recorded before the identity change, which
+status and orient read as current (freshness observed at the public boundary,
+see that test); and the recovery control below. The Antigravity half belongs
+to m4.
 
 Recovery rule (owner ruling, 2026-11-24): an unrecorded publication with the
 same feature, gate, scope, assignment, round and reviewer slot as the prepared
@@ -62,6 +67,12 @@ batch is refused. Any other binding mismatch still refuses before a provider
 call (survivor control). Today `_unrecorded_completion`
 (heddle/runtime/gate_run.py) refuses every mismatch through
 `validate_review_replay` (heddle/gate/entry.py); m3 owns both.
+
+Test seams: `heddle.gate.diff.resolve_diff` (`_inject_checkout_bodies`), the
+gate-engine provider doubles at `heddle.gate.entry.run_gate_for_runtime`
+(`_recover`, `_review_engine`), and `heddle.gate.entry.prepare_gate_run`
+(`_recorded_before_the_change`), which stands in a pre-change identity for a
+review recorded before landing.
 """
 
 from __future__ import annotations
@@ -72,6 +83,7 @@ from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 
 import pytest
+import yaml
 
 from tests.concurrent_review_helpers import (
     PRIMARY,
@@ -80,11 +92,14 @@ from tests.concurrent_review_helpers import (
     canonical_outcome,
     edit_state,
     execute_batch,
+    gate_runs,
     install_counting_engine,
     member_key,
+    revision,
+    run_slot,
     same_gate_host,
 )
-from tests.tiering_review_helpers import V7_FEATURE
+from tests.tiering_review_helpers import V7_FEATURE, dispose, disposition
 
 FIXED_GIT_DATE = "2026-11-24T00:00:00+0000"
 MILESTONE = "milestone-review"
@@ -361,16 +376,57 @@ AC22_CLAUDE_FACTS_BASELINE = Identity(
 )
 
 
+@dataclass(frozen=True)
+class Affected:
+    """One lane's AC-22 affected input and the other member of its batch."""
+
+    role: str
+    slot: str
+    baseline: Identity
+    # The other member's publication at recovery: its recorded AC-23 identity,
+    # or None for its current preparation when every member of the batch
+    # embeds the affected body.
+    reusable: Identity | None
+    # Rounds the secondary slot serves; a Claude verification round needs two.
+    window: int
+    finding_id: str
+
+
+AFFECTED = {
+    # Codex embeds the milestone diff; the Claude milestone member embeds none.
+    "codex-milestone-diff": Affected(
+        MILESTONE,
+        PRIMARY,
+        AC22_CODEX_BASELINE,
+        PINS[AC22_CLAUDE_BASELINE_FIXTURE].identity,
+        1,
+        "MR-I1",
+    ),
+    # Both scaffolding members embed the command facts, so the Codex member
+    # is published under its current preparation, reusable before and after
+    # the fix.
+    "claude-command-facts": Affected(
+        "review-test-scaffolding",
+        SECONDARY,
+        AC22_CLAUDE_FACTS_BASELINE,
+        None,
+        2,
+        "TS-I1",
+    ),
+}
+
+
 def _host(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, role: str, **kwargs):
     """A dual-slot host for `role` whose identities are machine-independent."""
     checkout = kwargs.pop("checkout", "checkout")
     large = kwargs.pop("large", False)
+    window = kwargs.pop("window", 1)
     assert not kwargs, kwargs
     for name in ("GIT_AUTHOR_DATE", "GIT_COMMITTER_DATE"):
         monkeypatch.setenv(name, FIXED_GIT_DATE)
     base = tmp_path / checkout
     base.mkdir()
-    host, _state_path = same_gate_host(base, monkeypatch, role=role)
+    host, _state_path = same_gate_host(base, monkeypatch, role=role, window=window)
     overrides = host / ".heddle/overrides"
     overrides.mkdir(parents=True, exist_ok=True)
     (overrides / "decision-routing.md").write_text(
@@ -417,38 +473,6 @@ def _prepare(host: Path, role: str, slot: str):
     context = entry.build_gate_context(snapshot, config, gate, cli=reviewer["cli"])
     prepared = entry.prepare_gate_run(context, gate_type=gate, invocation=invocation)
     return context, prepared
-
-
-def _current_review_basis(host: Path, role: str, slot: str) -> str:
-    """The basis a recorded review's currency check compares against now.
-
-    Mirrors `heddle.runtime.review_assignments._current_review_basis`: the
-    reviewer's execution through `resolve_gate_execution` and a basis-only
-    context.
-    """
-    from heddle.gate import entry
-    from heddle.gate.cli import resolve_gate_execution
-    from heddle.gate.registry import GATES
-    from heddle.gate.types import GateInvocationOverrides
-    from heddle.kernel.model import resolve_snapshot
-    from heddle.kernel.project_config import load_project_config
-
-    config = load_project_config(host)
-    snapshot = resolve_snapshot(config, V7_FEATURE)
-    gate = GATES[role]
-    reviewer = SLOT_REVIEWERS[role][slot]
-    invocation = resolve_gate_execution(
-        gate,
-        GateInvocationOverrides(
-            cli=reviewer["cli"],
-            model=reviewer["model"],
-            reasoning_effort=reviewer["reasoning_effort"],
-        ),
-    )
-    context = entry.build_gate_context(
-        snapshot, config, gate, cli=reviewer["cli"], basis_only=True
-    )
-    return entry.prepare_current_review_basis(context, invocation).review_basis_hash
 
 
 def _sha256(text: str) -> str:
@@ -565,25 +589,147 @@ def _inject_checkout_bodies(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(diff_module, "resolve_diff", resolve)
 
 
+def _affected_input(
+    host: Path, monkeypatch: pytest.MonkeyPatch, case: Affected
+) -> None:
+    """Give the case's affected input its checkout-path bodies."""
+    if case.role == MILESTONE:
+        _inject_checkout_bodies(monkeypatch)
+    else:
+        _set_checkout_commands(host)
+
+
 def _publish(
-    host: Path, role: str, slot: str, identity: Identity, **binding: object
+    host: Path,
+    role: str,
+    slot: str,
+    identity: Identity | None,
+    **binding: object,
 ) -> None:
     """Publish a worker's canonical output under a recorded identity.
 
     Assignment, round, slot, prompt version, execution and output contract
     are those of the current preparation unless `binding` overrides one; the
-    three identities are the recorded literals, as an in-flight run at landing
-    would carry them.
+    three identities are the given literals, as an in-flight run at landing
+    would carry them, or the current preparation's when `identity` is None.
     """
     context, prepared = _prepare(host, role, slot)
-    context.prepared_run = replace(
-        prepared,
-        effective_prompt_sha256=identity.effective,
-        review_basis_hash=identity.basis,
-        input_hash=identity.input,
-        **binding,
-    )
+    if identity is not None:
+        prepared = replace(
+            prepared,
+            effective_prompt_sha256=identity.effective,
+            review_basis_hash=identity.basis,
+            input_hash=identity.input,
+        )
+    context.prepared_run = replace(prepared, **binding)
     canonical_outcome(context.gate_type, context, V7_FEATURE)
+
+
+def _recover(monkeypatch: pytest.MonkeyPatch):
+    """Run the batch, whose recovery pass meets the published outputs.
+
+    `install_counting_engine` is the fork-safe provider double at the
+    gate-engine seam; it counts calls across worker processes.
+    """
+    with multiprocessing.Manager() as manager:
+        calls = install_counting_engine(monkeypatch, manager)
+        result = execute_batch()
+        observed = list(calls)
+    return result, observed
+
+
+def _assert_only_rerun(result, calls, role: str, stale: str, reused: str) -> None:
+    """Recovery reran the stale member once, reused the other, refused none."""
+    refusal = None if result.ok else f"{result.error.code}: {result.error.message}"
+    assert refusal is None, (
+        "FAIL AC-22: recovery refused the batch instead of rerunning the "
+        f"stale member: {refusal}"
+    )
+    members = {member_key(row): row for row in result.data["members"]}
+    assert calls == [(role, stale)], (
+        "FAIL AC-22: recovery must call the provider once for the stale member "
+        f"and never for the reusable one; calls={calls}, "
+        f"reuse={ {key: row['reuse'] for key, row in members.items()} }"
+    )
+    assert members[(role, stale)]["reuse"] == "none"
+    assert members[(role, reused)]["reuse"] == "recovered"
+    assert [row["publication"] for row in members.values()] == ["recorded"] * 2, (
+        "FAIL AC-22: a recovery member was not recorded"
+    )
+
+
+def _review_engine(monkeypatch: pytest.MonkeyPatch, slot: str, finding_id: str):
+    """In-process provider double: `slot` raises `finding_id` in round 1 and
+    every later report accounts for the round's targets."""
+    from tests.structured_review_helpers import finding
+
+    def run(gate_type, context, *, feature, **_kwargs):
+        prepared = context.prepared_run
+        assert prepared is not None
+        raised = prepared.reviewer_slot == slot and prepared.round_number == 1
+        findings = (finding(finding_id, classification="implement"),) if raised else ()
+        return canonical_outcome(gate_type, context, feature, findings=findings)
+
+    monkeypatch.setattr("heddle.gate.entry.run_gate_for_runtime", run)
+
+
+def _recorded_before_the_change(
+    monkeypatch: pytest.MonkeyPatch, slot: str
+) -> dict[str, str]:
+    """Record `slot`'s runs under a stand-in pre-change identity.
+
+    Test seam at `heddle.gate.entry.prepare_gate_run`, which the runtime calls
+    to prepare each member. The effective digest and input hash are replaced
+    by stand-ins derived from them, so the recorded run carries an identity
+    the current preparation does not produce, as a review recorded before
+    landing would. The review basis is kept. Returns the stand-ins.
+    """
+    from heddle.gate import entry
+
+    original = entry.prepare_gate_run
+    stand_in: dict[str, str] = {}
+
+    def prepare(*args, **kwargs):
+        prepared = original(*args, **kwargs)
+        if prepared.reviewer_slot != slot:
+            return prepared
+        stand_in.update(
+            effective_prompt_sha256=_sha256(
+                "pre-change " + prepared.effective_prompt_sha256
+            ),
+            input_hash=_sha256("pre-change " + prepared.input_hash),
+        )
+        return replace(prepared, **stand_in)
+
+    monkeypatch.setattr(entry, "prepare_gate_run", prepare)
+    return stand_in
+
+
+def _ok(result):
+    assert result.ok, result.to_envelope()
+    return result
+
+
+def _gate_scope(state_path: Path, role: str) -> str:
+    gates = yaml.safe_load(state_path.read_text())["gates"]
+    return next(gate["scope"] for gate in gates if gate["gate"] == role)
+
+
+def _open_verification_round(state_path: Path, role: str, scope: str):
+    from tests.tiering_helpers import invoke
+
+    return invoke(
+        "ReviewRoundOpen",
+        feature=V7_FEATURE,
+        payload={
+            "schema": "heddle.review-round-input/v1",
+            "role": role,
+            "scope": scope,
+            "purpose": "verification",
+            "reason": "Inspect the remaining original concern",
+        },
+        expect_revision=revision(state_path),
+    )
 
 
 def _pin_diff(observed: Pin, pinned: Pin) -> dict[str, tuple]:
@@ -673,9 +819,6 @@ def test_ac22_codex_embedded_bodies_arrive_byte_exact_with_new_identities(
     assert prepared.input_hash != AC22_CODEX_BASELINE.input, (
         "FAIL AC-22: the input hash still equals the recorded baseline"
     )
-    assert _current_review_basis(host, MILESTONE, PRIMARY) == (
-        AC22_CODEX_BASELINE.basis
-    ), "FAIL AC-22: a review recorded on the baseline basis is no longer current"
 
 
 def test_ac22_claude_command_facts_arrive_byte_exact_with_new_identities(
@@ -715,9 +858,6 @@ def test_ac22_claude_command_facts_arrive_byte_exact_with_new_identities(
     assert prepared.input_hash != AC22_CLAUDE_FACTS_BASELINE.input, (
         "FAIL AC-22: the Claude input hash still equals the recorded baseline"
     )
-    assert _current_review_basis(host, role, SECONDARY) == (
-        AC22_CLAUDE_FACTS_BASELINE.basis
-    ), "FAIL AC-22: a review recorded on the baseline basis is no longer current"
 
 
 def test_ac22_survivor_claude_milestone_review_embeds_no_diff_and_keeps_its_identities(
@@ -726,68 +866,212 @@ def test_ac22_survivor_claude_milestone_review_embeds_no_diff_and_keeps_its_iden
     """Survivor pin (AC-22, Claude): the Claude milestone review embeds neither
     the diff nor a test-file body, so checkout-path bodies in the diff never
     reach it and its identities equal the recorded baseline (the AC-23 Claude
-    milestone pin) before and after the fix. It is the recovery witness's
-    unaffected member."""
+    milestone pin) before and after the fix. It is the Codex recovery
+    witness's unaffected member."""
     host = _host(tmp_path, monkeypatch, MILESTONE)
     _inject_checkout_bodies(monkeypatch)
     _context, prepared = _prepare(host, MILESTONE, SECONDARY)
     assert host.as_posix() in prepared.diff_text, "fixture lost its checkout bodies"
     assert "data/input.json" not in prepared.transport.stdin
     assert host.as_posix() not in prepared.transport.stdin
-    baseline = PINS[AC22_CLAUDE_BASELINE_FIXTURE]
-    assert _observe(prepared) == baseline, (
+    assert _observe(prepared) == PINS[AC22_CLAUDE_BASELINE_FIXTURE], (
         "FAIL AC-22: the Claude identities differ from the recorded baseline"
     )
-    assert _current_review_basis(host, MILESTONE, SECONDARY) == (
-        baseline.identity.basis
+
+
+@pytest.mark.parametrize("lane", sorted(AFFECTED))
+def test_ac22_survivor_review_recorded_before_the_change_reads_current_in_status(
+    lane: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Survivor (AC-22 freshness, public boundary): a review of the affected
+    input recorded before the identity change reads as current in status and
+    orient, today and after the fix.
+
+    Freshness is observed where Heddle judges a recorded review: a disposition
+    whose evidence is a later-round review of the affected input. Round one
+    raises a finding on the affected slot; round two's report on that slot
+    addresses it and is recorded under a stand-in pre-change identity
+    (`_recorded_before_the_change`) with the basis it has now, which must equal
+    the recorded baseline basis. Status must then judge that review current:
+    the assignment closes, its evidence reads current with no explanation, and
+    no review launch is offered. A freshness judgement that followed the
+    effective digest or input hash, or a fix that moved the basis, fails here.
+    The Claude case gives the secondary a two-round window so the Claude slot
+    serves the verification round.
+    """
+    from heddle.contracts import operations as ops
+    from heddle.runtime.application import execute
+
+    case = AFFECTED[lane]
+    host = _host(tmp_path, monkeypatch, case.role, window=case.window)
+    _affected_input(host, monkeypatch, case)
+    state_path = host / "plans" / V7_FEATURE / "state.yaml"
+    _review_engine(monkeypatch, case.slot, case.finding_id)
+
+    first = {}
+    for slot in (PRIMARY, SECONDARY):
+        _ok(run_slot(case.role, slot))
+        first[slot] = gate_runs(state_path)[-1]["run_id"]
+    origin = first[case.slot]
+    _ok(
+        dispose(
+            state_path,
+            [
+                disposition(origin, case.finding_id, status="retained"),
+                *(
+                    disposition(run_id, "@coverage", status="settled")
+                    for run_id in first.values()
+                ),
+            ],
+        )
+    )
+    scope = _gate_scope(state_path, case.role)
+    _ok(_open_verification_round(state_path, case.role, scope))
+    second = {}
+    with monkeypatch.context() as patch:
+        stand_in = _recorded_before_the_change(patch, case.slot)
+        for slot in (PRIMARY, SECONDARY)[: case.window]:
+            _ok(run_slot(case.role, slot))
+            second[slot] = gate_runs(state_path)[-1]["run_id"]
+    review = second[case.slot]
+    cited = dispose(
+        state_path,
+        [
+            disposition(
+                origin,
+                case.finding_id,
+                evidence_kind="review",
+                review_run_id=review,
+            ),
+            *(
+                disposition(run_id, "@coverage", status="settled")
+                for run_id in second.values()
+            ),
+        ],
+    )
+    rejected = [
+        (row["finding_id"], row["predicate"], row.get("status"))
+        for row in (cited.to_envelope().get("error") or {})
+        .get("details", {})
+        .get("rows", [])
+    ]
+    assert cited.ok, (
+        "FAIL AC-22: the review recorded before the identity change was "
+        f"refused as disposition evidence: {rejected}"
     )
 
+    status = _ok(execute(ops.Status(feature=V7_FEATURE)))
+    orient = _ok(execute(ops.Orient(feature=V7_FEATURE)))
+    recorded = next(
+        run
+        for gate in status.data["gates"]
+        for run in gate["runs"]
+        if run["run_id"] == review
+    )
+    assert stand_in and {key: recorded[key] for key in stand_in} == stand_in, (
+        "fixture did not record the review under its stand-in identity"
+    )
+    assert recorded["review_basis_hash"] == case.baseline.basis, (
+        "FAIL AC-22: the recorded review's basis differs from the recorded "
+        "pre-change baseline basis"
+    )
+    rows = [
+        next(
+            row
+            for row in result.data["review_closure"]["assignments"]
+            if row["role"] == case.role and row["scope"] == scope
+        )
+        for result in (status, orient)
+    ]
+    assert rows[0] == rows[1], "FAIL AC-22: status and orient disagree"
+    row = rows[0]
+    assert row["evidence_state"] == "current" and not row["evidence_explanations"], (
+        "FAIL AC-22: status reads the review recorded before the identity "
+        f"change as {row['evidence_state']}: {row['evidence_explanations']}"
+    )
+    assert row["closed"] and row["open_refs"] == [], (
+        f"FAIL AC-22: the review-backed disposition reopened: {row['open_refs']}"
+    )
+    launches = [
+        action["command"]
+        for action in status.to_envelope()["next_actions"]
+        if "run-gate" in action["command"] or "round-open" in action["command"]
+    ]
+    assert launches == [], f"FAIL AC-22: a current review offers a launch: {launches}"
 
+
+@pytest.mark.parametrize("lane", sorted(AFFECTED))
 def test_ac22_recovery_reruns_only_the_affected_member_published_before_landing(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    lane: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Red discriminator (AC-22 recovery witness): outputs published under the
-    recorded pre-change identities (an in-flight run at landing) are recovered.
-    The affected Codex member's identity must have changed, so recovery treats
-    its publication as stale: its output is not reused and it makes exactly one
-    provider call. The unaffected Claude member (the AC-23 Claude milestone
-    fixture) is reused with none. Today both are reused and the double sees no
-    call.
+    recorded pre-change identities (an in-flight run at landing) are
+    recovered. The affected member's identity must have changed, so recovery
+    treats its publication as stale: its output is not reused and it makes
+    exactly one provider call. The other member is reused with none. Today
+    both are reused and the double sees no call.
+
+    Codex case: the affected Codex milestone member beside the unaffected
+    Claude milestone member (the AC-23 Claude milestone fixture). Claude case:
+    the affected Claude scaffolding member beside the Codex scaffolding
+    member, which embeds the same command facts and so is published under its
+    current preparation.
 
     Test seams: `_inject_checkout_bodies` patches
     `heddle.gate.diff.resolve_diff` so the prepared diff carries the checkout
     path while owned content does not (the recorded identities stay
-    machine-independent); `install_counting_engine` is the fork-safe provider
-    double at the gate-engine seam, counting calls across worker processes.
+    machine-independent); `_recover` uses the fork-safe counting provider
+    double at the gate-engine seam.
+    """
+    case = AFFECTED[lane]
+    other = SECONDARY if case.slot == PRIMARY else PRIMARY
+    host = _host(tmp_path, monkeypatch, case.role)
+    _affected_input(host, monkeypatch, case)
+    _publish(host, case.role, case.slot, case.baseline)
+    _publish(host, case.role, other, case.reusable)
+    result, calls = _recover(monkeypatch)
+    _assert_only_rerun(result, calls, case.role, case.slot, other)
+
+
+@pytest.mark.parametrize(
+    ("slot", "signal"),
+    [
+        (PRIMARY, "input"),
+        (PRIMARY, "effective"),
+        (SECONDARY, "input"),
+        (SECONDARY, "effective"),
+    ],
+    ids=[
+        "codex-input-hash-only",
+        "codex-effective-digest-only",
+        "claude-input-hash-only",
+        "claude-effective-digest-only",
+    ],
+)
+def test_ac22_recovery_reruns_a_member_whose_input_or_effective_digest_alone_differs(
+    slot: str, signal: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Red discriminator (AC-22 recovery rule): either identity signal alone
+    makes a publication stale. One member is published under its recorded
+    AC-23 identity with exactly one of the input hash and the effective prompt
+    digest replaced, the other under its recorded AC-23 identity unchanged. The
+    changed member reruns once and the other is reused; a rule that needs both
+    signals to differ refuses the batch and fails here. Today recovery refuses
+    any binding difference, so the batch is refused.
     """
     host = _host(tmp_path, monkeypatch, MILESTONE)
-    _inject_checkout_bodies(monkeypatch)
-    _publish(host, MILESTONE, PRIMARY, AC22_CODEX_BASELINE)
-    _publish(
-        host,
-        MILESTONE,
-        SECONDARY,
-        PINS[AC22_CLAUDE_BASELINE_FIXTURE].identity,
+    other = SECONDARY if slot == PRIMARY else PRIMARY
+    pinned = {
+        PRIMARY: PINS["codex-milestone-review"].identity,
+        SECONDARY: PINS["claude-milestone-review"].identity,
+    }
+    changed = replace(
+        pinned[slot], **{signal: _sha256(f"published before landing: {signal}")}
     )
-    with multiprocessing.Manager() as manager:
-        calls = install_counting_engine(monkeypatch, manager)
-        result = execute_batch()
-        observed_calls = list(calls)
-    assert result.ok, (
-        "FAIL AC-22: recovery refused the batch instead of rerunning the "
-        f"affected member: {result.error.code}: {result.error.message}"
-    )
-    members = {member_key(row): row for row in result.data["members"]}
-    assert observed_calls == [(MILESTONE, PRIMARY)], (
-        "FAIL AC-22: recovery must call the provider once for the affected "
-        f"member and never for the unaffected one; calls={observed_calls}, "
-        f"reuse={ {key: row['reuse'] for key, row in members.items()} }"
-    )
-    assert members[(MILESTONE, PRIMARY)]["reuse"] == "none"
-    assert members[(MILESTONE, SECONDARY)]["reuse"] == "recovered"
-    assert [row["publication"] for row in members.values()] == ["recorded"] * 2, (
-        "FAIL AC-22: a recovery member was not recorded"
-    )
+    _publish(host, MILESTONE, slot, changed)
+    _publish(host, MILESTONE, other, pinned[other])
+    result, calls = _recover(monkeypatch)
+    _assert_only_rerun(result, calls, MILESTONE, slot, other)
 
 
 @pytest.mark.parametrize(
@@ -808,8 +1092,6 @@ def test_ac22_survivor_recovery_still_refuses_any_other_binding_mismatch(
     carries the recorded AC-23 identities of the uninjected input, which equal
     its preparation before and after the fix, so only the binding differs.
     """
-    from tests.concurrent_review_helpers import gate_runs
-
     host = _host(tmp_path, monkeypatch, MILESTONE)
     state_path = host / "plans" / V7_FEATURE / "state.yaml"
     _publish(
@@ -820,10 +1102,7 @@ def test_ac22_survivor_recovery_still_refuses_any_other_binding_mismatch(
         **binding,
     )
     before = state_path.read_bytes()
-    with multiprocessing.Manager() as manager:
-        calls = install_counting_engine(monkeypatch, manager)
-        result = execute_batch()
-        observed_calls = list(calls)
+    result, calls = _recover(monkeypatch)
     assert not result.ok, (
         f"FAIL AC-22: a publication with a different {sorted(binding)} binding "
         "was reused or treated as stale instead of refusing the batch"
@@ -831,5 +1110,5 @@ def test_ac22_survivor_recovery_still_refuses_any_other_binding_mismatch(
     assert result.error.code == "workspace-invalid", result.to_envelope()
     # The refusal names the binding, not an unrelated preparation failure.
     assert "binding" in result.error.message, result.error.message
-    assert observed_calls == [], "FAIL AC-22: the refused batch called a provider"
+    assert calls == [], "FAIL AC-22: the refused batch called a provider"
     assert not gate_runs(state_path) and state_path.read_bytes() == before

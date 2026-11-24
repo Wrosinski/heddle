@@ -1494,55 +1494,127 @@ def _lane():
     return lane
 
 
+def _ceiling_batch_host(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, layout: str):
+    """A batch with a Claude primary and an Antigravity secondary on one gate.
+
+    ``same-gate``: spec review is the only routed review, so nothing is left
+    out. ``excluded-slot``: full peer review, where behavior review carries the
+    pair and the host disables codex, so admission genuinely leaves out
+    complexity review's codex slot.
+    """
+    from tests.concurrent_review_helpers import off, single
+    from tests.tiering_helpers import FABLE, OPUS, entry
+    from tests.tiering_review_helpers import current_host
+
+    lane = _lane()
+    if layout == "same-gate":
+        gate = SPEC
+        host, state_path = current_host(
+            tmp_path,
+            monkeypatch,
+            overrides={SPEC: entry(SPEC, primary=FABLE, secondary=lane.NEON)},
+        )
+        return gate, host, state_path
+    gate = "behavior-review"
+    host, state_path = current_host(
+        tmp_path,
+        monkeypatch,
+        stage="peer-review",
+        overrides={
+            "peer-review-sequential": off("peer-review-sequential"),
+            gate: entry(gate, primary=OPUS, secondary=lane.NEON),
+            "complexity-review": single("complexity-review"),
+        },
+    )
+    config = host / ".heddle.yaml"
+    value = yaml.safe_load(config.read_text())
+    value["agents"] = {"codex": False}
+    config.write_text(yaml.safe_dump(value, sort_keys=False))
+    return gate, host, state_path
+
+
+def _launch_set_now(host: Path) -> tuple[list[tuple[str, str, str]], list[dict]]:
+    """The members and exclusions the launch set derives for the host now."""
+    from heddle.kernel.model import resolve_snapshot
+    from heddle.kernel.project_config import load_project_config
+    from heddle.runtime.readiness import current_launch_set
+
+    config = load_project_config(host)
+    launch, _actions = current_launch_set(config, resolve_snapshot(config, V7_FEATURE))
+    members = [(row.role, row.slot, row.reviewer.cli) for row in launch.members]
+    return members, [row.payload() for row in launch.exclusions]
+
+
+@pytest.mark.parametrize("total", [250_001, 600_000], ids=["one-over", "far"])
+@pytest.mark.parametrize("layout", ["same-gate", "excluded-slot"])
 def test_ac8_ceiling_refusal_refuses_the_batch_before_any_launch(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, layout: str, total: int
 ) -> None:
-    """AC-8 through prepare-before-launch: an Antigravity secondary whose capture
-    is above 250,000 bytes refuses the whole batch with its standalone refusal,
-    naming the member and the slots left out; the Claude primary does not
-    launch either, and state is unchanged."""
+    """AC-8 through prepare-before-launch: an Antigravity secondary whose frozen
+    capture is exactly 250,001 bytes, or far above, refuses the whole batch
+    with its standalone refusal. The refusal names the exact size, the ceiling,
+    the policy remedy, the member and the slots the launch set left out (none
+    on one gate; complexity review's admission-refused codex slot in the peer
+    layout). The Claude primary does not launch either: zero engine calls and
+    zero doubled agy or claude processes. State is unchanged."""
     from heddle.contracts.gate_execution import VALID_GATE_CLIS
     from heddle.contracts.result import ERROR_CODES
-    from tests.gate.test_antigravity_preparation import oversize_prompt
-    from tests.tiering_helpers import FABLE, entry
-    from tests.tiering_review_helpers import current_host
+    from tests.gate.test_antigravity_preparation import (
+        assert_ceiling_refusal,
+        fit_capture,
+    )
 
     assert CEILING_REFUSAL in ERROR_CODES, (
         f"FAIL AC-8: {CEILING_REFUSAL} is not a public error code"
     )
     assert "antigravity" in VALID_GATE_CLIS, "FAIL AC-8: no antigravity lane"
     lane = _lane()
-    host, state_path = current_host(
-        tmp_path,
-        monkeypatch,
-        overrides={SPEC: entry(SPEC, primary=FABLE, secondary=lane.NEON)},
-    )
-    oversize_prompt(host, SPEC)
-    before = state_path.read_bytes()
+    agy = lane.install_agy(tmp_path, monkeypatch)
+    gate, host, state_path = _ceiling_batch_host(tmp_path, monkeypatch, layout)
+    members, exclusions = _launch_set_now(host)
+    assert members == [
+        (gate, PRIMARY, "claude"),
+        (gate, SECONDARY, "antigravity"),
+    ], f"fixture: the batch is not a Claude and Antigravity pair: {members}"
+    if layout == "excluded-slot":
+        assert [(row["role"], row["slot"], row["reason"]) for row in exclusions] == [
+            ("complexity-review", PRIMARY, "admission-refused")
+        ], f"fixture: the launch set leaves out no codex slot: {exclusions}"
+    else:
+        assert exclusions == [], f"fixture: the launch set leaves out {exclusions}"
     with multiprocessing.Manager() as manager:
         calls = install_counting_engine(monkeypatch, manager)
+        fit_capture(host, gate, total, execute_batch)
+        before = state_path.read_bytes()
         refused = execute_batch()
         batch_calls = len(calls)
         after_batch = state_path.read_bytes()
-        standalone = lane.run_gate(SPEC, lane.NEON)
-    assert not refused.ok and refused.error.code == CEILING_REFUSAL, (
-        f"FAIL AC-8: the batch was not refused at the ceiling: {refused.error}"
-    )
+        standalone = lane.run_gate(gate, lane.NEON)
+        all_calls = len(calls)
+    assert not refused.ok, "FAIL AC-8: the batch ran an oversized antigravity member"
+    error = refused.error
+    assert_ceiling_refusal(error.code, error.message, error.hint, total, "the batch")
     assert batch_calls == 0, "FAIL AC-8: a member launched beside the refused one"
+    assert agy.launches() == [] and agy.claude_calls() == [], (
+        "FAIL AC-8: a provider process launched"
+    )
     assert after_batch == before, "FAIL AC-8: the refused batch changed state"
     assert _selected(refused) == {
-        "gate": SPEC,
+        "gate": gate,
         "scope": "feature",
         "reviewer_slot": SECONDARY,
-    }, f"FAIL AC-8: the refusal does not name its member: {refused.error}"
-    assert refused.error.details["excluded_slots"] == []
+    }, f"FAIL AC-8: the refusal does not name its member: {error}"
+    assert error.details["excluded_slots"] == exclusions, (
+        "FAIL AC-8: the refusal does not name the slots the launch set left out: "
+        f"{error.details.get('excluded_slots')} != {exclusions}"
+    )
     assert not standalone.ok and standalone.error.code == CEILING_REFUSAL, (
         f"FAIL AC-8: the slot's standalone run did not refuse: {standalone.error}"
     )
-    assert "250,000" in refused.error.message or "250000" in refused.error.message
+    assert all_calls == 0, "FAIL AC-8: the standalone refusal launched"
     assert (
-        refused.error.message,
-        refused.error.hint,
+        error.message,
+        error.hint,
         refused.exit_code,
         [action.command for action in refused.next_actions],
     ) == (

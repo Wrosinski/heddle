@@ -403,18 +403,29 @@ def test_ac8_capture_above_the_ceiling_is_refused_in_preparation(
     with pytest.raises(KernelError) as refused:
         prepare(checkout, diff_path)
     error = refused.value
-    assert error.code == REFUSAL, f"FAIL AC-8: refused as {error.code}"
-    assert re.search(number(total), error.message), (
-        f"FAIL AC-8: the refusal does not name the {total}-byte size: {error.message}"
-    )
-    assert re.search(number(CEILING), error.message), (
-        f"FAIL AC-8: the refusal does not name the ceiling: {error.message}"
-    )
-    remedy = error.hint.lower()
-    assert "polic" in remedy and "amend" in remedy and "lane" in remedy, (
-        f"FAIL AC-8: the remedy is not a policy amendment to another lane: {error.hint}"
-    )
+    assert_ceiling_refusal(error.code, error.message, error.hint, total, "preparation")
     assert tree(tmp_path) == before, "FAIL AC-8: a refused preparation wrote files"
+
+
+def assert_ceiling_refusal(
+    code: str, message: str, hint: str, total: int, route: str
+) -> None:
+    """AC-8: the typed refusal names the exact size, the ceiling and the remedy.
+
+    Shared by every route that refuses: preparation, standalone run-gate, the
+    run-gates batch and the drive.
+    """
+    assert code == REFUSAL, f"FAIL AC-8: {route} refused as {code}: {message}"
+    assert re.search(number(total), message), (
+        f"FAIL AC-8: {route}'s refusal does not name the {total:,}-byte size: {message}"
+    )
+    assert re.search(number(CEILING), message), (
+        f"FAIL AC-8: {route}'s refusal does not name the ceiling: {message}"
+    )
+    remedy = hint.lower()
+    assert "polic" in remedy and "amend" in remedy and "lane" in remedy, (
+        f"FAIL AC-8: {route}'s remedy is not a policy amendment to another lane: {hint}"
+    )
 
 
 def require_lane_value() -> None:
@@ -441,14 +452,71 @@ def antigravity_host(tmp_path, monkeypatch, reviewer=None):
     )
 
 
-def oversize_prompt(host: Path, gate: str = "spec-review") -> None:
-    """A host-generated prompt projection far above the ceiling on any lane."""
+# A filler line of 1-, 2-, 3- and 4-byte characters: its 49 UTF-8 bytes are 31
+# characters, so a route that counts characters misses the exact size.
+FILLER_LINE = "Read every byte: " + MULTIBYTE * 3 + ".\n"
+PROBE_FILLER = 100_000
+
+
+def sized_prompt(filler: int) -> str:
+    """A host prompt projection whose filler is exactly ``filler`` UTF-8 bytes.
+
+    The filler sits between fixed text, so the prompt grows byte for byte
+    with it wherever the capture embeds the prompt.
+    """
+    lines, rest = divmod(filler, len(FILLER_LINE.encode("utf-8")))
+    return (
+        "# Review\n\n"
+        + FILLER_LINE * lines
+        + "x" * rest
+        + "\nEnd of the review instructions.\n"
+    )
+
+
+def fit_capture(
+    host: Path, gate: str, total: int, run_route, *, cli: str = "antigravity"
+) -> None:
+    """Write the host prompt so the route freezes a ``total``-byte capture.
+
+    ``run_route`` runs the public route under test: standalone run-gate, the
+    run-gates batch or the drive. Two probe runs of that same route measure
+    the lane's capture around the prompt: a wrapper at the preparation seam
+    records each capture's UTF-8 bytes and stops the run there, before any
+    launch. The prompt is then sized so the route's next run freezes exactly
+    ``total`` bytes, whatever the lane adds around the prompt.
+    """
+    from heddle.gate import entry
+
     path = host / "prompts" / f"{gate}.md"
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        "# Review\n\n" + "Read the captured input completely.\n" * 9_000,
-        encoding="utf-8",
+    original = entry.prepare_gate_run
+    sizes: list[int] = []
+
+    def probing(*args, **kwargs):
+        prepared = original(*args, **kwargs)
+        if prepared.invocation.exec_config.cli != cli:
+            return prepared
+        sizes.append(len(capture_bytes(prepared)))
+        raise KernelError("internal", "capture-size probe", "the test stops here")
+
+    measured: list[set[int]] = []
+    with pytest.MonkeyPatch.context() as probe:
+        probe.setattr(entry, "prepare_gate_run", probing)
+        for filler in (PROBE_FILLER, PROBE_FILLER + 1_000):
+            sizes.clear()
+            path.write_text(sized_prompt(filler), encoding="utf-8")
+            run_route()
+            measured.append(set(sizes))
+    assert all(len(run) == 1 for run in measured), (
+        f"fixture: the {gate} route did not prepare one {cli} capture per probe "
+        f"run: {measured}"
     )
+    (small,), (large,) = measured
+    assert large - small == 1_000, (
+        f"FAIL AC-8: the {gate} {cli} capture does not carry the host prompt "
+        f"byte for byte (a 1,000-byte longer prompt grew it by {large - small})"
+    )
+    path.write_text(sized_prompt(total - (small - PROBE_FILLER)), encoding="utf-8")
 
 
 def record_launches(monkeypatch, tmp_path: Path):
@@ -464,23 +532,41 @@ def record_launches(monkeypatch, tmp_path: Path):
     return lambda: log.read_text(encoding="utf-8").split() if log.exists() else []
 
 
-def test_ac8_standalone_run_gate_refuses_before_any_launch(tmp_path, monkeypatch):
-    """AC-8: standalone run-gate returns the typed refusal and launches nothing."""
+@pytest.mark.parametrize("total", [CEILING + 1, 600_000], ids=["one-over", "far"])
+def test_ac8_standalone_run_gate_refuses_before_any_launch(
+    tmp_path, monkeypatch, total
+):
+    """AC-8: standalone run-gate refuses a frozen capture above the ceiling.
+
+    The host prompt sizes the slot's capture to exactly 250,001 bytes, or far
+    above. The refusal names that size, the ceiling and the policy remedy. No
+    provider of any lane launches: the engine seam records every call, and the
+    doubled agy and claude on PATH record every process. State is unchanged.
+    """
     from heddle.contracts import operations as ops
     from heddle.runtime.application import execute
+    from tests.gate.test_antigravity_runner import install_agy
     from tests.tiering_review_helpers import V7_FEATURE
 
     host, state_path = antigravity_host(tmp_path, monkeypatch)
-    oversize_prompt(host)
+    agy = install_agy(tmp_path, monkeypatch)
     launches = record_launches(monkeypatch, tmp_path)
+
+    def run():
+        return execute(ops.RunGate("spec-review", feature=V7_FEATURE, **ANTIGRAVITY))
+
+    fit_capture(host, "spec-review", total, run)
     before = state_path.read_bytes()
-    result = execute(ops.RunGate("spec-review", feature=V7_FEATURE, **ANTIGRAVITY))
+    result = run()
     assert not result.ok, "FAIL AC-8: an oversized antigravity capture ran"
-    assert result.error.code == REFUSAL, (
-        f"FAIL AC-8: refused as {result.error.code}: {result.error.message}"
+    error = result.error
+    assert_ceiling_refusal(
+        error.code, error.message, error.hint, total, "standalone run-gate"
     )
-    assert re.search(number(CEILING), result.error.message)
-    assert launches() == [], f"FAIL AC-8: provider launches {launches()}"
+    assert launches() == [], f"FAIL AC-8: engine launches {launches()}"
+    assert agy.launches() == [] and agy.claude_calls() == [], (
+        "FAIL AC-8: a provider process launched"
+    )
     assert state_path.read_bytes() == before, "FAIL AC-8: the refusal wrote state"
 
 

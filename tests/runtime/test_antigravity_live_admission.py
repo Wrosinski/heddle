@@ -17,6 +17,12 @@ Seam named by this scaffold (the plan names only the function and its file):
   ``<kind>/<n>`` slot files.
 - It raises ``LiveAdmissionRefused`` on a refusal and calls ``pytest.skip``
   when the ``agy`` version differs. An unset root refuses or skips.
+- ``attempt_deadline() -> float`` is the invocation-wide live deadline on the
+  ``time.monotonic()`` clock, fixed when the invocation is admitted and shared
+  by every later node: admission plus 3,600 s for ``stage`` attempts, which
+  ``HEDDLE_W4_LIVE_ATTEMPT_SECONDS`` may raise only up to 5,400 s (a recorded
+  overrun; a larger value refuses admission), and admission plus 1,200 s for
+  ``m5`` attempts. It raises when the invocation is not admitted.
 
 Red until the helper exists.
 """
@@ -36,6 +42,9 @@ import pytest
 REPO_ROOT = Path(__file__).resolve().parents[2]
 HELPER = "tests.antigravity_live_helpers"
 ROOT_VARIABLE = "HEDDLE_W4_LIVE_ROOT"
+OVERRIDE_VARIABLE = "HEDDLE_W4_LIVE_ATTEMPT_SECONDS"
+ATTEMPT_SECONDS = {"stage": 3600, "m5": 1200}
+OVERRUN_CEILING = 5400
 TESTED_VERSION = "1.5.16"
 LIMITS = {"stage": 4, "m5": 3}
 
@@ -84,10 +93,27 @@ if spec.get("go"):
         time.sleep(0.002)
 
 import pytest
+import tests.antigravity_live_helpers as helpers
 from tests.antigravity_live_helpers import LiveAdmissionRefused, admit_live_attempt
 
+attempt_deadline = getattr(helpers, "attempt_deadline", None)
+
+
+def deadline_now():
+    if attempt_deadline is None:
+        return {"deadline": None, "deadline_missing": True}
+    try:
+        return {"deadline": attempt_deadline()}
+    except Exception as error:  # the refusal's type is reported, not judged here
+        return {"deadline": None, "deadline_error": type(error).__name__}
+
+
 results = []
+before = deadline_now() if spec.get("deadline_first") else None
 for kind, node in spec["nodes"]:
+    if results and spec.get("pause"):
+        time.sleep(spec["pause"])
+    started = time.monotonic()
     try:
         path = admit_live_attempt(kind, node, admissions=Path(spec["admissions"]))
     except LiveAdmissionRefused as error:
@@ -96,9 +122,12 @@ for kind, node in spec["nodes"]:
     except pytest.skip.Exception as error:
         results.append({"node": node, "outcome": "skipped", "detail": str(error)})
         continue
+    finished = time.monotonic()
     subprocess.run(["agy", "--print", node], check=True)
-    results.append({"node": node, "outcome": "admitted", "path": str(path)})
-print(json.dumps({"pid": os.getpid(), "results": results}))
+    row = {"node": node, "outcome": "admitted", "path": str(path)}
+    row.update(started=started, finished=finished, **deadline_now())
+    results.append(row)
+print(json.dumps({"pid": os.getpid(), "results": results, "before": before}))
 """
 
 
@@ -159,9 +188,13 @@ class Lane:
         *,
         fault: str | None = None,
         go: Path | None = None,
+        env: dict[str, str] | None = None,
+        **options: object,
     ) -> subprocess.Popen:
         environment = {**os.environ, "PATH": self.path, "PYTHONDONTWRITEBYTECODE": "1"}
         environment.pop(ROOT_VARIABLE, None)
+        environment.pop(OVERRIDE_VARIABLE, None)
+        environment.update(env or {})
         if root is not None:
             environment[ROOT_VARIABLE] = str(root)
         spec = {
@@ -169,6 +202,7 @@ class Lane:
             "admissions": str(self.admissions),
             "fault": fault,
             "go": str(go) if go else None,
+            **options,
         }
         return subprocess.Popen(
             [sys.executable, "-c", INVOCATION, str(REPO_ROOT), json.dumps(spec)],
@@ -179,8 +213,8 @@ class Lane:
             text=True,
         )
 
-    def invoke(self, nodes, root, *, fault=None) -> dict:
-        process = self.start(nodes, root, fault=fault)
+    def invoke(self, nodes, root, *, fault=None, **options) -> dict:
+        process = self.start(nodes, root, fault=fault, **options)
         out, err = process.communicate(timeout=60)
         if fault is not None:
             assert process.returncode == 9, f"fixture: the fault did not fire: {err}"
@@ -335,3 +369,109 @@ def test_ac25_live_admission_a_skip_or_unset_root_claims_nothing(lane, cause):
         assert outcomes(run)[0] in {"refused", "skipped"}, run
     assert lane.slots("stage") == [] and lane.launches() == []
     assert not root.exists(), "a node that claims nothing created the root"
+
+
+# --------------------------------------------------------------------------- #
+# The invocation-wide attempt deadline
+# --------------------------------------------------------------------------- #
+def assert_deadline(row: dict, seconds: int) -> float:
+    """The node's deadline is ``seconds`` after its invocation's admission."""
+    assert not row.get("deadline_missing"), (
+        "FAIL AC-25: attempt_deadline is not implemented in the live helpers"
+    )
+    assert row.get("deadline") is not None, (
+        f"FAIL AC-25: attempt_deadline raised {row.get('deadline_error')} for an "
+        "admitted invocation"
+    )
+    deadline = row["deadline"]
+    assert row["started"] + seconds <= deadline <= row["finished"] + seconds, (
+        f"FAIL AC-25: the deadline is not admission + {seconds} s"
+    )
+    return deadline
+
+
+def test_ac25_attempt_deadline_is_fixed_at_admission_and_shared(lane):
+    """A stage invocation's deadline is fixed when it is admitted, 3,600 s on
+    the monotonic clock, and a later node of the same invocation reads the same
+    deadline, not one measured from its own start."""
+    require_helper()
+    run = lane.invoke(
+        [("stage", "identity-antigravity"), ("stage", "canary")],
+        lane.fresh_root(),
+        pause=0.3,
+    )
+    assert outcomes(run) == ["admitted", "admitted"], run
+    first, later = run["results"]
+    deadline = assert_deadline(first, ATTEMPT_SECONDS["stage"])
+    assert later["started"] - first["finished"] >= 0.3
+    assert later.get("deadline") == deadline, (
+        "FAIL AC-25: a later node's deadline differs from the invocation's"
+    )
+
+
+def test_ac25_attempt_deadline_gives_the_m5_kind_1200_seconds(lane):
+    """An ``m5`` invocation's deadline is admission plus 1,200 s."""
+    require_helper()
+    run = lane.invoke([("m5", "runner-canary")], lane.fresh_root())
+    assert outcomes(run) == ["admitted"], run
+    assert_deadline(run["results"][0], ATTEMPT_SECONDS["m5"])
+
+
+def test_ac25_attempt_deadline_override_is_ignored_for_the_m5_kind(lane):
+    """The override raises only a stage attempt's deadline: with
+    ``HEDDLE_W4_LIVE_ATTEMPT_SECONDS`` at 5,400 s, an ``m5`` invocation is still
+    admitted, not refused, and its deadline is exactly admission plus 1,200 s."""
+    require_helper()
+    run = lane.invoke(
+        [("m5", "runner-canary")],
+        lane.fresh_root(),
+        env={OVERRIDE_VARIABLE: str(OVERRUN_CEILING)},
+    )
+    assert outcomes(run) == ["admitted"], (
+        f"FAIL AC-25: the override refused an m5 admission: {run}"
+    )
+    assert_deadline(run["results"][0], ATTEMPT_SECONDS["m5"])
+
+
+@pytest.mark.parametrize(
+    ("seconds", "admitted"),
+    [(OVERRUN_CEILING, True), (OVERRUN_CEILING + 1, False)],
+    ids=["at-the-ceiling", "above-the-ceiling"],
+)
+def test_ac25_attempt_deadline_override_is_capped_at_5400_seconds(
+    lane, seconds, admitted
+):
+    """``HEDDLE_W4_LIVE_ATTEMPT_SECONDS`` raises a stage invocation's deadline
+    up to 5,400 s; a larger value refuses admission, claiming no slot and
+    starting nothing."""
+    require_helper()
+    run = lane.invoke(
+        [("stage", "canary")],
+        lane.fresh_root(),
+        env={OVERRIDE_VARIABLE: str(seconds)},
+    )
+    if admitted:
+        assert outcomes(run) == ["admitted"], run
+        assert_deadline(run["results"][0], seconds)
+        return
+    assert outcomes(run) == ["refused"], (
+        f"FAIL AC-25: an override of {seconds} s above the ceiling was not refused"
+    )
+    assert lane.slots("stage") == [] and lane.launches() == []
+
+
+def test_ac25_attempt_deadline_raises_before_admission(lane):
+    """Before its invocation is admitted, ``attempt_deadline`` raises; the call
+    admits nothing, and the node admitted afterwards gets its own deadline."""
+    require_helper()
+    run = lane.invoke([("stage", "canary")], lane.fresh_root(), deadline_first=True)
+    before = run["before"]
+    assert not before.get("deadline_missing"), (
+        "FAIL AC-25: attempt_deadline is not implemented in the live helpers"
+    )
+    assert before.get("deadline") is None and before.get("deadline_error"), (
+        f"FAIL AC-25: attempt_deadline returned {before.get('deadline')} before "
+        "admission"
+    )
+    assert outcomes(run) == ["admitted"], run
+    assert_deadline(run["results"][0], ATTEMPT_SECONDS["stage"])

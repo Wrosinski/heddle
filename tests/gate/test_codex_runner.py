@@ -928,6 +928,53 @@ def _replaying_codex(path: Path, steps: list[CodexStep]) -> Path:
     )
 
 
+def _assigned_codex_run(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    steps: list[CodexStep],
+) -> tuple[Path, int, dict[str, object]]:
+    """An assigned spec-review `run-gate` on a doubled Codex under its default `-C`."""
+    monkeypatch.delenv("HEDDLE_AGENT_SESSION", raising=False)
+    host, state_path = current_host(
+        tmp_path,
+        monkeypatch,
+        overrides={"spec-review": entry("spec-review", primary=SOL)},
+    )
+    sibling = host / "plans" / FEATURE / "reviews" / "peer-review.md"
+    sibling.parent.mkdir(exist_ok=True)
+    sibling.write_text("# Sibling review\n\nTODO tighten\n", encoding="utf-8")
+    shims = tmp_path / "shims"
+    shims.mkdir()
+    _replaying_codex(shims / "codex", steps)
+    monkeypatch.setenv("PATH", f"{shims}{os.pathsep}{os.environ['PATH']}")
+    code, response = command(capsys, "run-gate", "spec-review")
+    return state_path, code, response
+
+
+def _assert_refused_assigned_run(
+    state_path: Path, code: int, response: dict[str, object], *, cli: str, case: str
+) -> None:
+    """Out-of-scope-access, nothing interpretable kept, no slot credit."""
+    state = yaml.safe_load(state_path.read_text(encoding="utf-8"))
+    run = state["gates"][-1]["runs"][-1]
+    assert run["execution_config"]["cli"] == cli
+    assert run.get("failure_reason") == OUT_OF_SCOPE, (
+        f"FAIL AC-21 ({case}): an assigned {cli} run that reached a sibling "
+        f"review recorded failure_reason {run.get('failure_reason')!r}"
+    )
+    assert code != 0 and not response["ok"], response
+    [attempt] = state["review_assignments"]["attempts"]
+    assert attempt["outcome"]["reason"] == OUT_OF_SCOPE, attempt["outcome"]
+    assert attempt["interpretation"] is None and attempt["source"] is None, (
+        f"FAIL AC-21 ({case}): the refused run left an interpretation or source credit"
+    )
+    reviews = state_path.parent / "reviews"
+    assert not sorted(reviews.glob("*.capture.json")), (
+        f"FAIL AC-21 ({case}): the refused run kept a retained capture"
+    )
+
+
 def test_ac21_bare_sibling_read_fails_an_assigned_codex_run_with_no_credit(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -937,41 +984,36 @@ def test_ac21_bare_sibling_read_fails_an_assigned_codex_run_with_no_credit(
     Red discriminator (AC-21 (a); m6): an assigned `run-gate` whose doubled
     Codex runs a bare `cat reviews/peer-review.md` under the default `-C`, the
     feature directory, and returns a valid object fails as
-    out-of-scope-access. The run is not accepted, keeps no artifact and earns
-    the assignment no source credit.
+    out-of-scope-access. The run keeps no retained capture or interpretation
+    and earns the assignment no source credit.
     """
-    monkeypatch.delenv("HEDDLE_AGENT_SESSION", raising=False)
-    host, state_path = current_host(
+    state_path, code, response = _assigned_codex_run(
         tmp_path,
         monkeypatch,
-        overrides={"spec-review": entry("spec-review", primary=SOL)},
+        capsys,
+        [_run("cat reviews/peer-review.md", "# Sibling review\n")],
     )
-    sibling = host / "plans" / FEATURE / "reviews" / "peer-review.md"
-    sibling.parent.mkdir(exist_ok=True)
-    sibling.write_text("# Sibling review\n", encoding="utf-8")
-    shims = tmp_path / "shims"
-    shims.mkdir()
-    _replaying_codex(
-        shims / "codex", [_run("cat reviews/peer-review.md", "# Sibling review\n")]
-    )
-    monkeypatch.setenv("PATH", f"{shims}{os.pathsep}{os.environ['PATH']}")
 
-    code, response = command(capsys, "run-gate", "spec-review")
+    _assert_refused_assigned_run(state_path, code, response, cli="codex", case="a")
 
-    state = yaml.safe_load(state_path.read_text(encoding="utf-8"))
-    run = state["gates"][-1]["runs"][-1]
-    assert run["execution_config"]["cli"] == "codex"
-    assert run.get("failure_reason") == OUT_OF_SCOPE, (
-        "FAIL AC-21 (a): an assigned Codex run that read a sibling review "
-        f"recorded failure_reason {run.get('failure_reason')!r}"
+
+def test_ac21_shown_sibling_entry_fails_an_assigned_codex_run_with_no_credit(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """
+    Red discriminator (AC-21 (b); m6): an assigned `run-gate` whose doubled
+    Codex runs a search under the default `-C`, the feature directory, whose
+    `aggregated_output` lists an entry under `reviews/`, and returns a valid
+    object fails as out-of-scope-access. The run keeps no retained capture or
+    interpretation and earns the assignment no source credit.
+    """
+    state_path, code, response = _assigned_codex_run(
+        tmp_path,
+        monkeypatch,
+        capsys,
+        [_run("rg -l TODO .", "./plan.md\n./reviews/peer-review.md\n")],
     )
-    assert code != 0 and not response["ok"], response
-    [attempt] = state["review_assignments"]["attempts"]
-    assert attempt["outcome"]["reason"] == OUT_OF_SCOPE, attempt["outcome"]
-    assert attempt["interpretation"] is None and attempt["source"] is None, (
-        "FAIL AC-21 (a): the refused run left an interpretation or source credit"
-    )
-    reviews = state_path.parent / "reviews"
-    assert not sorted(reviews.glob("*.capture.json")), (
-        "FAIL AC-21 (a): the refused run kept a retained capture"
-    )
+
+    _assert_refused_assigned_run(state_path, code, response, cli="codex", case="b")

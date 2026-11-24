@@ -422,6 +422,17 @@ for op in plan:
             time.sleep(0.01)
     elif name == "$heddle":
         attempt(value)
+    elif name == "$alter_chunk":
+        # Change one ASCII letter's case in a delivered chunk after it was read.
+        target = chunks[value]
+        os.chmod(target, os.stat(target).st_mode | 0o200)
+        with open(target, "rb") as handle:
+            data = bytearray(handle.read())
+        position = next(i for i, byte in enumerate(data) if 97 <= byte <= 122)
+        data[position] -= 32
+        with open(target, "wb") as handle:
+            handle.write(bytes(data))
+        append("altered.jsonl", {"launch": os.getpid(), "chunk": value, "path": target})
     elif name == "$write":
         target = Path(CWD, value["path"])
         text = target.read_text(encoding="utf-8")
@@ -589,6 +600,13 @@ def observe_prepared(monkeypatch, root: Path) -> None:
             "cli": prepared.invocation.exec_config.cli,
             "slot": prepared.reviewer_slot,
             "assignment": prepared.assignment_id,
+            "execution": {
+                "cli": prepared.invocation.exec_config.cli,
+                "model": prepared.invocation.exec_config.model,
+                "reasoning_effort": prepared.invocation.exec_config.reasoning_effort,
+            },
+            "input_hash": prepared.input_hash,
+            "review_basis_hash": prepared.review_basis_hash,
             "capture": prepared.transport.stdin,
             "system": prepared.transport.system,
             "route": frozen_route(prepared),
@@ -599,6 +617,36 @@ def observe_prepared(monkeypatch, root: Path) -> None:
         return original(gate_type, context, **kwargs)
 
     monkeypatch.setattr(gate_entry, "run_gate_for_runtime", observed)
+
+
+REAPER = ("heddle.io.process", "reap_token")
+
+
+def observe_reaping(monkeypatch, root: Path) -> None:
+    """Record the SHA-256 of every token handed to the reaper, never the token.
+
+    The reaper is the plan's ``reap_token(token)`` in ``heddle.io.process``
+    (named in ``REAPER``, the only reference). Modules that imported it by
+    name are patched too. Absent today, so nothing is recorded yet.
+    """
+    import importlib
+
+    module_name, attribute = REAPER
+    module = importlib.import_module(module_name)
+    original = getattr(module, attribute, None)
+    if original is None:
+        return
+
+    def observed(token, *args, **kwargs):
+        value = token.decode() if isinstance(token, bytes) else str(token)
+        digest = hashlib.sha256(value.encode("utf-8", "surrogateescape")).hexdigest()
+        with (root / "reaps.jsonl").open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps({"pid": os.getpid(), "sha256": digest}) + "\n")
+        return original(token, *args, **kwargs)
+
+    for name, loaded in list(sys.modules.items()):
+        if name.startswith("heddle") and getattr(loaded, attribute, None) is original:
+            monkeypatch.setattr(loaded, attribute, observed)
 
 
 def install_agy(tmp_path: Path, monkeypatch, **gate_args) -> Agy:
@@ -617,6 +665,7 @@ def install_agy(tmp_path: Path, monkeypatch, **gate_args) -> Agy:
     (root / "baseline-env.json").write_text(json.dumps(sorted(os.environ)))
     fast_gate_args(monkeypatch, **gate_args)
     observe_prepared(monkeypatch, root)
+    observe_reaping(monkeypatch, root)
     agy = Agy(root, reviews)
     agy.scenario()
     return agy
@@ -1014,6 +1063,82 @@ def chunk_files(launch: dict) -> list[bytes]:
     return [files[path] for path in launch["chunks"]]
 
 
+HEX_DIGEST = re.compile(r"\b[0-9a-f]{64}\b")
+NUMBER = re.compile(r"(?<![\w.])\d{1,3}(?:,\d{3})+(?![\d,])|(?<![\w.,])\d+(?![\d,])")
+
+
+def index_records(index: bytes) -> list[tuple[str, list[str]]]:
+    """The delivered index's records, whatever its delegated format.
+
+    A JSON index yields each object's own scalar values (nested objects are
+    their own records); any other index yields one record per non-blank line.
+    Each record is ``(text, scalars)``.
+    """
+    text = index.decode("utf-8")
+    try:
+        value = json.loads(text)
+    except ValueError:
+        return [(line, [line]) for line in text.splitlines() if line.strip()]
+    records: list[tuple[str, list[str]]] = []
+
+    def walk(node: object) -> None:
+        if isinstance(node, dict):
+            scalars = [
+                str(item)
+                for item in node.values()
+                if not isinstance(item, dict | list) and item is not None
+            ]
+            for item in node.values():
+                if isinstance(item, list) and all(
+                    isinstance(entry, int | str) for entry in item
+                ):
+                    scalars.extend(str(entry) for entry in item)
+            records.append((" ".join(scalars), scalars))
+            for item in node.values():
+                walk(item)
+        elif isinstance(node, list):
+            for item in node:
+                walk(item)
+
+    walk(value)
+    return records
+
+
+def assert_index_binds_each_chunk(launch: dict, capture: bytes, ac: str) -> None:
+    """AC-7: for each written chunk, the one index record naming its file
+    carries exactly its digest and its byte interval, computed here from the
+    captured bytes, and no other chunk's digest."""
+    files = files_of(launch)
+    records = index_records(files[launch["index"]])
+    expected, start = [], 0
+    for path in launch["chunks"]:
+        piece = files[path]
+        assert capture[start : start + len(piece)] == piece, (
+            f"FAIL {ac}: chunk {Path(path).name} is not the capture at {start}"
+        )
+        digest = hashlib.sha256(piece).hexdigest()
+        expected.append((Path(path).name, start, start + len(piece), digest))
+        start += len(piece)
+    digests = {digest for *_, digest in expected}
+    for name, first, last, digest in expected:
+        naming = [text for text, scalars in records if name in text]
+        assert len(naming) == 1, (
+            f"FAIL {ac}: {len(naming)} index records name chunk {name}; expected one"
+        )
+        (text,) = naming
+        found = set(HEX_DIGEST.findall(text)) & digests
+        assert found == {digest}, (
+            f"FAIL {ac}: the index record for {name} binds digests {sorted(found)}, "
+            f"not its own {digest}"
+        )
+        stripped = HEX_DIGEST.sub(" ", text.replace(name, " "))
+        numbers = {int(value.replace(",", "")) for value in NUMBER.findall(stripped)}
+        assert {first, last} <= numbers or {first, last - first} <= numbers, (
+            f"FAIL {ac}: the index record for {name} does not bind its interval "
+            f"[{first}, {last}): it names {sorted(numbers)}"
+        )
+
+
 def assert_chunked_delivery(launch: dict, capture: bytes, ac: str, route: dict) -> None:
     """The written chunks, in index order, are the frozen route's slices of the
     frozen capture, and the index binds each to its digest and byte range."""
@@ -1028,22 +1153,8 @@ def assert_chunked_delivery(launch: dict, capture: bytes, ac: str, route: dict) 
     assert [capture[start:end] for start, end, _ in route["chunks"]] == chunks, (
         f"FAIL {ac}: the written chunks are not the frozen route's slices"
     )
-    index = files_of(launch)[launch["index"]].decode("utf-8")
-    for _start, _end, digest in route["chunks"]:
-        assert digest in index, f"FAIL {ac}: the index omits chunk digest {digest}"
-
-    def names(value: int) -> bool:
-        pattern = rf"(?<![\d,]){value:,}(?![\d,])|(?<![\d,]){value}(?![\d,])"
-        return re.search(pattern, index) is not None
-
-    start = 0
+    assert_index_binds_each_chunk(launch, capture, ac)
     for number, piece in enumerate(chunks):
-        end = start + len(piece)
-        assert names(end) or (names(start) and names(len(piece))), (
-            f"FAIL {ac}: the index does not bind chunk {number} to its byte range "
-            f"[{start}, {end})"
-        )
-        start = end
         piece.decode("utf-8")
         lines = piece.count(b"\n") + (0 if piece.endswith(b"\n") else 1)
         assert lines <= READ_LINES, f"FAIL {ac}: chunk {number} has {lines} lines"
@@ -1112,8 +1223,44 @@ def test_ac9_ac4_ac11_clean_launch_is_exact_and_records_in_process(
     route_of(agy, "inline", "AC-6")
 
 
+def test_ac4_run_gate_naming_only_the_cli_launches_and_records_neon_high(
+    tmp_path, monkeypatch, agy
+):
+    """AC-4 no-model case at the public boundary: the per-CLI default table
+    gives the lane ``gemini-4-neon`` at ``high``, and a ``run-gate`` naming only
+    ``--cli antigravity`` (no model, no effort) launches the doubled ``agy``
+    with those values and persists them in the run's execution record."""
+    require_runner("AC-4")
+    from heddle.gate.summary import resolve_exec_config
+
+    default = resolve_exec_config("antigravity", gate=SPEC)
+    assert (default["model"], default["reasoning_effort"]) == (
+        NEON["model"],
+        NEON["reasoning_effort"],
+    ), f"FAIL AC-4: the per-CLI default table gives the lane {default}"
+    _host, state_path = spec_host(tmp_path, monkeypatch)
+    result = run_gate(SPEC, {"cli": "antigravity"})
+    assert result.ok, (
+        f"FAIL AC-4: --cli antigravity alone failed: {result.to_envelope()}"
+    )
+    (launch,) = agy.launches()
+    argv = launch["argv"]
+    assert (flag_value(argv, "--model"), flag_value(argv, "--effort")) == (
+        NEON["model"],
+        NEON["reasoning_effort"],
+    ), f"FAIL AC-4: the no-model run launched agy with {argv}"
+    assert _prepared_row(agy, SPEC)["execution"] == NEON, (
+        "FAIL AC-4: the prepared execution is not gemini-4-neon at high"
+    )
+    assert_recorded(state_path, "AC-4")
+    assert_reads_back_as_antigravity(state_path)
+
+
 def test_ac9_each_physical_launch_carries_a_fresh_token(tmp_path, monkeypatch, agy):
-    """AC-9: two physical launches of one slot carry different token values."""
+    """AC-9: two physical launches of one slot each carry a fresh launch token,
+    identified as the value the runner hands its reaper after that launch
+    (digests only), present in that launch's environment, never in its argv,
+    and different between the launches."""
     require_runner("AC-9")
     _host, state_path = spec_host(tmp_path, monkeypatch)
     agy.scenario(clean_stream() + [{"$exit": 1}])
@@ -1123,16 +1270,23 @@ def test_ac9_each_physical_launch_carries_a_fresh_token(tmp_path, monkeypatch, a
     second = run_gate()
     assert second.ok, second.to_envelope()
     one, two = agy.launches()
-    shared = (set(one["env"]) & set(two["env"])) - {MARKER}
-    fresh = [name for name in shared if one["env"][name] != two["env"][name]]
-    assert fresh, "FAIL AC-9: no launch-token value differs between the two launches"
+    reaped = {row["sha256"] for row in agy.rows("reaps.jsonl")}
+    assert reaped, "FAIL AC-9: the runner handed no token to its reaper"
+    tokens = []
     for launch in (one, two):
+        carried = {
+            digest for name, digest in launch["env"].items() if name != MARKER
+        } & reaped
+        assert len(carried) == 1, (
+            "FAIL AC-9: expected exactly one environment value of the launch to be "
+            f"the token its reaper was given; found {len(carried)}"
+        )
         argv_digests = {
             hashlib.sha256(arg.encode()).hexdigest() for arg in launch["argv"]
         }
-        assert not argv_digests & {launch["env"][name] for name in fresh}, (
-            "FAIL AC-9: the launch token is visible in argv"
-        )
+        assert not argv_digests & carried, "FAIL AC-9: the launch token is in argv"
+        tokens.append(carried.pop())
+    assert tokens[0] != tokens[1], "FAIL AC-9: both launches carried the same token"
 
 
 ALTERED = ("chunk", "index", "launch")
@@ -1669,8 +1823,7 @@ def test_ac11_canonical_rejection_as_batch_member_is_retained(
 
 
 def test_ac11_new_reasons_never_fall_back_or_retry():
-    """AC-11: the lane's reasons exist and stay out of the fallback set; the
-    truncated-output retry keys on that one reason only."""
+    """AC-11: the lane's reasons exist and stay out of the fallback set."""
     from heddle.contracts.gate_execution import FALLBACK_FAILURE_REASONS
     from heddle.gate.types import FailureReason
 
@@ -1680,7 +1833,6 @@ def test_ac11_new_reasons_never_fall_back_or_retry():
     assert not set(NEW_REASONS) & set(FALLBACK_FAILURE_REASONS), (
         "FAIL AC-11: an Antigravity hard failure falls back"
     )
-    assert "truncated-output" not in NEW_REASONS
 
 
 # Rows 1, 2, 4 and 6 and their competing pairs: real streams through the audit.
@@ -1949,6 +2101,93 @@ def test_ac14_reviewed_source_write_goes_to_the_recording_admission(
 
 
 # --------------------------------------------------------------------------- #
+# AC-17: a delivered chunk changed after its whole read (runner-level, m6)
+# --------------------------------------------------------------------------- #
+ALTERED_CHUNK = 1
+COVERAGE_LINE = re.compile(r"uncovered|incomplete.coverage|not covered", re.I)
+
+
+def _named_ranges(text: str, ranges: list[tuple[int, int]]) -> set[tuple[int, int]]:
+    """Which ``(start, end)`` pairs a text names, start before end, close together."""
+    plain = re.sub(r"(?<=\d),(?=\d{3})", "", text)
+    named = set()
+    for first, last in ranges:
+        pattern = rf"(?<!\d){first}(?!\d)\D{{1,16}}(?<!\d){last}(?!\d)"
+        if re.search(pattern, plain):
+            named.add((first, last))
+    return named
+
+
+def test_ac17_chunk_changed_after_its_whole_read_fails_naming_its_range(
+    tmp_path, monkeypatch, agy
+):
+    """AC-17 through the real runner and audit: every chunk is read whole, then
+    one delivered chunk file is altered before the run ends, so it no longer
+    matches its frozen digest at completion. The run fails as
+    ``antigravity-incomplete-coverage``; the coverage report names exactly that
+    chunk's byte range, computed here from the frozen route."""
+    require_audit("AC-17")
+    _host, state_path = spec_host(tmp_path, monkeypatch, prompt=chunked_prompt(80_000))
+    agy.scenario(clean_stream({"$alter_chunk": ALTERED_CHUNK}))
+    result = run_gate()
+    route = route_of(agy, "chunked", "AC-17")
+    ranges = [(start, end) for start, end, _digest in route["chunks"]]
+    assert len(ranges) > ALTERED_CHUNK, "fixture: the capture was not chunked enough"
+    assert agy.rows("altered.jsonl"), "fixture: the double never altered the chunk"
+    assert not result.ok, "FAIL AC-17: a chunk changed after its read was credited"
+    assert_hard_failure(state_path, agy, "antigravity-incomplete-coverage", "AC-17")
+    texts = [
+        gate_log(state_path),
+        json.dumps(summary_for(state_path)),
+        json.dumps(result.to_envelope(), default=str),
+    ]
+    lines = [
+        line
+        for text in texts
+        for line in text.replace("\\n", "\n").splitlines()
+        if COVERAGE_LINE.search(line)
+    ]
+    assert lines, "FAIL AC-17: nothing reports the uncovered byte ranges"
+    named = set().union(*(_named_ranges(line, ranges) for line in lines))
+    assert named == {ranges[ALTERED_CHUNK]}, (
+        f"FAIL AC-17: the coverage report names {sorted(named)}, expected exactly "
+        f"the altered chunk's range {ranges[ALTERED_CHUNK]}"
+    )
+
+
+# --------------------------------------------------------------------------- #
+# AC-21 (b): a shown `reviews/` entry fails an assigned run (runner-level, m6)
+# --------------------------------------------------------------------------- #
+def test_ac21_shown_reviews_entry_fails_an_assigned_run_without_credit(
+    tmp_path, monkeypatch, agy
+):
+    """AC-21 (b) through assigned recording: an otherwise clean stream with a
+    valid review object, whose shell search output shows a sibling artifact
+    under the feature's ``reviews/``, fails as ``out-of-scope-access`` with no
+    interpretable capture and no slot credit."""
+    require_audit("AC-21")
+    host, state_path = spec_host(tmp_path, monkeypatch)
+    reviews = state_path.parent / "reviews"
+    reviews.mkdir(exist_ok=True)
+    sibling = reviews / "peer-review.md"
+    sibling.write_text("# Sibling review\n\nTODO tighten\n", encoding="utf-8")
+    shown = sibling.relative_to(host).as_posix()
+    search = tool_step(
+        "run_command",
+        {"CommandLine": "grep -rl TODO plans | sort", "Cwd": str(host)},
+        shell_output(f"{shown}\n"),
+    )
+    agy.scenario(clean_stream(search))
+    result = run_gate()
+    assert _prepared_row(agy, SPEC)["assignment"], "fixture: the run is not assigned"
+    assert not result.ok, "FAIL AC-21: a shown sibling artifact was credited"
+    assert_hard_failure(state_path, agy, "out-of-scope-access", "AC-21")
+    assert latest_attempt(state_path)["source"] is None, (
+        "FAIL AC-21: the slot was credited despite the shown reviews/ entry"
+    )
+
+
+# --------------------------------------------------------------------------- #
 # AC-12: the runner reaps its launch token
 # --------------------------------------------------------------------------- #
 def test_ac12_normal_exit_reaps_every_tokened_child(
@@ -1972,55 +2211,160 @@ def test_ac12_normal_exit_reaps_every_tokened_child(
 def test_ac12_timeout_reaps_every_tokened_child(tmp_path, monkeypatch, processes):
     """AC-12 timeout (and AC-11's monitor ``timeout``): the hung launch's
     daemonised child is reaped; the unrelated process survives."""
+    import threading
+
     require_runner("AC-12")
     agy = processes.agy
-    fast_gate_args(monkeypatch, timeout=0.5, inactivity=20)
-    _host, state_path = spec_host(tmp_path, monkeypatch)
-    agy.scenario([init_event(), {"$children": ["daemon"]}, {"$hold": "never"}])
-    result = run_gate()
-    assert not result.ok
-    assert_hard_failure(state_path, agy, "timeout", "AC-11")
-    left = [row for row in agy.children() if alive(row["pid"], row["start"])]
-    assert left == [], f"FAIL AC-12: the timed-out launch left {left}"
-    assert processes.unrelated_alive()
+    seen: list[dict] = []
+    try:
+        fast_gate_args(monkeypatch, timeout=2.0, inactivity=20)
+        _host, state_path = spec_host(tmp_path, monkeypatch)
+        agy.scenario([init_event(), {"$children": ["daemon"]}, {"$hold": "never"}])
+
+        def watch() -> None:
+            # Before the timeout fires: the tokened child is recorded and alive.
+            (child,) = agy.wait_for("holding.jsonl") and agy.children()
+            if alive(child["pid"], child["start"]):
+                seen.append(child)
+
+        watcher = threading.Thread(target=watch, daemon=True)
+        watcher.start()
+        result = run_gate()
+        watcher.join(timeout=5)
+        assert seen, "fixture: no live tokened child existed before the timeout"
+        assert not result.ok
+        assert_hard_failure(state_path, agy, "timeout", "AC-11")
+        left = [row for row in agy.children() if alive(row["pid"], row["start"])]
+        assert left == [], f"FAIL AC-12: the timed-out launch left {left}"
+        assert processes.unrelated_alive()
+    finally:
+        agy.release("never")
+        processes.cleanup()
+
+
+SILENT = "behavior-review"
+
+
+@pytest.mark.parametrize("mode", ["standalone", "batch-member"])
+def test_ac11_ac12_inactivity_timeout_fails_hard_and_reaps_the_child(
+    tmp_path, monkeypatch, processes, mode
+):
+    """AC-11 monitor ``inactivity-timeout`` through the real runner, in process,
+    with a 2 s inactivity bound: the doubled ``agy`` writes ``init``, starts a
+    daemonised tokened child and goes silent while staying alive. The run is a
+    hard failure (one launch, no capture, no retry or fallback), standalone and
+    as a ``run-gates`` member beside a clean sibling, and the child is reaped
+    (AC-12)."""
+    import threading
+
+    require_runner("AC-11")
+    agy = processes.agy
+    seen: list[dict] = []
+    try:
+        fast_gate_args(monkeypatch, timeout=30, inactivity=2.0)
+        silent = [init_event(), {"$children": ["daemon"]}, {"$hold": "never"}]
+        if mode == "standalone":
+            _host, state_path = spec_host(tmp_path, monkeypatch)
+            agy.scenario(silent)
+        else:
+            _host, state_path = peer_host(tmp_path, monkeypatch)
+            agy.scenario(roles={SILENT: silent, PEER[1]: clean_stream()})
+
+        def watch() -> None:
+            # Before the bound fires: the tokened child is recorded and alive.
+            (child,) = agy.wait_for("holding.jsonl") and agy.children()
+            if alive(child["pid"], child["start"]):
+                seen.append(child)
+
+        watcher = threading.Thread(target=watch, daemon=True)
+        watcher.start()
+        result = run_gate() if mode == "standalone" else run_batch()
+        watcher.join(timeout=5)
+        assert seen, "fixture: no live tokened child existed before the bound fired"
+        assert not result.ok, "FAIL AC-11: a silent launch was not a failure"
+        if mode == "standalone":
+            assert_hard_failure(state_path, agy, "inactivity-timeout", "AC-11")
+        else:
+            cases = {SILENT: ("silent", "inactivity-timeout"), PEER[1]: (None, None)}
+            assert_member_outcomes(result, state_path, agy, cases, "AC-11")
+        left = [row for row in agy.children() if alive(row["pid"], row["start"])]
+        assert left == [], f"FAIL AC-12: the silent launch left {left}"
+        assert processes.unrelated_alive()
+    finally:
+        agy.release("never")
+        processes.cleanup()
 
 
 # --------------------------------------------------------------------------- #
 # AC-13: the agy version state
 # --------------------------------------------------------------------------- #
-@pytest.mark.parametrize(
-    ("reported", "state"),
-    [(TESTED_VERSION, "matching"), (OTHER_VERSION, "differing"), (None, "unavailable")],
-    ids=["matching", "differing", "unavailable"],
-)
+VERSION_STATES = {
+    "matching": TESTED_VERSION,
+    "differing": OTHER_VERSION,
+    "unavailable": None,
+}
+VERSION_WARNING = re.compile(r"warn.*(version|agy)|(version|agy).*warn", re.I)
+
+
 def test_ac13_version_state_is_recorded_without_changing_the_outcome(
-    tmp_path, monkeypatch, agy, reported, state
+    tmp_path, monkeypatch, agy
 ):
-    """AC-13: the gate log and summary record the version state; the outcome,
-    identity and reviewer selection are the same in all three."""
+    """AC-13: the same input on three identical hosts, with ``agy --version``
+    matching, differing and unavailable. The gate log and summary record each
+    state; the outcome, the input's identity and the reviewer selection are
+    equal across all three; a version warning appears exactly when the version
+    differs or is unavailable, never on a match."""
     require_runner("AC-13")
-    _host, state_path = spec_host(tmp_path, monkeypatch)
-    agy.scenario(version=reported)
-    result = run_gate()
-    assert result.ok, f"FAIL AC-13: the {state} version changed the outcome"
-    row = assert_recorded(state_path, "AC-13")
-    assert row["reviewer_slot"] == "primary"
-    assert agy.rows("versions.jsonl"), "FAIL AC-13: agy --version was never run"
-    log = gate_log(state_path)
-    summary = json.dumps(summary_for(state_path))
-    for text, where in ((log, "gate log"), (summary, "summary")):
+    observed = {}
+    for state, reported in VERSION_STATES.items():
+        root = tmp_path / state
+        root.mkdir()
+        _host, state_path = spec_host(root, monkeypatch)
+        agy.scenario(version=reported)
+        before = len(agy.rows("versions.jsonl"))
+        result = run_gate()
+        assert len(agy.rows("versions.jsonl")) > before, (
+            f"FAIL AC-13: agy --version was never run ({state})"
+        )
+        row = assert_recorded(state_path, "AC-13")
+        prepared = _prepared_row(agy, SPEC)
+        observed[state] = {
+            "outcome": (result.ok, row["verdict"]["status"], row.get("failure_reason")),
+            "identity": (prepared["input_hash"], prepared["review_basis_hash"]),
+            "recorded_identity": (row.get("input_hash"), row.get("review_basis_hash")),
+            "selection": (
+                prepared["slot"],
+                prepared["execution"],
+                row["reviewer_slot"],
+                row["execution_config"],
+            ),
+        }
+        log = gate_log(state_path)
+        summary = json.dumps(summary_for(state_path))
+        for text, where in ((log, "gate log"), (summary, "summary")):
+            if state == "matching":
+                assert TESTED_VERSION in text, (
+                    f"FAIL AC-13: the {where} lacks the matching version"
+                )
+            elif state == "differing":
+                assert TESTED_VERSION in text and OTHER_VERSION in text, (
+                    f"FAIL AC-13: the {where} does not name both versions"
+                )
+            else:
+                assert re.search(r"unavailable|unknown", text, re.I), (
+                    f"FAIL AC-13: the {where} does not say the version is unknown"
+                )
+        warnings = [line for line in log.splitlines() if VERSION_WARNING.search(line)]
         if state == "matching":
-            assert TESTED_VERSION in text, f"FAIL AC-13: the {where} lacks the version"
-        elif state == "differing":
-            assert TESTED_VERSION in text and OTHER_VERSION in text, (
-                f"FAIL AC-13: the {where} does not name both versions"
-            )
+            assert warnings == [], f"FAIL AC-13: a matching version warned: {warnings}"
         else:
-            assert re.search(r"unavailable|unknown", text, re.I), (
-                f"FAIL AC-13: the {where} does not say the version is unknown"
-            )
-    if state != "matching":
-        assert re.search(r"warn", log, re.I), f"FAIL AC-13: no {state} warning"
+            assert warnings, f"FAIL AC-13: no version warning for the {state} state"
+    assert observed["matching"]["outcome"][0], "FAIL AC-13: the clean run failed"
+    for key in ("outcome", "identity", "recorded_identity", "selection"):
+        values = {state: observed[state][key] for state in VERSION_STATES}
+        assert (
+            len({json.dumps(value, sort_keys=True) for value in values.values()}) == 1
+        ), f"FAIL AC-13: the {key} differs across version states: {values}"
 
 
 # --------------------------------------------------------------------------- #

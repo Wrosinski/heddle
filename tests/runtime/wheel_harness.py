@@ -1043,6 +1043,13 @@ def write_agy_shim(bin_dir: Path, home: Path, *, baseline: Sequence[str] = ()) -
     truncates it silently and reports success, so the double fails loudly.
     ``baseline`` names the environment variables present before Heddle runs;
     they are never recorded.
+
+    Activation seam: the double finds the launch token as a variable whose
+    name starts with ``HEDDLE_``, other than the ``HEDDLE_AGENT_SESSION``
+    marker, that the launch adds to its baseline environment. The plan
+    requires a ``HEDDLE_``-prefixed token without fixing its name; this prefix
+    is the one the runner must meet for the token to be observed, as
+    ``HEDDLE_GATE_RUN`` does today.
     """
     home.mkdir(parents=True, exist_ok=True)
     source = (

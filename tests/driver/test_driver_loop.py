@@ -1391,82 +1391,64 @@ class TestCompletionCompleteProfileRefusal:
 # antigravity-reviewer-lane-v1 AC-8: an oversized Antigravity capture stops the
 # drive with the typed preparation refusal. A fast node, selected exactly.
 # --------------------------------------------------------------------------- #
-def test_antigravity_ceiling_refusal_stops_drive(run_json, tmp_path, monkeypatch):
+@pytest.mark.parametrize("total", [250_001, 600_000], ids=["one-over", "far"])
+def test_antigravity_ceiling_refusal_stops_drive(
+    run_json, tmp_path, monkeypatch, total
+):
     """AC-8: the drive stops with `antigravity-input-too-large`, launching nothing.
 
-    The spec-review slot is on the antigravity lane and its capture is far
-    above the 250,000-byte ceiling, through a host prompt projection. The
-    drive's gate run is refused in preparation and the drive returns that
-    refusal. No provider of any lane launches: the engine seam records every
-    call, and an `agy` shim on PATH (for any startup probe) records every
-    invocation. Red discriminator until preparation refuses.
+    The spec-review slot is on the antigravity lane, and the host prompt sizes
+    its frozen capture to exactly 250,001 bytes, or far above. The drive's gate
+    run is refused in preparation, and the drive stops with that refusal,
+    naming the size, the ceiling and the policy remedy. No provider of any lane
+    launches: the engine seam records every call, and the doubled agy and
+    claude on PATH record every process (an agy version probe is not a
+    launch). No gate run is recorded. Red discriminator until preparation
+    refuses.
     """
-    import heddle.driver.loop as loop
-    from heddle.contracts.gate_execution import VALID_GATE_CLIS
-    from heddle.driver.sessions import SessionResult
+    from tests.gate.test_antigravity_preparation import (
+        assert_ceiling_refusal,
+        fit_capture,
+        record_launches,
+    )
+    from tests.gate.test_antigravity_runner import install_agy
     from tests.tiering_helpers import entry
     from tests.tiering_review_helpers import V7_FEATURE, current_host, runs
 
-    assert "antigravity" in VALID_GATE_CLIS, (
-        "FAIL AC-8: the antigravity lane value is not accepted yet, so no "
-        "policy slot can name it"
-    )
-    reviewer = {
-        "cli": "antigravity",
-        "model": "gemini-4-neon",
-        "reasoning_effort": "high",
-    }
+    _require_antigravity_lane("AC-8")
     host, state_path = current_host(
         tmp_path,
         monkeypatch,
         stage="spec-review",
-        overrides={"spec-review": entry("spec-review", primary=reviewer)},
+        overrides={"spec-review": entry("spec-review", primary=NEON_REVIEWER)},
     )
-    prompt = host / "prompts" / "spec-review.md"
-    prompt.parent.mkdir(parents=True, exist_ok=True)
-    prompt.write_text(
-        "# Review\n\n" + "Read the captured input completely.\n" * 9_000,
-        encoding="utf-8",
-    )
-    bin_dir = tmp_path / "bin"
-    bin_dir.mkdir()
-    invocations = tmp_path / "agy-invocations.log"
-    write_executable_script(
-        bin_dir / "agy",
-        f'#!/bin/sh\nprintf "%s\\n" "$*" >> "{invocations}"\necho "agy 1.5.16"\n',
-    )
-    monkeypatch.setenv("PATH", f"{bin_dir}{os.pathsep}{os.environ.get('PATH', '')}")
-    sessions: list[str] = []
+    agy = install_agy(tmp_path, monkeypatch)
+    seen = _stub_drive_sessions(monkeypatch)
+    launches = record_launches(monkeypatch, tmp_path)
 
-    def spawn(spec, *, scratch_dir=None):
-        sessions.append(Path(spec.prompt_path).read_text(encoding="utf-8")[:200])
-        return SessionResult(exit_code=0, termination="completed", output={})
+    def drive():
+        return run_json(["drive", "--feature", V7_FEATURE, "--json"])
 
-    monkeypatch.setattr(loop, "spawn_phase_session", spawn)
-    monkeypatch.setattr(loop, "probe_claude_capabilities", lambda: None)
-    monkeypatch.setattr(loop, "probe_codex_capabilities", lambda: None)
-    launches = tmp_path / "launches.log"
-
-    def launch(gate_type, context, *, feature, **_kwargs):
-        with launches.open("a", encoding="utf-8") as handle:
-            handle.write(f"{gate_type.name}\n")
-        raise AssertionError("FAIL AC-8: a provider launch was attempted")
-
-    monkeypatch.setattr("heddle.gate.entry.run_gate_for_runtime", launch)
+    fit_capture(host, "spec-review", total, drive)
     prior = runs(state_path)
 
-    code, envelope, _out, _err = run_json(["drive", "--feature", V7_FEATURE, "--json"])
+    code, envelope, _out, _err = drive()
 
     assert code != 0 and not envelope["ok"], (
         f"FAIL AC-8: the drive did not stop on the oversized capture: {envelope}"
     )
-    assert envelope["error"]["code"] == "antigravity-input-too-large", (
-        f"FAIL AC-8: the drive stopped with {envelope['error']} "
-        f"(sessions spawned: {sessions})"
+    error = envelope["error"]
+    assert_ceiling_refusal(
+        error["code"],
+        error["message"],
+        error["hint"],
+        total,
+        f"the drive (sessions spawned: {seen['sessions']})",
     )
-    assert not launches.exists(), "FAIL AC-8: a gate provider launched"
-    shown = invocations.read_text(encoding="utf-8") if invocations.exists() else ""
-    assert "--model" not in shown, f"FAIL AC-8: agy was launched: {shown}"
+    assert launches() == [], f"FAIL AC-8: engine launches {launches()}"
+    assert agy.launches() == [] and agy.claude_calls() == [], (
+        "FAIL AC-8: a provider process launched"
+    )
     recorded = runs(state_path)[len(prior) :]
     assert recorded == [], f"FAIL AC-8: the refused drive recorded runs: {recorded}"
 
@@ -1725,6 +1707,13 @@ def test_required_lanes_probe_follows_serving_slots(
     assert seen["claude"], (
         f"FAIL AC-20: the Claude phase-session probe never ran ({case})"
     )
+    if case == "mixed":
+        # (c) probes codex with or without agy: a missing agy never skips the
+        # other serving lane's probe.
+        assert seen["codex"], (
+            "FAIL AC-20: the mixed step did not probe codex "
+            f"({'with' if present else 'without'} agy on PATH)"
+        )
     if serving_antigravity and not present:
         assert code == int(ExitCode.FATAL) and not envelope["ok"], (
             f"FAIL AC-20: without agy, the {case} step did not stop: {envelope}"
@@ -1744,5 +1733,3 @@ def test_required_lanes_probe_follows_serving_slots(
     )
     assert "AC-20 sentinel" in error.get("message", ""), envelope
     assert not re.search(r"(?<![\w-])agy(?![\w-])", said), said
-    if case == "mixed":
-        assert seen["codex"], "FAIL AC-20: the mixed step no longer probes codex"
