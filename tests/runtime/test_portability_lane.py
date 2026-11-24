@@ -1670,24 +1670,38 @@ def test_ac14_red_readme_install_and_update_contract() -> None:
     assert "never silently rewrite host documents" in update
 
 
+# Doctor probes each enabled runner by its binary, which is not always the
+# agents key: the antigravity lane runs `agy` (antigravity-reviewer-lane-v1 AC-4).
+RUNNER_BINARIES = {"claude": "claude", "codex": "codex", "antigravity": "agy"}
+# (agents section, keys doctor reports, in AGENTS_KEYS order).
+RUNNER_CASES = (
+    ("agents: {}\n", ()),
+    ("agents:\n  claude: true\n", ("claude",)),
+    ("agents:\n  codex: true\n", ("codex",)),
+    (
+        "agents:\n  codex: true\n  claude: true\n",
+        ("claude", "codex"),
+    ),
+    ("agents:\n  antigravity: true\n", ("antigravity",)),
+    ("agents:\n  antigravity: false\n  claude: true\n", ("claude",)),
+    (
+        "agents:\n  antigravity: true\n  codex: true\n  claude: true\n",
+        ("claude", "codex", "antigravity"),
+    ),
+)
+
+
 @pytest.mark.toolchain
 def test_ac15_red_installed_doctor_reports_exact_runner_presence_matrix(
     installed_wheel: InstalledWheel,
     tmp_path: Path,
 ) -> None:
-    """AC-15 red: the installed doctor publishes the exact runner rows."""
+    """AC-15 red: the installed doctor publishes the exact runner rows,
+    each probed by its binary (antigravity-reviewer-lane-v1 AC-4: `agy`)."""
     from heddle.contracts.schemas import AGENTS_KEYS
 
-    cases = (
-        ("agents: {}\n", ()),
-        ("agents:\n  claude: true\n", ("claude",)),
-        ("agents:\n  codex: true\n", ("codex",)),
-        (
-            "agents:\n  codex: true\n  claude: true\n",
-            ("claude", "codex"),
-        ),
-    )
-    assert tuple(AGENTS_KEYS) == ("claude", "codex")
+    cases = RUNNER_CASES
+    assert tuple(AGENTS_KEYS) == ("claude", "codex", "antigravity")
     for case_index, (agents_yaml, enabled) in enumerate(cases):
         host, nested = make_git_host(tmp_path, f"ac15-installed-{case_index}")
         _write_manual_initialized_host(host)
@@ -1702,7 +1716,7 @@ def test_ac15_red_installed_doctor_reports_exact_runner_presence_matrix(
             if present:
                 for agent in enabled:
                     executable = write_executable(
-                        shim_bin / agent,
+                        shim_bin / RUNNER_BINARIES[agent],
                         "#!/bin/sh\nexit 99\n",
                     )
                     expected_paths[agent] = str(executable.resolve())
@@ -1730,9 +1744,10 @@ def test_ac15_red_installed_doctor_reports_exact_runner_presence_matrix(
                     "severity": "info",
                     "code": f"runner-{agent}",
                     "message": (
-                        f"{agent} executable found at {expected_paths[agent]}"
+                        f"{RUNNER_BINARIES[agent]} executable found at "
+                        f"{expected_paths[agent]}"
                         if present
-                        else f"{agent} executable not found on PATH"
+                        else f"{RUNNER_BINARIES[agent]} executable not found on PATH"
                     ),
                     "source": "present" if present else "absent",
                 }
@@ -1747,7 +1762,9 @@ def test_ac15_red_runner_builder_uses_which_only_in_schema_order(
     run_cli,
     envelope_tools,
 ) -> None:
-    """AC-15 red companion: the doctor route uses one which and never spawns."""
+    """AC-15 red companion: the doctor route uses one which per enabled runner,
+    on its binary (`agy` for antigravity, antigravity-reviewer-lane-v1 AC-4),
+    in schema order, and never spawns."""
     from heddle.contracts.schemas import AGENTS_KEYS
 
     host, _nested = make_git_host(tmp_path, "ac15")
@@ -1761,15 +1778,7 @@ def test_ac15_red_runner_builder_uses_which_only_in_schema_order(
         raise AssertionError("FAIL AC-15: doctor spawned a runner capability probe")
 
     monkeypatch.setattr(subprocess, "Popen", forbidden_subprocess)
-    for config_body, enabled in (
-        ("agents: {}\n", ()),
-        ("agents:\n  claude: true\n", ("claude",)),
-        ("agents:\n  codex: true\n", ("codex",)),
-        (
-            "agents:\n  codex: true\n  claude: true\n",
-            ("claude", "codex"),
-        ),
-    ):
+    for config_body, enabled in RUNNER_CASES:
         config = host / ".heddle.yaml"
         config.write_text(
             "layout:\n  plans: journey-plans\n" + config_body,
@@ -1791,15 +1800,21 @@ def test_ac15_red_runner_builder_uses_which_only_in_schema_order(
             code, out, error = run_cli(["doctor", "--json"])
             assert error == ""
             envelope = envelope_tools.parse(out)
-            assert code == 0 and envelope["ok"] is True
             diagnostics = envelope["diagnostics"]
+            assert code == 0 and envelope["ok"] is True, (
+                f"FAIL AC-15: doctor exited {code} for {config_body!r}: "
+                f"{[row for row in diagnostics if row['severity'] != 'info']}"
+            )
             runner_rows = [
                 row for row in diagnostics if row["code"].startswith("runner-")
             ]
             assert [row["code"] for row in runner_rows] == [
                 f"runner-{name}" for name in enabled
             ]
-            assert calls == list(enabled)
+            assert calls == [RUNNER_BINARIES[name] for name in enabled], (
+                f"FAIL AC-15: doctor must probe each enabled runner's binary once: "
+                f"{calls}"
+            )
             assert [row["code"] for row in runner_rows] == [
                 f"runner-{name}" for name in AGENTS_KEYS if name in enabled
             ]
@@ -1808,6 +1823,12 @@ def test_ac15_red_runner_builder_uses_which_only_in_schema_order(
                 row["source"] == ("present" if present else "absent")
                 for row in runner_rows
             )
+            assert [row["message"].split()[0] for row in runner_rows] == [
+                RUNNER_BINARIES[name] for name in enabled
+            ]
+    assert set(RUNNER_BINARIES) == set(AGENTS_KEYS), (
+        "FAIL AC-15: every agents key needs its runner binary in RUNNER_BINARIES"
+    )
 
 
 def test_ac16_red_config_scaffold_rail_matches_parser_vocabulary() -> None:
@@ -1859,6 +1880,27 @@ def test_ac16_red_config_scaffold_rail_matches_parser_vocabulary() -> None:
             assert key not in observed[active_section]
             observed[active_section].add(key)
     assert section_order == list(HEDDLE_YAML_SECTIONS)
+    # antigravity-reviewer-lane-v1 AC-24 (m2's part): the scaffold offers the
+    # lane's agents key and a comment that explains it. Comment lines are those
+    # of the agents paragraph that are neither the section line nor a bare
+    # `key: value` line.
+    assert "antigravity" in observed.get("agents", set()), (
+        "FAIL AC-24: the scaffold's agents section lacks the antigravity key"
+    )
+    agents_paragraph = next(
+        paragraph
+        for paragraph in text.split("\n#\n")
+        if re.search(r"^# agents:", paragraph, re.MULTILINE)
+    )
+    comments = [
+        line
+        for line in agents_paragraph.splitlines()
+        if not re.fullmatch(r"# agents:\s*|# {3}[a-z_]+: [^#\s]+\s*", line)
+    ]
+    assert re.search(r"antigravity|\bagy\b", "\n".join(comments), re.IGNORECASE), (
+        "FAIL AC-24: the scaffold's agents key needs a comment on the "
+        f"antigravity lane: {agents_paragraph!r}"
+    )
     assert observed == expected
     assert "defaults apply to every absent key" in text.lower()
     assert "an empty file is valid" in text.lower()

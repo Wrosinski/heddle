@@ -20,7 +20,12 @@ from __future__ import annotations
 
 import importlib.metadata
 import json
+import os
 import shutil
+import subprocess
+import sys
+import textwrap
+from importlib import import_module
 from pathlib import Path
 
 import pytest
@@ -31,6 +36,7 @@ from heddle.contracts.result import ERROR_CODES
 from heddle.contracts.review_assignments import EVIDENCE_KINDS
 from heddle.runtime.contracts import COMMAND_SURFACE
 
+REPO_ROOT = Path(__file__).resolve().parents[2]
 TINY = Path(__file__).resolve().parent.parent / "fixtures" / "workspaces" / "tiny"
 
 # REQ-18: known nouns whose missing/unrecognized verb is a usage error
@@ -519,3 +525,452 @@ class TestPerCommandHelp:
         envelope = envelope_tools.parse(out)
         assert envelope["error"]["code"] == "usage"
         assert "resolve" in envelope["error"]["hint"]
+
+
+# antigravity-reviewer-lane-v1, milestone m1: the gate-session guard.
+#
+# Gate reviewer children carry HEDDLE_AGENT_SESSION=gate
+# (heddle/gate/runners/environment.py). A marked invocation of a command whose
+# contract is mutating exits 3 with `gate-session-refused` before the command
+# parses its own flags; help, unknown commands, read-only contracts and
+# unmarked or in-process paths keep their outcomes.
+GATE_SESSION_ENV = "HEDDLE_AGENT_SESSION"
+GATE_SESSION_REFUSED = "gate-session-refused"
+MUTATING = tuple(contract for contract in COMMAND_SURFACE if contract.mutating)
+READ_ONLY = tuple(contract for contract in COMMAND_SURFACE if not contract.mutating)
+# Minimal valid arguments for read-only contracts on the operational host;
+# every other read-only contract runs with none.
+READ_ONLY_ARGUMENTS = {
+    "search": ["value"],
+    "show-prompt": ["spec-review", "--feature", "operational-example"],
+}
+COMMANDS_SET = ["commands", "set", "smoke_test", "--command", "true"]
+
+
+def _mark(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv(GATE_SESSION_ENV, "gate")
+
+
+def _operational_host(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """A disposable adopted git host with an active feature, as cwd."""
+    from tests.operational_model_helpers import fresh_host
+
+    host, _state = fresh_host(tmp_path)
+    monkeypatch.chdir(host)
+    return host
+
+
+def _host_bytes(host: Path) -> dict[str, object]:
+    """Host files plus Heddle's local records under `.git/heddle`.
+
+    The shared snapshot excludes `.git`; git's own index is a stat cache that
+    read commands such as `git status` refresh, so it is not host state.
+    """
+    from tests.tiering_helpers import snapshot
+
+    local = host / ".git" / "heddle"
+    return {
+        **snapshot(host),
+        **{
+            path.relative_to(host).as_posix(): path.read_bytes()
+            for path in sorted(local.rglob("*"))
+            if path.is_file()
+        },
+    }
+
+
+def _forbid_handlers(monkeypatch: pytest.MonkeyPatch) -> list[str]:
+    """Replace every mutating command's handler with a recorder.
+
+    Keeps the run-gate and drive diversions from reaching a provider while the
+    guard is absent, and shows whether a refused command reached its handler.
+    """
+    reached: list[str] = []
+
+    def recorder(name: str):
+        def handler(*_args: object, **_kwargs: object) -> int:
+            reached.append(name)
+            return 0
+
+        return handler
+
+    for contract in MUTATING:
+        if contract.cli_binding is not None:
+            module, function = contract.cli_binding
+            monkeypatch.setattr(
+                import_module(f"heddle.runtime.{module}"),
+                function,
+                recorder(f"{module}.{function}"),
+            )
+    monkeypatch.setattr(
+        import_module("heddle.runtime.gate_run"), "run_gate", recorder("run_gate")
+    )
+    monkeypatch.setattr(
+        import_module("heddle.driver.cli"), "run_drive", recorder("run_drive")
+    )
+    return reached
+
+
+def _minimal_argv(contract) -> list[str]:
+    return [*contract.name.split(), *("x" for arg in contract.args if arg.required)]
+
+
+def _assert_refused(envelope_tools, code: int, out: str, argv: list[str]) -> None:
+    assert code == 3, (
+        f"FAIL AC-1: marked `heddle {' '.join(argv)}` must exit 3 "
+        f"({GATE_SESSION_REFUSED}), got {code}: {out.strip()[:300]}"
+    )
+    envelope = envelope_tools.parse(out)
+    envelope_tools.assert_shape(envelope)
+    error = envelope["error"]
+    assert error["code"] == GATE_SESSION_REFUSED, (
+        f"FAIL AC-1: refusal code must be {GATE_SESSION_REFUSED}, got {error!r}"
+    )
+    assert GATE_SESSION_ENV in f"{error['message']} {error['hint']}", (
+        f"FAIL AC-1: the refusal must name the {GATE_SESSION_ENV} marker: {error!r}"
+    )
+
+
+class TestAC1GateSessionGuard:
+    """AC-1 (m1, red): a marked invocation of a mutating contract is refused
+    with exit 3 and `gate-session-refused`, names the marker, and leaves the
+    host's feature state and files byte-identical."""
+
+    def test_refusal_code_joins_the_error_vocabulary(self):
+        assert GATE_SESSION_REFUSED in ERROR_CODES, (
+            f"FAIL AC-1: {GATE_SESSION_REFUSED} is not in the pinned error-code "
+            "vocabulary (heddle/contracts/result.py ERROR_CODES)"
+        )
+
+    @pytest.mark.parametrize("json_position", ["leading", "trailing"])
+    @pytest.mark.parametrize("contract", MUTATING, ids=lambda c: c.name)
+    def test_every_mutating_contract_is_refused_before_its_handler(
+        self, run_cli, envelope_tools, monkeypatch, tmp_path, contract, json_position
+    ):
+        """Registry-wide: no mutating contract reaches its handler when marked,
+        with `--json` before or after the command."""
+        monkeypatch.chdir(tmp_path)
+        reached = _forbid_handlers(monkeypatch)
+        _mark(monkeypatch)
+        argv = _minimal_argv(contract)
+        argv = ["--json", *argv] if json_position == "leading" else [*argv, "--json"]
+        code, out, _err = run_cli(argv)
+        assert reached == [], (
+            f"FAIL AC-1: marked `heddle {' '.join(argv)}` reached its handler "
+            f"{reached}; the dispatcher guard must refuse first"
+        )
+        _assert_refused(envelope_tools, code, out, argv)
+
+    @pytest.mark.parametrize(
+        "argv",
+        [
+            pytest.param([*COMMANDS_SET, "--json"], id="write-trailing-json"),
+            pytest.param(["--json", *COMMANDS_SET], id="write-leading-json"),
+            pytest.param([*COMMANDS_SET, "--dry-run", "--json"], id="dry-run"),
+            pytest.param(["--json", "phase-exit", "--dry-run"], id="phase-exit-dry"),
+            pytest.param(["phase-exit", "--nope", "--json"], id="malformed-flag"),
+            pytest.param(["run-gate", "spec-review", "--json"], id="run-gate"),
+            pytest.param(["--json", "run-gate", "spec-review"], id="run-gate-lead"),
+            pytest.param(["drive", "--json"], id="drive"),
+            pytest.param(["--json", "drive"], id="drive-leading-json"),
+        ],
+    )
+    def test_marked_mutation_on_an_active_feature_changes_nothing(
+        self, run_cli, envelope_tools, monkeypatch, tmp_path, argv
+    ):
+        """Real handlers stay live except the provider-launching diversions
+        (run-gate, run-gates, drive), which a recorder replaces. A malformed
+        flag is refused, not reported as a usage error."""
+        host = _operational_host(tmp_path, monkeypatch)
+        reached: list[str] = []
+        for module, function in (
+            ("heddle.runtime.gate_run", "run_gate"),
+            ("heddle.runtime.gate_run", "run_gates"),
+            ("heddle.driver.cli", "run_drive"),
+        ):
+            monkeypatch.setattr(
+                import_module(module),
+                function,
+                lambda *_a, _name=function, **_k: reached.append(_name) or 0,
+            )
+        before = _host_bytes(host)
+        _mark(monkeypatch)
+        code, out, _err = run_cli(argv)
+        assert reached == [], (
+            f"FAIL AC-1: marked `heddle {' '.join(argv)}` reached {reached}"
+        )
+        _assert_refused(envelope_tools, code, out, argv)
+        assert _host_bytes(host) == before, (
+            f"FAIL AC-1: marked `heddle {' '.join(argv)}` changed host bytes"
+        )
+
+    def test_human_mode_refusal_names_the_code(self, run_cli, monkeypatch, tmp_path):
+        host = _operational_host(tmp_path, monkeypatch)
+        before = _host_bytes(host)
+        _mark(monkeypatch)
+        code, out, err = run_cli(COMMANDS_SET)
+        assert code == 3, (
+            f"FAIL AC-1: marked human-mode `commands set` must exit 3, got {code}"
+        )
+        assert GATE_SESSION_REFUSED in out + err
+        assert_not_json(out)
+        assert _host_bytes(host) == before
+
+    def test_real_entry_point_refuses_a_marked_mutation(self, tmp_path):
+        """One subprocess through `python -m heddle` (heddle.cli:main, the
+        console script's target), with the marker in the process environment."""
+        from tests.operational_model_helpers import fresh_host
+
+        host, _state = fresh_host(tmp_path)
+        before = _host_bytes(host)
+        environment = {
+            **os.environ,
+            GATE_SESSION_ENV: "gate",
+            "PYTHONPATH": str(REPO_ROOT),
+            "PYTHONDONTWRITEBYTECODE": "1",
+        }
+        completed = subprocess.run(
+            [sys.executable, "-m", "heddle", *COMMANDS_SET, "--json"],
+            cwd=host,
+            env=environment,
+            capture_output=True,
+            text=True,
+            timeout=60,
+            check=False,
+        )
+        assert completed.returncode == 3, (
+            "FAIL AC-1: the marked entry point must exit 3, got "
+            f"{completed.returncode}: {completed.stdout[:300]}{completed.stderr[:300]}"
+        )
+        envelope = json.loads(completed.stdout)
+        assert envelope["error"]["code"] == GATE_SESSION_REFUSED
+        assert "Traceback" not in completed.stderr
+        assert _host_bytes(host) == before, (
+            "FAIL AC-1: the refused subprocess changed host bytes"
+        )
+
+
+class TestAC2GuardLeavesOtherPathsUnchanged:
+    """AC-2 (m1, survivors, dispatch side): help, unknown commands, every
+    read-only contract, unmarked commands and in-process services keep their
+    current outcomes. Each passes before the guard exists and pins what the
+    guard must not change; the Claude and Codex runner cases live in their
+    runner tests."""
+
+    @pytest.mark.parametrize("contract", READ_ONLY, ids=lambda c: c.name)
+    def test_every_read_only_contract_runs_marked_and_changes_nothing(
+        self, run_cli, envelope_tools, monkeypatch, tmp_path, contract
+    ):
+        """Survivor, registry-wide: each read-only contract, marked, with
+        minimal valid arguments, succeeds and leaves host bytes identical, so
+        every command that changes state declares mutating=True."""
+        host = _operational_host(tmp_path, monkeypatch)
+        before = _host_bytes(host)
+        _mark(monkeypatch)
+        argv = [
+            *contract.name.split(),
+            *READ_ONLY_ARGUMENTS.get(contract.name, []),
+            "--json",
+        ]
+        code, out, err = run_cli(argv)
+        envelope = envelope_tools.parse(out)
+        assert envelope.get("error", {}).get("code") != GATE_SESSION_REFUSED, (
+            f"FAIL AC-2: read-only `heddle {contract.name}` was refused when marked"
+        )
+        assert code == 0 and envelope["ok"] is True, (
+            f"FAIL AC-2: marked `heddle {' '.join(argv)}` exited {code}; give "
+            f"new read-only contracts minimal valid arguments in "
+            f"READ_ONLY_ARGUMENTS: {out[:300]}{err[:300]}"
+        )
+        assert _host_bytes(host) == before, (
+            f"FAIL AC-2: read-only `heddle {contract.name}` changed host bytes; "
+            "its contract must declare mutating=True"
+        )
+
+    def test_bare_decisions_alias_runs_marked(
+        self, run_cli, envelope_tools, monkeypatch, tmp_path
+    ):
+        """Survivor: the bare-noun alias resolves to read-only `decisions list`."""
+        host = _operational_host(tmp_path, monkeypatch)
+        before = _host_bytes(host)
+        _mark(monkeypatch)
+        code, out, _err = run_cli(["decisions", "--json"])
+        assert code == 0 and envelope_tools.parse(out)["ok"] is True
+        assert _host_bytes(host) == before
+
+    @pytest.mark.parametrize(
+        ("argv", "expected"),
+        [
+            (["run-gate", "--help"], "usage: heddle run-gate"),
+            (["decisions", "add", "--help"], "usage: heddle decisions add"),
+            (["drive", "--help"], "usage: heddle drive"),
+            (["phase-exit", "--dry-run", "--help"], "usage: heddle phase-exit"),
+            (["--help"], "heddle — LLM coding workflow harness"),
+        ],
+        ids=["run-gate", "decisions-add", "drive", "phase-exit-dry-run", "bare"],
+    )
+    def test_marked_help_is_answered_before_the_guard(
+        self, run_cli, monkeypatch, tmp_path, argv, expected
+    ):
+        """Survivor: per-command help is read-only and exits 0 when marked."""
+        monkeypatch.chdir(tmp_path)
+        _mark(monkeypatch)
+        code, out, _err = run_cli(argv)
+        assert code == 0, f"FAIL AC-2: marked `heddle {' '.join(argv)}` exited {code}"
+        assert expected in out
+
+    def test_marked_help_json_is_the_manifest_entry(
+        self, run_cli, envelope_tools, monkeypatch, tmp_path
+    ):
+        monkeypatch.chdir(tmp_path)
+        _mark(monkeypatch)
+        code, out, _err = run_cli(["run-gate", "--help", "--json"])
+        assert code == 0
+        assert envelope_tools.parse(out)["data"]["name"] == "run-gate"
+
+    @pytest.mark.parametrize(
+        ("argv", "hint"),
+        [
+            (["frobnicate", "--json"], "heddle help"),
+            (["milestone", "--json"], "advance"),
+            (["bogus", "--help", "--json"], "heddle help"),
+        ],
+        ids=["unknown-command", "bare-noun", "unknown-with-help"],
+    )
+    def test_marked_unknown_commands_keep_their_usage_outcome(
+        self, run_cli, envelope_tools, monkeypatch, tmp_path, argv, hint
+    ):
+        """Survivor: no contract resolves, so the usage error (exit 2) stands."""
+        monkeypatch.chdir(tmp_path)
+        _mark(monkeypatch)
+        code, out, _err = run_cli(argv)
+        envelope = envelope_tools.parse(out)
+        assert code == 2 and envelope["error"]["code"] == "usage", envelope
+        assert hint in envelope["error"]["hint"]
+
+    def test_unmarked_mutation_writes_as_today(
+        self, run_cli, envelope_tools, monkeypatch, tmp_path
+    ):
+        """Survivor: without the marker a mutating command writes."""
+        host = _operational_host(tmp_path, monkeypatch)
+        monkeypatch.delenv(GATE_SESSION_ENV, raising=False)
+        state = host / "plans" / "operational-example" / "state.yaml"
+        before = state.read_bytes()
+        code, out, _err = run_cli([*COMMANDS_SET, "--json"])
+        envelope = envelope_tools.parse(out)
+        assert code == 0 and envelope["data"]["wrote"] is True, envelope
+        assert state.read_bytes() != before
+
+    def test_in_process_service_writes_while_marked(self, monkeypatch, tmp_path):
+        """Survivor: the guard sits at the CLI dispatcher. Heddle's in-process
+        application services, which the gate runtime records through, still
+        write when the process environment carries the marker."""
+        from tests.tiering_helpers import invoke
+
+        host = _operational_host(tmp_path, monkeypatch)
+        state = host / "plans" / "operational-example" / "state.yaml"
+        before = state.read_bytes()
+        _mark(monkeypatch)
+        result = invoke("CommandsSet", key="smoke_test", command="true")
+        assert result.ok, result.to_envelope()
+        assert state.read_bytes() != before
+
+
+# The synthetic first module of the nested session. It records the marker at
+# import, before any test runs, then spawns a mutating command against a
+# disposable copy of the tiny host with the session's environment.
+_SYNTHETIC_FIRST_MODULE = textwrap.dedent(
+    '''
+    """Synthetic first module: records the gate-session marker at import."""
+    import json
+    import os
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    Path(@RECORD@).write_text(
+        json.dumps({"marker": os.environ.get("HEDDLE_AGENT_SESSION")}),
+        encoding="utf-8",
+    )
+
+
+    def test_mutating_command_succeeds_against_a_disposable_host(tmp_path):
+        from tests.runtime.write_path_helpers import copy_host
+
+        host = copy_host(tmp_path, Path(@TINY@))
+        state = host / "plans" / "sample-feature" / "state.yaml"
+        before = state.read_bytes()
+        completed = subprocess.run(
+            [
+                sys.executable, "-m", "heddle", "commands", "set", "smoke_test",
+                "--command", "true", "--feature", "sample-feature", "--json",
+            ],
+            cwd=host,
+            env=dict(os.environ),
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+        assert completed.returncode == 0, completed.stdout + completed.stderr
+        assert state.read_bytes() != before
+    '''
+)
+
+
+class TestAC3BootstrapClearsTheMarker:
+    """AC-3 (m1, red): the repository bootstrap (tests/conftest.py, loaded
+    exactly as the suite loads its plugins before collection) removes the
+    marker before the first module is imported."""
+
+    def test_nested_marked_session_records_no_marker_and_mutates(self, tmp_path):
+        session = tmp_path / "session"
+        session.mkdir()
+        record = tmp_path / "import-record.json"
+        (session / "pytest.ini").write_text("[pytest]\n", encoding="utf-8")
+        (session / "test_first_module.py").write_text(
+            _SYNTHETIC_FIRST_MODULE.replace("@RECORD@", repr(str(record))).replace(
+                "@TINY@", repr(str(TINY))
+            ),
+            encoding="utf-8",
+        )
+        environment = {
+            **os.environ,
+            GATE_SESSION_ENV: "gate",
+            "PYTHONPATH": str(REPO_ROOT),
+            "PYTHONDONTWRITEBYTECODE": "1",
+        }
+        # Inherited options could deselect the one synthetic test.
+        environment.pop("PYTEST_ADDOPTS", None)
+        result = subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "pytest",
+                "-q",
+                "-p",
+                "no:cacheprovider",
+                "-p",
+                "tests.conftest",
+                "test_first_module.py",
+            ],
+            cwd=session,
+            env=environment,
+            capture_output=True,
+            text=True,
+            timeout=120,
+            check=False,
+        )
+        output = result.stdout[-2000:] + result.stderr[-2000:]
+        assert record.is_file(), (
+            f"FAIL AC-3: the nested session never imported its first module\n{output}"
+        )
+        recorded = json.loads(record.read_text(encoding="utf-8"))
+        assert recorded == {"marker": None}, (
+            f"FAIL AC-3: the first module saw {GATE_SESSION_ENV}="
+            f"{recorded['marker']!r} at import; tests/conftest.py pytest_configure "
+            "must remove the marker before collection"
+        )
+        assert result.returncode == 0 and "1 passed" in result.stdout, (
+            "FAIL AC-3: the nested fixture's mutating command must succeed against "
+            f"its disposable host\n{output}"
+        )

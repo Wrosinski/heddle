@@ -7,7 +7,11 @@ Uses real subprocess spawning with tiny shell commands as CLI mocks.
 
 from __future__ import annotations
 
+import os
+import re
+import signal
 import sys
+import time
 from pathlib import Path
 from subprocess import TimeoutExpired
 from typing import IO, Any, cast
@@ -384,3 +388,381 @@ class TestInstallMonitoredOutput:
 
         assert destination.read_bytes() == b"winner"
         assert not list(destination.parent.glob("*.tmp"))
+
+
+# ---------------------------------------------------------------------------
+# AC-12 and AC-18: launch-token reaping on the Antigravity lane.
+#
+# Real processes and fresh modification times. The doubled `agy` and its
+# helpers live in tests/gate/test_antigravity_runner.py. A crashed launcher is
+# a forked process running a standalone `run-gate`, killed with SIGKILL while
+# its doubled `agy` holds; `agy` dies by its parent-death signal and leaves a
+# daemonised tokened child. Red until the Antigravity runner exists.
+# ---------------------------------------------------------------------------
+
+
+def _antigravity():
+    import tests.gate.test_antigravity_runner as lane
+
+    return lane
+
+
+def _run_in_child(gate: str):
+    import multiprocessing
+
+    lane = _antigravity()
+    process = multiprocessing.get_context("fork").Process(
+        target=lane.run_gate, args=(gate,)
+    )
+    process.start()
+    return process
+
+
+def _held(lane, token: str, *, then: list | None = None) -> list:
+    """A launch that starts a daemonised tokened child, shows ``token`` in a
+    shell call's parameters and output, then holds until released."""
+    return [
+        lane.init_event(),
+        {"$children": ["daemon"]},
+        lane.tool_step(
+            "run_command",
+            {"CommandLine": f"grep -rn {token} src"},
+            lane.shell_output(f"src/example.py:1:{token}\n"),
+        ),
+        {"$hold": "release"},
+        *(then or []),
+    ]
+
+
+def _wait_gone(pid: int, start: int | None, timeout: float = 10.0) -> None:
+    lane = _antigravity()
+    deadline = time.monotonic() + timeout
+    while lane.alive(pid, start):
+        assert time.monotonic() < deadline, "fixture: the crashed agy kept running"
+        time.sleep(0.01)
+
+
+def _crash(process, launch: dict) -> None:
+    os.kill(process.pid, signal.SIGKILL)
+    process.join()
+    _wait_gone(launch["pid"], launch["start"])
+
+
+def test_ac12_ac18_next_run_reaps_and_redacts_a_crashed_launch(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """AC-12 parent crash, then the next gate run in the feature: the dead
+    launch's tokened child is reaped and its stream redacted, though its
+    directory is new (AC-18's interrupted path)."""
+    lane = _antigravity()
+    lane.require_runner("AC-12")
+    agy = lane.install_agy(tmp_path, monkeypatch)
+    tracker = lane.Processes(agy)
+    try:
+        host, _state_path = _antigravity().peer_host(tmp_path, monkeypatch, launch=None)
+        token = lane.credential("crashed")
+        agy.scenario(roles={"behavior-review": _held(lane, token)})
+        crashed = _run_in_child("behavior-review")
+        agy.wait_for("holding.jsonl")
+        (launch,) = agy.launches()
+        (child,) = agy.children()
+        _crash(crashed, launch)
+        temp = lane.temp_dir_of(launch)
+        assert lane.files_holding(temp, token.encode()), (
+            "fixture: the crashed launch's raw stream is not in its temp directory"
+        )
+        assert lane.alive(child["pid"], child["start"]), "fixture: no orphaned child"
+
+        agy.scenario()
+        result = lane.run_gate("behavior-review")
+
+        assert result.ok, result.to_envelope()
+        assert not lane.alive(child["pid"], child["start"]), (
+            "FAIL AC-12: the crashed launch's tokened child survived the next run"
+        )
+        assert temp.is_dir(), "FAIL AC-12: the new crashed-run directory was swept"
+        leaked = lane.files_holding(host, token.encode())
+        assert leaked == [], (
+            f"FAIL AC-18: the crashed stream stayed unredacted {leaked}"
+        )
+        assert tracker.unrelated_alive(), "FAIL AC-12: the unrelated process died"
+        assert len(agy.launches()) == 2
+    finally:
+        agy.release()
+        tracker.cleanup()
+
+
+def test_ac12_crash_beside_a_live_sibling_reaps_only_the_dead_launch(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """AC-12 crash beside a live sibling: one recovery pass sees both tokens and
+    reaps only the dead launch's children. The live launch, its stream and the
+    unrelated process survive, and the sweep keeps both directories, the live
+    one even when aged past the stale cutoff. The live run then records."""
+    lane = _antigravity()
+    lane.require_runner("AC-12")
+    agy = lane.install_agy(tmp_path, monkeypatch)
+    tracker = lane.Processes(agy)
+    live = None
+    try:
+        _host, state_path = _antigravity().peer_host(tmp_path, monkeypatch, launch=None)
+        dead_token, live_token = lane.credential("dead"), lane.credential("live")
+        finish = lane.clean_stream()[1:]
+        agy.scenario(
+            roles={
+                "behavior-review": _held(lane, dead_token),
+                "complexity-review": _held(lane, live_token, then=finish),
+            }
+        )
+        crashed = _run_in_child("behavior-review")
+        agy.wait_for("holding.jsonl", 1)
+        live = _run_in_child("complexity-review")
+        agy.wait_for("holding.jsonl", 2)
+        launches = {row["role"]: row for row in agy.launches()}
+        children = {row["role"]: row for row in agy.children()}
+        _crash(crashed, launches["behavior-review"])
+        dead_temp = lane.temp_dir_of(launches["behavior-review"])
+        live_temp = lane.temp_dir_of(launches["complexity-review"])
+        aged = time.time() - 49 * 60 * 60
+        os.utime(live_temp, (aged, aged))
+        live_stream = {
+            path: path.read_bytes() for path in live_temp.rglob("*") if path.is_file()
+        }
+        assert any(live_token.encode() in data for data in live_stream.values())
+
+        agy.scenario(roles={"behavior-review": lane.clean_stream()})
+        result = lane.run_gate("behavior-review")
+
+        assert result.ok, result.to_envelope()
+        dead, sibling = children["behavior-review"], children["complexity-review"]
+        assert not lane.alive(dead["pid"], dead["start"]), (
+            "FAIL AC-12: the crashed launch's tokened child survived the pass"
+        )
+        assert lane.alive(sibling["pid"], sibling["start"]), (
+            "FAIL AC-12: the recovery pass reaped the live launch's child"
+        )
+        sibling_launch = launches["complexity-review"]
+        assert lane.alive(sibling_launch["pid"], sibling_launch["start"])
+        assert tracker.unrelated_alive(), "FAIL AC-12: the unrelated process died"
+        assert dead_temp.is_dir() and live_temp.is_dir(), (
+            "FAIL AC-12: the sweep removed a directory the pass must keep"
+        )
+        assert {
+            path: path.read_bytes() for path in live_temp.rglob("*") if path.is_file()
+        } == live_stream, "FAIL AC-12: the pass touched the live launch's stream"
+        assert lane.files_holding(dead_temp, dead_token.encode()) == [], (
+            "FAIL AC-18: the dead launch's stream was not redacted"
+        )
+
+        agy.release()
+        live.join(timeout=30)
+        assert live.exitcode == 0
+        rows = [
+            row
+            for row in lane.lane_rows(state_path)
+            if row["gate"] == "complexity-review"
+        ]
+        assert rows and rows[-1]["verdict"]["status"] != "error", (
+            "FAIL AC-12: the live sibling did not record normally"
+        )
+        assert not lane.alive(sibling["pid"], sibling["start"]), (
+            "FAIL AC-12: the sibling's own run did not reap its child"
+        )
+    finally:
+        agy.release()
+        if live is not None:
+            live.join(timeout=30)
+        tracker.cleanup()
+
+
+def test_ac12_unreadable_process_table_warns_and_keeps_the_outcome(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """AC-12 control, cleanup unverifiable: process enumeration fails, so the
+    run logs a cleanup warning naming the condition and records as usual. No
+    disappearance is asserted.
+
+    Injection seam: listing ``/proc`` raises ``PermissionError``.
+    """
+    lane = _antigravity()
+    lane.require_runner("AC-12")
+    agy = lane.install_agy(tmp_path, monkeypatch)
+    tracker = lane.Processes(agy)
+    try:
+        _host, state_path = lane.spec_host(tmp_path, monkeypatch)
+        agy.scenario(lane.clean_stream({"$children": ["daemon"]}))
+
+        def unreadable(function):
+            def guarded(path=".", *args, **kwargs):
+                if os.fspath(path).rstrip("/") == "/proc":
+                    raise PermissionError(13, "Permission denied", "/proc")
+                return function(path, *args, **kwargs)
+
+            return guarded
+
+        with monkeypatch.context() as patch:
+            patch.setattr(os, "listdir", unreadable(os.listdir))
+            patch.setattr(os, "scandir", unreadable(os.scandir))
+            result = lane.run_gate()
+
+        assert result.ok, f"FAIL AC-12: the outcome changed: {result.to_envelope()}"
+        lane.assert_recorded(state_path, "AC-12")
+        log = lane.gate_log(state_path)
+        assert re.search(r"warn", log, re.IGNORECASE) and re.search(
+            r"process table|enumerat|/proc", log, re.IGNORECASE
+        ), "FAIL AC-12: no cleanup warning names the unreadable process table"
+        assert tracker.unrelated_alive()
+    finally:
+        tracker.cleanup()
+
+
+def test_ac12_child_surviving_sigkill_warns_and_keeps_the_outcome(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """AC-12 control: a tokened child that ignores SIGTERM and survives SIGKILL
+    produces a cleanup warning naming the condition; the outcome is unchanged.
+    The test removes the survivor afterwards.
+
+    Injection seam: ``os.kill``, ``os.killpg`` and ``os.pidfd_send_signal``
+    drop SIGTERM and SIGKILL aimed at the survivor.
+    """
+    lane = _antigravity()
+    lane.require_runner("AC-12")
+    agy = lane.install_agy(tmp_path, monkeypatch)
+    tracker = lane.Processes(agy)
+    real_kill, real_killpg = os.kill, os.killpg
+    real_open, real_send = os.pidfd_open, os.pidfd_send_signal
+    try:
+        _host, state_path = lane.spec_host(tmp_path, monkeypatch)
+        agy.scenario(lane.clean_stream({"$children": ["stubborn"]}))
+        pidfds: dict[int, int] = {}
+        stopping = (signal.SIGTERM, signal.SIGKILL)
+
+        def survivor(pid: int) -> bool:
+            return any(row["pid"] == pid for row in agy.children())
+
+        def kill(pid, sig):
+            if survivor(pid) and sig in stopping:
+                return None
+            return real_kill(pid, sig)
+
+        def killpg(pgid, sig):
+            if survivor(pgid) and sig in stopping:
+                return None
+            return real_killpg(pgid, sig)
+
+        def pidfd_open(pid, *args):
+            descriptor = real_open(pid, *args)
+            pidfds[descriptor] = pid
+            return descriptor
+
+        def pidfd_send_signal(fd, sig, *args):
+            if survivor(pidfds.get(fd, -1)) and sig in stopping:
+                return None
+            return real_send(fd, sig, *args)
+
+        with monkeypatch.context() as patch:
+            patch.setattr(os, "kill", kill)
+            patch.setattr(os, "killpg", killpg)
+            patch.setattr(os, "pidfd_open", pidfd_open)
+            patch.setattr(os, "pidfd_send_signal", pidfd_send_signal)
+            result = lane.run_gate()
+
+        assert result.ok, f"FAIL AC-12: the outcome changed: {result.to_envelope()}"
+        lane.assert_recorded(state_path, "AC-12")
+        (child,) = agy.children()
+        assert lane.alive(child["pid"], child["start"]), (
+            "fixture: the survivor did not survive"
+        )
+        log = lane.gate_log(state_path)
+        assert re.search(r"warn", log, re.IGNORECASE) and re.search(
+            r"surviv|SIGKILL|still running", log, re.IGNORECASE
+        ), "FAIL AC-12: no cleanup warning names the surviving process"
+        assert tracker.unrelated_alive()
+    finally:
+        tracker.cleanup(kill=real_kill)
+
+
+# ---------------------------------------------------------------------------
+# AC-12, macOS fallback witness: the `ps eww` parser on synthetic output.
+#
+# Delegated seam named by this scaffold: ``heddle.io.process.parse_ps_eww(
+# output, *, variable, token) -> frozenset[int]``. It reads the text of
+# ``ps axeww -o pid,command`` (a header row, then each process's PID and its
+# command line with its environment appended as ``NAME=value`` words) and
+# returns the PIDs whose environment carries exactly ``variable=token``. The
+# variable name is a parameter because the token's name is delegated too.
+# Reached only through ``_ps_eww_pids``, so a rename is one edit. Hermetic:
+# no real `ps` runs.
+# ---------------------------------------------------------------------------
+PS_VARIABLE = "SYNTHETIC_LAUNCH_TOKEN"
+PS_TOKEN = "c2b8f0e4a7d94c1e9f3a6b5d8e2c1f0a"
+
+
+def _ps_eww_pids(output: str, variable: str, token: str) -> frozenset[int]:
+    import importlib
+
+    process = importlib.import_module("heddle.io.process")
+    parser = getattr(process, "parse_ps_eww", None)
+    assert parser is not None, (
+        "FAIL AC-12: heddle.io.process.parse_ps_eww (the macOS ps eww parser) "
+        "is not implemented"
+    )
+    return frozenset(parser(output, variable=variable, token=token))
+
+
+def _ps_eww_fixture() -> tuple[str, frozenset[int]]:
+    """Synthetic ``ps axeww -o pid,command`` text and its tokened PIDs."""
+    carried = f"{PS_VARIABLE}={PS_TOKEN}"
+    base_env = "PATH=/usr/bin:/bin HOME=/Users/reviewer LANG=en_US.UTF-8"
+    filler = " ".join(f"PADDING_{n}={'v' * 200}" for n in range(60))
+    rows = [
+        "  PID COMMAND",
+        # The agy launch: the token sits among other environment words.
+        f"  101 /opt/agy/bin/agy --print {base_env} HEDDLE_AGENT_SESSION=gate "
+        f"{carried} TERM=xterm",
+        # A tool child: the token is the last word on the line.
+        f"  202 /bin/sleep 30 {base_env} {carried}",
+        # The token text only in the command's arguments, never as the
+        # variable's assignment: not a match.
+        f"  303 /usr/bin/grep -r {PS_TOKEN} --label=token={PS_TOKEN} . {base_env}",
+        # Similar but different tokens: a longer value, a shorter value, and
+        # the same value under a different variable whose name ends the same.
+        f"  404 /bin/sh -c true {base_env} {carried}0",
+        f"  405 /bin/sh -c true {base_env} {PS_VARIABLE}={PS_TOKEN[:-1]}",
+        f"  406 /bin/sh -c true {base_env} OLD_{carried}",
+        # A very long line with odd spacing and a tab; the token mid-line.
+        f" 50505   /usr/bin/python3\t-m   worker   {filler}   {carried}   {filler}",
+        # A process with no environment shown, and a blank line.
+        "    7 (kernel_task)",
+        "",
+        f"60606 /bin/zsh -l {base_env}",
+    ]
+    return "\n".join(rows) + "\n", frozenset({101, 202, 50505})
+
+
+def test_ac12_ps_eww_parser_returns_exactly_the_tokened_pids(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """AC-12 macOS fallback witness: the ``ps eww`` parser (delegated seam
+    ``heddle.io.process.parse_ps_eww``) returns exactly the PIDs whose
+    environment carries the launch token, on synthetic output. The token in
+    command arguments only, a longer or shorter token, and the same value
+    under another variable do not match; long, odd-spaced lines parse. No real
+    ``ps`` runs."""
+    import subprocess
+
+    def no_process(*_args: object, **_kwargs: object) -> None:
+        raise AssertionError("FAIL AC-12: the ps eww parser started a process")
+
+    monkeypatch.setattr(subprocess, "run", no_process)
+    monkeypatch.setattr(subprocess, "Popen", no_process)
+    output, expected = _ps_eww_fixture()
+    assert len(max(output.splitlines(), key=len)) > 20_000
+    found = _ps_eww_pids(output, PS_VARIABLE, PS_TOKEN)
+    assert found == expected, (
+        f"FAIL AC-12: the ps eww parser returned {sorted(found)}, expected the "
+        f"tokened PIDs {sorted(expected)}"
+    )
+    assert _ps_eww_pids("  PID COMMAND\n", PS_VARIABLE, PS_TOKEN) == frozenset()
+    assert _ps_eww_pids(output, PS_VARIABLE, "0" * len(PS_TOKEN)) == frozenset()

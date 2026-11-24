@@ -462,6 +462,9 @@ tests/fixtures/workspaces/tiny/docs/features/example/sample-feature.md
 tests/fixtures/workspaces/tiny/plans/sample-feature/plan.md
 tests/fixtures/workspaces/tiny/plans/sample-feature/state.yaml
 tests/gate/conftest.py
+tests/gate/test_antigravity_audit.py
+tests/gate/test_antigravity_preparation.py
+tests/gate/test_antigravity_runner.py
 tests/gate/test_archive_trajectory.py
 tests/gate/test_auto_resolution_prompt_policy.py
 tests/gate/test_claude_classification.py
@@ -476,6 +479,7 @@ tests/gate/test_extraction.py
 tests/gate/test_gate_doctor.py
 tests/gate/test_gate_execution_transport.py
 tests/gate/test_input_navigation.py
+tests/gate/test_lane_capabilities.py
 tests/gate/test_monitor.py
 tests/gate/test_overlap.py
 tests/gate/test_prompt.py
@@ -530,6 +534,7 @@ tests/kernel/test_staleness_note.py
 tests/kernel/test_tiering_policy.py
 tests/kernel/test_transcriptions.py
 tests/kernel/test_verification_provenance.py
+tests/live/test_antigravity_canary_e2e.py
 tests/live/test_autopilot_e2e.py
 tests/live/test_identity_readiness_e2e.py
 tests/live/test_validation_e2e.py
@@ -550,6 +555,8 @@ tests/runtime/test_acceptance.py
 tests/runtime/test_action_contracts.py
 tests/runtime/test_action_routing_acceptance.py
 tests/runtime/test_action_routing_e2e.py
+tests/runtime/test_antigravity_lane_installed.py
+tests/runtime/test_antigravity_live_admission.py
 tests/runtime/test_assessment_inputs.py
 tests/runtime/test_auto_resolution_decisions.py
 tests/runtime/test_auto_resolution_guidance.py

@@ -650,3 +650,576 @@ def write_review_shims(
             ),
         )
     return bin_dir
+
+
+# --------------------------------------------------------------------------- #
+# The doubled ``agy`` for the installed Antigravity lane
+# --------------------------------------------------------------------------- #
+AGY_WRAPPED_CAP = 192_000
+AGY_WRAPPED_HEADER = len(b"<USER_REQUEST>\n")
+AGY_WRAPPED_TRAILER = 400
+
+_AGY_SHIM_SOURCE = r'''
+import base64
+import fcntl
+import hashlib
+import json
+import os
+import re
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+HOME = Path(__HOME__)
+BASELINE = set(__BASELINE__)
+CAP = __CAP__
+HEADER = __HEADER__
+TRAILER = __TRAILER__
+MARKER = "HEDDLE_AGENT_SESSION"
+CONVERSATION = "c0ffee00-0000-4000-8000-00000000e2e0"
+CHILD = """
+import os, time
+kind = __KIND__
+if kind == "daemon":
+    if os.fork():
+        os._exit(0)
+    os.setsid()
+    if os.fork():
+        os._exit(0)
+path = __PIDFILE__
+with open(path + ".tmp", "w") as handle:
+    handle.write(str(os.getpid()))
+os.replace(path + ".tmp", path)
+time.sleep(600)
+"""
+
+
+def load(name, default):
+    path = HOME / name
+    if not path.exists():
+        return default
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def append(name, row):
+    with open(HOME / name, "a", encoding="utf-8") as handle:
+        fcntl.flock(handle, fcntl.LOCK_EX)
+        handle.write(json.dumps(row) + "\n")
+        handle.flush()
+
+
+def start_time(pid):
+    try:
+        text = Path(f"/proc/{pid}/stat").read_text()
+        return int(text.rsplit(")", 1)[1].split()[19])
+    except (OSError, IndexError, ValueError):
+        return None
+
+
+def emit(value):
+    line = value if isinstance(value, str) else json.dumps(value)
+    sys.stdout.write(line + "\n")
+    sys.stdout.flush()
+
+
+SCENARIO = load("scenario.json", {})
+argv = sys.argv[1:]
+if argv == ["--version"]:
+    version = SCENARIO.get("version", "1.5.16")
+    append("versions.jsonl", {"pid": os.getpid(), "version": version})
+    if version is None:
+        sys.stderr.write("agy: version information is unavailable\n")
+        sys.exit(2)
+    print(version)
+    sys.exit(0)
+
+# One line per physical launch, before anything else can fail.
+append("invocations.log", {"pid": os.getpid(), "at": time.time()})
+
+
+def flag(name):
+    if name not in argv:
+        return None
+    index = argv.index(name)
+    return argv[index + 1] if index + 1 < len(argv) else None
+
+
+MODEL = flag("--model")
+CWD = os.getcwd()
+GEMINI = os.path.join(os.path.expanduser("~"), ".gemini")
+raw = sys.stdin.buffer.read()
+events, stdin_errors = [], []
+for line in raw.splitlines():
+    if line.strip():
+        try:
+            events.append(json.loads(line))
+        except ValueError as error:
+            stdin_errors.append(str(error))
+texts = [
+    event["message"]["content"]
+    for event in events
+    if isinstance(event, dict)
+    and event.get("event") == "user"
+    and isinstance(event.get("message"), dict)
+    and isinstance(event["message"].get("content"), str)
+]
+wrapped = [HEADER + len(text.encode("utf-8")) + TRAILER for text in texts]
+PATHLIKE = re.compile(r"[\w.@+~/-]*/[\w.@+~/-]+")
+observed = {}
+
+
+def visit(text, base, depth):
+    for token in PATHLIKE.findall(text):
+        token = os.path.expanduser(token.rstrip(".,:;"))
+        options = [token] if os.path.isabs(token) else [
+            os.path.join(CWD, token),
+            os.path.join(base, token),
+        ]
+        for option in options:
+            absolute = os.path.abspath(option)
+            # Never touch agy's own data directory.
+            if absolute.startswith(GEMINI):
+                continue
+            absolute = os.path.realpath(absolute)
+            if absolute in observed or not os.path.isfile(absolute):
+                continue
+            if os.path.getsize(absolute) > 4_000_000:
+                continue
+            with open(absolute, "rb") as handle:
+                data = handle.read()
+            observed[absolute] = data
+            if depth < 2:
+                text = data.decode("utf-8", "replace")
+                visit(text, os.path.dirname(absolute), depth + 1)
+
+
+for text in texts:
+    visit(text, CWD, 1)
+digests = {path: hashlib.sha256(data).hexdigest() for path, data in observed.items()}
+index_path, chunks = None, []
+for path, data in observed.items():
+    text = data.decode("utf-8", "replace")
+    found = sorted(
+        (text.find(digest), other)
+        for other, digest in digests.items()
+        if other != path and digest in text
+    )
+    if len(found) > len(chunks):
+        index_path, chunks = path, [other for _, other in found]
+schema_path = flag("--json-schema")
+schema_text = None
+if schema_path and os.path.isfile(schema_path):
+    with open(schema_path, encoding="utf-8") as handle:
+        schema_text = handle.read()
+try:
+    ROLE = json.loads(schema_text)["properties"]["role"]["enum"][0]
+except (TypeError, ValueError, KeyError, IndexError):
+    ROLE = None
+# The launch token is a variable Heddle adds for this launch. Only digests of
+# the HEDDLE_ variables Heddle added are kept; the marker is kept by value.
+launch_digests = {
+    name: hashlib.sha256(value.encode("utf-8", "surrogateescape")).hexdigest()
+    for name, value in os.environ.items()
+    if name.startswith("HEDDLE_") and name != MARKER and name not in BASELINE
+}
+refused = any(size > CAP for size in wrapped)
+append(
+    "observations.jsonl",
+    {
+        "pid": os.getpid(),
+        "ppid": os.getppid(),
+        "start": start_time(os.getpid()),
+        "argv": argv,
+        "cwd": CWD,
+        "marker": os.environ.get(MARKER),
+        "launch_digests": launch_digests,
+        "role": ROLE,
+        "stdin": base64.b64encode(raw).decode("ascii"),
+        "stdin_errors": stdin_errors,
+        "events": [event.get("event") for event in events if isinstance(event, dict)],
+        "contents": texts,
+        "wrapped": wrapped,
+        "refused": refused,
+        "files": {
+            path: base64.b64encode(data).decode("ascii")
+            for path, data in observed.items()
+        },
+        "index": index_path,
+        "chunks": chunks,
+        "schema": schema_text,
+    },
+)
+if refused:
+    # Real agy truncates silently and reports success; fail loudly instead.
+    emit(f"error: the wrapped user message exceeds {CAP} bytes")
+    sys.exit(1)
+
+reviews = SCENARIO.get("reviews", {})
+plan = SCENARIO.get("roles", {}).get(ROLE) or SCENARIO.get("ops", [])
+exit_code = 0
+step_index = 0
+
+
+def expand(value):
+    if value == "$MODEL":
+        return MODEL
+    if value == "$CWD":
+        return CWD
+    if value == "$REVIEW":
+        return reviews.get(ROLE)
+    if isinstance(value, dict):
+        return {key: expand(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [expand(item) for item in value]
+    return value
+
+
+def step(update):
+    global step_index
+    body = {"conversation_id": CONVERSATION, "step_index": step_index, "state": "DONE"}
+    body.update(update)
+    step_index += 1
+    emit({"event": "step_update", "step_update": body})
+
+
+def tool(name, parameters, output=None, **extra):
+    info = {"name": name, "parameters": parameters}
+    if output is not None:
+        info["output"] = output
+    step({"step_type": "tool", "tool_name": name, "tool_info": info, **extra})
+
+
+def spawn(kind):
+    pidfile = str(HOME / f"child-{os.getpid()}-{kind}-{time.monotonic_ns()}.pid")
+    code = CHILD.replace("__KIND__", repr(kind)).replace("__PIDFILE__", repr(pidfile))
+    subprocess.Popen(
+        [sys.executable, "-c", code],
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        close_fds=True,
+    )
+    deadline = time.monotonic() + 20
+    while not os.path.exists(pidfile):
+        if time.monotonic() > deadline:
+            raise SystemExit("a tokened child did not start")
+        time.sleep(0.01)
+    with open(pidfile) as handle:
+        pid = int(handle.read())
+    append(
+        "children.jsonl",
+        {
+            "launch": os.getpid(),
+            "role": ROLE,
+            "kind": kind,
+            "pid": pid,
+            "start": start_time(pid),
+        },
+    )
+
+
+def attempt(spec):
+    done = subprocess.run(
+        ["heddle", *spec["argv"]],
+        cwd=spec["cwd"],
+        capture_output=True,
+        text=True,
+        timeout=120,
+        check=False,
+    )
+    try:
+        code = json.loads(done.stdout)["error"]["code"]
+    except (ValueError, KeyError, TypeError):
+        code = None
+    append(
+        "attempts.jsonl",
+        {
+            "cli": "antigravity",
+            "launch": os.getpid(),
+            "argv": spec["argv"],
+            "exit": done.returncode,
+            "code": code,
+            "marker": os.environ.get(MARKER),
+        },
+    )
+    output = (
+        "Created At: 2026-01-01T00:00:00Z\nCompleted At: 2026-01-01T00:00:01Z\n"
+        f"Command exited with code {done.returncode}.\n\nCommand output:\n"
+        + (done.stdout + done.stderr).replace("\n", "\r\n")
+    )
+    tool(
+        "run_command",
+        {"CommandLine": "heddle " + " ".join(spec["argv"]), "Cwd": spec["cwd"]},
+        output,
+    )
+
+
+def read(path):
+    data = Path(path).read_bytes() if os.path.isfile(path) else b""
+    lines = data.count(b"\n") + (0 if data.endswith(b"\n") else 1)
+    append("reads.jsonl", {"launch": os.getpid(), "path": path, "bytes": len(data)})
+    tool("read_file", {"Path": path}, f"{lines} lines, {len(data)} bytes")
+
+
+for op in plan:
+    name = next(iter(op)) if isinstance(op, dict) and len(op) == 1 else None
+    if name is None or not name.startswith("$"):
+        emit(expand(op))
+        continue
+    value = op[name]
+    if name == "$step":
+        step(expand(value))
+    elif name == "$tool":
+        tool(
+            value["name"],
+            expand(value["parameters"]),
+            expand(value.get("output")),
+            **expand(value.get("extra", {})),
+        )
+    elif name == "$read_chunks":
+        for path in {"all": chunks, "all-but-last": chunks[:-1]}.get(value, []):
+            read(path)
+    elif name == "$read":
+        read(value)
+    elif name == "$raw":
+        emit(value)
+    elif name == "$children":
+        for kind in value:
+            spawn(kind)
+    elif name == "$hold":
+        append("holding.jsonl", {"launch": os.getpid(), "role": ROLE})
+        deadline = time.monotonic() + 600
+        while not (HOME / value).exists() and time.monotonic() < deadline:
+            time.sleep(0.02)
+    elif name == "$heddle":
+        attempt(value)
+    elif name == "$exit":
+        exit_code = value
+    elif name == "$result":
+        body = {
+            "conversation_id": CONVERSATION,
+            "status": "SUCCESS",
+            "response": "",
+            "duration_seconds": 1.0,
+            "num_turns": 1,
+            "usage": {
+                "input_tokens": 1000,
+                "output_tokens": 200,
+                "thinking_tokens": 100,
+                "cache_read_tokens": 0,
+                "total_tokens": 1300,
+            },
+        }
+        body.update(expand(value))
+        emit({"event": "result", "result": body})
+sys.exit(exit_code)
+'''
+
+
+def write_agy_shim(bin_dir: Path, home: Path, *, baseline: Sequence[str] = ()) -> Path:
+    """A doubled ``agy`` for the installed lane; never the real executable.
+
+    The source is an embedded literal, so the installed host never imports
+    ``tests/``. ``home`` holds the control and observation files:
+
+    - ``scenario.json`` (the test writes it, and may rewrite it between runs):
+      ``{"version": ..., "ops": [...], "roles": {role: [...]}, "reviews":
+      {role: content}}``. Ops are synthetic stream events and ``$``-directives
+      (``$step``, ``$tool``, ``$read_chunks``, ``$read``, ``$raw``,
+      ``$children``, ``$hold``, ``$heddle``, ``$exit``, ``$result``), the same
+      vocabulary as the in-process double, so its stream builders apply.
+    - ``invocations.log``: one line per physical launch, written first.
+    - ``observations.jsonl``: per launch, before any reply: argv, working
+      directory, the gate marker, SHA-256 digests of the ``HEDDLE_*``
+      variables Heddle added (the launch token among them; never a value),
+      its own and its parent's process ID, stdin, the decoded message
+      contents and wrapped sizes, and the files the message points at.
+    - ``children.jsonl``, ``holding.jsonl``, ``reads.jsonl``,
+      ``attempts.jsonl`` and ``versions.jsonl``.
+
+    A message whose wrapped size (15-byte header, decoded content, 400-byte
+    trailer allowance) exceeds 192,000 bytes is refused: real ``agy``
+    truncates it silently and reports success, so the double fails loudly.
+    ``baseline`` names the environment variables present before Heddle runs;
+    they are never recorded.
+    """
+    home.mkdir(parents=True, exist_ok=True)
+    source = (
+        _AGY_SHIM_SOURCE.replace("__HOME__", repr(str(home)))
+        .replace("__BASELINE__", repr(sorted(baseline)))
+        .replace("__CAP__", repr(AGY_WRAPPED_CAP))
+        .replace("__HEADER__", repr(AGY_WRAPPED_HEADER))
+        .replace("__TRAILER__", repr(AGY_WRAPPED_TRAILER))
+    )
+    return write_executable(bin_dir / "agy", "#!/usr/bin/env python3\n" + source)
+
+
+_LANE_SHIM_SOURCE = r"""
+import fcntl
+import json
+import os
+import shlex
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+CLI = __CLI__
+HOME = Path(__HOME__)
+MARKER = "HEDDLE_AGENT_SESSION"
+
+
+def append(name, row):
+    with open(HOME / name, "a", encoding="utf-8") as handle:
+        fcntl.flock(handle, fcntl.LOCK_EX)
+        handle.write(json.dumps(row) + "\n")
+        handle.flush()
+
+
+def emit(value):
+    sys.stdout.write(json.dumps(value) + "\n")
+    sys.stdout.flush()
+
+
+argv = sys.argv[1:]
+sys.stdin.read()
+script = json.loads((HOME / f"{CLI}.json").read_text(encoding="utf-8"))
+append(
+    f"{CLI}.jsonl",
+    {
+        "pid": os.getpid(),
+        "ppid": os.getppid(),
+        "argv": argv,
+        "cwd": os.getcwd(),
+        "marker": os.environ.get(MARKER),
+    },
+)
+if script.get("hold"):
+    append("holding.jsonl", {"launch": os.getpid(), "cli": CLI})
+    deadline = time.monotonic() + 600
+    while not (HOME / script["hold"]).exists() and time.monotonic() < deadline:
+        time.sleep(0.02)
+
+calls = []
+for step in script.get("steps", []):
+    if "read" in step:
+        path = step["read"]
+        calls.append(("read", path, Path(path).read_text(encoding="utf-8"), 0))
+    elif "heddle" in step:
+        spec = step["heddle"]
+        done = subprocess.run(
+            ["heddle", *spec["argv"]],
+            cwd=spec["cwd"],
+            capture_output=True,
+            text=True,
+            timeout=120,
+            check=False,
+        )
+        try:
+            code = json.loads(done.stdout)["error"]["code"]
+        except (ValueError, KeyError, TypeError):
+            code = None
+        append(
+            "attempts.jsonl",
+            {
+                "cli": CLI,
+                "launch": os.getpid(),
+                "argv": spec["argv"],
+                "exit": done.returncode,
+                "code": code,
+                "marker": os.environ.get(MARKER),
+            },
+        )
+        command = "heddle " + " ".join(shlex.quote(item) for item in spec["argv"])
+        calls.append(("heddle", command, done.stdout + done.stderr, done.returncode))
+
+review = json.dumps(script["review"])
+if CLI == "claude":
+    model = argv[argv.index("--model") + 1] if "--model" in argv else None
+    emit(
+        {
+            "type": "system",
+            "subtype": "init",
+            "cwd": os.getcwd(),
+            "model": model,
+            "tools": ["Read", "Grep", "Glob", "Bash"],
+        }
+    )
+    for number, (kind, target, output, _code) in enumerate(calls, start=1):
+        call_id = f"toolu_{number:02d}"
+        if kind == "read":
+            name, inputs = "Read", {"file_path": target}
+        else:
+            name, inputs = "Bash", {"command": target}
+        use = {"type": "tool_use", "id": call_id, "name": name, "input": inputs}
+        emit(
+            {
+                "type": "assistant",
+                "parent_tool_use_id": None,
+                "message": {"role": "assistant", "content": [use]},
+            }
+        )
+        answer = {
+            "type": "tool_result",
+            "tool_use_id": call_id,
+            "content": output,
+            "is_error": False,
+        }
+        emit(
+            {
+                "type": "user",
+                "parent_tool_use_id": None,
+                "message": {"role": "user", "content": [answer]},
+            }
+        )
+    emit(
+        {
+            "type": "result",
+            "subtype": "success",
+            "is_error": False,
+            "structured_output": script["review"],
+        }
+    )
+else:
+    Path(argv[argv.index("-o") + 1]).write_text(review, encoding="utf-8")
+    emit({"type": "thread.started", "thread_id": "thread-0001"})
+    emit({"type": "turn.started"})
+    for number, (kind, target, output, code) in enumerate(calls, start=1):
+        line = f"cat {shlex.quote(target)}" if kind == "read" else target
+        base = {
+            "id": f"item_{number}",
+            "type": "command_execution",
+            "command": f"/bin/bash -lc {shlex.quote(line)}",
+        }
+        started = {"aggregated_output": "", "exit_code": None, "status": "in_progress"}
+        emit({"type": "item.started", "item": {**base, **started}})
+        finished = {"aggregated_output": output, "exit_code": code}
+        finished["status"] = "completed"
+        emit({"type": "item.completed", "item": {**base, **finished}})
+    final = {"id": "item_final", "type": "agent_message", "text": review}
+    emit({"type": "item.completed", "item": final})
+    usage = {"input_tokens": 1, "cached_input_tokens": 0, "output_tokens": 1}
+    emit({"type": "turn.completed", "usage": usage})
+"""
+
+
+def write_lane_shims(bin_dir: Path, home: Path) -> Path:
+    """Doubled ``claude`` and ``codex`` for the installed Antigravity scenarios.
+
+    Each call reads ``home/<cli>.json``: ``{"review": content, "steps": [...],
+    "hold": name | None}``. A step is ``{"read": path}`` (a Claude ``Read`` or
+    a Codex ``cat``) or ``{"heddle": {"argv": [...], "cwd": path}}``, which
+    runs the installed ``heddle`` from the reviewer child, so it inherits the
+    child's environment; its exit and error code go to ``attempts.jsonl``.
+    With ``hold``, the call waits for ``home/<hold>`` before replying. Each
+    call logs argv, working directory, the marker and its process IDs to
+    ``home/<cli>.jsonl``.
+    """
+    home.mkdir(parents=True, exist_ok=True)
+    for cli in ("claude", "codex"):
+        source = _LANE_SHIM_SOURCE.replace("__CLI__", repr(cli)).replace(
+            "__HOME__", repr(str(home))
+        )
+        write_executable(bin_dir / cli, "#!/usr/bin/env python3\n" + source)
+    return bin_dir

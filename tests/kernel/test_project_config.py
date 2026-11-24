@@ -459,3 +459,43 @@ class TestReviewLaunchSetting:
         assert self._launch(config) == "concurrent"
         assert [d.code for d in config.diagnostics] == ["config-unknown-key"]
         assert "'launch'" in config.diagnostics[0].message
+
+
+class TestAntigravityAgentKey:
+    """antigravity-reviewer-lane-v1 AC-4 (m2): `agents.antigravity` is a host
+    agents key like `claude` and `codex`. A set value parses as a bool; an
+    absent key stays absent, which leaves the lane selectable."""
+
+    def _config(self, tmp_path: Path, body: str):
+        (tmp_path / ".heddle.yaml").write_text(body, encoding="utf-8")
+        return load_project_config(tmp_path)
+
+    @pytest.mark.parametrize("value", [True, False])
+    def test_a_set_key_parses_without_diagnostics(self, tmp_path, value):
+        """Red: today the key is an unknown, ignored advisory."""
+        config = self._config(
+            tmp_path,
+            f"agents:\n  claude: true\n  antigravity: {str(value).lower()}\n",
+        )
+        assert config.diagnostics == (), (
+            "FAIL AC-4: agents.antigravity must be a known key, got "
+            f"{[d.message for d in config.diagnostics]}"
+        )
+        assert dict(config.agents) == {"claude": True, "antigravity": value}
+
+    def test_a_non_bool_value_fails_naming_the_key(self, tmp_path):
+        """Red: today a non-bool value is ignored as an unknown key."""
+        try:
+            self._config(tmp_path, "agents:\n  antigravity: 'yes'\n")
+        except KernelError as error:
+            assert error.code == "workspace-invalid"
+            assert "agents.antigravity" in error.message
+        else:
+            pytest.fail("FAIL AC-4: a non-bool agents.antigravity must fail loud")
+
+    def test_an_absent_key_stays_absent(self, tmp_path):
+        """Survivor: absence is not defaulted to false, so it never excludes
+        the lane's slots and doctor reports nothing for it."""
+        config = self._config(tmp_path, "agents:\n  claude: true\n  codex: true\n")
+        assert dict(config.agents) == {"claude": True, "codex": True}
+        assert "antigravity" not in config.agents

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+import re
 from dataclasses import asdict, fields, replace
 from pathlib import Path
 
@@ -667,3 +669,196 @@ def test_ac8_suggestions_name_the_scaffolding_secondary_without_selecting_it():
                 overrides={**rows, "review-test-scaffolding": adopted},
             )
         )
+
+
+# antigravity-reviewer-lane-v1, milestone m2 (AC-4, AC-5). Model validation
+# applies to new selections at policy confirmation; stored history decodes as
+# today (`heddle.kernel.feature_policy._reviewer` stays unchanged).
+NEON = {"cli": "antigravity", "model": "gemini-4-neon", "reasoning_effort": "high"}
+CODEX_GEMINI = {"cli": "codex", "model": "gemini-4-neon", "reasoning_effort": "high"}
+CLAUDE_GEMINI = {
+    "cli": "claude",
+    "model": "gemini-4-neon",
+    "reasoning_effort": "high",
+}
+REFUSED_ANTIGRAVITY_MODELS = (
+    "gemini-4-neon-high",
+    "gemini-3.8-flash",
+    "gemini-4-flash",
+    "gemini-4-lite",
+    "gemini-pro-orchestrator",
+    "claude-opus-5-5",
+)
+
+
+def _confirm(tmp_path, monkeypatch, reviewer):
+    """Confirm a policy whose spec-review primary is ``reviewer`` on a
+    prepared intake; returns the typed result."""
+    import yaml
+
+    from tests.tiering_helpers import (
+        FEATURE,
+        blank_host,
+        invoke,
+        prepared,
+        wire_policy,
+    )
+
+    host = blank_host(tmp_path, monkeypatch)
+    prepared(host)
+    intake = host / ".heddle" / "intake" / f"{FEATURE}.yaml"
+    return invoke(
+        "FeaturePolicy",
+        slug=FEATURE,
+        payload=wire_policy(
+            overrides={"spec-review": entry("spec-review", primary=reviewer)}
+        ),
+        expect_revision=yaml.safe_load(intake.read_text())["revision"],
+    )
+
+
+def _refusal_text(result, selection) -> str:
+    assert not result.ok, (
+        f"FAIL AC-5: confirming {selection} must be refused, got {result.to_envelope()}"
+    )
+    return f"{result.error.message} {result.error.hint}"
+
+
+@pytest.mark.parametrize("model", ["gemini-4-neon", "gemini-4-hydrogen"])
+def test_ac5_confirmation_accepts_gemini_4_base_names(tmp_path, monkeypatch, model):
+    """Red: the lane is outside the reviewer CLI domain today."""
+    result = _confirm(tmp_path, monkeypatch, {**NEON, "model": model})
+    assert result.ok, f"FAIL AC-5: confirming {model} refused: {result.to_envelope()}"
+
+
+@pytest.mark.parametrize("model", REFUSED_ANTIGRAVITY_MODELS)
+def test_ac5_confirmation_refuses_other_names_naming_the_model(
+    tmp_path, monkeypatch, model
+):
+    """Red: today the lane is refused as a CLI, without naming the model."""
+    text = _refusal_text(
+        _confirm(tmp_path, monkeypatch, {**NEON, "model": model}), model
+    )
+    assert model in text, f"FAIL AC-5: the refusal must name {model}: {text}"
+
+
+def test_ac5_confirmation_effort_suffixed_name_hints_base_name_and_effort(
+    tmp_path, monkeypatch
+):
+    """Red: the refusal points at the base name and the reasoning effort."""
+    text = _refusal_text(
+        _confirm(tmp_path, monkeypatch, {**NEON, "model": "gemini-4-neon-high"}),
+        "gemini-4-neon-high",
+    )
+    assert re.search(r"gemini-4-neon(?![\w.-])", text) and re.search(
+        r"reasoning[-_ ]effort", text
+    ), (
+        "FAIL AC-5: an effort-suffixed name needs a hint to pass the base name "
+        f"gemini-4-neon with its reasoning effort: {text}"
+    )
+
+
+@pytest.mark.parametrize("effort", ["low", "medium", "high", "xhigh"])
+def test_ac5_confirmation_accepts_the_domain_efforts(tmp_path, monkeypatch, effort):
+    """Red: the lane is outside the reviewer CLI domain today."""
+    result = _confirm(tmp_path, monkeypatch, {**NEON, "reasoning_effort": effort})
+    assert result.ok, f"FAIL AC-5: effort {effort} refused: {result.to_envelope()}"
+
+
+def test_ac5_confirmation_refuses_max_effort(tmp_path, monkeypatch):
+    """Red: today the lane is refused before its effort is read."""
+    text = _refusal_text(
+        _confirm(tmp_path, monkeypatch, {**NEON, "reasoning_effort": "max"}), "max"
+    )
+    assert "effort" in text.lower(), (
+        f"FAIL AC-5: max must be refused as a reasoning effort: {text}"
+    )
+
+
+@pytest.mark.parametrize(
+    "reviewer", [CODEX_GEMINI, CLAUDE_GEMINI], ids=["codex", "claude"]
+)
+def test_ac5_confirmation_refuses_gemini_models_on_other_lanes(
+    tmp_path, monkeypatch, reviewer
+):
+    """Red: today a gemini- model confirms under codex or claude."""
+    text = _refusal_text(_confirm(tmp_path, monkeypatch, reviewer), reviewer)
+    assert "gemini-4-neon" in text, f"FAIL AC-5: refusal must name the model: {text}"
+
+
+@pytest.mark.parametrize("held", ["history", "current"])
+def test_ac5_survivor_stored_codex_gemini_revision_still_loads(
+    tmp_path, monkeypatch, capsys, held
+):
+    """Survivor: a stored policy revision holding codex + gemini-4-neon, in
+    history or as the current revision, decodes and the feature loads."""
+    from heddle.cli import main
+    from heddle.contracts.feature_policy import Reviewer
+    from heddle.kernel.state import parse_state_document
+    from tests.operational_model_helpers import FEATURE, document, fresh_host
+    from tests.tiering_helpers import wire_policy
+
+    legacy = wire_policy(
+        overrides={"spec-review": entry("spec-review", primary=CODEX_GEMINI)}
+    )
+    if held == "history":
+        current = wire_policy(revision=2)
+        value = document(feature_policy=current)
+        value["policy_history"] = [legacy, current]
+    else:
+        value = document(feature_policy=legacy)
+    value.pop("tier", None)
+    parsed = parse_state_document(value, source=Path("stored.yaml"))
+    assert parsed.policy_history[0].entries[0].primary == Reviewer(**CODEX_GEMINI)
+
+    host, _state = fresh_host(tmp_path, state=value)
+    monkeypatch.chdir(host)
+    capsys.readouterr()
+    code = main(["status", "--feature", FEATURE, "--json"])
+    envelope = json.loads(capsys.readouterr().out)
+    assert code == 0 and envelope["ok"] is True, envelope
+
+
+@pytest.mark.parametrize("lane", ["codex", "antigravity"])
+def test_ac4_disabled_lane_slot_is_refused_before_execution(
+    tmp_path, monkeypatch, capsys, lane
+):
+    """A slot on a lane whose `agents` key is false is refused at launch,
+    without a provider call and without rewriting policy. The codex case is
+    the survivor the new lane is pinned against; the antigravity case is red,
+    because today the stored lane fails to decode instead."""
+    import yaml
+
+    from heddle.cli import main
+    from heddle.gate.runner import GateRunner
+    from tests.tiering_helpers import snapshot
+    from tests.tiering_review_helpers import V7_FEATURE, current_host
+
+    overrides = (
+        {"spec-review": entry("spec-review", primary=NEON)}
+        if lane == "antigravity"
+        else {}
+    )
+    host, _path = current_host(tmp_path, monkeypatch, overrides=overrides)
+    config_path = host / ".heddle.yaml"
+    config = yaml.safe_load(config_path.read_text())
+    config["agents"] = {**config["agents"], lane: False}
+    config_path.write_text(yaml.safe_dump(config))
+    executed: list[str] = []
+
+    def forbidden(_self, *_args, **_kwargs):
+        executed.append(lane)
+        pytest.fail(f"FAIL AC-4: the disabled {lane} slot reached execution")
+
+    monkeypatch.setattr(GateRunner, "_execute", forbidden)
+    before = snapshot(host)
+    capsys.readouterr()
+    code = main(["run-gate", "spec-review", "--feature", V7_FEATURE, "--json"])
+    envelope = json.loads(capsys.readouterr().out)
+    assert code != 0 and not executed, envelope
+    message = envelope["error"]["message"]
+    assert f"host disables {lane};" in message, (
+        f"FAIL AC-4: the {lane} slot must be refused because the host disables "
+        f"it: {message}"
+    )
+    assert snapshot(host) == before

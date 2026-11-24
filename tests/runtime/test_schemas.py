@@ -341,7 +341,11 @@ class TestAC10HeddleYamlVocabulary:
         assert schemas.HOST_COMMAND_KEYS == ("test", "lint", "typecheck")
 
     def test_agents_keys(self):
-        assert schemas.AGENTS_KEYS == ("claude", "codex")
+        # antigravity-reviewer-lane-v1 AC-4 (m2): the third review lane is a
+        # host agents key, appended after the existing two.
+        assert schemas.AGENTS_KEYS == ("claude", "codex", "antigravity"), (
+            "FAIL AC-4: AGENTS_KEYS must gain the antigravity lane"
+        )
 
     def test_gates_keys(self):
         assert schemas.GATES_KEYS == ("enabled",)

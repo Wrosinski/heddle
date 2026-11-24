@@ -1,0 +1,2072 @@
+"""Antigravity runner acceptance: the doubled ``agy`` behind the real runner.
+
+AC-2, AC-4, AC-6, AC-7, AC-9, AC-11, AC-12, AC-13, AC-18 and AC-22 through
+the public typed boundary (``RunGate`` and ``RunGates``). An executable
+``agy`` double is found on ``PATH``, as the Claude and Codex doubles are found;
+preparation, the runner, recording and the ledger stay real.
+
+Per physical launch the double records its argv, working directory, process
+and parent IDs, the gate marker, SHA-256 digests of the environment values
+its launcher added (never a value), stdin, the decoded user-message content,
+the files the message points at and the schema it was given. It refuses a
+wrapped message above 192,000 bytes and emits the synthetic NDJSON stream its
+scenario names, in the shapes ``agy`` 1.5.16 emits. No local run evidence.
+
+Red until the runner exists: every case first asserts the runner module.
+Cases that need the stream audit also assert the audit module; they are the
+real-stream runner-level cases that replace stub-fact cases, and turn green
+one milestone after the runner.
+"""
+
+from __future__ import annotations
+
+import base64
+import hashlib
+import importlib.util
+import json
+import os
+import re
+import signal
+import subprocess
+import sys
+import time
+from collections.abc import Callable
+from dataclasses import dataclass
+from pathlib import Path
+
+import pytest
+import yaml
+
+from tests.tiering_helpers import FABLE, entry
+from tests.tiering_review_helpers import V7_FEATURE, current_host, review_content
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+RUNNER = "heddle.gate.runners.antigravity"
+AUDIT = "heddle.gate.runners.antigravity_audit"
+NEON = {"cli": "antigravity", "model": "gemini-4-neon", "reasoning_effort": "high"}
+TESTED_VERSION = "1.5.16"
+OTHER_VERSION = "1.6.2"
+INLINE_LIMIT = 160_000
+CEILING = 250_000
+WRAPPED_CAP = 192_000
+WRAPPED_OVERHEAD = len(b"<USER_REQUEST>\n") + 400
+READ_LINES = 800
+READ_BYTES = 46_080
+WORST_PREFIX = len(b"999999: ")
+MARKER = "HEDDLE_AGENT_SESSION"
+DATA_DIR = Path.home() / ".gemini" / "antigravity-cli"
+CONVERSATION = "c0ffee00-0000-4000-8000-000000000001"
+ROLES = ("spec-review", "milestone-review", "behavior-review", "complexity-review")
+NEW_REASONS = (
+    "antigravity-quota",
+    "antigravity-api-error",
+    "antigravity-context-compacted",
+    "antigravity-unapproved-tool",
+    "antigravity-incomplete-coverage",
+    "out-of-scope-access",
+)
+MULTIBYTE = "aé€🚀"
+ESCAPE_HEAVY = '"\\\t\n\f\v<>&\x85  '
+WRAPPER_TAG = "</USER_REQUEST>"
+SPEC = "spec-review"
+
+
+# --------------------------------------------------------------------------- #
+# Seams
+# --------------------------------------------------------------------------- #
+def require_runner(ac: str) -> None:
+    assert importlib.util.find_spec(RUNNER) is not None, (
+        f"FAIL {ac}: {RUNNER} is not implemented"
+    )
+
+
+def require_audit(ac: str) -> None:
+    require_runner(ac)
+    assert importlib.util.find_spec(AUDIT) is not None, (
+        f"FAIL {ac}: {AUDIT} is not implemented, so no real stream is audited"
+    )
+
+
+def credential(tag: str = "a") -> str:
+    """A GitHub-token-shaped synthetic value; source never holds a literal one."""
+    return (
+        "gh"
+        + "p_"
+        + hashlib.sha256(f"heddle-synthetic-{tag}".encode()).hexdigest()[:36]
+    )
+
+
+# --------------------------------------------------------------------------- #
+# The doubled provider executables
+# --------------------------------------------------------------------------- #
+AGY_SOURCE = r'''
+import base64
+import hashlib
+import json
+import os
+import re
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+ROOT = Path(sys.argv[0]).resolve().parent.parent
+REPO = __REPO__
+CONVERSATION = __CONVERSATION__
+CHILD = """
+import os, signal, time
+kind = __KIND__
+if kind != "plain" and os.fork():
+    os._exit(0)
+if kind == "stubborn":
+    signal.signal(signal.SIGTERM, signal.SIG_IGN)
+path = __PIDFILE__
+with open(path + ".tmp", "w") as handle:
+    handle.write(str(os.getpid()))
+os.replace(path + ".tmp", path)
+time.sleep(30)
+"""
+
+
+def load(name, default):
+    path = ROOT / name
+    if not path.exists():
+        return default
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def append(name, row):
+    with open(ROOT / name, "a", encoding="utf-8") as handle:
+        handle.write(json.dumps(row) + "\n")
+
+
+def start_time(pid):
+    try:
+        text = Path(f"/proc/{pid}/stat").read_text()
+        return int(text.rsplit(")", 1)[1].split()[19])
+    except (OSError, IndexError, ValueError):
+        return None
+
+
+def emit(value):
+    line = value if isinstance(value, str) else json.dumps(value)
+    sys.stdout.write(line + "\n")
+    sys.stdout.flush()
+
+
+SCENARIO = load("scenario.json", {})
+argv = sys.argv[1:]
+if argv == ["--version"]:
+    version = SCENARIO.get("version", "1.5.16")
+    append("versions.jsonl", {"pid": os.getpid(), "version": version})
+    if version is None:
+        sys.stderr.write("agy: version information is unavailable\n")
+        sys.exit(2)
+    print(version)
+    sys.exit(0)
+
+
+def flag(name):
+    if name not in argv:
+        return None
+    index = argv.index(name)
+    return argv[index + 1] if index + 1 < len(argv) else None
+
+
+MODEL = flag("--model")
+CWD = os.getcwd()
+GEMINI = os.path.join(os.path.expanduser("~"), ".gemini")
+raw = sys.stdin.buffer.read()
+events, stdin_errors = [], []
+for line in raw.splitlines():
+    if line.strip():
+        try:
+            events.append(json.loads(line))
+        except ValueError as error:
+            stdin_errors.append(str(error))
+texts = [
+    event["message"]["content"]
+    for event in events
+    if isinstance(event, dict)
+    and event.get("event") == "user"
+    and isinstance(event.get("message"), dict)
+    and isinstance(event["message"].get("content"), str)
+]
+wrapped = [15 + len(text.encode("utf-8")) + 400 for text in texts]
+PATHLIKE = re.compile(r"[\w.@+~/-]*/[\w.@+~/-]+")
+observed = {}
+
+
+def visit(text, base, depth):
+    for token in PATHLIKE.findall(text):
+        token = os.path.expanduser(token.rstrip(".,:;"))
+        options = [token] if os.path.isabs(token) else [
+            os.path.join(CWD, token),
+            os.path.join(base, token),
+        ]
+        for option in options:
+            absolute = os.path.abspath(option)
+            # Never touch agy's own data directory.
+            if absolute.startswith(GEMINI):
+                continue
+            absolute = os.path.realpath(absolute)
+            if absolute in observed or not os.path.isfile(absolute):
+                continue
+            if os.path.getsize(absolute) > 4_000_000:
+                continue
+            with open(absolute, "rb") as handle:
+                data = handle.read()
+            observed[absolute] = data
+            if depth < 2:
+                text = data.decode("utf-8", "replace")
+                visit(text, os.path.dirname(absolute), depth + 1)
+
+
+for text in texts:
+    visit(text, CWD, 1)
+digests = {path: hashlib.sha256(data).hexdigest() for path, data in observed.items()}
+index_path, chunks = None, []
+for path, data in observed.items():
+    text = data.decode("utf-8", "replace")
+    found = sorted(
+        (text.find(digest), other)
+        for other, digest in digests.items()
+        if other != path and digest in text
+    )
+    if len(found) > len(chunks):
+        index_path, chunks = path, [other for _, other in found]
+schema_path = flag("--json-schema")
+schema_text = None
+if schema_path and os.path.isfile(schema_path):
+    with open(schema_path, encoding="utf-8") as handle:
+        schema_text = handle.read()
+try:
+    ROLE = json.loads(schema_text)["properties"]["role"]["enum"][0]
+except (TypeError, ValueError, KeyError, IndexError):
+    ROLE = None
+baseline = set(load("baseline-env.json", []))
+append(
+    "launches.jsonl",
+    {
+        "pid": os.getpid(),
+        "ppid": os.getppid(),
+        "start": start_time(os.getpid()),
+        "argv": argv,
+        "cwd": CWD,
+        "marker": os.environ.get("HEDDLE_AGENT_SESSION"),
+        "env": {
+            name: hashlib.sha256(value.encode("utf-8", "surrogateescape")).hexdigest()
+            for name, value in os.environ.items()
+            if name not in baseline
+        },
+        "role": ROLE,
+        "stdin": base64.b64encode(raw).decode("ascii"),
+        "stdin_errors": stdin_errors,
+        "events": [event.get("event") for event in events if isinstance(event, dict)],
+        "contents": texts,
+        "wrapped": wrapped,
+        "refused": any(size > 192_000 for size in wrapped),
+        "files": {
+            path: base64.b64encode(data).decode("ascii")
+            for path, data in observed.items()
+        },
+        "index": index_path,
+        "chunks": chunks,
+        "schema": schema_text,
+    },
+)
+if any(size > 192_000 for size in wrapped):
+    emit("error: the user message exceeds 192000 bytes")
+    sys.exit(1)
+
+reviews = SCENARIO.get("reviews", {})
+plan = SCENARIO.get("roles", {}).get(ROLE) or SCENARIO.get("ops", [])
+exit_code = 0
+step_index = 0
+
+
+def expand(value):
+    if value == "$MODEL":
+        return MODEL
+    if value == "$CWD":
+        return CWD
+    if value == "$REVIEW":
+        return reviews.get(ROLE)
+    if isinstance(value, dict):
+        return {key: expand(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [expand(item) for item in value]
+    return value
+
+
+def step(update):
+    global step_index
+    body = {"conversation_id": CONVERSATION, "step_index": step_index, "state": "DONE"}
+    body.update(update)
+    step_index += 1
+    emit({"event": "step_update", "step_update": body})
+
+
+def tool(name, parameters, output=None, **extra):
+    info = {"name": name, "parameters": parameters}
+    if output is not None:
+        info["output"] = output
+    step({"step_type": "tool", "tool_name": name, "tool_info": info, **extra})
+
+
+def spawn(kind):
+    pidfile = str(ROOT / f"child-{os.getpid()}-{kind}-{time.monotonic_ns()}.pid")
+    code = (
+        CHILD.replace("__KIND__", repr(kind)).replace("__PIDFILE__", repr(pidfile))
+    )
+    subprocess.Popen(
+        [sys.executable, "-c", code],
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        start_new_session=kind != "plain",
+        close_fds=True,
+    )
+    deadline = time.monotonic() + 10
+    while not os.path.exists(pidfile):
+        if time.monotonic() > deadline:
+            raise SystemExit("a tokened child did not start")
+        time.sleep(0.005)
+    with open(pidfile) as handle:
+        pid = int(handle.read())
+    append(
+        "children.jsonl",
+        {
+            "launch": os.getpid(),
+            "role": ROLE,
+            "kind": kind,
+            "pid": pid,
+            "start": start_time(pid),
+        },
+    )
+
+
+def attempt(spec):
+    environment = dict(os.environ)
+    environment["PYTHONPATH"] = REPO
+    environment["PYTHONDONTWRITEBYTECODE"] = "1"
+    done = subprocess.run(
+        [sys.executable, "-m", "heddle", *spec["argv"]],
+        cwd=spec["copy"],
+        env=environment,
+        capture_output=True,
+        text=True,
+        timeout=60,
+        check=False,
+    )
+    try:
+        code = json.loads(done.stdout)["error"]["code"]
+    except (ValueError, KeyError, TypeError):
+        code = None
+    append(
+        "attempts.jsonl",
+        {
+            "launch": os.getpid(),
+            "argv": spec["argv"],
+            "exit": done.returncode,
+            "code": code,
+            "marker": os.environ.get("HEDDLE_AGENT_SESSION"),
+        },
+    )
+    output = (
+        "Created At: 2026-01-01T00:00:00Z\nCompleted At: 2026-01-01T00:00:01Z\n"
+        f"Command exited with code {done.returncode}.\n\nCommand output:\n"
+        + (done.stdout + done.stderr).replace("\n", "\r\n")
+    )
+    tool(
+        "run_command",
+        {"CommandLine": "heddle " + " ".join(spec["argv"]), "Cwd": spec["copy"]},
+        output,
+    )
+
+
+for op in plan:
+    name = next(iter(op)) if isinstance(op, dict) and len(op) == 1 else None
+    if name is None or not name.startswith("$"):
+        emit(expand(op))
+        continue
+    value = op[name]
+    if name == "$step":
+        step(expand(value))
+    elif name == "$tool":
+        tool(
+            value["name"],
+            expand(value["parameters"]),
+            expand(value.get("output")),
+            **expand(value.get("extra", {})),
+        )
+    elif name == "$read_chunks":
+        targets = {"all": chunks, "all-but-last": chunks[:-1]}.get(value, [])
+        for path in targets:
+            data = observed[path]
+            lines = data.count(b"\n") + (0 if data.endswith(b"\n") else 1)
+            tool("read_file", {"Path": path}, f"{lines} lines, {len(data)} bytes")
+    elif name == "$raw":
+        emit(value)
+    elif name == "$oversize":
+        filler = "x" * (1 << 20)
+        for _ in range(value // (1 << 20) + 1):
+            emit(filler)
+    elif name == "$children":
+        for kind in value:
+            spawn(kind)
+    elif name == "$hold":
+        append("holding.jsonl", {"launch": os.getpid(), "role": ROLE})
+        deadline = time.monotonic() + 60
+        while not (ROOT / value).exists() and time.monotonic() < deadline:
+            time.sleep(0.01)
+    elif name == "$heddle":
+        attempt(value)
+    elif name == "$write":
+        target = Path(CWD, value["path"])
+        text = target.read_text(encoding="utf-8")
+        assert text.count(value["old"]) == 1, "double: the write target is ambiguous"
+        target.write_text(text.replace(value["old"], value["new"]), encoding="utf-8")
+        append("writes.jsonl", {"launch": os.getpid(), "path": str(target)})
+        parameters = {
+            "TargetFile": str(target),
+            "TargetContent": value["old"],
+            "ReplacementContent": value["new"],
+            "AllowMultiple": False,
+        }
+        tool("replace_file_content", parameters, "Edited 1 occurrence.")
+    elif name == "$exit":
+        exit_code = value
+    elif name == "$result":
+        body = {
+            "conversation_id": CONVERSATION,
+            "status": "SUCCESS",
+            "response": "",
+            "duration_seconds": 1.0,
+            "num_turns": 1,
+            "usage": {
+                "input_tokens": 1000,
+                "output_tokens": 200,
+                "thinking_tokens": 100,
+                "cache_read_tokens": 0,
+                "total_tokens": 1300,
+            },
+        }
+        body.update(expand(value))
+        emit({"event": "result", "result": body})
+sys.exit(exit_code)
+'''
+
+CLAUDE_SOURCE = r"""
+import json
+import os
+import sys
+from pathlib import Path
+
+ROOT = Path(sys.argv[0]).resolve().parent.parent
+argv = sys.argv[1:]
+sys.stdin.read()
+try:
+    schema = json.loads(argv[argv.index("--json-schema") + 1])
+    role = schema["properties"]["role"]["enum"][0]
+except (ValueError, KeyError, IndexError, TypeError):
+    role = "spec-review"
+with open(ROOT / "claude.jsonl", "a", encoding="utf-8") as handle:
+    handle.write(json.dumps({"pid": os.getpid(), "role": role}) + "\n")
+review = json.loads((ROOT / "reviews.json").read_text(encoding="utf-8"))[role]
+print(json.dumps({
+    "type": "result",
+    "subtype": "success",
+    "is_error": False,
+    "structured_output": review,
+}))
+"""
+
+
+@dataclass
+class Agy:
+    """The doubled ``agy`` (and a Claude sibling) with its observation logs."""
+
+    root: Path
+    reviews: dict
+
+    def scenario(
+        self,
+        ops: list | None = None,
+        *,
+        roles: dict[str, list] | None = None,
+        version: str | None = TESTED_VERSION,
+        reviews: dict | None = None,
+    ) -> None:
+        value = {
+            "ops": clean_stream() if ops is None else ops,
+            "roles": roles or {},
+            "version": version,
+            "reviews": reviews or self.reviews,
+        }
+        (self.root / "scenario.json").write_text(json.dumps(value), encoding="utf-8")
+
+    def rows(self, name: str) -> list[dict]:
+        path = self.root / name
+        if not path.exists():
+            return []
+        return [json.loads(line) for line in path.read_text().splitlines() if line]
+
+    def launches(self) -> list[dict]:
+        return self.rows("launches.jsonl")
+
+    def claude_calls(self) -> list[dict]:
+        return self.rows("claude.jsonl")
+
+    def children(self) -> list[dict]:
+        return self.rows("children.jsonl")
+
+    def release(self, name: str = "release") -> None:
+        (self.root / name).touch()
+
+    def prepared(self) -> list[dict]:
+        return self.rows("prepared.jsonl")
+
+    def wait_for(self, name: str, count: int = 1, timeout: float = 20.0) -> list[dict]:
+        deadline = time.monotonic() + timeout
+        while len(self.rows(name)) < count:
+            assert time.monotonic() < deadline, f"fixture: {name} never reached {count}"
+            time.sleep(0.01)
+        return self.rows(name)
+
+
+def _executable(path: Path, source: str) -> None:
+    path.write_text(f"#!{sys.executable}\n{source}", encoding="utf-8")
+    path.chmod(0o755)
+
+
+def fast_gate_args(monkeypatch, *, timeout: float = 20, inactivity: float = 20) -> None:
+    """Short monitor polling for every gate the run builds (fork workers inherit)."""
+    from heddle.gate import cli
+
+    original = cli.GateArgs
+
+    def fast(*args, **kwargs):
+        value = original(*args, **kwargs)
+        value.poll_seconds = 0.02
+        value.term_grace_seconds = 0.2
+        value.timeout_seconds = timeout
+        value.inactivity_timeout_seconds = inactivity
+        return value
+
+    monkeypatch.setattr(cli, "GateArgs", fast)
+
+
+def frozen_route(prepared) -> dict | None:
+    """The frozen route preparation sets, as plain data (fork-safe).
+
+    The only reader of the route seam: ``PreparedGateRun.antigravity_route``
+    with ``.kind``, ``.size``, ``.ceiling`` and ``.chunks`` (each ``.start``,
+    ``.end``, ``.sha256``), so a rename is one edit here.
+    """
+    route = getattr(prepared, "antigravity_route", None)
+    if route is None:
+        return None
+    return {
+        "kind": route.kind,
+        "size": route.size,
+        "ceiling": route.ceiling,
+        "chunks": [[chunk.start, chunk.end, chunk.sha256] for chunk in route.chunks],
+    }
+
+
+def observe_prepared(monkeypatch, root: Path) -> None:
+    """Record each prepared run's frozen capture at the engine seam, fork-safe."""
+    from heddle.gate import entry as gate_entry
+
+    original = gate_entry.run_gate_for_runtime
+
+    def observed(gate_type, context, **kwargs):
+        prepared = context.prepared_run
+        contract = prepared.output_contract
+        row = {
+            "gate": gate_type.name,
+            "cli": prepared.invocation.exec_config.cli,
+            "slot": prepared.reviewer_slot,
+            "assignment": prepared.assignment_id,
+            "capture": prepared.transport.stdin,
+            "system": prepared.transport.system,
+            "route": frozen_route(prepared),
+            "schema": contract.schema_json if contract is not None else None,
+        }
+        with (root / "prepared.jsonl").open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps(row) + "\n")
+        return original(gate_type, context, **kwargs)
+
+    monkeypatch.setattr(gate_entry, "run_gate_for_runtime", observed)
+
+
+def install_agy(tmp_path: Path, monkeypatch, **gate_args) -> Agy:
+    """Put the doubled ``agy`` and ``claude`` first on PATH; record the baseline env."""
+    root = tmp_path / "agy-double"
+    (root / "bin").mkdir(parents=True)
+    source = AGY_SOURCE.replace("__REPO__", repr(str(REPO_ROOT))).replace(
+        "__CONVERSATION__", repr(CONVERSATION)
+    )
+    _executable(root / "bin" / "agy", source)
+    _executable(root / "bin" / "claude", CLAUDE_SOURCE)
+    reviews = {role: review_content(role) for role in ROLES}
+    (root / "reviews.json").write_text(json.dumps(reviews), encoding="utf-8")
+    monkeypatch.setenv("PATH", f"{root / 'bin'}{os.pathsep}{os.environ['PATH']}")
+    monkeypatch.delenv(MARKER, raising=False)
+    (root / "baseline-env.json").write_text(json.dumps(sorted(os.environ)))
+    fast_gate_args(monkeypatch, **gate_args)
+    observe_prepared(monkeypatch, root)
+    agy = Agy(root, reviews)
+    agy.scenario()
+    return agy
+
+
+# --------------------------------------------------------------------------- #
+# Synthetic streams
+# --------------------------------------------------------------------------- #
+TOOLS = [
+    "read_file",
+    "grep_search",
+    "find_by_name",
+    "list_dir",
+    "run_command",
+    "send_command_input",
+    "manage_task",
+]
+ABSENT = object()
+READ_ALL = {"$read_chunks": "all"}
+READ_ALL_BUT_LAST = {"$read_chunks": "all-but-last"}
+
+
+def init_event(model: object = "$MODEL") -> dict:
+    body = {
+        "model": model,
+        "cwd": "$CWD",
+        "tools": TOOLS,
+        "permission_mode": "always-proceed",
+    }
+    if model is ABSENT:
+        body.pop("model")
+    return {"event": "init", "conversation_id": CONVERSATION, "init": body}
+
+
+def result_event(**fields) -> dict:
+    body: dict = {"structured_output": "$REVIEW", "response": "Review complete."}
+    body.update(fields)
+    return {
+        "$result": {key: value for key, value in body.items() if value is not ABSENT}
+    }
+
+
+def tool_step(name: str, parameters: dict, output: str | None = None, **extra) -> dict:
+    spec: dict = {"name": name, "parameters": parameters}
+    if output is not None:
+        spec["output"] = output
+    if extra:
+        spec["extra"] = extra
+    return {"$tool": spec}
+
+
+def clean_stream(*middle, result: dict | None = None, head=None, reads=READ_ALL):
+    return [
+        *(head if head is not None else [init_event()]),
+        {"$step": {"step_type": "user_input"}},
+        reads,
+        *middle,
+        {"$step": {"step_type": "finish"}},
+        result if result is not None else result_event(),
+    ]
+
+
+def shell_output(text: str, code: int = 0) -> str:
+    return (
+        "Created At: 2026-01-01T00:00:00Z\nCompleted At: 2026-01-01T00:00:01Z\n"
+        f"Command exited with code {code}.\n\nCommand output:\n"
+        + text.replace("\n", "\r\n")
+    )
+
+
+# --------------------------------------------------------------------------- #
+# Hosts and runs
+# --------------------------------------------------------------------------- #
+def spec_host(tmp_path, monkeypatch, *, secondary=None, prompt: str | None = None):
+    """A spec-review host whose primary slot is the Antigravity reviewer."""
+    host, state_path = current_host(
+        tmp_path,
+        monkeypatch,
+        stage="spec-review",
+        overrides={"spec-review": entry(SPEC, primary=NEON, secondary=secondary)},
+    )
+    if prompt is not None:
+        write_prompt(host, prompt)
+    return host, state_path
+
+
+def write_prompt(host: Path, text: str, gate: str = SPEC) -> None:
+    path = host / "prompts" / f"{gate}.md"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(text.encode("utf-8"))
+
+
+def chunked_prompt(size: int = 2_000) -> str:
+    """A small host prompt carrying a wrapper tag, so delivery must be chunked."""
+    line = "Review every declared value against the specification.\n"
+    return f"# Review\n\nQuote {WRAPPER_TAG} literally if it appears.\n\n" + line * max(
+        1, size // len(line)
+    )
+
+
+def run_gate(gate: str = SPEC, reviewer: dict | None = None):
+    from heddle.contracts import operations as ops
+    from heddle.runtime.application import execute
+
+    return execute(ops.RunGate(gate, feature=V7_FEATURE, **(reviewer or NEON)))
+
+
+def run_batch():
+    from heddle.contracts import operations as ops
+    from heddle.runtime.application import execute
+
+    return execute(ops.RunGates(feature=V7_FEATURE))
+
+
+def gate_rows(state_path: Path) -> list[dict]:
+    return [
+        {**run, "gate": gate["gate"]}
+        for gate in yaml.safe_load(state_path.read_text())["gates"]
+        for run in gate["runs"]
+    ]
+
+
+def lane_rows(state_path: Path, cli: str = "antigravity") -> list[dict]:
+    return [row for row in gate_rows(state_path) if row.get("cli") == cli]
+
+
+def summary_for(state_path: Path, gate: str = SPEC) -> dict:
+    found = []
+    for path in sorted((state_path.parent / "reviews").glob("*.gate-summary.json")):
+        # Skip rotated summaries and the published review view's summary.
+        if ".prev." in path.name or path.name.endswith(".review.gate-summary.json"):
+            continue
+        value = json.loads(path.read_text())
+        if value.get("gate") == gate and value.get("cli") == "antigravity":
+            found.append(value)
+    assert len(found) == 1, f"fixture: expected one antigravity {gate} summary"
+    return found[0]
+
+
+def gate_log(state_path: Path, gate: str = SPEC) -> str:
+    return Path(summary_for(state_path, gate)["io"]["log"]).read_text()
+
+
+def captures(state_path: Path) -> list[Path]:
+    return sorted((state_path.parent / "reviews").glob("*.capture.json"))
+
+
+def flag_value(argv: list[str], name: str) -> str | None:
+    if name not in argv:
+        return None
+    index = argv.index(name)
+    return argv[index + 1] if index + 1 < len(argv) else None
+
+
+def temp_dir_of(launch: dict) -> Path:
+    schema = flag_value(launch["argv"], "--json-schema")
+    assert schema, "FAIL AC-9: the launch names no --json-schema file"
+    return Path(schema).parent
+
+
+def files_of(launch: dict) -> dict[str, bytes]:
+    return {path: base64.b64decode(data) for path, data in launch["files"].items()}
+
+
+def _prepared_row(agy: Agy, gate: str) -> dict:
+    rows = [
+        row
+        for row in agy.prepared()
+        if row["gate"] == gate and row["cli"] == "antigravity"
+    ]
+    assert rows, "fixture: no prepared antigravity run reached the engine seam"
+    return rows[-1]
+
+
+def capture_of(agy: Agy, gate: str = SPEC) -> bytes:
+    """The frozen capture: ``transport.stdin``, with no system part."""
+    row = _prepared_row(agy, gate)
+    assert row["system"] is None, "FAIL AC-6: the frozen transport has a system part"
+    return row["capture"].encode("utf-8")
+
+
+def route_of(agy: Agy, kind: str, ac: str, gate: str = SPEC) -> dict:
+    """The frozen route, checked against the frozen capture's UTF-8 bytes."""
+    row = _prepared_row(agy, gate)
+    route = row["route"]
+    assert route is not None, f"FAIL {ac}: preparation froze no antigravity route"
+    capture = row["capture"].encode("utf-8")
+    assert route["kind"] == kind, f"FAIL {ac}: route {route['kind']}, expected {kind}"
+    assert route["size"] == len(capture) and route["ceiling"] == CEILING, (
+        f"FAIL {ac}: the route's size or ceiling differs from the frozen capture"
+    )
+    if kind != "chunked":
+        assert list(route["chunks"]) == [], f"FAIL {ac}: an inline route has chunks"
+        return route
+    ranges = [(start, end) for start, end, _digest in route["chunks"]]
+    assert ranges and ranges[0][0] == 0 and ranges[-1][1] == len(capture), (
+        f"FAIL {ac}: the route's chunks do not span the capture"
+    )
+    assert all(a[1] == b[0] for a, b in zip(ranges, ranges[1:], strict=False)), (
+        f"FAIL {ac}: the route's chunks are not contiguous"
+    )
+    for start, end, digest in route["chunks"]:
+        assert hashlib.sha256(capture[start:end]).hexdigest() == digest, (
+            f"FAIL {ac}: chunk [{start}, {end}) digest differs from its slice"
+        )
+    return route
+
+
+# --------------------------------------------------------------------------- #
+# Processes
+# --------------------------------------------------------------------------- #
+def _start_time(pid: int) -> int | None:
+    try:
+        text = Path(f"/proc/{pid}/stat").read_text()
+    except OSError:
+        return None
+    fields = text.rsplit(")", 1)[1].split()
+    return None if fields[0] == "Z" else int(fields[19])
+
+
+def alive(pid: int, start: int | None) -> bool:
+    """The process with this ID and start time exists and is not a zombie."""
+    current = _start_time(pid)
+    return current is not None and (start is None or current == start)
+
+
+class Processes:
+    """An unrelated, untokened process, and teardown of anything left running."""
+
+    def __init__(self, agy: Agy) -> None:
+        self.agy = agy
+        self.unrelated = subprocess.Popen(
+            [sys.executable, "-c", "import time; time.sleep(60)"],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        self.unrelated_start = None
+        deadline = time.monotonic() + 5
+        while self.unrelated_start is None and time.monotonic() < deadline:
+            self.unrelated_start = _start_time(self.unrelated.pid)
+
+    def unrelated_alive(self) -> bool:
+        return self.unrelated.poll() is None and alive(
+            self.unrelated.pid, self.unrelated_start
+        )
+
+    def cleanup(self, kill: Callable[[int, int], None] = os.kill) -> None:
+        for child in self.agy.children():
+            if alive(child["pid"], child["start"]):
+                try:
+                    kill(child["pid"], signal.SIGKILL)
+                except OSError:
+                    pass
+        self.unrelated.kill()
+        self.unrelated.wait()
+
+
+@pytest.fixture
+def agy(tmp_path, monkeypatch) -> Agy:
+    return install_agy(tmp_path, monkeypatch)
+
+
+@pytest.fixture
+def processes(agy):
+    tracker = Processes(agy)
+    yield tracker
+    tracker.cleanup()
+
+
+# --------------------------------------------------------------------------- #
+# Assertions shared by the outcome rows
+# --------------------------------------------------------------------------- #
+def assert_hard_failure(state_path: Path, agy: Agy, reason: str, ac: str) -> None:
+    """One launch, the reason recorded, no capture, no retry, no other lane."""
+    rows = lane_rows(state_path)
+    assert rows, f"FAIL {ac}: no antigravity run was recorded"
+    assert rows[-1].get("failure_reason") == reason, (
+        f"FAIL {ac}: expected {reason}, recorded "
+        f"{rows[-1].get('failure_reason')} ({rows[-1]['verdict']['status']})"
+    )
+    assert rows[-1]["verdict"]["status"] == "error"
+    assert len(agy.launches()) == 1, (
+        f"FAIL {ac}: a hard failure launched agy {len(agy.launches())} times "
+        "(a retry or a fallback)"
+    )
+    assert captures(state_path) == [], (
+        f"FAIL {ac}: a hard failure left an interpretable capture"
+    )
+    attempts = yaml.safe_load(state_path.read_text())["review_assignments"]["attempts"]
+    assert "usable-capture" not in [row["outcome"]["kind"] for row in attempts], (
+        f"FAIL {ac}: a hard failure was offered for interpretation"
+    )
+
+
+def assert_recorded(state_path: Path, ac: str) -> dict:
+    rows = lane_rows(state_path)
+    assert rows, f"FAIL {ac}: the clean antigravity launch did not record"
+    row = rows[-1]
+    assert row["verdict"]["status"] != "error", (
+        f"FAIL {ac}: the clean launch failed as {row.get('failure_reason')}"
+    )
+    execution = row.get("execution_config") or {}
+    recorded = {key: execution.get(key) for key in NEON}
+    assert row["cli"] == NEON["cli"] and recorded == NEON, (
+        f"FAIL AC-4: the ledger row records {row['cli']} {recorded}"
+    )
+    return row
+
+
+def assert_reads_back_as_antigravity(
+    state_path: Path, gate: str = SPEC, cli: str = "antigravity"
+) -> None:
+    """AC-4: the recorded run reads back through the normal decoders, so the
+    frozen reviewer slot and the recorded result both carry the lane."""
+    from heddle.contracts import operations as ops
+    from heddle.gate.results import decode_review_result
+    from heddle.kernel.review_assignments import parse_assignments
+    from heddle.runtime.application import execute
+
+    state = yaml.safe_load(state_path.read_text())
+    try:
+        assignments = parse_assignments(state["review_assignments"])
+    except Exception as error:  # the decoder's own refusal is the finding
+        raise AssertionError(
+            "FAIL AC-4: the frozen-slot decoder (parse_assignments in "
+            f"heddle.kernel.review_assignments) refused the antigravity slot: {error}"
+        ) from error
+    clis = {
+        slot.reviewer.cli
+        for assignment in assignments.assignments
+        if assignment.role == gate
+        for round_ in assignment.rounds
+        for slot in round_.slots
+    }
+    assert cli in clis, (
+        f"FAIL AC-4: the frozen-slot decoder read the {gate} slots as {clis}"
+    )
+    row = lane_rows(state_path, cli)[-1]
+    raw = (state_path.parent / row["artifact"]).read_bytes()
+    try:
+        result = decode_review_result(raw)
+    except Exception as error:  # the decoder's own refusal is the finding
+        raise AssertionError(
+            "FAIL AC-4: the result decoder (decode_review_result in "
+            f"heddle.gate.results) refused execution.cli antigravity: {error}"
+        ) from error
+    assert result.invocation.execution.cli == cli, (
+        "FAIL AC-4: the result decoder read execution.cli as "
+        f"{result.invocation.execution.cli}"
+    )
+    status = execute(ops.Status(feature=V7_FEATURE))
+    assert status.ok, (
+        "FAIL AC-4: status could not read the recorded antigravity run back "
+        f"(frozen-slot and result decoders): {status.to_envelope()}"
+    )
+
+
+def batch_member(result, slot: str) -> dict:
+    members = (
+        result.data["members"] if result.ok else result.error.details.get("members")
+    )
+    assert members, f"fixture: the batch ran no members: {result.to_envelope()}"
+    found = [row for row in members if row["reviewer_slot"] == slot]
+    assert len(found) == 1
+    return found[0]
+
+
+def resolve_refs(schema: dict) -> dict:
+    """The canonical schema with every local ``$ref`` inlined and ``$defs`` dropped."""
+    definitions = schema.get("$defs", {})
+
+    def walk(value, depth=0):
+        assert depth < 64, "fixture: the canonical schema refers to itself"
+        if isinstance(value, dict):
+            reference = value.get("$ref")
+            if isinstance(reference, str) and reference.startswith("#/$defs/"):
+                target = walk(
+                    definitions[reference.removeprefix("#/$defs/")], depth + 1
+                )
+                siblings = {
+                    k: walk(v, depth + 1) for k, v in value.items() if k != "$ref"
+                }
+                return {**target, **siblings}
+            return {k: walk(v, depth + 1) for k, v in value.items() if k != "$defs"}
+        if isinstance(value, list):
+            return [walk(item, depth + 1) for item in value]
+        return value
+
+    return walk(schema)
+
+
+def chunk_files(launch: dict) -> list[bytes]:
+    files = files_of(launch)
+    return [files[path] for path in launch["chunks"]]
+
+
+def assert_chunked_delivery(launch: dict, capture: bytes, ac: str, route: dict) -> None:
+    """The written chunks, in index order, are the frozen route's slices of the
+    frozen capture, and the index binds each to its digest and byte range."""
+    assert launch["index"] is not None, (
+        f"FAIL {ac}: the launch message points at no index binding chunk digests"
+    )
+    chunks = chunk_files(launch)
+    assert chunks, f"FAIL {ac}: no chunk file was observed"
+    assert b"".join(chunks) == capture, (
+        f"FAIL {ac}: the written chunks do not reassemble the frozen capture"
+    )
+    assert [capture[start:end] for start, end, _ in route["chunks"]] == chunks, (
+        f"FAIL {ac}: the written chunks are not the frozen route's slices"
+    )
+    index = files_of(launch)[launch["index"]].decode("utf-8")
+    for _start, _end, digest in route["chunks"]:
+        assert digest in index, f"FAIL {ac}: the index omits chunk digest {digest}"
+
+    def names(value: int) -> bool:
+        pattern = rf"(?<![\d,]){value:,}(?![\d,])|(?<![\d,]){value}(?![\d,])"
+        return re.search(pattern, index) is not None
+
+    start = 0
+    for number, piece in enumerate(chunks):
+        end = start + len(piece)
+        assert names(end) or (names(start) and names(len(piece))), (
+            f"FAIL {ac}: the index does not bind chunk {number} to its byte range "
+            f"[{start}, {end})"
+        )
+        start = end
+        piece.decode("utf-8")
+        lines = piece.count(b"\n") + (0 if piece.endswith(b"\n") else 1)
+        assert lines <= READ_LINES, f"FAIL {ac}: chunk {number} has {lines} lines"
+        assert len(piece) + lines * WORST_PREFIX <= READ_BYTES, (
+            f"FAIL {ac}: chunk {number} does not fit one read_file call"
+        )
+    (message,) = launch["contents"]
+    assert len(message.encode("utf-8")) < 8_192 and MULTIBYTE * 4 not in message, (
+        f"FAIL {ac}: the NDJSON message carries capture text, not the launch pointer"
+    )
+
+
+# --------------------------------------------------------------------------- #
+# AC-9, AC-4, AC-11 success, AC-2 clean launch, AC-6 inline: one clean launch
+# --------------------------------------------------------------------------- #
+def test_ac9_ac4_ac11_clean_launch_is_exact_and_records_in_process(
+    tmp_path, monkeypatch, agy
+):
+    """AC-9 launch observation; AC-4 recorded identity, read back through the
+    frozen-slot and result decoders; AC-11 success row; AC-2's clean
+    Antigravity launch records in process; AC-6 small inline."""
+    require_runner("AC-9")
+    host, state_path = spec_host(tmp_path, monkeypatch)
+    result = run_gate()
+    assert result.ok, f"FAIL AC-11: the clean launch failed: {result.to_envelope()}"
+    assert_recorded(state_path, "AC-11")
+    assert_reads_back_as_antigravity(state_path)
+    (launch,) = agy.launches()
+    argv = launch["argv"]
+    assert Path(launch["cwd"]).resolve() == host.resolve(), (
+        f"FAIL AC-9: agy ran in {launch['cwd']}, not the checkout root"
+    )
+    assert flag_value(argv, "--input-format") == "stream-json"
+    assert flag_value(argv, "--output-format") == "stream-json"
+    assert flag_value(argv, "--model") == NEON["model"], f"FAIL AC-9: argv {argv}"
+    assert flag_value(argv, "--effort") == NEON["reasoning_effort"], (
+        f"FAIL AC-9: model and effort are not separate values: {argv}"
+    )
+    assert "--dangerously-skip-permissions" in argv, "FAIL AC-9: not full permissions"
+    assert "--disable-slash-commands" in argv, "FAIL AC-9: slash commands enabled"
+    assert not any(arg.startswith("--log-file") for arg in argv), (
+        "FAIL AC-9: agy was given --log-file"
+    )
+    settings = json.loads(flag_value(argv, "--settings") or "{}")
+    rules = settings.get("permissions", {}).get("deny", [])
+    assert len(rules) == 1, f"FAIL AC-9: expected one deny rule, got {rules}"
+    denied = re.fullmatch(r"read_file\((.+)\)", rules[0])
+    assert denied and os.path.normpath(denied.group(1)) == str(DATA_DIR), (
+        f"FAIL AC-9: the deny rule is not read_file on agy's data dir: {rules}"
+    )
+    schema = launch["schema"]
+    assert schema is not None, "FAIL AC-9: the --json-schema file was not readable"
+    assert "$ref" not in schema and "$defs" not in schema, "FAIL AC-9: $ref in schema"
+    canonical = json.loads(agy.prepared()[-1]["schema"])
+    assert json.loads(schema) == resolve_refs(canonical), (
+        "FAIL AC-9: the delivered schema is not the canonical contract inlined"
+    )
+    assert launch["marker"] == "gate", f"FAIL AC-9: marker {launch['marker']!r}"
+    tokens = {name for name in launch["env"] if name != MARKER}
+    assert tokens, "FAIL AC-9: the launch environment carries no launch token"
+    assert not launch["refused"] and launch["stdin_errors"] == []
+    assert launch["events"] == ["user"], f"FAIL AC-6: stdin events {launch['events']}"
+    assert launch["contents"] == [capture_of(agy).decode("utf-8")], (
+        "FAIL AC-6: the decoded NDJSON content is not the frozen capture"
+    )
+    route_of(agy, "inline", "AC-6")
+
+
+def test_ac9_each_physical_launch_carries_a_fresh_token(tmp_path, monkeypatch, agy):
+    """AC-9: two physical launches of one slot carry different token values."""
+    require_runner("AC-9")
+    _host, state_path = spec_host(tmp_path, monkeypatch)
+    agy.scenario(clean_stream() + [{"$exit": 1}])
+    first = run_gate()
+    assert not first.ok
+    agy.scenario()
+    second = run_gate()
+    assert second.ok, second.to_envelope()
+    one, two = agy.launches()
+    shared = (set(one["env"]) & set(two["env"])) - {MARKER}
+    fresh = [name for name in shared if one["env"][name] != two["env"][name]]
+    assert fresh, "FAIL AC-9: no launch-token value differs between the two launches"
+    for launch in (one, two):
+        argv_digests = {
+            hashlib.sha256(arg.encode()).hexdigest() for arg in launch["argv"]
+        }
+        assert not argv_digests & {launch["env"][name] for name in fresh}, (
+            "FAIL AC-9: the launch token is visible in argv"
+        )
+
+
+ALTERED = ("chunk", "index", "launch")
+
+
+def alter_after_write(monkeypatch, state_path: Path, target: str, record: Path) -> None:
+    """Alter one transport file between the runner's write and its re-verification.
+
+    Seam: ``heddle.gate.runners.antigravity.write_transport`` writes the launch
+    message, chunks and index into the run temp directory and returns before
+    re-verification. The change keeps the file's length.
+    """
+    runner = importlib.import_module(RUNNER)
+    assert hasattr(runner, "write_transport"), (
+        f"FAIL AC-9: {RUNNER} exposes no write-to-verify seam write_transport"
+    )
+    original = runner.write_transport
+    reviews = state_path.parent / "reviews"
+
+    def altered(*args, **kwargs):
+        written = original(*args, **kwargs)
+        directories = sorted(reviews.glob("*.antigravity.tmp.*"), key=os.path.getmtime)
+        assert directories, "fixture: no antigravity run temp directory"
+        path = transport_file(directories[-1], target)
+        data = bytearray(path.read_bytes())
+        position = _mutable_position(data, target)
+        data[position] = _mutated(data[position], target)
+        path.write_bytes(bytes(data))
+        record.write_text(str(path))
+        return written
+
+    monkeypatch.setattr(runner, "write_transport", altered)
+
+
+def transport_file(directory: Path, target: str) -> Path:
+    files = [path for path in directory.rglob("*") if path.is_file()]
+    digests = {path: hashlib.sha256(path.read_bytes()).hexdigest() for path in files}
+    index, chunks = None, []
+    for path in files:
+        text = path.read_bytes().decode("utf-8", "replace")
+        found = [
+            other
+            for other, digest in digests.items()
+            if other != path and digest in text
+        ]
+        if len(found) > len(chunks):
+            index, chunks = path, found
+    if target == "chunk":
+        assert chunks, "fixture: the run temp directory holds no chunk files"
+        return chunks[0]
+    assert index is not None, "fixture: the run temp directory holds no index"
+    if target == "index":
+        return index
+    pointers = [
+        path
+        for path in files
+        if path != index
+        and path not in chunks
+        and index.name.encode() in path.read_bytes()
+    ]
+    named = [path for path in files if "launch" in path.name]
+    assert pointers or named, "fixture: no launch message names the index"
+    return (pointers or named)[0]
+
+
+def _mutable_position(data: bytearray, target: str) -> int:
+    if target == "index":
+        match = re.search(rb"[0-9a-f]{64}", data)
+        assert match, "fixture: the index carries no SHA-256 digest"
+        return match.start() + 63
+    for position, byte in enumerate(data):
+        if 0x61 <= byte <= 0x7A:
+            return position
+    raise AssertionError("fixture: no ASCII letter to alter")
+
+
+def _mutated(byte: int, target: str) -> int:
+    if target == "index":
+        return ord("0") if byte != ord("0") else ord("1")
+    return byte - 0x20
+
+
+@pytest.mark.parametrize("target", ALTERED)
+def test_ac9_altered_transport_file_fails_standalone_before_any_launch(
+    tmp_path, monkeypatch, agy, target
+):
+    """AC-9 standalone: an altered chunk, index or launch message fails the run as
+    ``execution-failure``, names the changed file, and agy never launches."""
+    require_runner("AC-9")
+    _host, state_path = spec_host(tmp_path, monkeypatch, prompt=chunked_prompt())
+    record = tmp_path / "altered.txt"
+    alter_after_write(monkeypatch, state_path, target, record)
+    result = run_gate()
+    assert not result.ok
+    assert record.exists(), "fixture: the transport write seam was not reached"
+    assert agy.launches() == [], f"FAIL AC-9: agy launched after the {target} changed"
+    rows = lane_rows(state_path)
+    assert rows and rows[-1].get("failure_reason") == "execution-failure", (
+        f"FAIL AC-9: the altered run recorded {rows[-1:]}"
+    )
+    changed = Path(record.read_text()).name
+    assert changed in gate_log(state_path) or changed in json.dumps(
+        result.to_envelope()
+    ), f"FAIL AC-9: no warning names the changed file {changed}"
+
+
+# --------------------------------------------------------------------------- #
+# AC-6, AC-7, AC-22: delivery of the frozen capture
+# --------------------------------------------------------------------------- #
+def _probe_capture_size(monkeypatch) -> Callable[[], int]:
+    """Prepare a standalone run and stop before any launch, reporting its size."""
+    from heddle.gate import entry as gate_entry
+    from heddle.kernel.project_config import KernelError
+
+    original = gate_entry.prepare_gate_run
+    sizes: list[int] = []
+
+    def probe(*args, **kwargs):
+        prepared = original(*args, **kwargs)
+        sizes.append(len(prepared.transport.stdin.encode("utf-8")))
+        raise KernelError(
+            code="workspace-invalid", message="fixture probe", hint="fixture probe"
+        )
+
+    def measure() -> int:
+        with monkeypatch.context() as patch:
+            patch.setattr(gate_entry, "prepare_gate_run", probe)
+            run_gate()
+        assert sizes, "fixture: the probe never reached preparation"
+        return sizes[-1]
+
+    return measure
+
+
+def sized_prompt(host: Path, monkeypatch, total: int, unit: str) -> None:
+    """Write a host prompt that makes the frozen capture exactly ``total`` bytes.
+
+    The prompt is a heading, ``count`` repetitions of ``unit`` and ASCII
+    padding. Probes measure the base size and one unit's growth, then the
+    padding absorbs any remainder; a last probe confirms the exact size.
+    """
+    measure = _probe_capture_size(monkeypatch)
+    head = "# Review\n\n"
+
+    def body(count: int, pad: int) -> str:
+        # Padding leads, so it never meets the units' stripped line ends.
+        return head + "x" * pad + unit * count + "\n"
+
+    write_prompt(host, body(0, 0))
+    base = measure()
+    write_prompt(host, body(100, 0))
+    growth = (measure() - base) / 100
+    count = max(0, int((total - base - 256) // growth))
+    pad = 0
+    for _ in range(6):
+        write_prompt(host, body(count, pad))
+        size = measure()
+        if size == total:
+            return
+        if size > total:
+            # Prompt whitespace is normalized, so growth is not exactly linear.
+            count = max(0, count - int((size - total) // growth) - 2)
+            pad = 0
+        else:
+            pad += total - size
+    raise AssertionError(f"fixture: could not size the capture to {total} bytes")
+
+
+@pytest.mark.parametrize(
+    "unit", [MULTIBYTE, ESCAPE_HEAVY], ids=["1-to-4-byte", "escape-heavy"]
+)
+def test_ac6_capture_at_the_inline_limit_is_delivered_byte_exact(
+    tmp_path, monkeypatch, agy, unit
+):
+    """AC-6: at exactly 160,000 bytes the decoded NDJSON content is the capture."""
+    require_runner("AC-6")
+    host, state_path = spec_host(tmp_path, monkeypatch)
+    sized_prompt(host, monkeypatch, INLINE_LIMIT, unit)
+    result = run_gate()
+    assert result.ok, result.to_envelope()
+    (launch,) = agy.launches()
+    capture = capture_of(agy)
+    assert len(capture) == INLINE_LIMIT
+    route_of(agy, "inline", "AC-6")
+    assert not launch["refused"], "FAIL AC-6: the wrapped message exceeded the cap"
+    assert launch["contents"] == [capture.decode("utf-8")], (
+        "FAIL AC-6: the decoded NDJSON content is not the capture byte for byte"
+    )
+    assert launch["wrapped"][0] == INLINE_LIMIT + WRAPPED_OVERHEAD <= WRAPPED_CAP
+
+
+CHUNKED_CASES = {
+    "160001-bytes": (INLINE_LIMIT + 1, MULTIBYTE, ""),
+    "250000-bytes": (CEILING, MULTIBYTE, ""),
+    "format-code-point": (None, MULTIBYTE, "​"),
+    "wrapper-tag": (None, MULTIBYTE, "<context_summary>"),
+}
+
+
+@pytest.mark.parametrize("case", list(CHUNKED_CASES))
+def test_ac6_ac7_chunked_capture_is_delivered_as_whole_readable_files(
+    tmp_path, monkeypatch, agy, case
+):
+    """AC-6 at 160,001 bytes and AC-7: the written chunks, in index order, equal
+    the frozen capture; each fits one read; the message is the pointer only."""
+    require_runner("AC-7")
+    total, unit, marker = CHUNKED_CASES[case]
+    host, state_path = spec_host(tmp_path, monkeypatch)
+    if total is None:
+        write_prompt(host, f"# Review\n\nNote {marker} here.\n" + unit * 200 + "\n")
+    else:
+        sized_prompt(host, monkeypatch, total, unit)
+    result = run_gate()
+    assert result.ok, result.to_envelope()
+    (launch,) = agy.launches()
+    capture = capture_of(agy)
+    if total is not None:
+        assert len(capture) == total
+    route = route_of(agy, "chunked", "AC-7")
+    assert_chunked_delivery(launch, capture, "AC-7", route)
+
+
+def test_ac7_near_miss_controls_are_delivered_inline(tmp_path, monkeypatch, agy):
+    """AC-7 controls: ``USER_REQUEST`` without ``<`` and ``<USER_REQ`` stay inline."""
+    require_runner("AC-7")
+    _host, state_path = spec_host(
+        tmp_path, monkeypatch, prompt="# Review\n\nUSER_REQUEST and <USER_REQ stay.\n"
+    )
+    result = run_gate()
+    assert result.ok, result.to_envelope()
+    (launch,) = agy.launches()
+    assert launch["contents"] == [capture_of(agy).decode("utf-8")], (
+        "FAIL AC-7: a near-miss control was not delivered inline"
+    )
+    route_of(agy, "inline", "AC-7")
+
+
+def test_ac22_milestone_body_with_the_checkout_path_is_delivered_byte_exact(
+    tmp_path, monkeypatch, agy
+):
+    """AC-22 (Antigravity delivery): the embedded diff body that names the
+    absolute checkout path reaches agy byte for byte."""
+    require_runner("AC-22")
+    host, state_path = current_host(
+        tmp_path,
+        monkeypatch,
+        stage="implement",
+        overrides={"milestone-review": entry("milestone-review", primary=NEON)},
+    )
+    line = f"SOURCE = '{host.resolve()}/src/example.py'  # é漢"
+    (host / "src/example.py").write_text(f"VALUE = 7\n{line}\n", encoding="utf-8")
+    result = run_gate("milestone-review")
+    assert result.ok, result.to_envelope()
+    (launch,) = agy.launches()
+    capture = capture_of(agy, "milestone-review")
+    assert f"+{line}\n".encode() in capture, "fixture: the diff body is not embedded"
+    kind = "inline" if launch["index"] is None else "chunked"
+    route_of(agy, kind, "AC-22", "milestone-review")
+    delivered = (
+        launch["contents"][0].encode("utf-8")
+        if launch["index"] is None
+        else b"".join(chunk_files(launch))
+    )
+    assert delivered == capture, (
+        "FAIL AC-22: the delivered capture differs from the frozen one"
+    )
+
+
+# --------------------------------------------------------------------------- #
+# AC-11: the outcome table through the real runner
+# --------------------------------------------------------------------------- #
+def quota_line(status: str, retryable: bool) -> dict:
+    payload = {
+        "short_error": "request failed",
+        "status": status,
+        "retryable": retryable,
+    }
+    return {"$raw": "AGY_ERROR: " + json.dumps(payload)}
+
+
+INVALID_MODEL = (
+    'error: invalid model selection (--model "gemini-4-neon" --effort "high"): '
+    "the model is not available"
+)
+# Rows 3, 5, 7 and the unread-free parts of the table: the runner alone.
+RUNNER_ROWS = {
+    "print-timeout": (
+        clean_stream(result=result_event(finished_reason="print_timeout")),
+        "timeout",
+    ),
+    "interrupted": (
+        clean_stream(
+            {"$raw": "error: interrupted"},
+            result=result_event(
+                status="ERROR",
+                structured_output=ABSENT,
+                finished_reason="interrupted",
+                error="interrupted",
+            ),
+        ),
+        "execution-failure",
+    ),
+    "no-result": (clean_stream()[:-1], "transport-error"),
+    "two-results": (clean_stream() + [result_event()], "transport-error"),
+    "model-mismatch": (
+        clean_stream(head=[init_event("gemini-3.8-flash")]),
+        "model-substituted",
+    ),
+    "no-init": (clean_stream(head=[]), "transport-error"),
+    "init-without-model": (clean_stream(head=[init_event(ABSENT)]), "transport-error"),
+    "two-inits-one-other": (
+        clean_stream(head=[init_event(), init_event("gemini-4-flash")]),
+        "model-substituted",
+    ),
+    "missing-structured-output": (
+        clean_stream(result=result_event(structured_output=ABSENT)),
+        "empty-output",
+    ),
+    "quota": (
+        [init_event(), quota_line("RESOURCE_EXHAUSTED", False), {"$exit": 3}],
+        "antigravity-quota",
+    ),
+    "retryable-api-error": (
+        [init_event(), quota_line("UNAVAILABLE", True), {"$exit": 3}],
+        "antigravity-api-error",
+    ),
+    "invalid-model-selection": (
+        [{"$raw": INVALID_MODEL}, {"$exit": 1}],
+        "unsupported-model",
+    ),
+    "oversized-stream": (
+        clean_stream({"$oversize": 64 * 1024 * 1024 + 1}),
+        "transport-error",
+    ),
+    "unparseable-line": (
+        clean_stream({"$raw": '{"event": "step_update", "step_update": {'}),
+        "transport-error",
+    ),
+    "nonzero-exit": (clean_stream() + [{"$exit": 1}], "exit"),
+}
+
+
+def _spec_batch_host(tmp_path, monkeypatch, prompt=None):
+    """Antigravity primary beside a ready Claude secondary on one spec review."""
+    return spec_host(tmp_path, monkeypatch, secondary=FABLE, prompt=prompt)
+
+
+@pytest.mark.parametrize("row", list(RUNNER_ROWS))
+def test_ac11_runner_outcome_row_standalone(tmp_path, monkeypatch, agy, row):
+    """AC-11 rows 3, 5 and 7 standalone; each is a hard failure with one launch."""
+    require_runner("AC-11")
+    _host, state_path = spec_host(tmp_path, monkeypatch)
+    ops, reason = RUNNER_ROWS[row]
+    agy.scenario(ops)
+    result = run_gate()
+    assert not result.ok, f"FAIL AC-11: {row} recorded as a success"
+    assert_hard_failure(state_path, agy, reason, "AC-11")
+    if row == "oversized-stream":
+        assert summary_for(state_path)["reason"] != "truncated-output"
+
+
+PEER = ("behavior-review", "complexity-review")
+
+
+def peer_host(
+    tmp_path, monkeypatch, *, launch: str | None = "concurrent", chunked=False
+):
+    """Behavior and complexity reviews, each on the Antigravity lane; with
+    ``launch`` set, the two are members of one concurrent ``run-gates`` batch."""
+    from tests.concurrent_review_helpers import off, set_launch
+
+    host, state_path = current_host(
+        tmp_path,
+        monkeypatch,
+        stage="peer-review",
+        overrides={
+            "peer-review-sequential": off("peer-review-sequential"),
+            **{gate: entry(gate, primary=NEON) for gate in PEER},
+        },
+    )
+    if launch is not None:
+        set_launch(host, launch)
+    if chunked:
+        for gate in PEER:
+            write_prompt(host, chunked_prompt(80_000), gate)
+    return host, state_path
+
+
+def paired(rows: dict) -> list:
+    """Two rows per batch, one per peer gate; an odd last row meets a clean run,
+    so every row still runs as a member beside a sibling."""
+    names = list(rows)
+    pairs = [names[index : index + 2] for index in range(0, len(names), 2)]
+    return [
+        pytest.param(pair[0], pair[1] if len(pair) == 2 else None, id="+".join(pair))
+        for pair in pairs
+    ]
+
+
+def gate_member(result, gate: str) -> dict:
+    members = (
+        result.data["members"] if result.ok else result.error.details.get("members")
+    )
+    assert members, f"fixture: the batch ran no members: {result.to_envelope()}"
+    (member,) = [row for row in members if row["gate"] == gate]
+    return member
+
+
+def assert_member_outcomes(result, state_path, agy, cases: dict, ac: str) -> None:
+    """Each member fails with its row's reason, or records when it ran clean."""
+    for gate, (row, reason) in cases.items():
+        member = gate_member(result, gate)
+        launches = [launch for launch in agy.launches() if launch["role"] == gate]
+        assert len(launches) == 1, f"FAIL {ac}: {gate} launched {len(launches)} times"
+        rows = [run for run in lane_rows(state_path) if run["gate"] == gate]
+        assert rows, f"FAIL {ac}: {gate} recorded nothing"
+        if reason is None:
+            assert (member["execution"], member["publication"]) == (
+                "completed",
+                "recorded",
+            ), f"FAIL {ac}: the clean sibling did not record: {member}"
+            continue
+        assert (member["execution"], member["publication"]) == (
+            "failed",
+            "recorded-error",
+        ), f"FAIL {ac}: {row} as a member: {member}"
+        assert member["fallback"] is None, f"FAIL {ac}: {row} fell back"
+        assert rows[-1].get("failure_reason") == reason, (
+            f"FAIL {ac}: {row} as a member recorded {rows[-1].get('failure_reason')}, "
+            f"expected {reason}"
+        )
+        assert rows[-1]["verdict"]["status"] == "error"
+    assert captures(state_path) == [], f"FAIL {ac}: a member left a capture"
+    attempts = yaml.safe_load(state_path.read_text())["review_assignments"]["attempts"]
+    assert "usable-capture" not in [row["outcome"]["kind"] for row in attempts], (
+        f"FAIL {ac}: a member's hard failure was offered for interpretation"
+    )
+    assert agy.claude_calls() == [], f"FAIL {ac}: a member fell back to another lane"
+
+
+@pytest.mark.parametrize(("first", "second"), paired(RUNNER_ROWS))
+def test_ac11_runner_outcome_rows_as_batch_members(
+    tmp_path, monkeypatch, agy, first, second
+):
+    """AC-11 rows 3, 5 and 7 as ``run-gates`` members: two rows per batch, one
+    per peer gate, each failing alone with no retry or fallback."""
+    require_runner("AC-11")
+    _host, state_path = peer_host(tmp_path, monkeypatch)
+    cases = {
+        gate: (row, RUNNER_ROWS[row][1] if row else None)
+        for gate, row in zip(PEER, (first, second), strict=True)
+    }
+    agy.scenario(
+        roles={
+            gate: RUNNER_ROWS[row][0] if row else clean_stream()
+            for gate, (row, _reason) in cases.items()
+        }
+    )
+    result = run_batch()
+    assert not result.ok
+    assert_member_outcomes(result, state_path, agy, cases, "AC-11")
+
+
+def unassigned(monkeypatch) -> None:
+    """Run the prepared invocation without its review assignment."""
+    from dataclasses import replace
+
+    from heddle.gate import entry as gate_entry
+
+    original = gate_entry.run_gate_for_runtime
+
+    def without_assignment(gate_type, context, **kwargs):
+        context.prepared_run = replace(context.prepared_run, assignment_id=None)
+        return original(gate_type, context, **kwargs)
+
+    monkeypatch.setattr(gate_entry, "run_gate_for_runtime", without_assignment)
+
+
+def noncanonical(agy: Agy) -> dict:
+    return {
+        role: {**review, "extra": "kept verbatim"}
+        for role, review in agy.reviews.items()
+    }
+
+
+def test_ac11_canonical_rejection_of_an_assigned_run_is_retained(
+    tmp_path, monkeypatch, agy
+):
+    """AC-11 row 8, assigned: the existing retention keeps the run for review."""
+    require_runner("AC-11")
+    _host, state_path = spec_host(tmp_path, monkeypatch)
+    agy.scenario(reviews=noncanonical(agy))
+    result = run_gate()
+    assert result.ok and result.exit_code == 4, (
+        f"FAIL AC-11: the assigned noncanonical run was not retained: "
+        f"{result.to_envelope()}"
+    )
+    assert result.data["accepted"] is False
+    assert len(captures(state_path)) == 1
+    assert len(agy.launches()) == 1
+
+
+def test_ac11_canonical_rejection_of_an_unassigned_run_is_invalid_output(
+    tmp_path, monkeypatch, agy
+):
+    """AC-11 row 8, unassigned: ``invalid-output-structure`` and no capture."""
+    require_runner("AC-11")
+    _host, state_path = spec_host(tmp_path, monkeypatch)
+    unassigned(monkeypatch)
+    agy.scenario(reviews=noncanonical(agy))
+    result = run_gate()
+    assert not result.ok
+    assert summary_for(state_path)["reason"] == "invalid-output-structure", (
+        "FAIL AC-11: the unassigned noncanonical run did not fail as "
+        "invalid-output-structure"
+    )
+    assert captures(state_path) == []
+    assert len(agy.launches()) == 1
+
+
+def test_ac11_canonical_rejection_as_batch_member_is_retained(
+    tmp_path, monkeypatch, agy
+):
+    """AC-11 row 8 as a ``run-gates`` member: retained beside a recorded sibling."""
+    require_runner("AC-11")
+    _host, state_path = _spec_batch_host(tmp_path, monkeypatch)
+    agy.scenario(reviews={**agy.reviews, SPEC: noncanonical(agy)[SPEC]})
+    result = run_batch()
+    member = batch_member(result, "primary")
+    assert (member["execution"], member["publication"]) == ("retained", "retained")
+    sibling = batch_member(result, "secondary")
+    assert sibling["publication"] == "recorded"
+    assert len(captures(state_path)) == 1
+
+
+def test_ac11_new_reasons_never_fall_back_or_retry():
+    """AC-11: the lane's reasons exist and stay out of the fallback set; the
+    truncated-output retry keys on that one reason only."""
+    from heddle.contracts.gate_execution import FALLBACK_FAILURE_REASONS
+    from heddle.gate.types import FailureReason
+
+    values = {reason.value for reason in FailureReason}
+    missing = [reason for reason in NEW_REASONS if reason not in values]
+    assert not missing, f"FAIL AC-11: FailureReason lacks {missing}"
+    assert not set(NEW_REASONS) & set(FALLBACK_FAILURE_REASONS), (
+        "FAIL AC-11: an Antigravity hard failure falls back"
+    )
+    assert "truncated-output" not in NEW_REASONS
+
+
+# Rows 1, 2, 4 and 6 and their competing pairs: real streams through the audit.
+def _data_dir_read() -> dict:
+    """A ``read_file`` of agy's data directory that the deny rule refused."""
+    return {
+        "$step": {
+            "step_type": "tool",
+            "state": "ERROR",
+            "tool_name": "read_file",
+            "tool_info": {
+                "name": "read_file",
+                "parameters": {"Path": str(DATA_DIR / "conversations")},
+                "error": {"type": "TOOL_ERROR", "message": "denied by settings"},
+            },
+        }
+    }
+
+
+AUDIT_ROWS = {
+    "denied-actions": (
+        clean_stream(
+            result=result_event(
+                denied_actions=[{"action": "command", "display_name": "Bash"}]
+            )
+        ),
+        "out-of-scope-access",
+        False,
+    ),
+    "unapproved-tool": (
+        clean_stream(
+            tool_step("search_web", {"query": "review guidance"}, "3 results")
+        ),
+        "antigravity-unapproved-tool",
+        False,
+    ),
+    "subagent-step": (
+        clean_stream(
+            {
+                "$step": {
+                    "step_type": "subagent",
+                    "tool_name": "invoke_subagent",
+                    "subagent_info": {"task": "read the chunks"},
+                }
+            }
+        ),
+        "antigravity-unapproved-tool",
+        False,
+    ),
+    "checkpoint": (
+        clean_stream(
+            {"$step": {"step_type": "system_message"}},
+            {"$step": {"step_type": "checkpoint"}},
+        ),
+        "antigravity-context-compacted",
+        False,
+    ),
+    "unread-chunk": (
+        clean_stream(reads=READ_ALL_BUT_LAST),
+        "antigravity-incomplete-coverage",
+        True,
+    ),
+    "checkpoint-with-interrupted": (
+        clean_stream(
+            {"$step": {"step_type": "checkpoint"}},
+            result=result_event(
+                status="ERROR",
+                structured_output=ABSENT,
+                finished_reason="interrupted",
+                error="interrupted",
+            ),
+        ),
+        "antigravity-context-compacted",
+        False,
+    ),
+    "checkpoint-with-unread-chunks": (
+        clean_stream({"$step": {"step_type": "checkpoint"}}, reads=READ_ALL_BUT_LAST),
+        "antigravity-context-compacted",
+        True,
+    ),
+    "denied-data-dir-read-with-valid-object": (
+        clean_stream(
+            _data_dir_read(),
+            result=result_event(
+                denied_actions=[{"action": "read_file", "display_name": "Read File"}]
+            ),
+        ),
+        "out-of-scope-access",
+        False,
+    ),
+    "unapproved-tool-with-out-of-scope-path": (
+        clean_stream(
+            tool_step("view_code_outline", {"Path": str(DATA_DIR / "brain")}, "1 item")
+        ),
+        "out-of-scope-access",
+        False,
+    ),
+}
+
+
+@pytest.mark.parametrize("row", list(AUDIT_ROWS))
+def test_ac11_audit_outcome_row_standalone(tmp_path, monkeypatch, agy, row):
+    """AC-11 rows 1, 2, 4, 6 and the competing pairs, standalone (real stream
+    through the audit): compaction, compaction, out-of-scope, out-of-scope."""
+    require_audit("AC-11")
+    ops, reason, chunked = AUDIT_ROWS[row]
+    _host, state_path = spec_host(
+        tmp_path, monkeypatch, prompt=chunked_prompt(80_000) if chunked else None
+    )
+    agy.scenario(ops)
+    result = run_gate()
+    assert not result.ok, f"FAIL AC-11: {row} recorded as a success"
+    assert_hard_failure(state_path, agy, reason, "AC-11")
+
+
+@pytest.mark.parametrize(("first", "second"), paired(AUDIT_ROWS))
+def test_ac11_audit_outcome_rows_as_batch_members(
+    tmp_path, monkeypatch, agy, first, second
+):
+    """AC-11 rows 1, 2, 4, 6 and the competing pairs as ``run-gates`` members
+    (real streams through the audit), two rows per batch over chunked input."""
+    require_audit("AC-11")
+    _host, state_path = peer_host(tmp_path, monkeypatch, chunked=True)
+    cases = {
+        gate: (row, AUDIT_ROWS[row][1] if row else None)
+        for gate, row in zip(PEER, (first, second), strict=True)
+    }
+    agy.scenario(
+        roles={
+            gate: AUDIT_ROWS[row][0] if row else clean_stream()
+            for gate, (row, _reason) in cases.items()
+        }
+    )
+    result = run_batch()
+    assert not result.ok
+    assert_member_outcomes(result, state_path, agy, cases, "AC-11")
+
+
+# --------------------------------------------------------------------------- #
+# AC-2: the reviewer child's marker and its refused mutation
+# --------------------------------------------------------------------------- #
+MUTATION = ["commands", "set", "smoke_test", "--command", "true", "--json"]
+
+
+def heddle_attempt(host: Path, tmp_path: Path) -> dict:
+    import shutil
+
+    copy = tmp_path / "host-copy"
+    shutil.copytree(host, copy, symlinks=True)
+    return {"$heddle": {"copy": str(copy), "argv": MUTATION}}
+
+
+def test_ac2_reviewer_child_is_marked_and_its_mutation_exits_3(
+    tmp_path, monkeypatch, agy
+):
+    """AC-2 (runner half): the agy child carries the marker; its mutating
+    ``heddle`` attempt on a disposable host copy exits 3 with
+    ``gate-session-refused``, and the kept stream shows the attempt."""
+    require_runner("AC-2")
+    host, state_path = spec_host(tmp_path, monkeypatch)
+    agy.scenario(clean_stream(heddle_attempt(host, tmp_path)))
+    run_gate()
+    (launch,) = agy.launches()
+    assert launch["marker"] == "gate", "FAIL AC-2: the agy child is not marked"
+    (attempt,) = agy.rows("attempts.jsonl")
+    assert (attempt["exit"], attempt["code"]) == (3, "gate-session-refused"), (
+        f"FAIL AC-2: the marked mutation returned {attempt}"
+    )
+    stream = Path(summary_for(state_path)["artifacts"]["raw_out"]).read_text()
+    assert "heddle commands set" in stream and "exited with code 3" in stream, (
+        "FAIL AC-2: the kept stream does not show the refused attempt"
+    )
+
+
+@pytest.mark.parametrize("mode", ["standalone", "batch-member"])
+def test_ac2_reviewer_heddle_attempt_fails_as_out_of_scope_access(
+    tmp_path, monkeypatch, agy, mode
+):
+    """AC-2 (real stream through the audit): the attempt fails the run as
+    ``out-of-scope-access`` with no credit; the child's exit 3 is in the stream."""
+    require_audit("AC-2")
+    host, state_path = (
+        spec_host(tmp_path, monkeypatch)
+        if mode == "standalone"
+        else _spec_batch_host(tmp_path, monkeypatch)
+    )
+    agy.scenario(clean_stream(heddle_attempt(host, tmp_path)))
+    result = run_gate() if mode == "standalone" else run_batch()
+    assert not result.ok
+    assert [row["exit"] for row in agy.rows("attempts.jsonl")] == [3]
+    assert_hard_failure(state_path, agy, "out-of-scope-access", "AC-2")
+
+
+# --------------------------------------------------------------------------- #
+# AC-14: a reviewed-source write is left to the recording admission
+# --------------------------------------------------------------------------- #
+MILESTONE = "milestone-review"
+SOURCE = "src/example.py"
+SOURCE_TEXT = "VALUE = 7\nNAME = 'example'\n"
+SOURCE_WRITES = {
+    # (old, new, expected failure reason or None when the run records)
+    "substantive": ("NAME = 'example'", "NAME = 'changed'", "reviewed-source-changed"),
+    "review-equivalent": ("NAME = 'example'", 'NAME = "example"', None),
+}
+
+
+def milestone_host(tmp_path, monkeypatch):
+    """A milestone review whose reviewed sources include a changed Python file."""
+    host, state_path = current_host(
+        tmp_path,
+        monkeypatch,
+        stage="implement",
+        overrides={MILESTONE: entry(MILESTONE, primary=NEON)},
+    )
+    (host / SOURCE).write_text(SOURCE_TEXT, encoding="utf-8")
+    return host, state_path
+
+
+def latest_attempt(state_path: Path) -> dict:
+    ledger = yaml.safe_load(state_path.read_text())["review_assignments"]
+    return ledger["attempts"][-1]
+
+
+@pytest.mark.parametrize("write", list(SOURCE_WRITES))
+def test_ac14_reviewed_source_write_goes_to_the_recording_admission(
+    tmp_path, monkeypatch, agy, write
+):
+    """AC-14 (assigned runs; real stream through the audit and the existing
+    recording admission, unchanged): an allowed write tool edits a reviewed
+    Python source while the reviewer runs. The substantive edit fails as
+    ``reviewed-source-changed`` with no credit; the review-equivalent edit (a
+    quote-style change) records as usual. The second is the control: it fails
+    if the audit refuses every reviewed-source write before the admission rules.
+    """
+    require_audit("AC-14")
+    host, state_path = milestone_host(tmp_path, monkeypatch)
+    old, new, reason = SOURCE_WRITES[write]
+    agy.scenario(clean_stream({"$write": {"path": SOURCE, "old": old, "new": new}}))
+    result = run_gate(MILESTONE)
+    assert _prepared_row(agy, MILESTONE)["assignment"], "fixture: run not assigned"
+    assert agy.rows("writes.jsonl"), "fixture: the double's write never ran"
+    assert (host / SOURCE).read_text() == SOURCE_TEXT.replace(old, new)
+    assert len(agy.launches()) == 1, "FAIL AC-14: the run launched more than once"
+    rows = [row for row in lane_rows(state_path) if row["gate"] == MILESTONE]
+    assert rows, "FAIL AC-14: the assigned run recorded nothing"
+    recorded = rows[-1].get("failure_reason")
+    if reason is None:
+        assert result.ok and recorded is None, (
+            f"FAIL AC-14: the review-equivalent write did not record as usual "
+            f"({recorded}); the audit may refuse reviewed-source writes before "
+            "the recording admission can rule"
+        )
+        assert_recorded(state_path, "AC-14")
+        assert latest_attempt(state_path)["source"] is not None, (
+            "FAIL AC-14: the review-equivalent run earned no credit"
+        )
+        return
+    assert not result.ok and recorded == reason, (
+        f"FAIL AC-14: the substantive write recorded {recorded}, expected {reason} "
+        "from the recording admission"
+    )
+    assert rows[-1]["verdict"]["status"] == "error"
+    assert latest_attempt(state_path)["source"] is None, (
+        "FAIL AC-14: the substantive write's run was credited"
+    )
+
+
+# --------------------------------------------------------------------------- #
+# AC-12: the runner reaps its launch token
+# --------------------------------------------------------------------------- #
+def test_ac12_normal_exit_reaps_every_tokened_child(
+    tmp_path, monkeypatch, agy, processes
+):
+    """AC-12 normal exit: plain and daemonised tokened children are gone when the
+    run returns; the unrelated process survives; the review records."""
+    require_runner("AC-12")
+    _host, state_path = spec_host(tmp_path, monkeypatch)
+    agy.scenario(clean_stream({"$children": ["plain", "daemon"]}))
+    result = run_gate()
+    assert result.ok, result.to_envelope()
+    children = agy.children()
+    assert len(children) == 2, "fixture: the double did not start its children"
+    left = [row for row in children if alive(row["pid"], row["start"])]
+    assert left == [], f"FAIL AC-12: tokened children survived the run: {left}"
+    assert processes.unrelated_alive(), "FAIL AC-12: the unrelated process was killed"
+    assert_recorded(state_path, "AC-12")
+
+
+def test_ac12_timeout_reaps_every_tokened_child(tmp_path, monkeypatch, processes):
+    """AC-12 timeout (and AC-11's monitor ``timeout``): the hung launch's
+    daemonised child is reaped; the unrelated process survives."""
+    require_runner("AC-12")
+    agy = processes.agy
+    fast_gate_args(monkeypatch, timeout=0.5, inactivity=20)
+    _host, state_path = spec_host(tmp_path, monkeypatch)
+    agy.scenario([init_event(), {"$children": ["daemon"]}, {"$hold": "never"}])
+    result = run_gate()
+    assert not result.ok
+    assert_hard_failure(state_path, agy, "timeout", "AC-11")
+    left = [row for row in agy.children() if alive(row["pid"], row["start"])]
+    assert left == [], f"FAIL AC-12: the timed-out launch left {left}"
+    assert processes.unrelated_alive()
+
+
+# --------------------------------------------------------------------------- #
+# AC-13: the agy version state
+# --------------------------------------------------------------------------- #
+@pytest.mark.parametrize(
+    ("reported", "state"),
+    [(TESTED_VERSION, "matching"), (OTHER_VERSION, "differing"), (None, "unavailable")],
+    ids=["matching", "differing", "unavailable"],
+)
+def test_ac13_version_state_is_recorded_without_changing_the_outcome(
+    tmp_path, monkeypatch, agy, reported, state
+):
+    """AC-13: the gate log and summary record the version state; the outcome,
+    identity and reviewer selection are the same in all three."""
+    require_runner("AC-13")
+    _host, state_path = spec_host(tmp_path, monkeypatch)
+    agy.scenario(version=reported)
+    result = run_gate()
+    assert result.ok, f"FAIL AC-13: the {state} version changed the outcome"
+    row = assert_recorded(state_path, "AC-13")
+    assert row["reviewer_slot"] == "primary"
+    assert agy.rows("versions.jsonl"), "FAIL AC-13: agy --version was never run"
+    log = gate_log(state_path)
+    summary = json.dumps(summary_for(state_path))
+    for text, where in ((log, "gate log"), (summary, "summary")):
+        if state == "matching":
+            assert TESTED_VERSION in text, f"FAIL AC-13: the {where} lacks the version"
+        elif state == "differing":
+            assert TESTED_VERSION in text and OTHER_VERSION in text, (
+                f"FAIL AC-13: the {where} does not name both versions"
+            )
+        else:
+            assert re.search(r"unavailable|unknown", text, re.I), (
+                f"FAIL AC-13: the {where} does not say the version is unknown"
+            )
+    if state != "matching":
+        assert re.search(r"warn", log, re.I), f"FAIL AC-13: no {state} warning"
+
+
+# --------------------------------------------------------------------------- #
+# AC-18: the redaction handoff
+# --------------------------------------------------------------------------- #
+def echo(review: dict, token: str) -> dict:
+    copied = json.loads(json.dumps(review))
+    copied["summary"] = f"{copied.get('summary', '')} Found {token} in the log."
+    return copied
+
+
+def files_holding(root: Path, needle: bytes) -> list[str]:
+    return [
+        str(path.relative_to(root))
+        for path in sorted(root.rglob("*"))
+        if path.is_file() and needle in path.read_bytes()
+    ]
+
+
+@pytest.mark.parametrize("kept", ["recorded", "retained"])
+def test_ac18_echoed_credential_reaches_no_kept_file(tmp_path, monkeypatch, agy, kept):
+    """AC-18 handoff: a credential-like value in tool parameters, shell output and
+    the response reaches no kept file: the review artifact or retained capture,
+    the summary, the log and the temp files."""
+    require_runner("AC-18")
+    host, state_path = spec_host(tmp_path, monkeypatch)
+    token = credential(kept)
+    review = echo(agy.reviews[SPEC], token)
+    if kept == "retained":
+        review["extra"] = f"kept {token}"
+    agy.scenario(
+        clean_stream(
+            tool_step(
+                "run_command",
+                {"CommandLine": f"grep -rn {token} src"},
+                shell_output(f"src/example.py:1:{token}\n"),
+            ),
+            result=result_event(response=f"Echoed {token}."),
+        ),
+        reviews={**agy.reviews, SPEC: review},
+    )
+    result = run_gate()
+    assert result.ok, result.to_envelope()
+    assert result.exit_code == (4 if kept == "retained" else 0)
+    reviews = state_path.parent / "reviews"
+    assert list(reviews.glob("*.antigravity.tmp.*")), "fixture: no temp directory"
+    assert (captures(state_path) != []) == (kept == "retained")
+    leaked = files_holding(host, token.encode())
+    assert leaked == [], f"FAIL AC-18: the credential reached kept files {leaked}"

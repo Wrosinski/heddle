@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -44,9 +45,17 @@ def test_ac11_built_wheel_resolves_self_contained_failure_guide(
         "from importlib.resources import files; "
         "p=files('heddle').joinpath('resources/gate-failure-guide.md'); "
         "text=p.read_text(encoding='utf-8'); "
-        "print(len(text), text.count('## `'))",
+        "import json; "
+        "print(json.dumps([len(text), [line[4:-1] for line in text.splitlines() "
+        "if line.startswith('## `') and line.endswith('`')]]))",
         cwd=tmp_path,
     )
     assert probe.returncode == 0, probe.stderr
-    size, entries = (int(value) for value in probe.stdout.split())
-    assert size > 0 and entries == len(FailureReason)
+    size, headings = json.loads(probe.stdout)
+    assert size > 0
+    # A count alone could hide a missing reason behind a duplicate.
+    repeated = sorted({value for value in headings if headings.count(value) > 1})
+    assert repeated == [], f"FAIL AC-11: the installed guide repeats {repeated}"
+    assert set(headings) == {reason.value for reason in FailureReason}, (
+        "FAIL AC-11: the installed guide's reason headings differ from the enum"
+    )

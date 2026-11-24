@@ -121,10 +121,34 @@ def _run_json(run_cli, envelope_tools, args: list[str]) -> dict:
     return envelope["data"]
 
 
+ANTIGRAVITY_FAILURE_REASONS = (
+    "antigravity-quota",
+    "antigravity-api-error",
+    "antigravity-context-compacted",
+    "antigravity-unapproved-tool",
+    "antigravity-incomplete-coverage",
+    "out-of-scope-access",
+)
+
+
 def test_acceptance_ac11_failure_guide() -> None:
+    """The guide's reason headings are exactly the enum's values, each once;
+    the Antigravity lane's reasons are among them (red until they exist)."""
     guide_text = (REPO_ROOT / "heddle/resources/gate-failure-guide.md").read_text(
         encoding="utf-8"
     )
-    assert {f"## `{reason.value}`" for reason in gate_types.FailureReason} <= set(
-        guide_text.splitlines()
+    headings = [
+        line.removeprefix("## `").removesuffix("`")
+        for line in guide_text.splitlines()
+        if line.startswith("## `")
+    ]
+    values = {reason.value for reason in gate_types.FailureReason}
+    repeated = sorted({value for value in headings if headings.count(value) > 1})
+    assert repeated == [], f"FAIL AC-11: the guide repeats {repeated}"
+    assert set(headings) == values, (
+        "FAIL AC-11: guide and enum differ: "
+        f"missing {sorted(values - set(headings))}, "
+        f"extra {sorted(set(headings) - values)}"
     )
+    missing = [value for value in ANTIGRAVITY_FAILURE_REASONS if value not in values]
+    assert missing == [], f"FAIL AC-11: FailureReason lacks {missing}"

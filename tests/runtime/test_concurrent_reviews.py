@@ -15,7 +15,12 @@ Survivor pins are labelled in their docstrings.
 
 from __future__ import annotations
 
+import json
 import multiprocessing
+import os
+import re
+import signal
+import threading
 from pathlib import Path
 
 import pytest
@@ -1470,3 +1475,484 @@ def test_a_slot_completion_does_not_restart_the_progress_interval(
         result = execute_batch()
     assert result.ok, result.to_envelope()
     assert len(timeouts) >= 2 and timeouts[1] < timeouts[0], timeouts
+
+
+# --------------------------------------------------------------------------- #
+# antigravity-reviewer-lane-v1: the Antigravity lane as a `run-gates` member.
+#
+# The doubled `agy` and a doubled Claude sibling are executables on PATH (see
+# tests/gate/test_antigravity_runner.py); forked workers inherit the PATH and
+# the patched gate arguments. Red until the lane's preparation (AC-8) or its
+# runner (AC-9, AC-12) exists.
+# --------------------------------------------------------------------------- #
+CEILING_REFUSAL = "antigravity-input-too-large"
+
+
+def _lane():
+    import tests.gate.test_antigravity_runner as lane
+
+    return lane
+
+
+def test_ac8_ceiling_refusal_refuses_the_batch_before_any_launch(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """AC-8 through prepare-before-launch: an Antigravity secondary whose capture
+    is above 250,000 bytes refuses the whole batch with its standalone refusal,
+    naming the member and the slots left out; the Claude primary does not
+    launch either, and state is unchanged."""
+    from heddle.contracts.gate_execution import VALID_GATE_CLIS
+    from heddle.contracts.result import ERROR_CODES
+    from tests.gate.test_antigravity_preparation import oversize_prompt
+    from tests.tiering_helpers import FABLE, entry
+    from tests.tiering_review_helpers import current_host
+
+    assert CEILING_REFUSAL in ERROR_CODES, (
+        f"FAIL AC-8: {CEILING_REFUSAL} is not a public error code"
+    )
+    assert "antigravity" in VALID_GATE_CLIS, "FAIL AC-8: no antigravity lane"
+    lane = _lane()
+    host, state_path = current_host(
+        tmp_path,
+        monkeypatch,
+        overrides={SPEC: entry(SPEC, primary=FABLE, secondary=lane.NEON)},
+    )
+    oversize_prompt(host, SPEC)
+    before = state_path.read_bytes()
+    with multiprocessing.Manager() as manager:
+        calls = install_counting_engine(monkeypatch, manager)
+        refused = execute_batch()
+        batch_calls = len(calls)
+        after_batch = state_path.read_bytes()
+        standalone = lane.run_gate(SPEC, lane.NEON)
+    assert not refused.ok and refused.error.code == CEILING_REFUSAL, (
+        f"FAIL AC-8: the batch was not refused at the ceiling: {refused.error}"
+    )
+    assert batch_calls == 0, "FAIL AC-8: a member launched beside the refused one"
+    assert after_batch == before, "FAIL AC-8: the refused batch changed state"
+    assert _selected(refused) == {
+        "gate": SPEC,
+        "scope": "feature",
+        "reviewer_slot": SECONDARY,
+    }, f"FAIL AC-8: the refusal does not name its member: {refused.error}"
+    assert refused.error.details["excluded_slots"] == []
+    assert not standalone.ok and standalone.error.code == CEILING_REFUSAL, (
+        f"FAIL AC-8: the slot's standalone run did not refuse: {standalone.error}"
+    )
+    assert "250,000" in refused.error.message or "250000" in refused.error.message
+    assert (
+        refused.error.message,
+        refused.error.hint,
+        refused.exit_code,
+        [action.command for action in refused.next_actions],
+    ) == (
+        standalone.error.message,
+        standalone.error.hint,
+        standalone.exit_code,
+        [action.command for action in standalone.next_actions],
+    ), "FAIL AC-8: the batch refusal differs from the slot's standalone refusal"
+    assert int(refused.exit_code) == 3
+
+
+@pytest.mark.parametrize("target", ("chunk", "index", "launch"))
+def test_ac9_altered_member_fails_before_launch_while_a_ready_sibling_records(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, target: str
+) -> None:
+    """AC-9 in a batch: the altered Antigravity member fails as
+    ``execution-failure`` naming the changed file, with zero provider launches;
+    the ready Claude sibling launches once and records."""
+    lane = _lane()
+    lane.require_runner("AC-9")
+    agy = lane.install_agy(tmp_path, monkeypatch)
+    _host, state_path = lane.spec_host(
+        tmp_path, monkeypatch, secondary=lane.FABLE, prompt=lane.chunked_prompt()
+    )
+    record = tmp_path / "altered.txt"
+    lane.alter_after_write(monkeypatch, state_path, target, record)
+    result = execute_batch()
+    assert not result.ok
+    assert record.exists(), "fixture: the transport write seam was not reached"
+    member = lane.batch_member(result, PRIMARY)
+    assert (member["execution"], member["publication"]) == ("failed", "recorded-error")
+    assert agy.launches() == [], f"FAIL AC-9: agy launched after the {target} changed"
+    rows = lane.lane_rows(state_path)
+    assert rows and rows[-1].get("failure_reason") == "execution-failure", (
+        f"FAIL AC-9: the altered member recorded {rows[-1:]}"
+    )
+    changed = Path(record.read_text()).name
+    assert changed in lane.gate_log(state_path) or changed in json.dumps(
+        result.to_envelope()
+    ), f"FAIL AC-9: no warning names the changed file {changed}"
+    sibling = lane.batch_member(result, SECONDARY)
+    assert (sibling["execution"], sibling["publication"]) == ("completed", "recorded")
+    assert len(agy.claude_calls()) == 1, "FAIL AC-9: the sibling did not launch once"
+
+
+def _release_when(agy, count: int, action=None) -> threading.Thread:
+    """Once ``count`` launches hold, run ``action`` and release every hold."""
+
+    def watch() -> None:
+        try:
+            holding = agy.wait_for("holding.jsonl", count)
+            if action is not None:
+                action(holding)
+        finally:
+            agy.release()
+
+    thread = threading.Thread(target=watch, daemon=True)
+    thread.start()
+    return thread
+
+
+def test_ac12_two_concurrent_members_reap_their_tokened_children(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """AC-12, two concurrent `run-gates` members: both hold at once, each run's
+    plain and daemonised tokened children are gone afterwards, both record,
+    and the unrelated process survives."""
+    lane = _lane()
+    lane.require_runner("AC-12")
+    agy = lane.install_agy(tmp_path, monkeypatch)
+    tracker = lane.Processes(agy)
+    try:
+        _host, state_path = _lane().peer_host(tmp_path, monkeypatch)
+        agy.scenario(
+            lane.clean_stream({"$children": ["plain", "daemon"]}, {"$hold": "release"})
+        )
+        watcher = _release_when(agy, 2)
+        result = execute_batch()
+        watcher.join(timeout=30)
+        assert result.ok, result.to_envelope()
+        assert len(agy.rows("holding.jsonl")) == 2, "fixture: members did not overlap"
+        children = agy.children()
+        assert len(children) == 4
+        left = [row for row in children if lane.alive(row["pid"], row["start"])]
+        assert left == [], f"FAIL AC-12: tokened children survived the batch: {left}"
+        assert tracker.unrelated_alive(), "FAIL AC-12: the unrelated process died"
+        assert {row["gate"] for row in lane.lane_rows(state_path)} == {
+            "behavior-review",
+            "complexity-review",
+        }
+        assert len(agy.launches()) == 2, "FAIL AC-12: reaping caused a provider call"
+    finally:
+        agy.release()
+        tracker.cleanup()
+
+
+def test_ac12_killed_worker_tokens_are_reaped_by_the_coordinator(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """AC-12, a killed worker: the coordinator reaps the member's recorded
+    tokens after the worker ends. The sibling records; the unrelated process
+    survives."""
+    lane = _lane()
+    lane.require_runner("AC-12")
+    agy = lane.install_agy(tmp_path, monkeypatch)
+    tracker = lane.Processes(agy)
+    killed: list[int] = []
+    try:
+        _host, state_path = _lane().peer_host(tmp_path, monkeypatch)
+        hung = [lane.init_event(), {"$children": ["daemon"]}, {"$hold": "never"}]
+        agy.scenario(
+            roles={
+                "behavior-review": hung,
+                "complexity-review": lane.clean_stream(
+                    {"$children": ["daemon"]}, {"$hold": "release"}
+                ),
+            }
+        )
+
+        def kill_behavior_worker(_holding) -> None:
+            (launch,) = [
+                row for row in agy.launches() if row["role"] == "behavior-review"
+            ]
+            worker = launch["ppid"]
+            assert worker != os.getpid(), "fixture: members do not run in workers"
+            os.kill(worker, signal.SIGKILL)
+            killed.append(worker)
+
+        watcher = _release_when(agy, 2, kill_behavior_worker)
+        result = execute_batch()
+        watcher.join(timeout=30)
+        assert killed, "fixture: the behavior worker was not killed"
+        assert not result.ok
+        behavior = [
+            row
+            for row in result.error.details["members"]
+            if row["gate"] == "behavior-review"
+        ]
+        assert behavior and behavior[0]["execution"] in {"failed", "interrupted"}
+        left = [row for row in agy.children() if lane.alive(row["pid"], row["start"])]
+        assert left == [], f"FAIL AC-12: tokened children outlived the batch: {left}"
+        assert tracker.unrelated_alive(), "FAIL AC-12: the unrelated process died"
+        recorded = [
+            row
+            for row in lane.lane_rows(state_path)
+            if row["gate"] == "complexity-review"
+        ]
+        assert recorded and recorded[-1]["verdict"]["status"] != "error", (
+            "FAIL AC-12: the sibling did not record"
+        )
+    finally:
+        agy.release()
+        tracker.cleanup()
+
+
+# --------------------------------------------------------------------------- #
+# antigravity-reviewer-lane-v1 AC-19: each new failure reason, produced through
+# the real runner with the doubled `agy`, reaches every consumer with its
+# remedy: standalone `run-gate`, `run-gates` member output and (in
+# tests/driver/test_driver_loop.py) the stop of `heddle drive`. A remedy names
+# the reason's entry in the installed gate failure guide, which must exist.
+# --------------------------------------------------------------------------- #
+AC19_REASONS = (
+    "antigravity-quota",
+    "antigravity-api-error",
+    "antigravity-context-compacted",
+    "antigravity-unapproved-tool",
+    "antigravity-incomplete-coverage",
+    "out-of-scope-access",
+)
+# Reasons decided by the stream audit; the others need only the runner.
+AC19_AUDITED = frozenset(AC19_REASONS[2:])
+GENERIC_MEMBER_TEXT = "did not complete its review"
+
+
+def ac19_stream(lane, reason: str) -> tuple[list, bool]:
+    """The doubled ``agy`` stream that yields ``reason``, and whether the input
+    must be chunked. Built from the double's synthetic primitives; it first
+    asserts the lane modules the reason needs, so a missing one fails by name."""
+    lane.require_runner("AC-19")
+    if reason in AC19_AUDITED:
+        lane.require_audit("AC-19")
+    streams = {
+        "antigravity-quota": [
+            lane.init_event(),
+            lane.quota_line("RESOURCE_EXHAUSTED", False),
+            {"$exit": 3},
+        ],
+        "antigravity-api-error": [
+            lane.init_event(),
+            lane.quota_line("UNAVAILABLE", True),
+            {"$exit": 3},
+        ],
+        "antigravity-context-compacted": lane.clean_stream(
+            {"$step": {"step_type": "checkpoint"}}
+        ),
+        "antigravity-unapproved-tool": lane.clean_stream(
+            lane.tool_step("search_web", {"query": "review guidance"}, "3 results")
+        ),
+        "antigravity-incomplete-coverage": lane.clean_stream(
+            reads=lane.READ_ALL_BUT_LAST
+        ),
+        "out-of-scope-access": lane.clean_stream(
+            result=lane.result_event(
+                denied_actions=[{"action": "read_file", "display_name": "Read File"}]
+            )
+        ),
+    }
+    return streams[reason], reason == "antigravity-incomplete-coverage"
+
+
+def guide_entries() -> set[str]:
+    """The reason headings of the packaged gate failure guide."""
+    from importlib.resources import files
+
+    guide = files("heddle").joinpath("resources/gate-failure-guide.md")
+    return {
+        line[4:-1]
+        for line in guide.read_text(encoding="utf-8").splitlines()
+        if line.startswith("## `") and line.endswith("`")
+    }
+
+
+def names_reason(text: str | None, reason: str) -> bool:
+    """``reason`` appears as a whole token, not inside a longer value."""
+    pattern = rf"(?<![\w-]){re.escape(reason)}(?![\w-])"
+    return re.search(pattern, text or "") is not None
+
+
+def assert_reason_and_remedy(text: str, remedy: str, reason: str, where: str) -> None:
+    """``text`` names exactly this reason; ``remedy`` names its guide entry."""
+    assert names_reason(text, reason), (
+        f"FAIL AC-19: the {where} does not name the reason {reason}: {text!r}"
+    )
+    others = [
+        other
+        for other in (*AC19_REASONS, "execution-failure", "unknown failure")
+        if other != reason and names_reason(text, other)
+    ]
+    assert others == [], f"FAIL AC-19: the {where} names {others} beside {reason}"
+    assert names_reason(remedy, reason) and "failure guide" in remedy.casefold(), (
+        f"FAIL AC-19: the {where} remedy does not point at the {reason} entry of "
+        f"the installed gate failure guide: {remedy!r}"
+    )
+    assert reason in guide_entries(), (
+        f"FAIL AC-19: the packaged gate failure guide has no `{reason}` entry"
+    )
+
+
+def member_reason_text(member: dict) -> tuple[str, str]:
+    """A batch member summary's reason text and remedy text, wherever the
+    summary carries them: its error, or a reason, remedy or action field."""
+    error = member.get("error") or {}
+    text = " ".join(
+        str(value)
+        for value in (
+            error.get("message"),
+            member.get("failure_reason"),
+            member.get("reason"),
+        )
+        if value
+    )
+    remedy = " ".join(
+        str(value)
+        for value in (
+            error.get("hint"),
+            member.get("remedy"),
+            member.get("hint"),
+            *(row.get("reason") for row in member.get("next_actions") or ()),
+        )
+        if value
+    )
+    return text, remedy
+
+
+def assert_member_names_reason(result, gate: str, reason: str) -> None:
+    member = _lane().gate_member(result, gate)
+    assert (member["execution"], member["publication"]) == (
+        "failed",
+        "recorded-error",
+    ), f"fixture: the {gate} member did not fail and record: {member}"
+    text, remedy = member_reason_text(member)
+    assert GENERIC_MEMBER_TEXT not in text, (
+        f"FAIL AC-19: the {gate} member summary is the generic text: {text!r}"
+    )
+    assert_reason_and_remedy(text, remedy, reason, f"{gate} member summary")
+
+
+def assert_batch_error_names_selected_reason(result, reasons: dict[str, str]) -> None:
+    """The batch error names the selected member's reason and remedy, not the
+    generic member text, so a consumer of the top-level result reads it."""
+    selected = result.error.details["selected_member"]["gate"]
+    assert GENERIC_MEMBER_TEXT not in result.error.message, (
+        f"FAIL AC-19: the run-gates error is the generic text: {result.error.message}"
+    )
+    assert_reason_and_remedy(
+        result.error.message, result.error.hint, reasons[selected], "run-gates error"
+    )
+
+
+def assert_produced_by_the_runner(state_path: Path, agy, gate: str, reason: str):
+    """The reason was recorded from one real launch of the doubled ``agy``."""
+    rows = [row for row in _lane().lane_rows(state_path) if row["gate"] == gate]
+    assert rows and rows[-1].get("failure_reason") == reason, (
+        f"FAIL AC-19: {gate} recorded {rows[-1:]} through the runner, not {reason}"
+    )
+    launches = [row for row in agy.launches() if row["role"] == gate]
+    assert len(launches) == 1, f"fixture: {gate} launched agy {len(launches)} times"
+
+
+@pytest.mark.parametrize("reason", AC19_REASONS)
+def test_ac19_new_reason_and_remedy_reach_standalone_run_gate(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, reason: str
+) -> None:
+    """AC-19 standalone: the real runner fails on the doubled ``agy`` stream
+    with the new reason, and the ``run-gate`` error names exactly that reason
+    and its failure-guide remedy."""
+    lane = _lane()
+    stream, chunked = ac19_stream(lane, reason)
+    agy = lane.install_agy(tmp_path, monkeypatch)
+    _host, state_path = lane.spec_host(
+        tmp_path,
+        monkeypatch,
+        prompt=lane.chunked_prompt(80_000) if chunked else None,
+    )
+    agy.scenario(stream)
+    result = lane.run_gate()
+    assert not result.ok, f"FAIL AC-19: {reason} recorded as a success"
+    assert_produced_by_the_runner(state_path, agy, SPEC, reason)
+    assert_reason_and_remedy(
+        result.error.message, result.error.hint, reason, "run-gate error"
+    )
+
+
+AC19_PAIRS = (
+    ("antigravity-quota", "antigravity-context-compacted"),
+    ("antigravity-api-error", "antigravity-unapproved-tool"),
+    ("antigravity-incomplete-coverage", "out-of-scope-access"),
+)
+
+
+@pytest.mark.parametrize(
+    ("first", "second"), AC19_PAIRS, ids=["+".join(pair) for pair in AC19_PAIRS]
+)
+def test_ac19_new_reasons_and_remedies_reach_run_gates_member_output(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, first: str, second: str
+) -> None:
+    """AC-19 batch: two Antigravity members fail through the real runner, one
+    reason each. Each member summary names its own reason and remedy, never
+    the generic text or its sibling's reason, and the batch error names the
+    selected member's reason."""
+    lane = _lane()
+    reasons = dict(zip(lane.PEER, (first, second), strict=True))
+    built = {gate: ac19_stream(lane, reason) for gate, reason in reasons.items()}
+    agy = lane.install_agy(tmp_path, monkeypatch)
+    _host, state_path = lane.peer_host(
+        tmp_path, monkeypatch, chunked=any(chunked for _s, chunked in built.values())
+    )
+    agy.scenario(roles={gate: stream for gate, (stream, _c) in built.items()})
+    result = execute_batch()
+    assert not result.ok, f"FAIL AC-19: the failing batch succeeded: {result}"
+    for gate, reason in reasons.items():
+        assert_produced_by_the_runner(state_path, agy, gate, reason)
+        assert_member_names_reason(result, gate, reason)
+    assert_batch_error_names_selected_reason(result, reasons)
+
+
+def test_ac19_run_gates_member_names_its_reason_not_the_generic_text(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """AC-19, lane-neutral: a member that fails with a typed reason
+    (``execution-failure`` from the engine double) is summarized by that reason
+    and its failure-guide remedy, and the batch error names it too. Red until
+    the batch summary carries reasons: today both hold the generic text."""
+    same_gate_host(tmp_path, monkeypatch)
+    with multiprocessing.Manager() as manager:
+        install_slot_engine(monkeypatch, manager, first=S, failures=(P,))
+        result = execute_batch()
+    assert not result.ok
+    member = result.error.details["members"][0]
+    assert member_key(member) == P
+    assert (member["execution"], member["publication"]) == ("failed", "recorded-error")
+    text, remedy = member_reason_text(member)
+    assert GENERIC_MEMBER_TEXT not in text, (
+        f"FAIL AC-19: the failed member's summary is the generic text: {text!r}"
+    )
+    assert names_reason(text, "execution-failure"), (
+        f"FAIL AC-19: the failed member's summary does not name its reason: {member}"
+    )
+    assert names_reason(remedy, "execution-failure") and (
+        "failure guide" in remedy.casefold()
+    ), f"FAIL AC-19: the failed member's summary names no remedy: {member}"
+    assert GENERIC_MEMBER_TEXT not in result.error.message, (
+        f"FAIL AC-19: the run-gates error is the generic text: {result.error.message}"
+    )
+    assert names_reason(result.error.message, "execution-failure"), result.error
+
+
+def test_ac19_survivor_standalone_failure_names_its_reason_and_guide_entry(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Survivor pin (AC-19): a standalone ``run-gate`` that fails with a typed
+    reason already names it and points at its failure-guide entry. m7 edits the
+    batch summary beside this path, so it must keep passing."""
+    same_gate_host(tmp_path, monkeypatch)
+    with multiprocessing.Manager() as manager:
+        install_slot_engine(monkeypatch, manager, parties=1, failures=(P,))
+        result = run_slot(*P)
+    assert not result.ok
+    assert names_reason(result.error.message, "execution-failure"), result.error
+    assert names_reason(result.error.hint, "execution-failure"), result.error
+    assert "failure guide" in result.error.hint.casefold()
+    assert "execution-failure" in guide_entries()

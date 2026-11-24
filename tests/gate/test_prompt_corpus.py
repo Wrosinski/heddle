@@ -372,3 +372,97 @@ class TestAC5EnforcementBaselineTrue:
             "the manual legacy process (REQ-6 — false once the drive runs "
             "the native surface)"
         )
+
+
+# A gate template that sends reviewers to sibling or earlier review output, or
+# tells them to run Heddle, would undo the lane-neutral `reviews/` rule and the
+# gate-session guard from inside the prompt (AC-21, AC-2).
+REVIEWS_DIRECTORY_RE = re.compile(r"(?<![A-Za-z0-9_-])reviews/")
+HEDDLE_COMMAND_RE = re.compile(
+    r"(?<![A-Za-z0-9_/.-])heddle(?![A-Za-z0-9_/-]|\.[A-Za-z0-9_])|-m\s+heddle\b"
+)
+
+
+def _template_sources() -> list[tuple[str, str]]:
+    """Every packaged template with partials spliced, plus every raw prompt file."""
+    partials_dir = prompt_mod.PACKAGED_PROMPTS_DIR / "_partials"
+    sources = [
+        (
+            f"{path.relative_to(REPO_ROOT)} (expanded)",
+            prompt_mod.expand_partials(_source_text(path), partials_dir),
+        )
+        for path in _registry_prompt_paths()
+    ]
+    sources.extend(
+        (str(path.relative_to(REPO_ROOT)), _source_text(path))
+        for path in sorted(prompt_mod.PACKAGED_PROMPTS_DIR.rglob("*"))
+        if path.is_file() and path.suffix in {".md", ".yaml", ".yml"}
+    )
+    return sources
+
+
+def _offending_lines(pattern: re.Pattern[str]) -> list[str]:
+    return [
+        f"{name}:{lineno}: {line.strip()}"
+        for name, text in _template_sources()
+        for lineno, line in enumerate(text.splitlines(), start=1)
+        if pattern.search(line)
+    ]
+
+
+class TestReviewerPromptsStayOffReviewOutput:
+    """
+    Survivor pins (AC-21, AC-2; m6): no gate prompt directs a reviewer to the
+    feature's `reviews/` directory or to a `heddle` command.
+
+    The spec assumes this holds today, so the pins pass before the feature.
+    They make a future template that breaks the assumption fail here.
+    """
+
+    def test_no_gate_template_names_the_reviews_directory(self) -> None:
+        assert len(_template_sources()) > len(_registry_prompt_paths())
+        offenders = _offending_lines(REVIEWS_DIRECTORY_RE)
+        assert not offenders, (
+            "FAIL AC-21: a gate template names a `reviews/` path, directing "
+            f"reviewers to sibling or earlier review output: {offenders}"
+        )
+
+    def test_no_gate_template_names_a_heddle_command(self) -> None:
+        offenders = _offending_lines(HEDDLE_COMMAND_RE)
+        assert not offenders, (
+            "FAIL AC-2: a gate template names a `heddle` command, which a "
+            f"reviewer child must never run: {offenders}"
+        )
+
+    @pytest.mark.parametrize(
+        ("pattern", "line"),
+        (
+            (REVIEWS_DIRECTORY_RE, "Read plans/<feature>/reviews/spec-review.md."),
+            (REVIEWS_DIRECTORY_RE, "Compare with `reviews/` first."),
+            (HEDDLE_COMMAND_RE, "Run `heddle orient` before reviewing."),
+            (HEDDLE_COMMAND_RE, "python -m heddle status --json"),
+            (HEDDLE_COMMAND_RE, "Then call heddle."),
+        ),
+        ids=("reviews-path", "reviews-dir", "backticked", "module", "bare"),
+    )
+    def test_the_corpus_patterns_catch_a_directing_line(
+        self, pattern: re.Pattern[str], line: str
+    ) -> None:
+        """Survivor pin: the scan sees each directing spelling it guards."""
+        assert pattern.search(line), f"{pattern.pattern!r} misses {line!r}"
+
+    @pytest.mark.parametrize(
+        ("pattern", "line"),
+        (
+            (REVIEWS_DIRECTORY_RE, "First reviews have empty prior dispositions."),
+            (REVIEWS_DIRECTORY_RE, "Record prior-reviews/ separately."),
+            (HEDDLE_COMMAND_RE, "Heddle records the review."),
+            (HEDDLE_COMMAND_RE, "See heddle/gate/prompt.py for the renderer."),
+        ),
+        ids=("plural-word", "prefixed-dir", "product-name", "source-path"),
+    )
+    def test_the_corpus_patterns_ignore_ordinary_prose(
+        self, pattern: re.Pattern[str], line: str
+    ) -> None:
+        """Survivor pin: the scan does not flag prose that directs nothing."""
+        assert not pattern.search(line), f"{pattern.pattern!r} flags {line!r}"

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import re
 from pathlib import Path
 
 import pytest
@@ -352,3 +353,188 @@ def test_ac9_survivor_output_constraints_are_provider_specific() -> None:
     assert claude and codex and claude != codex
     assert "structured review JSON object" in claude
     assert "final assistant message" in codex
+
+
+# antigravity-reviewer-lane-v1, milestone m2: the lane's CLI domain, its
+# per-CLI default (AC-4) and model validation for new launches (AC-5). Launch
+# resolution is `heddle.gate.cli.resolve_gate_execution`; a policy slot's
+# frozen reviewer reaches it as overrides too.
+ANTIGRAVITY = "antigravity"
+ACCEPTED_ANTIGRAVITY_MODELS = ("gemini-4-neon", "gemini-4-hydrogen")
+REFUSED_ANTIGRAVITY_MODELS = (
+    "gemini-4-neon-high",
+    "gemini-3.8-flash",
+    "gemini-4-flash",
+    "gemini-4-lite",
+    "gemini-pro-orchestrator",
+    "claude-opus-5-5",
+)
+# The base name standing alone, not as the prefix of a suffixed name.
+NEON_BASE_NAME = re.compile(r"gemini-4-neon(?![\w.-])")
+
+
+def _resolve(gate_name: str = "spec-review", **overrides: str):
+    from heddle.gate.cli import resolve_gate_execution
+    from heddle.gate.registry import GATES
+    from heddle.gate.types import GateInvocationOverrides
+
+    return resolve_gate_execution(
+        GATES[gate_name], GateInvocationOverrides(**overrides)
+    )
+
+
+def _refusal(**overrides: str) -> str:
+    try:
+        resolved = _resolve(**overrides)
+    except KernelError as error:
+        return f"{error.message} {error.hint}"
+    pytest.fail(
+        f"FAIL AC-5: launch with {overrides} must be refused, resolved "
+        f"{resolved.exec_config}"
+    )
+
+
+def test_ac4_antigravity_joins_the_gate_cli_domain() -> None:
+    """Red: `antigravity` is accepted wherever a gate CLI is: the value domain,
+    the sandbox table, the shared `--cli` validation and every registered gate."""
+    from heddle.contracts.gate_execution import (
+        CLI_DOMAIN_ERROR,
+        VALID_GATE_CLIS,
+        VALID_SANDBOXES_BY_CLI,
+    )
+    from heddle.gate.registry import GATES
+    from heddle.runtime.cli_args import validate_gate_overrides
+
+    assert ANTIGRAVITY in VALID_GATE_CLIS, "FAIL AC-4: VALID_GATE_CLIS lacks the lane"
+    assert VALID_SANDBOXES_BY_CLI.get(ANTIGRAVITY), (
+        "FAIL AC-4: VALID_SANDBOXES_BY_CLI has no antigravity entry"
+    )
+    assert ANTIGRAVITY in CLI_DOMAIN_ERROR, (
+        f"FAIL AC-4: the --cli domain error must name the lane: {CLI_DOMAIN_ERROR}"
+    )
+    failure = validate_gate_overrides(
+        cli=ANTIGRAVITY, model=None, reasoning_effort=None
+    )
+    assert failure is None, (
+        f"FAIL AC-4: --cli antigravity is refused: {failure and failure.error}"
+    )
+    unsupported = sorted(
+        name for name, gate in GATES.items() if ANTIGRAVITY not in gate.supported_clis
+    )
+    assert not unsupported, f"FAIL AC-4: gates without the lane: {unsupported}"
+
+
+@pytest.mark.parametrize(
+    "gate_name",
+    [
+        "spec-review",
+        "plan-review",
+        "review-test-scaffolding",
+        "milestone-review",
+        "peer-review-sequential",
+        "behavior-review",
+        "complexity-review",
+        "robustness-analysis",
+    ],
+)
+def test_ac4_cli_antigravity_without_model_resolves_to_neon_high(gate_name) -> None:
+    """Red: the per-CLI default table gives the lane gemini-4-neon at
+    high wherever it applies today, with only --cli explicit."""
+    try:
+        resolved = _resolve(gate_name, cli=ANTIGRAVITY)
+    except KernelError as error:
+        pytest.fail(
+            f"FAIL AC-4: --cli antigravity without a model is refused for "
+            f"{gate_name}: {error.message}"
+        )
+    config = resolved.exec_config
+    assert (config.cli, config.model, config.reasoning_effort) == (
+        ANTIGRAVITY,
+        "gemini-4-neon",
+        "high",
+    ), f"FAIL AC-4: --cli antigravity resolved to {config}"
+    assert resolved.explicit_axes == frozenset({"cli"})
+
+
+def test_ac4_unsupported_cli_hint_names_every_lane() -> None:
+    """Red: the `--cli` usage hint that names only Claude and Codex gains the
+    third lane."""
+    text = _refusal(cli="gemini")
+    for lane in ("claude", "codex", ANTIGRAVITY):
+        assert lane in text, f"FAIL AC-4: the --cli hint must name {lane}: {text}"
+
+
+@pytest.mark.parametrize("model", ACCEPTED_ANTIGRAVITY_MODELS)
+def test_ac5_launch_accepts_gemini_4_base_names(model) -> None:
+    """Red: a Gemini 4 base name launches on the lane."""
+    try:
+        resolved = _resolve(cli=ANTIGRAVITY, model=model)
+    except KernelError as error:
+        pytest.fail(f"FAIL AC-5: launch with {model} refused: {error.message}")
+    assert (resolved.exec_config.cli, resolved.exec_config.model) == (
+        ANTIGRAVITY,
+        model,
+    )
+
+
+@pytest.mark.parametrize("model", REFUSED_ANTIGRAVITY_MODELS)
+def test_ac5_launch_refuses_other_names_naming_the_model(model) -> None:
+    """Red: effort-suffixed, older, Flash, Lite, orchestrator and other
+    providers' names are refused at launch, naming the refused model. Today
+    the lane itself is refused, without naming the model."""
+    text = _refusal(cli=ANTIGRAVITY, model=model)
+    assert model in text, f"FAIL AC-5: the refusal must name {model}: {text}"
+
+
+def test_ac5_launch_effort_suffixed_name_hints_base_name_and_effort() -> None:
+    """Red: the refusal points at the base name and --reasoning-effort."""
+    text = _refusal(cli=ANTIGRAVITY, model="gemini-4-neon-high")
+    assert NEON_BASE_NAME.search(text) and "--reasoning-effort" in text, (
+        "FAIL AC-5: an effort-suffixed name needs a hint to pass gemini-4-neon "
+        f"with --reasoning-effort: {text}"
+    )
+
+
+@pytest.mark.parametrize("effort", ["low", "medium", "high", "xhigh"])
+def test_ac5_launch_accepts_the_domain_efforts(effort) -> None:
+    """Red: each existing effort launches on the lane."""
+    try:
+        resolved = _resolve(
+            cli=ANTIGRAVITY, model="gemini-4-neon", reasoning_effort=effort
+        )
+    except KernelError as error:
+        pytest.fail(f"FAIL AC-5: effort {effort} refused: {error.message}")
+    assert resolved.exec_config.reasoning_effort == effort
+
+
+def test_ac5_launch_refuses_max_effort_on_the_lane() -> None:
+    """Red: `max` is outside the effort domain; today the lane is refused
+    before the effort is checked."""
+    from heddle.contracts.gate_execution import REASONING_EFFORT_DOMAIN_ERROR
+
+    text = _refusal(cli=ANTIGRAVITY, model="gemini-4-neon", reasoning_effort="max")
+    assert REASONING_EFFORT_DOMAIN_ERROR in text, (
+        f"FAIL AC-5: max must be refused as an effort: {text}"
+    )
+
+
+@pytest.mark.parametrize("cli", ["claude", "codex"])
+def test_ac5_launch_claude_and_codex_refuse_gemini_models(cli) -> None:
+    """Red: today a gemini- model launches on either existing lane."""
+    text = _refusal(cli=cli, model="gemini-4-neon")
+    assert "gemini-4-neon" in text, f"FAIL AC-5: refusal must name the model: {text}"
+
+
+@pytest.mark.parametrize(
+    ("cli", "model"),
+    [
+        ("claude", "claude-opus-5-5"),
+        ("claude", "claude-fable-5-2"),
+        ("codex", "gpt-6.1-sol"),
+        ("codex", "gpt-6-astra"),
+    ],
+)
+def test_ac5_survivor_existing_lane_models_still_launch(cli, model) -> None:
+    """Survivor: the new family rules leave existing selections launchable."""
+    resolved = _resolve(cli=cli, model=model)
+    assert (resolved.exec_config.cli, resolved.exec_config.model) == (cli, model)

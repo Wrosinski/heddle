@@ -5,6 +5,8 @@ import shlex
 from collections import Counter
 from pathlib import Path
 
+import pytest
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
 GUIDE_PATH = REPO_ROOT / "docs" / "workflow" / "host-integration.md"
 README_PATH = REPO_ROOT / "README.md"
@@ -262,4 +264,158 @@ def test_readme_links_the_canonical_guide() -> None:
     )
     assert adoption.count(target) == 1, (
         "FAIL AC-6: adoption entry lacks one canonical guide link"
+    )
+
+
+# --------------------------------------------------------------------------- #
+# antigravity-reviewer-lane-v1 AC-24: the documented surfaces describe the
+# Antigravity lane. Each topic must appear, whole, in one block (a paragraph,
+# a top-level list item or a table row) of at least one of the five surfaces.
+# Term alternatives keep the wording free; a lane anchor keeps unrelated text,
+# such as the drive's allowlist, from counting.
+# --------------------------------------------------------------------------- #
+AC24_SURFACES = {
+    "README.md": README_PATH,
+    "host-integration guide": GUIDE_PATH,
+    ".heddle.yaml scaffold": REPO_ROOT
+    / "heddle"
+    / "resources"
+    / "heddle-yaml.scaffold.yaml",
+    "test-selection map": REPO_ROOT / "docs" / "testing" / "test-selection-map.md",
+    "CHANGELOG.md": REPO_ROOT / "CHANGELOG.md",
+}
+LANE_ANCHOR = ("antigravity", "agy")
+AC24_TOPICS: dict[str, tuple[tuple[str, ...], ...]] = {
+    "enabling-the-lane": (
+        ("agents.antigravity", "antigravity: true"),
+        ("agy",),
+    ),
+    "model-naming": (
+        ("gemini-4-neon",),
+        ("effort",),
+        (
+            "suffix",
+            "separate",
+            "base name",
+            "base model",
+            "gemini 4 only",
+            "only gemini 4",
+            "refus",
+        ),
+    ),
+    "saved-conversations-off-limits": (
+        LANE_ANCHOR,
+        ("conversation",),
+        ("saved", "saves", "keeps", "stores", "stored", "retain"),
+        (
+            "may not read",
+            "must not read",
+            "never read",
+            "cannot read",
+            "not read",
+            "out-of-scope-access",
+            "off limits",
+            "forbidden",
+        ),
+    ),
+    "full-permission-launch-and-deny-rule": (
+        LANE_ANCHOR,
+        (
+            "--dangerously-skip-permissions",
+            "full permission",
+            "full-permission",
+            "skip-permissions",
+            "skips permission",
+        ),
+        ("deny", "denies", "denied"),
+        ("read_file", ".gemini", "data director"),
+    ),
+    "tool-allowlist": (
+        LANE_ANCHOR,
+        ("allowlist", "allow list", "allow-list", "allowed tools", "approved tools"),
+        ("unapproved", "fail", "outside"),
+    ),
+    "input-ceiling": (
+        LANE_ANCHOR,
+        ("250,000", "250000", "250 000", "250 kb", "250kb"),
+        ("refus", "ceiling", "limit", "too large"),
+    ),
+    "gate-session-guard": (
+        ("heddle_agent_session",),
+        ("gate-session-refused", "refus"),
+        ("mutat", "state-changing", "change state", "changes state"),
+    ),
+    "reviews-rule-on-every-lane": (
+        ("reviews/",),
+        (
+            "out-of-scope-access",
+            "fail",
+            "may not",
+            "must not",
+            "off limits",
+            "forbidden",
+        ),
+        (
+            "every lane",
+            "all lanes",
+            "all three lanes",
+            "each lane",
+            "any lane",
+            "claude and codex",
+            "claude, codex",
+            "every reviewer",
+        ),
+    ),
+    "agy-host-rule-precedence": (
+        LANE_ANCHOR,
+        ("agents.md",),
+        (
+            "precedence",
+            "outrank",
+            "override",
+            "take priority",
+            "takes priority",
+            "above the prompt",
+            "over the prompt",
+            "ahead of the prompt",
+        ),
+    ),
+}
+
+
+def _ac24_blocks() -> list[tuple[str, str]]:
+    """(surface, normalized block) for every block of the five surfaces."""
+    blocks: list[tuple[str, str]] = []
+    for name, path in AC24_SURFACES.items():
+        assert path.is_file(), f"FAIL AC-24: the {name} surface is missing: {path}"
+        text = path.read_text(encoding="utf-8")
+        if path.suffix == ".yaml":
+            # The scaffold is commented YAML: read its comments as prose.
+            text = "\n".join(re.sub(r"^#\s?", "", line) for line in text.splitlines())
+        for paragraph in re.split(r"\n\s*\n", text):
+            lines = paragraph.splitlines()
+            if lines and all(line.lstrip().startswith("|") for line in lines):
+                pieces = lines
+            else:
+                pieces = re.split(r"\n(?=(?:[-*]|\d+\.) )", paragraph)
+            blocks.extend(
+                (name, " ".join(piece.casefold().split())) for piece in pieces
+            )
+    return blocks
+
+
+@pytest.mark.parametrize("topic", list(AC24_TOPICS))
+def test_ac24_documented_surfaces_describe_the_antigravity_lane(topic: str) -> None:
+    """AC-24: README.md, the host-integration guide, the `.heddle.yaml`
+    scaffold, the test-selection map and CHANGELOG.md together describe the
+    topic: some block of one of them holds every term group."""
+    groups = AC24_TOPICS[topic]
+    found = [
+        surface
+        for surface, block in _ac24_blocks()
+        if all(any(term in block for term in group) for group in groups)
+    ]
+    assert found, (
+        f"FAIL AC-24: no block of {sorted(AC24_SURFACES)} describes {topic} "
+        f"(each block needs one term of every group: {groups})"
     )
