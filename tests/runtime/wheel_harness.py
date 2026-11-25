@@ -767,10 +767,30 @@ texts = [
 wrapped = [HEADER + len(text.encode("utf-8")) + TRAILER for text in texts]
 PATHLIKE = re.compile(r"[\w.@+~/-]*/[\w.@+~/-]+")
 observed = {}
+# Each absolute path opened exactly as written (no normalization), with the
+# real path that open reached.
+opened = {}
+
+
+def open_as_written(token):
+    if not os.path.isabs(token) or token in opened:
+        return
+    if os.path.abspath(token).startswith(GEMINI):
+        return
+    try:
+        real = os.path.realpath(token)
+        if real.startswith(GEMINI) or not os.path.isfile(token):
+            return
+        with open(token, "rb") as handle:
+            handle.read(1)
+    except OSError:
+        return
+    opened[token] = real
 
 
 def visit(text, base, depth):
     for token in PATHLIKE.findall(text):
+        open_as_written(token.rstrip(".,:;"))
         token = os.path.expanduser(token.rstrip(".,:;"))
         options = [token] if os.path.isabs(token) else [
             os.path.join(CWD, token),
@@ -847,6 +867,7 @@ append(
         },
         "index": index_path,
         "chunks": chunks,
+        "opened": opened,
         "schema": schema_text,
     },
 )

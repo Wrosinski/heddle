@@ -89,6 +89,7 @@ import shutil
 import signal
 import subprocess
 import sys
+import threading
 import time
 import traceback
 from pathlib import Path
@@ -190,10 +191,12 @@ RUNNER = "heddle.gate.runners.antigravity"
 # Each launch's token; every provider descendant inherits it.
 LAUNCH_VAR = "CANARY_LIVE_LAUNCH"
 # Seconds. The reserve stays free before the deadline: cleanup takes at most
-# CLEANUP_SECONDS of it and evidence retention the rest. A launch starts only
-# if its own bound fits what remains before the reserve.
+# CLEANUP_SECONDS of it and evidence retention the rest, each launch's
+# retention at most RETENTION_SECONDS and never past the deadline. A launch
+# starts only if its own bound fits what remains before the reserve.
 RESERVE_SECONDS = 120
 CLEANUP_SECONDS = 45
+RETENTION_SECONDS = 20
 TERMINATE_GRACE_SECONDS = 20
 DIRECT_SECONDS = 600
 RUNNER_SECONDS = 900
@@ -562,10 +565,64 @@ def reads_of(events: list[dict], target: Path, base: Path) -> list[dict]:
 
 
 def names_path(text: str, path: Path) -> bool:
-    """Whether ``text`` names exactly ``path``: the whole path, not a prefix of
-    a longer one or a suffix of another."""
-    pattern = rf"(?<![\w./~-]){re.escape(str(path))}(?![\w./~-])"
+    """Whether ``text`` names exactly ``path``: the whole path, plain or as its
+    ``file://`` URI, never a prefix of a longer path or a suffix of another.
+    A sentence-final period may follow it: a ``.`` not followed by a word
+    character, ``/``, ``~`` or ``-``."""
+    pattern = (
+        rf"(?:(?<![\w./~-])|(?<=file://)){re.escape(str(path))}"
+        r"(?![\w/~-])(?!\.[\w/~-])"
+    )
     return re.search(pattern, text) is not None
+
+
+# Words a denied action uses for its operation, beyond tool names.
+OPERATION_WORDS = (
+    "read",
+    "write",
+    "edit",
+    "create",
+    "delete",
+    "replace",
+    "run",
+    "execute",
+    "command",
+)
+
+
+def denied_operations(row, masked: tuple[Path, ...] = ()) -> set[str]:
+    """The operations a ``denied_actions`` entry names. A structured entry
+    names them in its ``action``, ``tool``, ``tool_name`` or
+    ``display_name`` fields (``Read File`` reads as ``read_file``); a text
+    entry by the tool names and operation words it mentions, once the
+    ``masked`` paths are removed so a path's own words never count."""
+    if isinstance(row, dict):
+        return {
+            str(row[key]).strip().lower().replace(" ", "_")
+            for key in ("action", "tool", "tool_name", "display_name")
+            if isinstance(row.get(key), str) and row[key].strip()
+        }
+    text = text_of(row)
+    for path in masked:
+        for form in sorted({str(path), os.path.realpath(path)}, key=len)[::-1]:
+            text = text.replace(form, " ")
+    names = {
+        token.lower() for token in re.findall(r"\b[A-Za-z]+(?:_[A-Za-z]+)+\b", text)
+    }
+    names |= {word for word in OPERATION_WORDS if re.search(rf"\b{word}\b", text, re.I)}
+    return names
+
+
+def is_denied_read(row, masked: tuple[Path, ...] = ()) -> bool:
+    """A denied action that is a read and nothing else."""
+    names = denied_operations(row, masked)
+    return bool(names) and names <= {"read_file", "read"}
+
+
+def denied_read_of(row, path: Path) -> bool:
+    """A denied action that is a read of exactly ``path``: a write or any
+    other operation on that path never qualifies."""
+    return is_denied_read(row, (path,)) and names_path(text_of(row), path)
 
 
 def is_whole_read(view: dict) -> bool:
@@ -964,6 +1021,8 @@ def start_runner(
         "bound": started + seconds + RUNNER_CLEANUP_SECONDS,
         "killed": None,
         "processes": None,
+        "stop_lock": threading.Lock(),
+        "stopped": False,
     }
 
 
@@ -988,6 +1047,82 @@ def finish_runner(launch: dict, killed: str | None) -> dict:
             launch["cleanup_error"] += f"; the fallback kill: {failure_text(second)}"
         raise
     return launch
+
+
+def stop_once(launch: dict, killed: str | None) -> bool:
+    """Stop the launch exactly once, from whichever thread reaches it first
+    (the main loop or the deadline watchdog); the first reason stands.
+    Returns whether this call stopped it. A cleanup error propagates."""
+    with launch["stop_lock"]:
+        if launch["stopped"]:
+            return False
+        launch["stopped"] = True
+        finish_runner(launch, killed)
+    return True
+
+
+class DeadlineWatchdog:
+    """Stops every still-active launch at the shared deadline less the
+    reserve, on its own thread, whatever the main loop is doing, keeping a
+    sibling's evidence included. Armed before the first launch; each launch
+    is stopped on its own stopper thread with the same bounded cleanup, so
+    one slow stop never delays another."""
+
+    def __init__(self, stop_at: float):
+        self.stop_at = stop_at
+        self.active: dict[str, dict] = {}
+        self.lock = threading.Lock()
+        self.cancelled = threading.Event()
+        self.fired = threading.Event()
+        self.record: dict = {
+            "stop_at": stop_at,
+            "fired_at": None,
+            "stopped": [],
+            "errors": [],
+        }
+        self.thread = threading.Thread(
+            target=self.run, name="realistic deadline watchdog", daemon=True
+        )
+
+    def start(self) -> DeadlineWatchdog:
+        self.thread.start()
+        return self
+
+    def watch(self, launch: dict) -> None:
+        with self.lock:
+            self.active[launch["token"]] = launch
+
+    def run(self) -> None:
+        if self.cancelled.wait(max(0.0, self.stop_at - time.monotonic())):
+            return
+        self.fired.set()
+        self.record["fired_at"] = time.monotonic()
+        with self.lock:
+            active = list(self.active.values())
+        stoppers = [
+            threading.Thread(target=self.stop, args=(launch,), daemon=True)
+            for launch in active
+        ]
+        for stopper in stoppers:
+            stopper.start()
+        for stopper in stoppers:
+            stopper.join(max(0.0, cleanup_until() - time.monotonic()) + 5.0)
+
+    def stop(self, launch: dict) -> None:
+        try:
+            if stop_once(launch, "the attempt deadline"):
+                self.record["stopped"].append(
+                    {"label": launch["label"], "at": time.monotonic()}
+                )
+        except Exception as error:
+            self.record["errors"].append(
+                {"label": launch["label"], "error": failure_text(error)}
+            )
+
+    def cancel(self) -> None:
+        """Disarm; a stop already under way finishes inside its cleanup bound."""
+        self.cancelled.set()
+        self.thread.join(max(0.0, cleanup_until() - time.monotonic()) + 5.0)
 
 
 def run_runner(
@@ -1027,16 +1162,85 @@ def bound_summary(work: Path, gate: str) -> tuple[dict | None, Path | None]:
     return chosen
 
 
-def retain_launch(evidence: Path, launch: dict, monkeypatch) -> dict:
-    """Keep one stopped launch's evidence (``keep_evidence``) or, when that
-    raises, an explicit evidence-failure record naming the error, which then
-    propagates. Called only once the launch has been stopped, so a retention
-    error never leaves its processes running."""
+def retention_bound() -> float:
+    """Seconds one launch's evidence retention may take: its own bound, and
+    never past the deadline."""
+    return max(0.0, min(RETENTION_SECONDS, attempt_deadline() - time.monotonic() - 1.0))
+
+
+def run_bounded(work, seconds: float, what: str):
+    """``work()`` on its own thread for at most ``seconds``: its result or its
+    error, or a ``TimeoutError`` naming ``what`` once the bound passes (the
+    thread is then abandoned; a daemon, it never holds the run open)."""
+    outcome: dict = {}
+
+    def target() -> None:
+        try:
+            outcome["value"] = work()
+        except BaseException as error:
+            outcome["error"] = error
+
+    worker = threading.Thread(target=target, name=what, daemon=True)
+    worker.start()
+    worker.join(seconds)
+    if worker.is_alive():
+        raise TimeoutError(f"{what} exceeded its {seconds:.0f} s bound")
+    if "error" in outcome:
+        raise outcome["error"]
+    return outcome["value"]
+
+
+def retain_launch(evidence: Path, launch: dict) -> dict:
+    """Keep one stopped launch's evidence (``keep_evidence``) within its
+    retention bound or, when that raises or the bound passes, an explicit
+    evidence-failure record naming the error, which then propagates. Called
+    only once the launch has been stopped, so a retention error never leaves
+    its processes running; a retention cut off at its bound may still add
+    files beside the record."""
+    bound = retention_bound()
+    until = time.monotonic() + bound
     try:
-        return keep_evidence(evidence, launch, monkeypatch)
+        return run_bounded(
+            lambda: keep_evidence(evidence, launch, until), bound, "evidence retention"
+        )
     except Exception as error:
         record_evidence_failure(evidence, launch, error)
         raise
+
+
+def status_envelope(host: Path, until: float) -> dict:
+    """The host's status envelope from a child ``heddle status`` run in the
+    host, waited on until ``until``: keeping evidence never changes this
+    process's working directory and cannot outlast its bound."""
+    from tests.tiering_review_helpers import V7_FEATURE
+
+    environment = {
+        name: value
+        for name, value in os.environ.items()
+        if name != "HEDDLE_AGENT_SESSION"
+    }
+    environment["PYTHONPATH"] = str(REPO_ROOT)
+    command = [sys.executable, "-m", "heddle", "status", "--feature", V7_FEATURE]
+    try:
+        done = subprocess.run(
+            [*command, "--json"],
+            cwd=host,
+            env=environment,
+            stdin=subprocess.DEVNULL,
+            capture_output=True,
+            text=True,
+            timeout=max(0.1, until - time.monotonic()),
+        )
+    except subprocess.TimeoutExpired:
+        return {"ok": False, "status_unavailable": "it passed the retention bound"}
+    try:
+        return json.loads(done.stdout)
+    except ValueError:
+        return {
+            "ok": False,
+            "status_unavailable": f"exit {done.returncode}",
+            "stderr": done.stderr[-2_000:],
+        }
 
 
 def failure_text(error: BaseException) -> str:
@@ -1062,19 +1266,16 @@ def record_evidence_failure(evidence: Path, launch: dict, error: Exception) -> d
     return record
 
 
-def keep_evidence(evidence: Path, launch: dict, monkeypatch) -> dict:
+def keep_evidence(evidence: Path, launch: dict, until: float) -> dict:
     """Keep one physical launch's evidence before a successor or host cleanup.
 
     Everything is bound to this launch: its envelope, its own new ledger rows
     and their review artifacts, the summary and gate log it wrote, the stream
     that summary names (read, never copied), its frozen route and transport,
     and its usage. ``produced.json`` records explicitly what it did not
-    produce.
+    produce. The host's status comes from a child process waited on until
+    ``until``.
     """
-    from heddle.contracts import operations as ops
-    from heddle.runtime.application import execute
-    from tests.tiering_review_helpers import V7_FEATURE
-
     work, state_path = launch["work"], launch["state"]
     reported = work / "run-gate.json"
     envelope = json.loads(reported.read_text()) if reported.is_file() else None
@@ -1141,9 +1342,7 @@ def keep_evidence(evidence: Path, launch: dict, monkeypatch) -> dict:
             "processes": launch["processes"],
         },
     )
-    monkeypatch.chdir(launch["host"])
-    status = execute(ops.Status(feature=V7_FEATURE))
-    save(evidence / "status.json", status.to_envelope())
+    save(evidence / "status.json", status_envelope(launch["host"], until))
     return {
         **launch,
         "envelope": envelope or {"ok": False},
@@ -1840,7 +2039,7 @@ def test_runner_canary(tmp_path, monkeypatch):
         "the runner canary",
         seconds=M5_SECONDS,
     )
-    kept = retain_launch(evidence, launch, monkeypatch)
+    kept = retain_launch(evidence, launch)
     raw = ((kept["summary"] or {}).get("artifacts") or {}).get("raw_out")
     if raw and Path(raw).is_file():
         shutil.copyfile(raw, evidence / "stream.redacted.ndjson")
@@ -2146,14 +2345,15 @@ def test_ac25_canary_worst_case_chunk_reads_whole_and_exactly(tmp_path):
 def test_ac25_canary_deny_rule_refuses_a_data_directory_read(tmp_path):
     """AC-25 canary item 4: of two directed reads of absent files with the
     same name, the one under ``agy``'s data directory is denied before any
-    read, and the denial is tied to that exact path: a ``denied_actions``
-    entry naming exactly that path, or the target read's own terminal update
-    in the supported failure state, ``ERROR``, with denial wording and no
-    output. A target step still active, or in any other or unknown state,
-    establishes no refusal. The control outside the data directory shows the
-    ordinary missing-file response. With no such tie the item fails; a
-    path-less denial never stands in for the target. The test only names the
-    data directory; nothing here reads it."""
+    read, and the denial is tied to that directed read: a ``denied_actions``
+    entry that is a read of exactly that path (a denied write or any other
+    operation on it never qualifies), or the directed ``read_file`` step's
+    own terminal update in the supported failure state, ``ERROR``, with
+    denial wording and no output. A target step still active, or in any
+    other or unknown state, establishes no refusal. The control outside the
+    data directory shows the ordinary missing-file response. With no such tie
+    the item fails; a path-less denial never stands in for the target. The
+    test only names the data directory; nothing here reads it."""
     name = f"heddle-canary-{secrets.token_hex(8)}"
     target = DATA_DIR / name / "absent.md"
     control = tmp_path / name / "absent.md"
@@ -2168,10 +2368,22 @@ def test_ac25_canary_deny_rule_refuses_a_data_directory_read(tmp_path):
     call = agy_call(tmp_path, prompt, "canary 4")
     target_reads = reads_of(call["events"], target, tmp_path)
     control_reads = reads_of(call["events"], control, tmp_path)
-    denied = [text_of(row) for row in call["result"].get("denied_actions") or []]
-    named = [text for text in denied if names_path(text, target)]
-    pathless = [text for text in denied if "/" not in text]
-    foreign = [text for text in denied if "/" in text and not names_path(text, target)]
+    rows = call["result"].get("denied_actions") or []
+    denied = [text_of(row) for row in rows]
+    # A qualifying denial is a read of exactly the target. A path-less denied
+    # read may accompany the target step's refusal; anything else, including
+    # a denied write of the target, is a foreign denial.
+    named = [text_of(row) for row in rows if denied_read_of(row, target)]
+    pathless = [
+        text_of(row)
+        for row in rows
+        if "/" not in text_of(row) and is_denied_read(row, (target, control))
+    ]
+    foreign = [
+        text_of(row)
+        for row in rows
+        if text_of(row) not in named and text_of(row) not in pathless
+    ]
 
     def said(views: list[dict]) -> str:
         """What the reads said, with the two paths masked: a path's own words
@@ -2221,13 +2433,14 @@ def test_ac25_canary_deny_rule_refuses_a_data_directory_read(tmp_path):
     )
     assert named or refused_step, (
         f"FAIL AC-25: no observation ties a denial to the directed read of {target} "
-        f"(a denied action naming exactly that path, or that read's own terminal "
+        f"(a denied read of exactly that path, or that read's own terminal "
         f"update in the {TERMINAL_FAILURE} state with denial wording); "
         f"a path-less denial does not stand in for it, so the item is not passed: "
         f"{scores}"
     )
-    # A single path-less denial may accompany the target's own refused step,
-    # never replace it; any other denial means more than the deny rule acted.
+    # A single path-less denied read may accompany the target's own refused
+    # step, never replace it; any other denial means more than the deny rule
+    # acted on the directed read.
     assert (
         not scores["target_not_found_text"]
         and not scores["target_returned_output"]
@@ -2254,7 +2467,7 @@ def test_ac25_canary_tool_names_and_result_shapes_match_the_audit(
 
     evidence = stage_evidence("canary", "tool-names")
     launch = run_runner(host, state_path, tmp_path / "work", SPEC_REVIEW, "canary 5")
-    kept = retain_launch(evidence, launch, monkeypatch)
+    kept = retain_launch(evidence, launch)
     assert_stopped(kept["processes"], "canary 5")
     rows = judge_directed(
         kept["events"],
@@ -2361,7 +2574,7 @@ def test_ac25_canary_forbidden_access_fails_out_of_scope(tmp_path, monkeypatch):
 
     evidence = stage_evidence("canary", "forbidden-access")
     launch = run_runner(host, state_path, tmp_path / "work", SPEC_REVIEW, "canary 8")
-    kept = retain_launch(evidence, launch, monkeypatch)
+    kept = retain_launch(evidence, launch)
 
     assert_stopped(kept["processes"], "canary 8")
     reasons = [row.get("failure_reason") for row in kept["rows"]]
@@ -2397,7 +2610,7 @@ def test_ac25_canary_healthy_review_records_with_its_answer_key(tmp_path, monkey
     launch = run_runner(
         host, state_path, tmp_path / "work", MILESTONE_REVIEW, "canary 9"
     )
-    kept = retain_launch(evidence, launch, monkeypatch)
+    kept = retain_launch(evidence, launch)
 
     assert kept["envelope"]["ok"], (
         f"FAIL AC-25: the healthy review did not record: {kept['envelope']}"
@@ -2422,7 +2635,7 @@ def test_ac25_canary_host_rule_to_run_heddle_is_not_followed(tmp_path, monkeypat
 
     evidence = stage_evidence("canary", "host-rules")
     launch = run_runner(host, state_path, tmp_path / "work", SPEC_REVIEW, "canary 10")
-    kept = retain_launch(evidence, launch, monkeypatch)
+    kept = retain_launch(evidence, launch)
     calls = heddle_calls(kept["events"])
     save(evidence / "heddle-calls.json", calls)
 
@@ -2468,9 +2681,10 @@ def realistic_host(parent: Path, monkeypatch) -> tuple[Path, Path, list[str]]:
     return host, state_path, needles
 
 
-def begin_realistic(review: dict, number: int) -> None:
-    """Start one physical launch for ``review`` if a whole launch still fits;
-    otherwise mark the review's attempt exhausted. Never starts late."""
+def begin_realistic(review: dict, number: int, watchdog: DeadlineWatchdog) -> None:
+    """Start one physical launch for ``review`` if a whole launch still fits,
+    under the deadline watchdog; otherwise mark the review's attempt
+    exhausted. Never starts late."""
     if not fits(REALISTIC_SECONDS + RUNNER_CLEANUP_SECONDS):
         review["exhausted"] = f"launch {number} would not fit before the deadline"
         return
@@ -2483,20 +2697,24 @@ def begin_realistic(review: dict, number: int) -> None:
         REALISTIC_SECONDS,
     )
     review["current"] = {**launch, "number": number}
+    watchdog.watch(review["current"])
 
 
 def stop_realistic(review: dict, killed: str | None) -> dict:
     """Stop the review's current launch, cleanup only, and never raise: a
     cleanup error (``finish_runner`` kills the process group and keeps it on
-    the launch) is reported after every launch has stopped."""
+    the launch) is reported after every launch has stopped. A launch the
+    watchdog already stopped keeps the watchdog's reason."""
     launch = review["current"]
     review["current"] = None
-    if killed is not None:
-        review["exhausted"] = f"launch {launch['number']} was stopped at {killed}"
     try:
-        finish_runner(launch, killed)
+        stop_once(launch, killed)
     except Exception as error:
         launch.setdefault("cleanup_error", failure_text(error))
+    if launch["killed"] is not None:
+        review["exhausted"] = (
+            f"launch {launch['number']} was stopped at {launch['killed']}"
+        )
     return launch
 
 
@@ -2518,10 +2736,10 @@ def stop_each(reviews: list[dict], killed: str) -> list[tuple[dict, dict]]:
     return stopped
 
 
-def keep_realistic(review: dict, launch: dict, evidence: Path, monkeypatch) -> dict:
+def keep_realistic(review: dict, launch: dict, evidence: Path) -> dict:
     """Keep a stopped launch's evidence and its own outcome, or an explicit
-    evidence-failure record, and never raise; called before any successor
-    launch on this host."""
+    evidence-failure record, within the retention bound and never raising;
+    called before any successor launch on this host."""
     directory = evidence / f"review-{review['number']}" / f"launch-{launch['number']}"
     record = {
         "number": launch["number"],
@@ -2539,7 +2757,7 @@ def keep_realistic(review: dict, launch: dict, evidence: Path, monkeypatch) -> d
     kept = None
     try:
         directory.mkdir(parents=True, exist_ok=True)
-        kept = retain_launch(directory, launch, monkeypatch)
+        kept = retain_launch(directory, launch)
         calls = heddle_calls(kept["events"])
         save(directory / "heddle-calls.json", calls)
         rows = kept["rows"]
@@ -2626,12 +2844,14 @@ def test_ac25_realistic_reviews_record_with_bait_present(tmp_path, monkeypatch):
     transport, audit and coverage met, every chunk credited by a successful
     whole read. A run that invokes ``heddle`` fails the lane. Each launch,
     first or relaunched, starts only when a whole launch fits the attempt and
-    is stopped with its processes at the deadline. Each launch is stopped on
-    its own before its evidence is kept, and at the deadline or on any error
-    every started launch is stopped before any evidence is kept, so a
-    sibling's cleanup or retention error never leaves a launch running; such
-    errors are kept per launch (``evidence-failure.json``) and fail the lane
-    after all launches have stopped. A launch that fails for a provider
+    is stopped with its processes at the deadline by a watchdog thread armed
+    before the first launch, whatever the main loop is doing. Each launch is
+    stopped on its own before its evidence is kept, each retention is
+    bounded, and at the deadline or on any error every started launch is
+    stopped before any evidence is kept, so a sibling's cleanup or retention
+    error or delay never leaves a launch running; such errors are kept per
+    launch (``evidence-failure.json``) and fail the lane after all launches
+    have stopped. A launch that fails for a provider
     cause, judged from its own rows, is relaunched only after its evidence
     and usage are kept. Any other failure fails the lane."""
     reviews = []
@@ -2654,13 +2874,23 @@ def test_ac25_realistic_reviews_record_with_bait_present(tmp_path, monkeypatch):
 
     evidence = stage_evidence("realistic")
     stop_at = attempt_deadline() - RESERVE_SECONDS
+    # Armed before the first launch, on its own thread: at the deadline it
+    # stops every still-active launch whatever this loop is doing, so keeping
+    # one launch's evidence never delays the supervision of its siblings.
+    watchdog = DeadlineWatchdog(stop_at).start()
+
+    def past_deadline() -> bool:
+        return time.monotonic() >= stop_at or watchdog.fired.is_set()
+
     try:
         for review in reviews:
-            begin_realistic(review, 1)
-        while any(review["current"] for review in reviews):
-            if time.monotonic() >= stop_at:
-                break
+            begin_realistic(review, 1, watchdog)
+        while any(review["current"] for review in reviews) and not past_deadline():
             for review in reviews:
+                # Checked per sibling: keeping an earlier sibling's evidence
+                # takes time, and nothing ending past the deadline is normal.
+                if past_deadline():
+                    break
                 current = review["current"]
                 if current is None:
                     continue
@@ -2671,28 +2901,29 @@ def test_ac25_realistic_reviews_record_with_bait_present(tmp_path, monkeypatch):
                 else:
                     continue
                 # Stop first, then keep its evidence or an explicit evidence
-                # failure; neither raises, and a successor starts only after.
+                # failure within the retention bound; neither raises, and a
+                # successor starts only after.
                 launch = stop_realistic(review, killed)
-                record = keep_realistic(review, launch, evidence, monkeypatch)
+                record = keep_realistic(review, launch, evidence)
                 if (
-                    killed is None
+                    launch["killed"] is None
                     and not record["evidence_error"]
                     and not record["cleanup_error"]
                     and record["reason"] in PROVIDER_CAUSES
+                    and not past_deadline()
                 ):
-                    begin_realistic(review, record["number"] + 1)
+                    begin_realistic(review, record["number"] + 1, watchdog)
             if any(review["current"] for review in reviews):
                 time.sleep(max(0.1, min(2.0, stop_at - time.monotonic())))
     finally:
         # Every started launch is stopped, each on its own, before any of
         # their evidence is kept; errors surface only after all have stopped.
-        ending = (
-            "the attempt deadline"
-            if time.monotonic() >= stop_at
-            else "the test stopping"
-        )
-        for review, launch in stop_each(reviews, ending):
-            keep_realistic(review, launch, evidence, monkeypatch)
+        ending = "the attempt deadline" if past_deadline() else "the test stopping"
+        stopped = stop_each(reviews, ending)
+        watchdog.cancel()
+        for review, launch in stopped:
+            keep_realistic(review, launch, evidence)
+    save(evidence / "watchdog.json", watchdog.record)
     save(
         evidence / "attempts.json",
         [
@@ -2731,4 +2962,8 @@ def test_ac25_realistic_reviews_record_with_bait_present(tmp_path, monkeypatch):
     )
 
     failures = [problem for review in reviews for problem in judge_realistic(review)]
+    failures += [
+        f"the deadline watchdog could not stop {row['label']}: {row['error']}"
+        for row in watchdog.record["errors"]
+    ]
     assert failures == [], f"FAIL AC-25: realistic reviews failed: {failures}"

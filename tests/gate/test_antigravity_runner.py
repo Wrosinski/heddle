@@ -195,10 +195,30 @@ texts = [
 wrapped = [15 + len(text.encode("utf-8")) + 400 for text in texts]
 PATHLIKE = re.compile(r"[\w.@+~/-]*/[\w.@+~/-]+")
 observed = {}
+# Each absolute path token opened exactly as written (no normalization), as a
+# reviewer's read_file call would, mapped to the real file it reached then.
+opened = {}
+
+
+def open_as_written(token):
+    if not os.path.isabs(token) or token in opened:
+        return
+    if os.path.abspath(token).startswith(GEMINI):
+        return
+    try:
+        real = os.path.realpath(token)
+        if real.startswith(GEMINI) or not os.path.isfile(token):
+            return
+        with open(token, "rb") as handle:
+            handle.read(1)
+    except OSError:
+        return
+    opened[token] = real
 
 
 def visit(text, base, depth):
     for token in PATHLIKE.findall(text):
+        open_as_written(token.rstrip(".,:;"))
         token = os.path.expanduser(token.rstrip(".,:;"))
         options = [token] if os.path.isabs(token) else [
             os.path.join(CWD, token),
@@ -272,6 +292,7 @@ append(
         },
         "index": index_path,
         "chunks": chunks,
+        "opened": opened,
         "schema": schema_text,
     },
 )
@@ -1108,42 +1129,48 @@ def index_records(index: bytes, ac: str = "AC-7") -> list[dict]:
 
 def assert_index_lists_chunks(
     index: bytes,
-    files: dict[str, bytes],
+    opened: dict[str, tuple[str, bytes]],
     capture: bytes,
     slices: list[tuple[int, int]],
     ac: str = "AC-7",
     *,
-    directory: Path | None = None,
+    directory: Path,
 ) -> None:
     """AC-7 under the plan's fixed index format. ``slices`` are the chunks'
     half-open capture ranges in capture order, computed independently of the
-    index; ``files`` maps each delivered file's resolved absolute path to its
-    bytes. The index lists exactly ``len(slices)`` chunks, and entry ``n``:
-    names a delivered file (inside ``directory`` when given) whose bytes are
-    slice ``n`` of the capture, states exactly that slice's ``start`` and
-    exclusive ``end``, and carries that slice's SHA-256. No two entries name
-    the same file."""
+    index. ``opened`` maps each absolute path the reviewer opened exactly as
+    written (no normalization) to ``(real path reached at open, bytes read)``.
+
+    The index lists exactly ``len(slices)`` chunks, and entry ``n``'s path, as
+    written: is absolute and already normalized; opened as written and yielded
+    exactly slice ``n``'s bytes; resolved inside the run temp ``directory``.
+    The entry states exactly that slice's ``start`` and exclusive ``end`` and
+    carries that slice's SHA-256. No two entries reach the same file."""
     entries = index_records(index, ac)
     assert len(entries) == len(slices), (
         f"FAIL {ac}: the index lists {len(entries)} chunks; the capture has "
         f"{len(slices)}"
     )
-    named = []
+    inside = os.path.realpath(directory)
+    reached = []
     for number, (record, (first, last)) in enumerate(zip(entries, slices, strict=True)):
         piece = capture[first:last]
-        resolved = os.path.realpath(record["path"])
-        assert resolved in files, (
-            f"FAIL {ac}: index entry {number} names {record['path']}, "
-            "not a delivered file"
+        path = record["path"]
+        assert os.path.normpath(path) == path, (
+            f"FAIL {ac}: index entry {number} path {path!r} is not normalized "
+            f"(normalizes to {os.path.normpath(path)!r})"
         )
-        if directory is not None:
-            assert Path(resolved).is_relative_to(os.path.realpath(directory)), (
-                f"FAIL {ac}: index entry {number} names {record['path']}, outside "
-                f"the run temp directory {directory}"
-            )
-        assert files[resolved] == piece, (
-            f"FAIL {ac}: index entry {number} names {record['path']}, which is not "
-            f"chunk {number} (capture[{first}:{last}])"
+        assert path in opened, (
+            f"FAIL {ac}: index entry {number} path {path!r} does not open as written"
+        )
+        real, data = opened[path]
+        assert Path(real).is_relative_to(inside), (
+            f"FAIL {ac}: index entry {number} path {path!r} resolves to {real}, "
+            f"outside the run temp directory {directory}"
+        )
+        assert data == piece, (
+            f"FAIL {ac}: index entry {number} path {path!r} does not yield chunk "
+            f"{number} (capture[{first}:{last}])"
         )
         assert (record["start"], record["end"]) == (first, last), (
             f"FAIL {ac}: index entry {number} states [{record['start']}, "
@@ -1154,22 +1181,33 @@ def assert_index_lists_chunks(
             f"FAIL {ac}: index entry {number} carries sha256 {record['sha256']}, not "
             f"chunk {number}'s {digest}"
         )
-        named.append(resolved)
-    assert len(set(named)) == len(named), (
-        f"FAIL {ac}: index entries name the same file twice: {named}"
+        reached.append(real)
+    assert len(set(reached)) == len(reached), (
+        f"FAIL {ac}: index entries reach the same file twice: {reached}"
     )
+
+
+def opened_as_written(launch: dict) -> dict[str, tuple[str, bytes]]:
+    """The double's exact-path opens, each with the real file it reached and
+    that file's bytes as observed at launch."""
+    files = files_of(launch)
+    return {
+        path: (real, files[real])
+        for path, real in launch["opened"].items()
+        if real in files
+    }
 
 
 def assert_index_binds_each_chunk(
     launch: dict, capture: bytes, ac: str, route: dict
 ) -> None:
     """AC-7: the delivered index lists the frozen route's chunks in capture
-    order, each naming its delivered file in the run temp directory with its
-    exact half-open range and digest."""
-    files = files_of(launch)
+    order, each by an exact, normalized absolute path that opens as written to
+    its delivered file in the run temp directory, with its exact half-open
+    range and digest."""
     assert_index_lists_chunks(
-        files[launch["index"]],
-        files,
+        files_of(launch)[launch["index"]],
+        opened_as_written(launch),
         capture,
         [(first, last) for first, last, _digest in route["chunks"]],
         ac,

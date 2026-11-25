@@ -25,12 +25,14 @@ starts only when the launch's bound and the reserve for cleanup and retention
 fit before the invocation's deadline (``attempt_deadline`` in the same helper
 module); any further launch, such as a replay that is not served from the
 cache, is refused before it starts. The launch's processes carry the canary
-module's per-launch token: a watchdog stops them at the deadline less the
-reserve, so the in-process wait cannot outlast it, and any process left after
+module's per-launch token: a watchdog timer, on its own thread and
+independent of anything the test is doing, stops them at the deadline less
+the reserve, so the in-process wait cannot outlast it, and any process left after
 the launch is stopped inside the cleanup bound. A survivor, or an end past the
 deadline, fails the case. The stop runs whatever the launch raised, and the
 launch's evidence, or an explicit evidence-failure record, is kept whatever
-the stop raised; the first error is reported only after both. At teardown,
+the stop raised and within a bounded time; the first error is reported only
+after both. At teardown,
 pass or fail, the watchdog is cancelled and any process still carrying the
 token is stopped.
 """
@@ -295,8 +297,9 @@ def record_evidence_failure(evidence, lane, error):
 def launch_and_keep(guard, launch, evidence, lane, path):
     """The one provider launch, then its cleanup, then its evidence, each on
     its own: the stop runs whatever the launch raised, and the evidence (or
-    an explicit evidence-failure record) is kept whatever the stop raised.
-    The first error propagates only after both."""
+    an explicit evidence-failure record) is kept whatever the stop raised,
+    within the canary module's retention bound. The first error propagates
+    only after both."""
     errors = []
     result = None
     try:
@@ -307,8 +310,13 @@ def launch_and_keep(guard, launch, evidence, lane, path):
         stop_leftovers(guard, "after the launch")
     except Exception as error:
         errors.append(error)
+    canary = launch_bounds()
     try:
-        retain_launch(evidence, lane, path)
+        canary.run_bounded(
+            functools.partial(retain_launch, evidence, lane, path),
+            canary.retention_bound(),
+            "evidence retention",
+        )
     except Exception as error:
         record_evidence_failure(evidence, lane, error)
         errors.append(error)

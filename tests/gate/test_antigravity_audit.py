@@ -21,8 +21,11 @@ implementer reconciles ``ASSUMED_PARAMETERS`` and the shell helpers with that
 record. The result shapes of `grep_search`, `find_by_name` and `list_dir` are
 unobserved until m5's canary record is transcribed into
 ``RECORDED_RESULT_SHAPES``, each kind as showing entries, as an unmeasured
-summary, or as missing. ``test_ac21_structured_result_shapes_are_transcribed``
-checks that transcription in every combination of outcomes.
+summary, or as missing. The lead writes those rows and reconciles them by hand
+with the retained m5 evidence, as part of m5.
+``test_ac21_structured_result_shapes_are_transcribed`` is m6 fixture
+preparation, not AC-21 proof: it checks only that the table is complete and
+consistent, in every combination of outcomes.
 ``test_ac21_structured_result_shapes_on_antigravity`` checks every kind by its
 recorded state (a missing kind by the unrecognized-shape fallback), and fails
 for a kind not yet transcribed. An entry proof with no recorded entry shape
@@ -1282,10 +1285,12 @@ ENTRY_PROOF_PENDING = tuple(k for k in STRUCTURED_KINDS if not _recorded(k, ENTR
 
 def test_ac21_structured_result_shapes_are_transcribed(layout: AuditLayout) -> None:
     """
-    Red discriminator (AC-21 (b); m6): m5's canary record of the structured
-    kinds is transcribed, whatever it found. It is not parametrized, so it
-    runs in every combination of recorded outcomes, including all three kinds
-    recorded as missing.
+    Fixture preparation for m6, not AC-21 proof: it checks that the
+    ``RECORDED_RESULT_SHAPES`` fixture table is complete and consistent. It
+    reads only that table and makes no assertion over the audit or over m5's
+    observation. It is not parametrized, so it runs in every combination of
+    recorded outcomes, including all three kinds recorded as missing. It is
+    red until the table is filled in.
 
     - Every structured kind has exactly one row, and no row names another
       kind.
@@ -1294,6 +1299,11 @@ def test_ac21_structured_result_shapes_are_transcribed(layout: AuditLayout) -> N
       shows the entries it is given; a summary row's result shows none of
       them.
     - A missing row carries no fixture.
+
+    Whether the rows are faithful to what m5's canary observed is not checked
+    here. That is the lead's m5 reconciliation: the lead writes the rows,
+    compares them by hand against the retained m5 evidence, and records the
+    comparison in m5's Discoveries.
 
     Each recorded state's behaviour is checked per kind in
     ``test_ac21_structured_result_shapes_on_antigravity``. An entry proof with
@@ -1392,7 +1402,8 @@ def test_ac21_structured_result_shapes_on_antigravity(
     - Not yet transcribed: fails until its ``RECORDED_RESULT_SHAPES`` row is
       added from m5's canary record.
 
-    The transcription itself is checked once, in every combination, by
+    The fixture table's completeness and consistency are checked once, as m6
+    fixture preparation, by
     ``test_ac21_structured_result_shapes_are_transcribed``.
     """
     shape = RECORDED_RESULT_SHAPES.get(kind)

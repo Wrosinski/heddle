@@ -52,8 +52,10 @@ Index format: the plan's fixed ``{"chunks": [{"path", "start", "end",
 "sha256"}]}``, read and checked through the runner tests' one strict reader
 (``index_records``, by way of ``assert_index_lists_chunks`` in
 ``tests/gate/test_antigravity_runner.py``), so both witnesses share it: entry
-``n`` names the file holding chunk ``n``, states its half-open capture byte
-range and carries its SHA-256.
+``n`` names, by an exact normalized absolute path that the double opened as
+written, the file in the run temp directory holding chunk ``n``, states its
+half-open capture byte range and carries its SHA-256. The double records each
+such open (``opened``: the path as written and the real path it reached).
 
 Every node is red until the lane exists in the installed wheel. Pass
 condition: each scenario's exit code, reason, ledger state, files and
@@ -94,6 +96,7 @@ from tests.gate.test_antigravity_runner import (
     assert_index_lists_chunks,
     clean_stream,
     init_event,
+    opened_as_written,
     resolve_refs,
     result_event,
     summary_for,
@@ -829,14 +832,15 @@ def test_healthy_chunked_review_reads_every_chunk_whole(installed, tmp_path, hos
     )
     files = files_of(observation)
     # The index, read strictly, lists exactly the interval map's slices in
-    # capture order, each naming its file inside the run temp directory with
-    # its own range and digest. The installed run persists no frozen route,
+    # capture order, each by an exact path that opens as written to its file
+    # inside the run temp directory, with its own range and digest. The
+    # installed run persists no frozen route,
     # so the slices come from the delivered chunks; their order is not taken
     # on trust from the index: joined in that order they must hash to the
     # capture digest the ledger recorded (``assert_delivered_capture``).
     assert_index_lists_chunks(
         files[observation["index"]],
-        {os.path.realpath(path): data for path, data in files.items()},
+        opened_as_written(observation),
         capture,
         [(start, end) for _, start, end in intervals],
         "AC-7",
