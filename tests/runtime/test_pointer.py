@@ -68,7 +68,8 @@ def git_pointer_path(cwd: Path) -> Path:
 
 class TestAC11FeatureSwitch:
     """AC-11: the pointer is recorded at the derived git-path location with
-    the pinned heddle.feature-switch/v0 payload; exit codes ⊆ {0, 1, 2}."""
+    the pinned heddle.feature-switch/v0 payload; unmarked exit codes ⊆
+    {0, 1, 2}."""
 
     def test_switch_records_pointer_with_pinned_payload(
         self, run_cli, envelope_tools, tmp_path, monkeypatch
@@ -220,8 +221,9 @@ class TestAC11FeatureSwitch:
     def test_malformed_config_maps_to_usage_never_fatal(
         self, run_cli, envelope_tools, tmp_path, monkeypatch
     ):
-        # feature switch's exit-code contract has no 3: any config-load
-        # KernelError maps to usage (exit 2), the cause staying visible.
+        # feature switch's handler never returns 3 (only the gate-session
+        # guard does): any config-load KernelError maps to usage (exit 2),
+        # the cause staying visible.
         host = make_git_host(tmp_path)
         (host / ".heddle.yaml").write_text(
             MALFORMED_CONFIG.read_text(encoding="utf-8"), encoding="utf-8"

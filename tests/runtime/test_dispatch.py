@@ -32,7 +32,7 @@ import pytest
 
 import heddle.runtime.contracts as contracts_module
 import heddle.runtime.dispatch as dispatch_module
-from heddle.contracts.result import ERROR_CODES
+from heddle.contracts.result import ERROR_CODES, ExitCode
 from heddle.contracts.review_assignments import EVIDENCE_KINDS
 from heddle.runtime.contracts import COMMAND_SURFACE
 
@@ -640,6 +640,20 @@ class TestAC1GateSessionGuard:
         assert GATE_SESSION_REFUSED in ERROR_CODES, (
             f"FAIL AC-1: {GATE_SESSION_REFUSED} is not in the pinned error-code "
             "vocabulary (heddle/contracts/result.py ERROR_CODES)"
+        )
+
+    def test_every_mutating_contract_publishes_the_refusal_exit(self):
+        """The guard can return exit 3 for any mutating contract, so each one's
+        published exit codes (`heddle help --json`, the help line) include 3."""
+        missing = [
+            contract.name
+            for contract in MUTATING
+            if int(ExitCode.FATAL)
+            not in contracts_module.serialize_command(contract)["exit_codes"]
+        ]
+        assert missing == [], (
+            f"FAIL AC-1: mutating contracts {missing} omit exit 3 from their "
+            "published exit codes, yet a marked invocation is refused with it"
         )
 
     @pytest.mark.parametrize("json_position", ["leading", "trailing"])

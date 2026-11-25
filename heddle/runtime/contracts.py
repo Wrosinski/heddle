@@ -1456,11 +1456,13 @@ COMMAND_SURFACE: tuple[CommandContract, ...] = (
         summary="record the worktree's active feature",
         mutating=True,
         # Worktree-local pointer outside the control plane — trivially
-        # idempotent, no --dry-run; no state.yaml read, so no exit 3/5.
+        # idempotent, no --dry-run; no state.yaml read, so no exit 5. The
+        # handler never returns 3; only the dispatcher's gate-session guard
+        # does, as for every mutating contract.
         dry_run=False,
         args=(ArgSpec("slug", "feature slug to make active", True),),
         flags=_FLAGS_JSON,
-        exit_codes=_EXIT_FLOOR,
+        exit_codes=_EXIT_FATAL,
         output_schema="heddle.feature-switch/v0",
     ),
     CommandContract(

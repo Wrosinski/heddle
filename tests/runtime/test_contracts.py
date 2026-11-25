@@ -275,7 +275,7 @@ EXPECTED_SURFACE = [
             "--dry-run",
         },
     ),
-    ("feature switch", True, False, [0, 1, 2], [("slug", True)], {"--json"}),
+    ("feature switch", True, False, [0, 1, 2, 3], [("slug", True)], {"--json"}),
     (
         "feature complete",
         True,
