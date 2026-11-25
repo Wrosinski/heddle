@@ -1063,214 +1063,128 @@ def chunk_files(launch: dict) -> list[bytes]:
     return [files[path] for path in launch["chunks"]]
 
 
-HEX_DIGEST = re.compile(r"\b[0-9a-f]{64}\b")
-NUMBER = re.compile(r"(?<![\w.])\d{1,3}(?:,\d{3})+(?![\d,])|(?<![\w.,])\d+(?![\d,])")
-# How a delegated index may spell a chunk's interval: [start, end) directly,
-# start plus length, or one two-integer range. Keys are compared folded
-# (lower case, letters and digits only). The runner picks the spelling; the
-# test reads whichever fields the record carries and requires them all to
-# agree with the interval it computed itself.
-START_KEYS = frozenset({"start", "offset", "begin", "from", "bytestart", "startbyte"})
-END_KEYS = frozenset({"end", "stop", "to", "byteend", "endbyte"})
-LENGTH_KEYS = frozenset({"length", "size", "bytes", "len", "bytelength", "bytecount"})
-RANGE_KEYS = frozenset({"range", "byterange", "interval", "span", "bytes"})
-FIELD = re.compile(r"\b([a-z_]+)\s*[=:]\s*(\d{1,3}(?:,\d{3})+|\d+)(?![\d,])", re.I)
-QUOTES = "\"'`"
+HEX_DIGEST = re.compile(r"[0-9a-f]{64}")
+INDEX_ENTRY_KEYS = frozenset({"path", "start", "end", "sha256"})
 
 
-def _fold(key: object) -> str:
-    return re.sub(r"[^a-z0-9]", "", str(key).lower())
-
-
-def _as_int(value: object) -> int | None:
-    if isinstance(value, bool):
-        return None
-    if isinstance(value, int):
-        return value
-    if isinstance(value, str) and re.fullmatch(
-        r"\d{1,3}(?:,\d{3})+|\d+", value.strip()
-    ):
-        return int(value.strip().replace(",", ""))
-    return None
-
-
-def _names(value: object, name: str) -> bool:
-    return isinstance(value, str) and Path(value.strip().strip(QUOTES)).name == name
-
-
-def _interval_of(fields: dict[str, object], ordered: list[int]) -> set[tuple[int, int]]:
-    """Every interval a record's fields state, as ``{(start, end)}``.
-
-    ``fields`` are the record's keyed values under folded keys; ``ordered`` its
-    unkeyed integers in order (a plain line or a positional array). Keyed
-    fields win; unkeyed integers count only when they are exactly one pair,
-    read as ``[start, end)``."""
-    stated: set[tuple[int, int]] = set()
-    for key in RANGE_KEYS:
-        value = fields.get(key)
-        if isinstance(value, list):
-            pair = [_as_int(item) for item in value]
-        elif isinstance(value, str):
-            pair = [_as_int(item) for item in NUMBER.findall(value)]
-        else:
-            continue
-        if len(pair) == 2 and None not in pair:
-            stated.add((pair[0], pair[1]))
-
-    def numbers(keys: frozenset[str]) -> set[int]:
-        found = {_as_int(fields[key]) for key in keys if key in fields}
-        return {number for number in found if number is not None}
-
-    starts, ends, lengths = numbers(START_KEYS), numbers(END_KEYS), numbers(LENGTH_KEYS)
-    for first in starts:
-        stated.update((first, last) for last in ends)
-        stated.update((first, first + size) for size in lengths)
-    if not stated and not starts and len(ordered) == 2:
-        stated.add((ordered[0], ordered[1]))
-    if starts and not ends and not lengths:
-        stated.update((first, -1) for first in starts)
-    return stated
-
-
-def _record_digests(values: list[object]) -> set[str]:
-    return {
-        digest
-        for item in values
-        if isinstance(item, str)
-        for digest in HEX_DIGEST.findall(item.lower())
-    }
-
-
-def _line_records(
-    lines: list[str], name: str
-) -> list[tuple[set[str], set[tuple[int, int]]]]:
-    records = []
-    for line in lines:
-        tokens = [token.strip(QUOTES) for token in re.split(r"[\s,;|]+", line)]
-        if not any(Path(token).name == name for token in tokens if token):
-            continue
-        digests = set(HEX_DIGEST.findall(line))
-        rest = HEX_DIGEST.sub(" ", line)
-        rest = " ".join(t for t in rest.split() if Path(t.strip(QUOTES)).name != name)
-        fields = {
-            _fold(key): int(number.replace(",", ""))
-            for key, number in FIELD.findall(rest)
-        }
-        ordered = [
-            int(n.replace(",", "")) for n in NUMBER.findall(FIELD.sub(" ", rest))
-        ]
-        records.append((digests, _interval_of(fields, ordered)))
-    return records
-
-
-def _table_rows(lines: list[str]) -> list[dict[str, str]] | None:
-    """A Markdown table's body rows keyed by its header, or None."""
-    table = [line for line in lines if line.lstrip().startswith("|")]
-    if len(table) < 2:
-        return None
-    cells = [
-        [cell.strip() for cell in row.strip().strip("|").split("|")] for row in table
-    ]
-    header, rows = cells[0], []
-    for row in cells[1:]:
-        if all(re.fullmatch(r":?-{2,}:?", cell) for cell in row if cell):
-            continue
-        rows.append(dict(zip(header, row, strict=False)))
-    return rows
-
-
-def index_records(
-    index: bytes, name: str
-) -> list[tuple[set[str], set[tuple[int, int]]]]:
-    """The delivered index's records naming chunk file ``name``, whatever its
-    delegated format, each as ``(digests, intervals)``: the record's own
-    64-hex values and every interval its own fields state.
-
-    The one index parser for the runner and installed witnesses. Formats, in
-    order: JSON (objects at any depth), JSON Lines, a Markdown table with a
-    header row, else one record per non-blank line. A structured record is an
-    object with a string value naming the file (or the object a key naming
-    the file maps to), or a flat array with such a string; its fields are
-    read by folded key name. A line record is read as ``key=value``/``key:
-    value`` fields or, without keys, exactly two integers after the name and
-    digests are removed."""
-    text = index.decode("utf-8")
-    lines = [line for line in text.splitlines() if line.strip()]
+def index_records(index: bytes, ac: str = "AC-7") -> list[dict]:
+    """The delivered index read strictly under the plan's fixed format: one
+    JSON object ``{"chunks": [...]}`` whose entries are exactly
+    ``{"path", "start", "end", "sha256"}`` (an absolute path string, integer
+    byte offsets, a lowercase hex SHA-256). Returns the entries in index order;
+    any other shape fails. The one index reader for the runner and installed
+    witnesses."""
     try:
-        value: object = json.loads(text)
-    except ValueError:
-        try:
-            value = [json.loads(line) for line in lines]
-        except ValueError:
-            value = _table_rows(lines)
-            if value is None:
-                return _line_records(lines, name)
-    records: list[tuple[set[str], set[tuple[int, int]]]] = []
+        value = json.loads(index.decode("utf-8"))
+    except ValueError as error:
+        raise AssertionError(
+            f"FAIL {ac}: the index is not one JSON object: {error}"
+        ) from None
+    assert isinstance(value, dict) and set(value) == {"chunks"}, (
+        f"FAIL {ac}: the index is not one {{'chunks': [...]}} object: "
+        f"keys {sorted(value) if isinstance(value, dict) else type(value).__name__}"
+    )
+    entries = value["chunks"]
+    assert isinstance(entries, list), f"FAIL {ac}: the index's chunks is not a list"
+    for number, record in enumerate(entries):
+        assert isinstance(record, dict) and set(record) == INDEX_ENTRY_KEYS, (
+            f"FAIL {ac}: index entry {number} has keys "
+            f"{sorted(record) if isinstance(record, dict) else record!r}, not exactly "
+            f"{sorted(INDEX_ENTRY_KEYS)}"
+        )
+        assert isinstance(record["path"], str) and os.path.isabs(record["path"]), (
+            f"FAIL {ac}: index entry {number} path {record['path']!r} is not absolute"
+        )
+        for key in ("start", "end"):
+            assert type(record[key]) is int, (
+                f"FAIL {ac}: index entry {number} {key} {record[key]!r} "
+                "is not an integer"
+            )
+        assert isinstance(record["sha256"], str) and HEX_DIGEST.fullmatch(
+            record["sha256"]
+        ), f"FAIL {ac}: index entry {number} sha256 {record['sha256']!r} is not hex"
+    return entries
 
-    def walk(node: object, key_names: bool) -> None:
-        if isinstance(node, dict):
-            if key_names or any(_names(item, name) for item in node.values()):
-                fields = {_fold(key): item for key, item in node.items()}
-                records.append(
-                    (_record_digests(list(node.values())), _interval_of(fields, []))
-                )
-            for key, item in node.items():
-                walk(item, _names(key, name) and isinstance(item, dict))
-        elif isinstance(node, list):
-            if any(_names(item, name) for item in node) and all(
-                not isinstance(item, dict | list) for item in node
-            ):
-                ordered = [n for n in map(_as_int, node) if n is not None]
-                records.append((_record_digests(node), _interval_of({}, ordered)))
-            for item in node:
-                walk(item, False)
 
-    walk(value, False)
-    return records
+def assert_index_lists_chunks(
+    index: bytes,
+    files: dict[str, bytes],
+    capture: bytes,
+    slices: list[tuple[int, int]],
+    ac: str = "AC-7",
+    *,
+    directory: Path | None = None,
+) -> None:
+    """AC-7 under the plan's fixed index format. ``slices`` are the chunks'
+    half-open capture ranges in capture order, computed independently of the
+    index; ``files`` maps each delivered file's resolved absolute path to its
+    bytes. The index lists exactly ``len(slices)`` chunks, and entry ``n``:
+    names a delivered file (inside ``directory`` when given) whose bytes are
+    slice ``n`` of the capture, states exactly that slice's ``start`` and
+    exclusive ``end``, and carries that slice's SHA-256. No two entries name
+    the same file."""
+    entries = index_records(index, ac)
+    assert len(entries) == len(slices), (
+        f"FAIL {ac}: the index lists {len(entries)} chunks; the capture has "
+        f"{len(slices)}"
+    )
+    named = []
+    for number, (record, (first, last)) in enumerate(zip(entries, slices, strict=True)):
+        piece = capture[first:last]
+        resolved = os.path.realpath(record["path"])
+        assert resolved in files, (
+            f"FAIL {ac}: index entry {number} names {record['path']}, "
+            "not a delivered file"
+        )
+        if directory is not None:
+            assert Path(resolved).is_relative_to(os.path.realpath(directory)), (
+                f"FAIL {ac}: index entry {number} names {record['path']}, outside "
+                f"the run temp directory {directory}"
+            )
+        assert files[resolved] == piece, (
+            f"FAIL {ac}: index entry {number} names {record['path']}, which is not "
+            f"chunk {number} (capture[{first}:{last}])"
+        )
+        assert (record["start"], record["end"]) == (first, last), (
+            f"FAIL {ac}: index entry {number} states [{record['start']}, "
+            f"{record['end']}); chunk {number} is the half-open [{first}, {last})"
+        )
+        digest = hashlib.sha256(piece).hexdigest()
+        assert record["sha256"] == digest, (
+            f"FAIL {ac}: index entry {number} carries sha256 {record['sha256']}, not "
+            f"chunk {number}'s {digest}"
+        )
+        named.append(resolved)
+    assert len(set(named)) == len(named), (
+        f"FAIL {ac}: index entries name the same file twice: {named}"
+    )
 
 
-def assert_index_binds_each_chunk(launch: dict, capture: bytes, ac: str) -> None:
-    """AC-7: for each written chunk, the one index record naming its file states
-    exactly the interval computed here (every interval field the record carries
-    agrees), and binds the digest of that slice of the capture and no other
-    chunk's digest."""
+def assert_index_binds_each_chunk(
+    launch: dict, capture: bytes, ac: str, route: dict
+) -> None:
+    """AC-7: the delivered index lists the frozen route's chunks in capture
+    order, each naming its delivered file in the run temp directory with its
+    exact half-open range and digest."""
     files = files_of(launch)
-    index = files[launch["index"]]
-    expected, start = [], 0
-    for path in launch["chunks"]:
-        piece = files[path]
-        assert capture[start : start + len(piece)] == piece, (
-            f"FAIL {ac}: chunk {Path(path).name} is not the capture at {start}"
-        )
-        expected.append((Path(path).name, start, start + len(piece)))
-        start += len(piece)
-    digests = {
-        hashlib.sha256(capture[first:last]).hexdigest() for _, first, last in expected
-    }
-    for name, first, last in expected:
-        naming = index_records(index, name)
-        assert len(naming) == 1, (
-            f"FAIL {ac}: {len(naming)} index records name chunk {name}; expected one"
-        )
-        ((found, intervals),) = naming
-        assert intervals == {(first, last)}, (
-            f"FAIL {ac}: the index record for {name} states intervals "
-            f"{sorted(intervals)}; the chunk is the capture's [{first}, {last})"
-        )
-        digest = hashlib.sha256(capture[first:last]).hexdigest()
-        assert found & digests == {digest}, (
-            f"FAIL {ac}: the index record for {name} binds digests "
-            f"{sorted(found & digests)}, not the digest of capture[{first}:{last}] "
-            f"({digest})"
-        )
+    assert_index_lists_chunks(
+        files[launch["index"]],
+        files,
+        capture,
+        [(first, last) for first, last, _digest in route["chunks"]],
+        ac,
+        directory=temp_dir_of(launch),
+    )
 
 
 def assert_chunked_delivery(launch: dict, capture: bytes, ac: str, route: dict) -> None:
-    """The written chunks, in index order, are the frozen route's slices of the
-    frozen capture, and the index binds each to its digest and byte range."""
+    """The index lists the frozen route's chunks under the plan's fixed format,
+    and the written chunks, in index order, are the frozen route's slices of
+    the frozen capture."""
     assert launch["index"] is not None, (
         f"FAIL {ac}: the launch message points at no index binding chunk digests"
     )
+    assert_index_binds_each_chunk(launch, capture, ac, route)
     chunks = chunk_files(launch)
     assert chunks, f"FAIL {ac}: no chunk file was observed"
     assert b"".join(chunks) == capture, (
@@ -1279,7 +1193,6 @@ def assert_chunked_delivery(launch: dict, capture: bytes, ac: str, route: dict) 
     assert [capture[start:end] for start, end, _ in route["chunks"]] == chunks, (
         f"FAIL {ac}: the written chunks are not the frozen route's slices"
     )
-    assert_index_binds_each_chunk(launch, capture, ac)
     for number, piece in enumerate(chunks):
         piece.decode("utf-8")
         lines = piece.count(b"\n") + (0 if piece.endswith(b"\n") else 1)
@@ -1628,8 +1541,11 @@ CHUNKED_CASES = {
 def test_ac6_ac7_chunked_capture_is_delivered_as_whole_readable_files(
     tmp_path, monkeypatch, agy, case
 ):
-    """AC-6 at 160,001 bytes and AC-7: the written chunks, in index order, equal
-    the frozen capture; each fits one read; the message is the pointer only."""
+    """AC-6 at 160,001 bytes and AC-7: the index, in the plan's fixed
+    ``{"chunks": [...]}`` format, lists the frozen route's chunks in capture
+    order with each one's absolute path, half-open range and digest; the
+    written chunks equal the frozen capture; each fits one read; the message
+    is the pointer only."""
     require_runner("AC-7")
     total, unit, marker = CHUNKED_CASES[case]
     host, state_path = spec_host(tmp_path, monkeypatch)

@@ -48,11 +48,12 @@ the chunk file's absolute ``path`` and its half-open capture byte range
 ``start`` and ``end``), ``uncovered``, ``violations`` and
 ``transport_intact`` (``persisted_audit`` is the one reader to re-point).
 
-Index-format seam (the format is delegated): the index is read through the
-runner tests' one parser, ``index_records`` in
-``tests/gate/test_antigravity_runner.py``, so both witnesses share one format
-seam: one record per chunk naming its file, whose own fields state its
-half-open capture byte range and carry its SHA-256.
+Index format: the plan's fixed ``{"chunks": [{"path", "start", "end",
+"sha256"}]}``, read and checked through the runner tests' one strict reader
+(``index_records``, by way of ``assert_index_lists_chunks`` in
+``tests/gate/test_antigravity_runner.py``), so both witnesses share it: entry
+``n`` names the file holding chunk ``n``, states its half-open capture byte
+range and carries its SHA-256.
 
 Every node is red until the lane exists in the installed wheel. Pass
 condition: each scenario's exit code, reason, ledger state, files and
@@ -90,12 +91,13 @@ from tests.gate.test_antigravity_runner import (
     TESTED_VERSION,
     WORST_PREFIX,
     WRAPPER_TAG,
+    assert_index_lists_chunks,
     clean_stream,
-    index_records,
     init_event,
     resolve_refs,
     result_event,
     summary_for,
+    temp_dir_of,
     tool_step,
 )
 from tests.runtime.wheel_harness import (
@@ -791,29 +793,6 @@ def interval_map(observation: dict) -> list[tuple[str, int, int]]:
     return rows
 
 
-def assert_index_binding(
-    index: bytes, path: str, start: int, end: int, piece: bytes, chunk_digests: set
-) -> None:
-    """AC-7: the one index record naming ``path`` states, in its own fields,
-    exactly the half-open range ``[start, end)`` the test cut from the capture,
-    and of all the chunks' digests binds only that slice's. Read through the
-    runner tests' shared parser, so both witnesses keep one format seam."""
-    records = index_records(index, Path(path).name)
-    assert len(records) == 1, (
-        f"FAIL AC-7: {len(records)} index records name chunk {path}; expected one"
-    )
-    ((digests, intervals),) = records
-    digest = hashlib.sha256(piece).hexdigest()
-    assert digests & chunk_digests == {digest}, (
-        f"FAIL AC-7: the index record for {path} binds digests "
-        f"{sorted(digests & chunk_digests)}, not its slice's {digest}"
-    )
-    assert intervals == {(start, end)}, (
-        f"FAIL AC-7: the index record for {path} states {sorted(intervals)}, not "
-        f"its slice [{start}, {end})"
-    )
-
-
 def test_healthy_chunked_review_reads_every_chunk_whole(installed, tmp_path, hosts):
     """Scenario 2 (AC-7, AC-17): a capture above 160,000 bytes with a wrapper
     tag is delivered as chunks behind a pointer message. The chunks
@@ -849,16 +828,25 @@ def test_healthy_chunked_review_reads_every_chunk_whole(installed, tmp_path, hos
         f"FAIL AC-7: the chunks do not span the capture: {intervals}"
     )
     files = files_of(observation)
-    index = files[observation["index"]]
-    chunk_digests = {
-        hashlib.sha256(capture[start:end]).hexdigest() for _, start, end in intervals
-    }
+    # The index, read strictly, lists exactly the interval map's slices in
+    # capture order, each naming its file inside the run temp directory with
+    # its own range and digest. The installed run persists no frozen route,
+    # so the slices come from the delivered chunks; their order is not taken
+    # on trust from the index: joined in that order they must hash to the
+    # capture digest the ledger recorded (``assert_delivered_capture``).
+    assert_index_lists_chunks(
+        files[observation["index"]],
+        {os.path.realpath(path): data for path, data in files.items()},
+        capture,
+        [(start, end) for _, start, end in intervals],
+        "AC-7",
+        directory=temp_dir_of(observation),
+    )
     for path, start, end in intervals:
         piece = capture[start:end]
         assert files[path] == piece, (
             f"FAIL AC-7: chunk {path} is not the capture's slice [{start}, {end})"
         )
-        assert_index_binding(index, path, start, end, piece, chunk_digests)
         lines = piece.count(b"\n") + (0 if piece.endswith(b"\n") else 1)
         assert lines <= READ_LINES and len(piece) + lines * WORST_PREFIX <= READ_BYTES
     reads = {(row["launch"], row["path"]) for row in host.rows("reads.jsonl")}

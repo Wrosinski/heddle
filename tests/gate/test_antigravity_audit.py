@@ -21,10 +21,13 @@ implementer reconciles ``ASSUMED_PARAMETERS`` and the shell helpers with that
 record. The result shapes of `grep_search`, `find_by_name` and `list_dir` are
 unobserved until m5's canary record is transcribed into
 ``RECORDED_RESULT_SHAPES``, each kind as showing entries, as an unmeasured
-summary, or as missing. ``test_ac21_structured_result_shapes_on_antigravity``
-checks every kind not recorded as missing, and fails for a kind not yet
-transcribed. An entry proof with no recorded entry shape stays pending outside
-m6's selection (``test_ac21_unmeasured_structured_entry_proof_is_pending``).
+summary, or as missing. ``test_ac21_structured_result_shapes_are_transcribed``
+checks that transcription in every combination of outcomes.
+``test_ac21_structured_result_shapes_on_antigravity`` checks every kind by its
+recorded state (a missing kind by the unrecognized-shape fallback), and fails
+for a kind not yet transcribed. An entry proof with no recorded entry shape
+stays pending outside m6's selection
+(``test_ac21_unmeasured_structured_entry_proof_is_pending``).
 
 Activation seams, owned by the m6 implementer (adapt the adapters below, not
 the cases, if the delegated names differ):
@@ -1272,39 +1275,140 @@ def _recorded(kind: str, *outcomes: str) -> bool:
     return row is not None and row.outcome in outcomes
 
 
-# Kinds with a shape check in m6: every kind not recorded as missing. A kind
-# not yet transcribed stays here and fails.
-SHAPE_PROOF_KINDS = tuple(k for k in STRUCTURED_KINDS if not _recorded(k, MISSING))
 # Kinds whose observed-entry proof has no recorded shape: not yet transcribed,
 # unmeasured or missing.
 ENTRY_PROOF_PENDING = tuple(k for k in STRUCTURED_KINDS if not _recorded(k, ENTRIES))
 
 
-@pytest.mark.parametrize("kind", SHAPE_PROOF_KINDS)
+def test_ac21_structured_result_shapes_are_transcribed(layout: AuditLayout) -> None:
+    """
+    Red discriminator (AC-21 (b); m6): m5's canary record of the structured
+    kinds is transcribed, whatever it found. It is not parametrized, so it
+    runs in every combination of recorded outcomes, including all three kinds
+    recorded as missing.
+
+    - Every structured kind has exactly one row, and no row names another
+      kind.
+    - Every row is in a valid state: entries, summary or missing.
+    - An entries or summary row carries its fixture. An entries row's result
+      shows the entries it is given; a summary row's result shows none of
+      them.
+    - A missing row carries no fixture.
+
+    Each recorded state's behaviour is checked per kind in
+    ``test_ac21_structured_result_shapes_on_antigravity``. An entry proof with
+    no recorded entry shape is pending, outside m6's selection, in
+    ``test_ac21_unmeasured_structured_entry_proof_is_pending``.
+    """
+    untranscribed = [
+        kind for kind in STRUCTURED_KINDS if kind not in RECORDED_RESULT_SHAPES
+    ]
+    assert not untranscribed, (
+        "FAIL AC-21 (b): m5's canary record is not transcribed for "
+        f"{', '.join(untranscribed)}; add one RECORDED_RESULT_SHAPES row per "
+        "kind: entries, summary or missing"
+    )
+    unknown = sorted(set(RECORDED_RESULT_SHAPES) - set(STRUCTURED_KINDS))
+    assert not unknown, f"FAIL AC-21 (b): rows name no structured kind: {unknown}"
+    given = [str(layout.feature / "plan.md"), str(layout.sibling)]
+    names = ("plan.md", layout.sibling.name)
+    for kind in STRUCTURED_KINDS:
+        row = RECORDED_RESULT_SHAPES[kind]
+        assert row.outcome in (ENTRIES, SUMMARY, MISSING), (
+            f"FAIL AC-21 (b): the {kind} row records {row.outcome!r}, not "
+            "entries, summary or missing"
+        )
+        if row.outcome == MISSING:
+            assert row.parameters is None and row.result is None, (
+                f"FAIL AC-21 (b): the {kind} row records missing but carries a "
+                "fixture; a missing call has no shape to transcribe"
+            )
+            continue
+        assert row.parameters is not None and row.result is not None, (
+            f"FAIL AC-21 (b): the {kind} row records {row.outcome} with no fixture"
+        )
+        assert isinstance(row.parameters(layout), dict), (
+            f"FAIL AC-21 (b): the {kind} row's parameters are not a mapping"
+        )
+        shown = json.dumps(row.result(given))
+        if row.outcome == ENTRIES:
+            assert all(name in shown for name in names), (
+                f"FAIL AC-21 (b): the {kind} row records entries, but its result "
+                f"does not show the entries it is given: {shown}"
+            )
+        else:
+            assert not any(name in shown for name in names), (
+                f"FAIL AC-21 (b): the {kind} row records a summary, but its "
+                f"result shows an entry: {shown}"
+            )
+
+
+def _assert_unrecognized_shape_not_inspected(
+    layout: AuditLayout, kind: str, parameters: dict[str, object]
+) -> None:
+    """
+    A `kind` call whose result, in a shape the audit does not recognize,
+    lists a `reviews/` entry: it is not inspected, raises no violation and
+    logs one unrecognized-shape warning naming the lane and the kind.
+    """
+    stream = AgyStream(layout).tool(
+        kind, parameters, {"unexpected": [str(layout.sibling)]}
+    )
+
+    view = run_audit(stream)
+
+    assert view.violations == (), (
+        f"FAIL AC-21 ({kind}): an uninspected shape raised {view.violations}"
+    )
+    warnings = view.lane_warnings("unrecognized", kind)
+    assert len(warnings) == 1, (
+        f"FAIL AC-21: expected one unrecognized-shape warning naming the "
+        f"antigravity lane and {kind}, got {list(view.warnings)}"
+    )
+
+
+@pytest.mark.parametrize("kind", STRUCTURED_KINDS)
 def test_ac21_structured_result_shapes_on_antigravity(
     layout: AuditLayout, kind: str
 ) -> None:
     """
     Red discriminator (AC-21 (b) and the unrecognized-shape rule; m6): each
-    structured kind not recorded as missing, in the shape m5 recorded. Each
-    kind is its own node, so the entry and summary checks run independently.
+    structured kind, checked by the state m5's canary record gives it. The
+    parameter set is every structured kind, whatever m5 records, so this
+    function always has the same three executable nodes and never collects
+    an empty-parameter skip. Each kind is its own node, so each state's check
+    runs independently.
 
-    - A kind whose results show entries: a result showing an entry under
-      `reviews/` fails as out-of-scope-access.
-    - A kind recorded as unmeasured: its observed summary raises no violation
-      and logs no warning. Its entry proof is pending, outside m6's
-      selection, in ``test_ac21_unmeasured_structured_entry_proof_is_pending``.
+    - Recorded as showing entries: a result in the recorded shape that shows
+      an entry under `reviews/` fails as out-of-scope-access.
+    - Recorded as a summary (unmeasured): a result in the recorded shape shows
+      no entry; it raises no violation and logs no warning. Its entry proof
+      is pending, outside m6's selection, in
+      ``test_ac21_unmeasured_structured_entry_proof_is_pending``.
+    - Recorded as missing: the audit has no recorded shape for the kind, so
+      a result for it in an unrecognized shape is not inspected. It raises no
+      violation and logs the unrecognized-shape warning naming the lane and
+      the kind. Its entry proof is pending there too.
+    - Not yet transcribed: fails until its ``RECORDED_RESULT_SHAPES`` row is
+      added from m5's canary record.
 
-    A kind recorded as missing has no node here; its entry proof is pending
-    there too. A kind not yet transcribed fails here until its
-    ``RECORDED_RESULT_SHAPES`` row is added from m5's canary record.
+    The transcription itself is checked once, in every combination, by
+    ``test_ac21_structured_result_shapes_are_transcribed``.
     """
     shape = RECORDED_RESULT_SHAPES.get(kind)
     assert shape is not None, (
         f"FAIL AC-21 (b): m5's canary record of {kind} is not transcribed; add "
         "its RECORDED_RESULT_SHAPES row: entries, summary or missing"
     )
-    assert shape.outcome in (ENTRIES, SUMMARY), shape
+    assert shape.outcome in (ENTRIES, SUMMARY, MISSING), (
+        f"FAIL AC-21 (b): the {kind} row records {shape.outcome!r}, not "
+        "entries, summary or missing"
+    )
+    if shape.outcome == MISSING:
+        _assert_unrecognized_shape_not_inspected(
+            layout, kind, ASSUMED_PARAMETERS[kind](layout)
+        )
+        return
     assert shape.parameters is not None and shape.result is not None, (
         f"FAIL AC-21 (b): the {kind} row records {shape.outcome} with no shape"
     )
@@ -1365,20 +1469,7 @@ def test_ac21_unrecognized_result_shape_warns_on_antigravity(
         if kind == "run_command"
         else ASSUMED_PARAMETERS[kind](layout)
     )
-    stream = AgyStream(layout).tool(
-        kind, parameters, {"unexpected": [str(layout.sibling)]}
-    )
-
-    view = run_audit(stream)
-
-    assert view.violations == (), (
-        f"FAIL AC-21 ({kind}): an uninspected shape raised {view.violations}"
-    )
-    warnings = view.lane_warnings("unrecognized", kind)
-    assert len(warnings) == 1, (
-        f"FAIL AC-21: expected one unrecognized-shape warning naming the "
-        f"antigravity lane and {kind}, got {list(view.warnings)}"
-    )
+    _assert_unrecognized_shape_not_inspected(layout, kind, parameters)
 
 
 def test_ac21_recognized_run_command_output_logs_no_shape_warning(

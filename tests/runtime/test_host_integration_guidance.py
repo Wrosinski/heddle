@@ -376,7 +376,8 @@ AC24_READINGS = {
         "and rule for AGENTS.md, injected as user rules: a sentence that it "
         "outranks, overrides or takes precedence over the prompt, or a "
         "conflict clause (such as 'when they conflict') giving it the win, "
-        "with no sentence or exception giving the prompt the win"
+        "with no sentence, exception or directive (such as 'in a conflict, "
+        "use the prompt') giving the prompt the win"
     ),
 }
 
@@ -444,29 +445,90 @@ AC24_PRECEDENCE_STATEMENTS = tuple(
         (_AC24_PROMPT, _AC24_HOST_RULES, _AC24_OUTRANKED, 1),
     )
 )
-# A clause that speaks of a conflict also states who wins it: "<side> wins",
-# "<side> loses" (subject and verb with no comma or colon between them), or
-# "agy follows <side>". These rulings count only in such a clause, and an
-# exception that hands the conflict to the prompt reverses the block.
-AC24_CONFLICT_CUE = re.compile(
-    r"conflict|contradict|disagree|clash|inconsisten|at odds|\bdiffer(?:s|ing)?\b"
-    r"|otherwise|whatever|regardless|even (?:if|when|where|though)"
-)
-_AC24_WINS = (
-    r"wins?|prevails?|controls?|governs?|decides?|comes? first|takes? over"
-    r"|(?:is|are|gets?) (?:followed|obeyed)|applies|apply"
-)
-_AC24_LOSES = (
-    r"loses?|yields?|gives? way"
-    r"|(?:is|are|gets?) (?:ignored|overridden|dropped|set aside)"
+# Wherever they stand, grants and preferences also rule: "give <side>
+# precedence", "precedence goes to <side>", "let <side> win", "follow <side>
+# rather than <other>", "instead of <other>, use <side>".
+_AC24_DIRECTIVES = (
+    r"follows?|following|obeys?|obeying|sides? with|goes? with|go by|goes by"
+    r"|defers? to|uses?|using|prefers?|preferring|appl(?:y|ies|ying)"
+    r"|rel(?:y|ies) on|sticks? to|keeps? to|honou?rs?|trusts?|choos(?:e|es|ing)"
+    r"|picks?|listens? to|acts? on|heeds?|abides? by|compl(?:y|ies) with"
+    r"|falls? back (?:on|to)|reverts? to"
 )
 _AC24_SIDES = (
     (_AC24_HOST_RULES, _AC24_PROMPT, 1),
     (_AC24_PROMPT, _AC24_HOST_RULES, -1),
 )
+
+
+def _ac24_near(other: str, span: int) -> str:
+    """Up to span characters within one clause that never name the other side."""
+    return rf"(?:(?!{other})[^,;:]){{0,{span}}}?"
+
+
+AC24_PRECEDENCE_GRANTS = (
+    tuple(
+        (re.compile(pattern.format(side=side, near=_ac24_near(other, 20))), direction)
+        for side, other, direction in _AC24_SIDES
+        for pattern in (
+            r"(?P<mid>)\b(?:gives?|giving|grants?|granting|hands?|handing)\b{near}"
+            r"{side}(?:'s \w+)?"
+            r" (?:precedence|priority|the (?:win|final say|last word))",
+            r"(?P<mid>)\b(?:precedence|priority|the final say|the last word)"
+            r" (?:goes |go |belongs |falls |is given |is handed )?to\b{near}{side}",
+            r"(?P<mid>)\blet(?:s|ting)?\b{near}{side}(?:'s \w+)?"
+            r" (?:win|prevail|decide|control|govern|take over)\b",
+        )
+    )
+    + tuple(
+        (
+            re.compile(
+                rf"(?P<mid>)\b(?:{_AC24_DIRECTIVES})\b{_ac24_near(other, 30)}{side}"
+                r"[^.;]{0,40}?"
+                r"(?:\b(?:instead of|rather than|in place of|over)\b|, not\b)"
+                rf"[^.;]{{0,20}}?{other}"
+            ),
+            direction,
+        )
+        for side, other, direction in _AC24_SIDES
+    )
+    + tuple(
+        (
+            re.compile(
+                rf"(?P<mid>)\b(?:instead of|rather than|in place of)\b"
+                rf"(?:(?!{side})[^.;]){{0,30}}?{other}[^.;]{{0,30}}?"
+                rf"\b(?:{_AC24_DIRECTIVES})\b{_ac24_near(other, 30)}{side}"
+            ),
+            direction,
+        )
+        for side, other, direction in _AC24_SIDES
+    )
+)
+# A clause that speaks of a conflict also states who wins it: "<side> wins",
+# "<side> should be followed", "<side> loses" (subject and verb with no comma
+# or colon between them), or a directive, imperative or not: "agy follows
+# <side>", "in a conflict, use <side>". These rulings count only in such a
+# clause, and an exception that hands the conflict to the prompt reverses
+# the block.
+AC24_CONFLICT_CUE = re.compile(
+    r"conflict|contradict|disagree|clash|inconsisten|at odds|\bdiffer(?:s|ing)?\b"
+    r"|otherwise|whatever|regardless|even (?:if|when|where|though)|doubt"
+    r"|collid|collision|\bcompet(?:e|es|ing|ition)\b"
+)
+_AC24_WINS = (
+    r"wins?|prevails?|controls?|governs?|decides?|comes? first|takes? over"
+    r"|(?:is|are|gets?|be|been) (?:followed|obeyed|used|applied|preferred"
+    r"|trusted|honou?red)|applies|apply"
+    r"|(?:has|have|takes?|gets?) (?:the )?(?:precedence|priority|final say"
+    r"|last word|upper hand)"
+)
+_AC24_LOSES = (
+    r"loses?|yields?|gives? way"
+    r"|(?:is|are|gets?|be|been) (?:ignored|overridden|dropped|set aside)"
+)
 AC24_CONFLICT_RULINGS = tuple(
     (
-        re.compile(rf"{side}(?P<mid>(?:(?!{other})[^,:]){{0,30}}?)\b(?:{verbs})\b"),
+        re.compile(rf"{side}(?P<mid>{_ac24_near(other, 30)})\b(?:{verbs})\b"),
         outcome * direction,
     )
     for side, other, direction in _AC24_SIDES
@@ -474,8 +536,7 @@ AC24_CONFLICT_RULINGS = tuple(
 ) + tuple(
     (
         re.compile(
-            r"(?P<mid>)\b(?:follows?|obeys?|sides? with|goes? with|defers? to)\b"
-            rf"(?:(?!{other}).){{0,20}}?{side}"
+            rf"(?P<mid>)\b(?:{_AC24_DIRECTIVES})\b{_ac24_near(other, 30)}{side}"
         ),
         direction,
     )
@@ -552,8 +613,10 @@ def _ac24_precedence_readings(block: str) -> set[int]:
         )
         for clause in clauses:
             cue = AC24_CONFLICT_CUE.search(clause) is not None
-            patterns = AC24_PRECEDENCE_STATEMENTS + (
-                AC24_CONFLICT_RULINGS if cue else ()
+            patterns = (
+                AC24_PRECEDENCE_STATEMENTS
+                + AC24_PRECEDENCE_GRANTS
+                + (AC24_CONFLICT_RULINGS if cue else ())
             )
             signs = {
                 _ac24_direction(clause, match, direction)
@@ -660,6 +723,20 @@ AC24_ACCEPTED = {
         "`AGENTS.md` outranks the prompt in `agy`; when they conflict, the "
         "host rules win and the prompt loses.",
     ),
+    "in-a-conflict-follow-host-rules": (
+        "agy-host-rule-precedence",
+        "`agy` injects `AGENTS.md` as user rules that outrank the gate prompt; "
+        "in a conflict, follow `AGENTS.md`.",
+    ),
+    "in-a-conflict-do-not-use-the-prompt": (
+        "agy-host-rule-precedence",
+        "In agy the host AGENTS.md outranks the gate prompt. In a conflict, "
+        "however, do not use the prompt instead.",
+    ),
+    "use-host-rules-rather-than-the-prompt": (
+        "agy-host-rule-precedence",
+        "When they disagree, `agy` uses `AGENTS.md` rather than the gate prompt.",
+    ),
 }
 AC24_REJECTED = {
     "every-lane-omitting-antigravity": (
@@ -742,6 +819,47 @@ AC24_REJECTED = {
         "`agy` injects `AGENTS.md` as user rules that outrank the prompt, yet "
         "in a conflict the host rules yield.",
     ),
+    # The reviewer's text, verbatim: plain precedence, then a directive that
+    # hands the conflict to the prompt.
+    "in-a-conflict-use-the-prompt-instead": (
+        "agy-host-rule-precedence",
+        "In agy the host AGENTS.md outranks the gate prompt. In a conflict, "
+        "however, use the prompt instead.",
+    ),
+    "in-a-conflict-follow-the-prompt": (
+        "agy-host-rule-precedence",
+        "`agy` injects `AGENTS.md` as user rules that outrank the prompt. In a "
+        "conflict, follow the prompt.",
+    ),
+    "use-the-prompt-instruction-when-they-disagree": (
+        "agy-host-rule-precedence",
+        "`AGENTS.md` takes precedence over the gate prompt in `agy`; use the "
+        "gate prompt's instruction when they disagree.",
+    ),
+    "prompt-should-be-followed-in-a-conflict": (
+        "agy-host-rule-precedence",
+        "`agy` loads `AGENTS.md` as user rules that outrank the prompt, but if "
+        "they conflict, the prompt should be followed.",
+    ),
+    "if-in-doubt-defer-to-the-prompt": (
+        "agy-host-rule-precedence",
+        "In `agy`, `AGENTS.md` overrides the prompt; if in doubt, defer to the prompt.",
+    ),
+    "give-the-prompt-priority": (
+        "agy-host-rule-precedence",
+        "`AGENTS.md` outranks the prompt in `agy`, yet reviewers should give "
+        "the prompt priority.",
+    ),
+    "follow-the-prompt-rather-than-host-rules": (
+        "agy-host-rule-precedence",
+        "`agy` injects `AGENTS.md` as user rules that outrank the prompt; "
+        "still, follow the prompt rather than `AGENTS.md`.",
+    ),
+    "instead-of-host-rules-use-the-prompt": (
+        "agy-host-rule-precedence",
+        "`AGENTS.md` takes precedence over the prompt in `agy`. Instead of "
+        "`AGENTS.md`, reviewers use the prompt.",
+    ),
 }
 # The terms a term-only check accepted; every rejected control holds them.
 AC24_TERM_ONLY = {
@@ -775,8 +893,8 @@ def test_ac24_matcher_rejects_omitted_lanes_and_reversed_precedence(
 ) -> None:
     """AC-24 matcher control (passes now): text that omits Antigravity from
     the reviews/ rule, narrows it to Claude and Codex, states agy's
-    precedence reversed, negated or without a direction, hands a conflict to
-    the prompt, or gives no direction describes nothing."""
+    precedence reversed, negated or without a direction, or hands a conflict
+    to the prompt by an exception or a directive describes nothing."""
     topic, text = AC24_REJECTED[case]
     blocks = _ac24_split(text)
     assert any(

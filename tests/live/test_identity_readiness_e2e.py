@@ -28,11 +28,16 @@ cache, is refused before it starts. The launch's processes carry the canary
 module's per-launch token: a watchdog stops them at the deadline less the
 reserve, so the in-process wait cannot outlast it, and any process left after
 the launch is stopped inside the cleanup bound. A survivor, or an end past the
-deadline, fails the case.
+deadline, fails the case. The stop runs whatever the launch raised, and the
+launch's evidence, or an explicit evidence-failure record, is kept whatever
+the stop raised; the first error is reported only after both. At teardown,
+pass or fail, the watchdog is cancelled and any process still carrying the
+token is stopped.
 """
 
 from __future__ import annotations
 
+import functools
 import hashlib
 import importlib
 import importlib.util
@@ -274,6 +279,52 @@ def retain_launch(evidence, lane, path):
     )
 
 
+def record_evidence_failure(evidence, lane, error):
+    """``<lane>-evidence-failure.json``: the launch's evidence could not be
+    kept. Never raises."""
+    canary = launch_bounds()
+    try:
+        save(
+            evidence / f"{lane}-evidence-failure.json",
+            {"lane": lane, "evidence_error": canary.failure_text(error)},
+        )
+    except Exception:
+        pass
+
+
+def launch_and_keep(guard, launch, evidence, lane, path):
+    """The one provider launch, then its cleanup, then its evidence, each on
+    its own: the stop runs whatever the launch raised, and the evidence (or
+    an explicit evidence-failure record) is kept whatever the stop raised.
+    The first error propagates only after both."""
+    errors = []
+    result = None
+    try:
+        result = launch()
+    except BaseException as error:
+        errors.append(error)
+    try:
+        stop_leftovers(guard, "after the launch")
+    except Exception as error:
+        errors.append(error)
+    try:
+        retain_launch(evidence, lane, path)
+    except Exception as error:
+        record_evidence_failure(evidence, lane, error)
+        errors.append(error)
+    if errors:
+        raise errors[0]
+    return result
+
+
+def stop_at_teardown(guard, watchdog):
+    """Teardown, pass or fail: cancel the watchdog and stop any process still
+    carrying the launch's token."""
+    watchdog.cancel()
+    if guard["token"] is not None:
+        stop_leftovers(guard, "at teardown")
+
+
 def refuse_late_launch(guard, lane, executed):
     """Every provider launch of the antigravity case passes here first: a
     second launch (a replay not served from the cache) or one whose bound no
@@ -453,7 +504,7 @@ def settle_every_finding(app, ops, path, event, findings, evidence):
 
 @pytest.mark.parametrize("lanes", list(LANE_CASES.values()), ids=list(LANE_CASES))
 def test_ac14_real_review_readiness_change_restore_and_exact_replay(
-    monkeypatch, tmp_path, lanes
+    monkeypatch, tmp_path, lanes, request
 ):
     from heddle.gate import cli, entry
 
@@ -539,6 +590,7 @@ def test_ac14_real_review_readiness_change_restore_and_exact_replay(
             )
             monkeypatch.setenv(launch_bounds().LAUNCH_VAR, guard["token"])
             watchdog = start_watchdog(guard)
+            request.addfinalizer(functools.partial(stop_at_teardown, guard, watchdog))
         evidence = where["evidence"]
         save(evidence / f"{lane}-verification.json", verified.to_envelope())
         assert verified.ok
@@ -549,11 +601,13 @@ def test_ac14_real_review_readiness_change_restore_and_exact_replay(
             == fact["evidence"]["after"]["source_sha256"]
         )
         operation = ops.RunGate(GATE, feature=FEATURE, cli=lane, **CONFIG[lane])
-        first = app.execute(operation)
-        save(evidence / f"{lane}-first.json", first.to_envelope())
         if alone:
-            stop_leftovers(guard, "after the launch")
-            retain_launch(evidence, lane, path)
+            first = launch_and_keep(
+                guard, functools.partial(app.execute, operation), evidence, lane, path
+            )
+        else:
+            first = app.execute(operation)
+        save(evidence / f"{lane}-first.json", first.to_envelope())
         assert first.ok and not first.data["cached"], first
         event = runs(path)[-1]
         canonical, value = canonical_result(path, event)
