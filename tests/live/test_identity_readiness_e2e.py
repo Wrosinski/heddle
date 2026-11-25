@@ -47,6 +47,7 @@ import json
 import os
 import secrets
 import shutil
+import tempfile
 import threading
 import time
 from dataclasses import asdict
@@ -294,12 +295,22 @@ def record_evidence_failure(evidence, lane, error):
         pass
 
 
+# The retention child's entry; an offline probe may point it elsewhere.
+RETENTION_ENTRY = "tests.live.test_identity_readiness_e2e:retain_in_child"
+
+
+def retain_in_child(request):
+    """The retention child's entry: the launch's evidence from plain values."""
+    retain_launch(Path(request["evidence"]), request["lane"], Path(request["path"]))
+
+
 def launch_and_keep(guard, launch, evidence, lane, path):
     """The one provider launch, then its cleanup, then its evidence, each on
     its own: the stop runs whatever the launch raised, and the evidence (or
     an explicit evidence-failure record) is kept whatever the stop raised,
-    within the canary module's retention bound. The first error propagates
-    only after both."""
+    by a child process killed with its process group at the canary module's
+    retention bound, so nothing of it writes after the bound. The first error
+    propagates only after both."""
     errors = []
     result = None
     try:
@@ -312,10 +323,12 @@ def launch_and_keep(guard, launch, evidence, lane, path):
         errors.append(error)
     canary = launch_bounds()
     try:
-        canary.run_bounded(
-            functools.partial(retain_launch, evidence, lane, path),
+        canary.run_killable(
+            RETENTION_ENTRY,
+            {"evidence": str(evidence), "lane": lane, "path": str(path)},
             canary.retention_bound(),
             "evidence retention",
+            Path(tempfile.mkdtemp(prefix="identity-retention-")),
         )
     except Exception as error:
         record_evidence_failure(evidence, lane, error)

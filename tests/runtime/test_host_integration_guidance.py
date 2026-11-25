@@ -400,10 +400,12 @@ AC24_SCOPE_EXCLUSIONS = (
 
 # agy's host-rule precedence is an allow-list, pinned by the plan. The
 # host-integration guide carries the pinned sentence verbatim (whitespace and
-# line wrapping aside). Any other sentence on the five surfaces that ranks the
-# prompt against AGENTS.md or host rules, or says which wins a conflict, fails
-# the topic, whichever way it ranks them. A sentence that only mentions both
-# does not rank them.
+# line wrapping aside). Besides it, any sentence on the five surfaces that
+# names both the prompt and AGENTS.md, host rules or user rules fails the
+# topic, whatever its verb. A sentence naming one side fails only with a
+# conflict phrase; one naming neither fails when a conflict phrase meets an
+# authority or win word. A one-sided paraphrase without a conflict phrase
+# ("the gate prompt is authoritative") goes uncaught, as the plan accepts.
 AC24_PRECEDENCE_TOPIC = "agy-host-rule-precedence"
 AC24_PINNED_PRECEDENCE = (
     "`agy` loads the checkout's `AGENTS.md` as user rules that take "
@@ -415,24 +417,18 @@ _AC24_RANKED_HOST = re.compile(
     r"agents\.md|user_rules|\b(?:host|user) rules?\b|\bhost instructions?\b"
     r"|\b(?:these|those|such|its|their) rules\b"
 )
-# Authority and win words, and conflict words, rank beside either side
-# alone. With neither side named, an authority or win word ranks beside a
-# conflict phrase ("in a conflict, the latter wins"); a bare conflict noun or
-# "a briefing that conflicts" names another subject and does not count.
+# With neither side named, an authority or win word beside a conflict phrase
+# says which wins ("in a conflict, the latter wins"). A bare conflict noun or
+# "a briefing that conflicts" is not a conflict phrase.
 _AC24_AUTHORITY_WORDS = re.compile(
     r"\b(?:preceden\w*|precede[sd]?|priorit\w*|outrank\w*|supersed\w*|trump\w*"
     r"|authorit\w*|prevail\w*|wins?|winning|won(?!')|winner|los(?:e|es|ing|er)"
     r"|final say|last word|upper hand|go(?:es)? with|went with|defer\w*"
     r"|yield\w*|give[sn]? way|gave way|takes? over|took over|outweigh\w*"
     r"|dominat\w*|subordinat\w*|controls?|governs?|binding|decisive"
-    r"|comes? first|in charge|paramount|supreme|overrode|overridden"
+    r"|comes? first|in charge|paramount|supreme|overrul\w*|overrode|overridden"
     r"|overrid(?:e|es|ing) (?:the|any|all|every|other|its|their|agents|host"
     r"|user|prompt))\b"
-)
-_AC24_CONFLICT_WORDS = re.compile(
-    r"\b(?:conflict\w*|contradict\w*|disagree\w*|clash\w*|collid\w*"
-    r"|collision\w*|compet(?:e|es|ing|ition)|inconsisten\w*|at odds"
-    r"|if in doubt)\b"
 )
 _AC24_CONFLICT_PHRASES = re.compile(
     r"\b(?:in|on|during|for) (?:a|an|any|each|every|the|case of(?: a)?)"
@@ -440,13 +436,6 @@ _AC24_CONFLICT_PHRASES = re.compile(
     r"|\b(?:when|whenever|where|wherever|if|should|once)\b(?: \S+){0,3}?"
     r" (?:conflict|disagree|clash|collide|compete|contradict)(?:s|ed)?\b"
     r"|\b(?:conflicting|contradictory|if in doubt|in case of doubt|at odds)\b"
-)
-# Directive and comparison words rank only beside both sides.
-_AC24_RANKING_WORDS_BESIDE_BOTH = re.compile(
-    r"\b(?:overrid\w*|govern\w*|control\w*|decid\w*|regardless|irrespective"
-    r"|whatever|no matter|even (?:if|when|where|though)|otherwise|follow\w*"
-    r"|ignor\w*|disregard\w*|instead|rather than|in favou?r of|prefer\w*"
-    r"|above|below|ahead of|rank\w*|obey\w*|heed\w*|beats?|first)\b"
 )
 
 
@@ -535,21 +524,18 @@ def _ac24_describes(topic: str, block: str) -> bool:
 
 def _ac24_ranks(sentence: str) -> bool:
     """The sentence ranks the prompt against host rules, or says which wins
-    a conflict: it pairs a conflict phrase with an authority or win word,
-    names either side beside an authority, win or conflict word, or names
-    both sides beside a directive or comparison word."""
+    a conflict: it names both sides, whatever its verb; or one side beside
+    a conflict phrase; or neither, with a conflict phrase beside an
+    authority or win word."""
     plain = _ac24_normalize(sentence)
-    authority = _AC24_AUTHORITY_WORDS.search(plain) is not None
-    conflict = _AC24_CONFLICT_WORDS.search(plain) is not None
-    if authority and _AC24_CONFLICT_PHRASES.search(plain):
-        return True
     prompt = _AC24_RANKED_PROMPT.search(plain) is not None
     host = _AC24_RANKED_HOST.search(plain) is not None
-    if not (prompt or host):
-        return False
-    if authority or conflict:
+    if prompt and host:
         return True
-    return prompt and host and _AC24_RANKING_WORDS_BESIDE_BOTH.search(plain) is not None
+    conflict = _AC24_CONFLICT_PHRASES.search(plain) is not None
+    if prompt or host:
+        return conflict
+    return conflict and _AC24_AUTHORITY_WORDS.search(plain) is not None
 
 
 def _ac24_precedence_problems(texts: dict[str, str]) -> list[tuple[str, str]]:
@@ -582,8 +568,9 @@ def test_ac24_documented_surfaces_describe_the_antigravity_lane(topic: str) -> N
         assert not problems, (
             f"FAIL AC-24: agy's host-rule precedence must be the pinned sentence "
             f"alone: the {AC24_PINNED_SURFACE} carries it verbatim and no other "
-            f"sentence of {sorted(AC24_SURFACES)} ranks the prompt against "
-            f"AGENTS.md or host rules: {problems}"
+            f"sentence of {sorted(AC24_SURFACES)} names both the prompt and "
+            f"AGENTS.md or host rules, or one side with a conflict phrase: "
+            f"{problems}"
         )
         return
     groups = AC24_TOPICS[topic]
@@ -647,9 +634,10 @@ AC24_ACCEPTED: dict[str, tuple[str, dict[str, str]]] = {
             "- `heddle doctor` reports `agy` at info severity.\n"
         ),
     ),
-    "pinned-sentence-and-a-mention-only-sentence": (
+    # One side, no conflict phrase: the prompt governs something else.
+    "pinned-sentence-and-a-one-sided-prompt-sentence": (
         AC24_PRECEDENCE_TOPIC,
-        _beside_pinned(AC24_MENTION_ONLY),
+        _beside_pinned("This prompt governs which output schema is used."),
     ),
     "pinned-sentence-repeated-on-another-surface": (
         AC24_PRECEDENCE_TOPIC,
@@ -663,7 +651,8 @@ AC24_ACCEPTED: dict[str, tuple[str, dict[str, str]]] = {
 
 # Any other ranking sentence fails beside the pinned one: the reversals the
 # earlier free-prose readings had to catch, and, by design, correct but
-# different wording.
+# different wording. Each names both sides, or one or neither side with a
+# conflict phrase.
 AC24_PRECEDENCE_REVERSALS = {
     # Reviewer probes, verbatim.
     "prompt-authoritative-in-conflicts": (
@@ -678,7 +667,7 @@ AC24_PRECEDENCE_REVERSALS = {
         "In agy the host AGENTS.md outranks the gate prompt. In a conflict, "
         "however, use the prompt instead."
     ),
-    "treat-the-prompt-as-authoritative": "Treat the gate prompt as authoritative.",
+    "prompt-overrules-host-rules": "The gate prompt overrules AGENTS.md.",
     # Conflict rulings that name neither side.
     "the-latter-wins-a-conflict": "When they conflict, the latter wins.",
     "lane-block-wins-a-conflict": "In a conflict, the lane block wins.",
@@ -819,6 +808,11 @@ AC24_REJECTED: dict[str, tuple[str, dict[str, str]]] = {
         ),
     ),
     "pinned-sentence-missing": (AC24_PRECEDENCE_TOPIC, _on_guide(AC24_MENTION_ONLY)),
+    # By design: a sentence naming both sides fails whatever its verb.
+    "mention-only-both-sides": (
+        AC24_PRECEDENCE_TOPIC,
+        _beside_pinned(AC24_MENTION_ONLY),
+    ),
     "pinned-sentence-reworded": (
         AC24_PRECEDENCE_TOPIC,
         _on_guide(
@@ -873,8 +867,8 @@ def _ac24_control_holds(topic: str, texts: dict[str, str]) -> bool:
 def test_ac24_matcher_accepts_the_contract_wording(case: str) -> None:
     """AC-24 matcher control (passes now): text that scopes the reviews/
     rule to every lane with Antigravity, or carries the pinned precedence
-    sentence in the guide with only mention-only sentences beside it,
-    describes its topic."""
+    sentence in the guide with no other sentence naming both sides or one
+    side in a conflict, describes its topic."""
     topic, texts = AC24_ACCEPTED[case]
     assert _ac24_control_holds(topic, texts), (
         f"FAIL AC-24: the matcher rejects contract wording for {topic}: {texts!r} "
@@ -889,7 +883,8 @@ def test_ac24_matcher_rejects_omitted_lanes_and_reversed_precedence(
     """AC-24 matcher control (passes now): text that omits Antigravity from
     the reviews/ rule or narrows it to Claude and Codex describes nothing;
     the precedence topic fails without the pinned sentence in the guide, and
-    beside it fails on any other ranking sentence, reversed or not."""
+    beside it fails on any other sentence naming both sides, or one side
+    with a conflict phrase, reversed or not."""
     topic, texts = AC24_REJECTED[case]
     if topic == AC24_PRECEDENCE_TOPIC:
         kinds = {kind for kind, _ in _ac24_precedence_problems(texts)}

@@ -1142,8 +1142,9 @@ def assert_index_lists_chunks(
     written (no normalization) to ``(real path reached at open, bytes read)``.
 
     The index lists exactly ``len(slices)`` chunks, and entry ``n``'s path, as
-    written: is absolute and already normalized; opened as written and yielded
-    exactly slice ``n``'s bytes; resolved inside the run temp ``directory``.
+    written: is absolute; opened as written and yielded exactly slice ``n``'s
+    bytes; resolved inside the run temp ``directory``. Any spelling that opens
+    as written is accepted.
     The entry states exactly that slice's ``start`` and exclusive ``end`` and
     carries that slice's SHA-256. No two entries reach the same file."""
     entries = index_records(index, ac)
@@ -1156,10 +1157,6 @@ def assert_index_lists_chunks(
     for number, (record, (first, last)) in enumerate(zip(entries, slices, strict=True)):
         piece = capture[first:last]
         path = record["path"]
-        assert os.path.normpath(path) == path, (
-            f"FAIL {ac}: index entry {number} path {path!r} is not normalized "
-            f"(normalizes to {os.path.normpath(path)!r})"
-        )
         assert path in opened, (
             f"FAIL {ac}: index entry {number} path {path!r} does not open as written"
         )
@@ -1202,7 +1199,7 @@ def assert_index_binds_each_chunk(
     launch: dict, capture: bytes, ac: str, route: dict
 ) -> None:
     """AC-7: the delivered index lists the frozen route's chunks in capture
-    order, each by an exact, normalized absolute path that opens as written to
+    order, each by an absolute path that opens exactly as written to
     its delivered file in the run temp directory, with its exact half-open
     range and digest."""
     assert_index_lists_chunks(

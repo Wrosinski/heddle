@@ -35,7 +35,9 @@ that reason. Every started launch is stopped, each on its own, before any
 launch's evidence is kept, so one launch's cleanup or retention error never
 leaves a sibling running; a launch whose evidence cannot be kept leaves an
 explicit evidence-failure record, and errors are reported after every launch
-has stopped.
+has stopped. Each launch's evidence is kept by a child process in its own
+session that is killed with its process group at the retention bound, so
+nothing of a timed-out retention writes after it.
 
 **Per-call outcomes.** Each directed call is judged on its own attributable
 observation: a step whose parameters are the directed ones and whose terminal
@@ -619,10 +621,63 @@ def is_denied_read(row, masked: tuple[Path, ...] = ()) -> bool:
     return bool(names) and names <= {"read_file", "read"}
 
 
+# The fields that carry a structured denied action's operative target path,
+# at its top level or in its parameters; notes and messages never count.
+TARGET_FIELDS = (
+    "path",
+    "Path",
+    "target",
+    "Target",
+    "file",
+    "File",
+    "file_path",
+    "FilePath",
+    "absolute_path",
+    "AbsolutePath",
+    "target_file",
+    "TargetFile",
+)
+PARAMETER_FIELDS = ("parameters", "params", "arguments", "args", "input")
+
+
+def operative_paths(row: dict) -> list[str]:
+    """A structured denied action's operative target paths."""
+    holders = [row] + [
+        row[key] for key in PARAMETER_FIELDS if isinstance(row.get(key), dict)
+    ]
+    return [
+        holder[key]
+        for holder in holders
+        for key in TARGET_FIELDS
+        if isinstance(holder.get(key), str) and holder[key].strip()
+    ]
+
+
+def is_exact_path(value: str, path: Path) -> bool:
+    """A target field holding exactly ``path``, plain, ``~``-relative or as
+    its ``file://`` URI."""
+    value = value.strip()
+    value = value[len("file://") :] if value.startswith("file://") else value
+    return os.path.expanduser(value) == str(path)
+
+
 def denied_read_of(row, path: Path) -> bool:
     """A denied action that is a read of exactly ``path``: a write or any
-    other operation on that path never qualifies."""
-    return is_denied_read(row, (path,)) and names_path(text_of(row), path)
+    other operation on that path never qualifies. A structured entry is bound
+    by its operative target field; a text entry by ``names_path``."""
+    if not is_denied_read(row, (path,)):
+        return False
+    if isinstance(row, dict):
+        return any(is_exact_path(value, path) for value in operative_paths(row))
+    return names_path(text_of(row), path)
+
+
+def is_pathless(row) -> bool:
+    """A denied action that names no target: a structured entry with no
+    operative target field, or a text entry with no path in it."""
+    if isinstance(row, dict):
+        return not operative_paths(row)
+    return "/" not in text_of(row)
 
 
 def is_whole_read(view: dict) -> bool:
@@ -1168,44 +1223,141 @@ def retention_bound() -> float:
     return max(0.0, min(RETENTION_SECONDS, attempt_deadline() - time.monotonic() - 1.0))
 
 
-def run_bounded(work, seconds: float, what: str):
-    """``work()`` on its own thread for at most ``seconds``: its result or its
-    error, or a ``TimeoutError`` naming ``what`` once the bound passes (the
-    thread is then abandoned; a daemon, it never holds the run open)."""
-    outcome: dict = {}
+# The killable child: it imports ``module:function`` from the repository and
+# calls it with the plain request, then publishes the JSON result atomically.
+KILLABLE_CHILD = r"""
+import importlib
+import json
+import os
+import sys
+from pathlib import Path
 
-    def target() -> None:
-        try:
-            outcome["value"] = work()
-        except BaseException as error:
-            outcome["error"] = error
+sys.path.insert(0, sys.argv[1])
+order = json.loads(Path(sys.argv[2]).read_text(encoding="utf-8"))
+module, function = order["entry"].split(":")
+value = getattr(importlib.import_module(module), function)(order["request"])
+result = Path(order["result"])
+partial = result.with_name(result.name + ".partial")
+partial.write_text(json.dumps(value, default=str), encoding="utf-8")
+os.replace(partial, result)
+"""
 
-    worker = threading.Thread(target=target, name=what, daemon=True)
-    worker.start()
-    worker.join(seconds)
-    if worker.is_alive():
-        raise TimeoutError(f"{what} exceeded its {seconds:.0f} s bound")
-    if "error" in outcome:
-        raise outcome["error"]
-    return outcome["value"]
+
+def run_killable(entry: str, request: dict, seconds: float, what: str, scratch: Path):
+    """``module:function`` called with the plain ``request`` in a child process
+    in its own session, waited on for at most ``seconds``. When the bound
+    passes, the child's whole process group gets SIGKILL and is reaped before
+    this returns, so nothing it started can write after the bound; a
+    ``TimeoutError`` naming ``what`` and the bound then propagates. Returns
+    the function's JSON result; a child that fails raises with its stderr."""
+    scratch.mkdir(parents=True, exist_ok=True)
+    name = secrets.token_hex(4)
+    order = scratch / f"{name}.request.json"
+    result = scratch / f"{name}.result.json"
+    errors = scratch / f"{name}.stderr"
+    order.write_text(
+        json.dumps(
+            {"entry": entry, "request": request, "result": str(result)}, default=str
+        ),
+        encoding="utf-8",
+    )
+    environment = {
+        key: value
+        for key, value in os.environ.items()
+        if key not in (LAUNCH_VAR, "HEDDLE_AGENT_SESSION")
+    }
+    environment["PYTHONPATH"] = os.pathsep.join(
+        part for part in (str(REPO_ROOT), os.environ.get("PYTHONPATH")) if part
+    )
+    with errors.open("w", encoding="utf-8") as stderr:
+        child = subprocess.Popen(
+            [sys.executable, "-c", KILLABLE_CHILD, str(REPO_ROOT), str(order)],
+            cwd=scratch,
+            env=environment,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=stderr,
+            start_new_session=True,
+        )
+    try:
+        child.wait(timeout=max(0.0, seconds))
+    except subprocess.TimeoutExpired:
+        raise TimeoutError(
+            f"{what} exceeded its {seconds:.0f} s bound; its process was killed"
+        ) from None
+    finally:
+        if child.poll() is None:
+            try:
+                os.killpg(child.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            child.wait()
+    if child.returncode != 0 or not result.is_file():
+        tail = errors.read_text(encoding="utf-8")[-2_000:]
+        raise RuntimeError(f"{what} failed (exit {child.returncode}): {tail}")
+    return json.loads(result.read_text(encoding="utf-8"))
+
+
+# What a retention child returns to the parent, beside the launch's own fields.
+KEPT_KEYS = (
+    "envelope",
+    "rows",
+    "summary",
+    "log",
+    "events",
+    "prepared",
+    "transport",
+    "refused",
+)
+# The retention child's entry; an offline probe may point it elsewhere.
+RETENTION_ENTRY = "tests.live.test_antigravity_canary_e2e:keep_in_child"
+
+
+def keep_in_child(request: dict) -> dict:
+    """The retention child's entry: one launch's evidence from plain values."""
+    plain = request["launch"]
+    launch = {
+        **plain,
+        "host": Path(plain["host"]),
+        "state": Path(plain["state"]),
+        "work": Path(plain["work"]),
+        "before": set(plain["before"]),
+    }
+    kept = keep_evidence(Path(request["evidence"]), launch, request["until"])
+    return {key: kept[key] for key in KEPT_KEYS}
 
 
 def retain_launch(evidence: Path, launch: dict) -> dict:
-    """Keep one stopped launch's evidence (``keep_evidence``) within its
-    retention bound or, when that raises or the bound passes, an explicit
-    evidence-failure record naming the error, which then propagates. Called
+    """Keep one stopped launch's evidence (``keep_evidence``) in a killable
+    child process within its retention bound or, when that fails or the
+    bound passes, an explicit evidence-failure record naming the error,
+    written here after the child is dead; the error then propagates. Called
     only once the launch has been stopped, so a retention error never leaves
-    its processes running; a retention cut off at its bound may still add
-    files beside the record."""
+    its processes running, and nothing of a timed-out retention can write
+    after its bound."""
     bound = retention_bound()
-    until = time.monotonic() + bound
+    plain = {
+        key: launch.get(key)
+        for key in ("label", "number", "host", "state", "work", "gate", "killed")
+    }
+    plain["before"] = sorted(launch["before"])
+    plain["processes"] = launch.get("processes")
     try:
-        return run_bounded(
-            lambda: keep_evidence(evidence, launch, until), bound, "evidence retention"
+        kept = run_killable(
+            RETENTION_ENTRY,
+            {
+                "evidence": str(evidence),
+                "launch": plain,
+                "until": time.monotonic() + bound,
+            },
+            bound,
+            "evidence retention",
+            Path(launch["work"]) / "retention",
         )
     except Exception as error:
         record_evidence_failure(evidence, launch, error)
         raise
+    return {**launch, **kept}
 
 
 def status_envelope(host: Path, until: float) -> dict:
@@ -2346,8 +2498,10 @@ def test_ac25_canary_deny_rule_refuses_a_data_directory_read(tmp_path):
     """AC-25 canary item 4: of two directed reads of absent files with the
     same name, the one under ``agy``'s data directory is denied before any
     read, and the denial is tied to that directed read: a ``denied_actions``
-    entry that is a read of exactly that path (a denied write or any other
-    operation on it never qualifies), or the directed ``read_file`` step's
+    entry that is a read of exactly that path, by a structured entry's
+    operative target field (never a note or message) or a text entry's exact
+    path (a denied write or any other operation on it never qualifies), or
+    the directed ``read_file`` step's
     own terminal update in the supported failure state, ``ERROR``, with
     denial wording and no output. A target step still active, or in any
     other or unknown state, establishes no refusal. The control outside the
@@ -2370,14 +2524,16 @@ def test_ac25_canary_deny_rule_refuses_a_data_directory_read(tmp_path):
     control_reads = reads_of(call["events"], control, tmp_path)
     rows = call["result"].get("denied_actions") or []
     denied = [text_of(row) for row in rows]
-    # A qualifying denial is a read of exactly the target. A path-less denied
-    # read may accompany the target step's refusal; anything else, including
-    # a denied write of the target, is a foreign denial.
+    # A qualifying denial is a read of exactly the target, by a structured
+    # entry's operative target field or a text entry's exact path. A
+    # path-less denied read may accompany the target step's refusal; anything
+    # else, including a denied write of the target or a read of another path
+    # whose note mentions the target, is a foreign denial.
     named = [text_of(row) for row in rows if denied_read_of(row, target)]
     pathless = [
         text_of(row)
         for row in rows
-        if "/" not in text_of(row) and is_denied_read(row, (target, control))
+        if is_pathless(row) and is_denied_read(row, (target, control))
     ]
     foreign = [
         text_of(row)
