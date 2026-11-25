@@ -456,6 +456,46 @@ def test_ac4_cli_antigravity_without_model_resolves_to_neon_high(gate_name) -> N
     assert resolved.explicit_axes == frozenset({"cli"})
 
 
+def _registered_gates() -> list[str]:
+    from heddle.gate.registry import GATES
+
+    return sorted(GATES)
+
+
+@pytest.mark.parametrize("gate_name", _registered_gates())
+def test_ac4_default_tuple_projection_gives_antigravity_neon_high(gate_name) -> None:
+    """Red: the registry-owned default tuple for the lane is gemini-4-neon at
+    high on every registered gate.
+
+    ``heddle.gate.summary.resolve_exec_config`` reads the per-CLI default table
+    with only the CLI named and no policy slot behind it; producer freshness
+    and cache expectations compare stored evidence against it. No public gate
+    route reaches the table today: run-gate and show-prompt with a feature
+    resolve through the policy slot, and show-prompt without one refuses every
+    registered gate. Parametrized over the registry, so a new gate is covered.
+    """
+    from heddle.contracts.gate_execution import VALID_SANDBOXES_BY_CLI
+    from heddle.gate.summary import resolve_exec_config
+
+    try:
+        projected = resolve_exec_config(ANTIGRAVITY, gate=gate_name)
+    except KernelError as error:
+        pytest.fail(
+            f"FAIL AC-4: the default tuple refuses the lane for {gate_name}: "
+            f"{error.message}"
+        )
+    assert (
+        projected["cli"],
+        projected["model"],
+        projected["reasoning_effort"],
+    ) == (ANTIGRAVITY, "gemini-4-neon", "high"), (
+        f"FAIL AC-4: the default tuple for {gate_name} is {projected}"
+    )
+    assert projected["sandbox"] in VALID_SANDBOXES_BY_CLI.get(ANTIGRAVITY, ()), (
+        f"FAIL AC-4: the default tuple's sandbox is not the lane's: {projected}"
+    )
+
+
 def test_ac4_unsupported_cli_hint_names_every_lane() -> None:
     """Red: the `--cli` usage hint that names only Claude and Codex gains the
     third lane."""

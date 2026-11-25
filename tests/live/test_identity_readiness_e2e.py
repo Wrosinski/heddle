@@ -21,9 +21,14 @@ The Claude and Codex case keeps today's behaviour, the root itself.
 The Antigravity case reaches ``agy`` only through the admission's version
 gate: a missing or mismatched ``agy``, or an unset root, skips or refuses there
 with no slot claimed and the proof left pending. Its one provider launch
-starts only when the launch's bound and the retention allowance fit before the
-invocation's deadline (``attempt_deadline`` in the same helper module), and the
-case fails if it ends past that deadline.
+starts only when the launch's bound and the reserve for cleanup and retention
+fit before the invocation's deadline (``attempt_deadline`` in the same helper
+module); any further launch, such as a replay that is not served from the
+cache, is refused before it starts. The launch's processes carry the canary
+module's per-launch token: a watchdog stops them at the deadline less the
+reserve, so the in-process wait cannot outlast it, and any process left after
+the launch is stopped inside the cleanup bound. A survivor, or an end past the
+deadline, fails the case.
 """
 
 from __future__ import annotations
@@ -33,7 +38,9 @@ import importlib
 import importlib.util
 import json
 import os
+import secrets
 import shutil
+import threading
 import time
 from dataclasses import asdict
 from pathlib import Path
@@ -74,10 +81,15 @@ LANE_CASES = {
 LIVE_HELPERS = "tests.antigravity_live_helpers"
 GATE = "milestone-review"
 CHECKED = ["src/example.py", "tests/check.py"]
-# Seconds: the gate's own bound for the one launch, and the retention
-# allowance kept free before the invocation's deadline.
+# Seconds: the gate's own bound for the one launch. The canary module holds
+# the shared reserve, cleanup bound, runner teardown allowance and the
+# per-launch token and process stop.
 GATE_SECONDS = 1200
-RETENTION_SECONDS = 120
+CANARY = "tests.live.test_antigravity_canary_e2e"
+
+
+def launch_bounds():
+    return importlib.import_module(CANARY)
 
 
 def save(path, value):
@@ -262,6 +274,67 @@ def retain_launch(evidence, lane, path):
     )
 
 
+def refuse_late_launch(guard, lane, executed):
+    """Every provider launch of the antigravity case passes here first: a
+    second launch (a replay not served from the cache) or one whose bound no
+    longer fits the attempt is refused before it starts."""
+    bounds = launch_bounds()
+    if lane in executed:
+        pytest.fail(
+            "FAIL AC-25: the identity case's replay would start a second provider "
+            "launch; it was refused before it started",
+            pytrace=False,
+        )
+    need = GATE_SECONDS + bounds.RUNNER_CLEANUP_SECONDS
+    left = guard["deadline"] - time.monotonic() - bounds.RESERVE_SECONDS
+    if need > left:
+        pytest.fail(
+            f"FAIL AC-25: the live attempt is exhausted: the identity launch needs "
+            f"{need} s and {max(left, 0.0):.0f} s remain before the reserve, so it "
+            "was not started",
+            pytrace=False,
+        )
+
+
+def cleanup_until(guard):
+    bounds = launch_bounds()
+    return min(
+        time.monotonic() + bounds.CLEANUP_SECONDS,
+        guard["deadline"] - (bounds.RESERVE_SECONDS - bounds.CLEANUP_SECONDS),
+    )
+
+
+def record_stop(guard, when, stopped):
+    row = {"at": when, **stopped}
+    guard["stops"].append(row)
+    save(guard["evidence"] / f"antigravity-processes-{len(guard['stops'])}.json", row)
+
+
+def start_watchdog(guard):
+    """Stop the launch's processes at the deadline less the reserve, so the
+    in-process gate run returns inside the attempt."""
+    bounds = launch_bounds()
+    stop_at = guard["deadline"] - bounds.RESERVE_SECONDS
+
+    def fire():
+        until = guard["deadline"] - (bounds.RESERVE_SECONDS - bounds.CLEANUP_SECONDS)
+        record_stop(
+            guard, "the deadline", bounds.stop_launch(None, guard["token"], until)
+        )
+
+    timer = threading.Timer(max(0.0, stop_at - time.monotonic()), fire)
+    timer.daemon = True
+    timer.start()
+    return timer
+
+
+def stop_leftovers(guard, when):
+    """Stop any process still carrying the launch's token, inside the cleanup
+    bound, and keep the record."""
+    stopped = launch_bounds().stop_launch(None, guard["token"], cleanup_until(guard))
+    record_stop(guard, when, stopped)
+
+
 def attempt_deadline(helpers):
     assert hasattr(helpers, "attempt_deadline"), (
         "FAIL AC-25: tests.antigravity_live_helpers.attempt_deadline is not implemented"
@@ -424,9 +497,13 @@ def test_ac14_real_review_readiness_change_restore_and_exact_replay(
         args.preserve_success_artifacts = True
         return args
 
+    guard = {"deadline": None, "token": None, "evidence": None, "stops": []}
+
     def observed_run(gate, context, **kwargs):
         prepared = context.prepared_run
         lane = prepared.invocation.exec_config.cli
+        if alone:
+            refuse_late_launch(guard, lane, executed)
         save(
             where["evidence"] / f"{lane}-prepared.json",
             {
@@ -457,14 +534,11 @@ def test_ac14_real_review_readiness_change_restore_and_exact_replay(
             print(f"Identity-readiness live evidence: {evidence}", flush=True)
             save(evidence / f"{lane}-prerequisites.json", prerequisites)
             deadline = attempt_deadline(helpers)
-            left = deadline - time.monotonic() - RETENTION_SECONDS
-            if GATE_SECONDS > left:
-                pytest.fail(
-                    "FAIL AC-25: the live attempt is exhausted: the identity "
-                    f"launch needs {GATE_SECONDS} s and {max(left, 0.0):.0f} s "
-                    "remain before retention, so it was not started",
-                    pytrace=False,
-                )
+            guard.update(
+                deadline=deadline, token=secrets.token_hex(8), evidence=evidence
+            )
+            monkeypatch.setenv(launch_bounds().LAUNCH_VAR, guard["token"])
+            watchdog = start_watchdog(guard)
         evidence = where["evidence"]
         save(evidence / f"{lane}-verification.json", verified.to_envelope())
         assert verified.ok
@@ -478,6 +552,7 @@ def test_ac14_real_review_readiness_change_restore_and_exact_replay(
         first = app.execute(operation)
         save(evidence / f"{lane}-first.json", first.to_envelope())
         if alone:
+            stop_leftovers(guard, "after the launch")
             retain_launch(evidence, lane, path)
         assert first.ok and not first.data["cached"], first
         event = runs(path)[-1]
@@ -579,6 +654,17 @@ def test_ac14_real_review_readiness_change_restore_and_exact_replay(
         assert len(runs(path)) == 1
         if alone:
             # The launch's evidence was retained right after it ran.
+            watchdog.cancel()
+            stop_leftovers(guard, "after the replay")
+            fired = [stop for stop in guard["stops"] if stop["at"] == "the deadline"]
+            assert not fired, (
+                "FAIL AC-25: the live attempt is exhausted: the identity launch was "
+                "stopped at the deadline less the reserve"
+            )
+            survivors = [stop for stop in guard["stops"] if stop["survivors"]]
+            assert not survivors, (
+                f"FAIL AC-25: identity processes outlived their cleanup: {survivors}"
+            )
             assert time.monotonic() <= deadline, (
                 "FAIL AC-25: the identity case ran past the attempt deadline"
             )

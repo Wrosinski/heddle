@@ -404,7 +404,8 @@ AFFECTED = {
     ),
     # Both scaffolding members embed the command facts, so the Codex member
     # is published under its current preparation, reusable before and after
-    # the fix.
+    # the fix. No batch offers this case an AC-23 neighbour the fix leaves
+    # unchanged; see the recovery witness's docstring.
     "claude-command-facts": Affected(
         "review-test-scaffolding",
         SECONDARY,
@@ -1016,6 +1017,16 @@ def test_ac22_recovery_reruns_only_the_affected_member_published_before_landing(
     the affected Claude scaffolding member beside the Codex scaffolding
     member, which embeds the same command facts and so is published under its
     current preparation.
+
+    No approved layout gives the affected Claude member a neighbour whose
+    recorded AC-23 identity the fix leaves unchanged: the scaffold stage runs
+    only the scaffolding role, its other slot uses the other CLI, and the
+    Codex scaffolding input carries every section the Claude one does,
+    including the command facts. Reuse of a genuinely unchanged pre-change
+    AC-23 publication beside a stale Claude member is witnessed by the
+    `claude-*` cases of
+    `test_ac22_recovery_reruns_a_member_whose_input_or_effective_digest_alone_differs`,
+    where the Codex milestone member keeps its AC-23 pin.
 
     Test seams: `_inject_checkout_bodies` patches
     `heddle.gate.diff.resolve_diff` so the prepared diff carries the checkout

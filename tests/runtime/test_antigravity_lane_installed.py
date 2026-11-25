@@ -48,6 +48,12 @@ the chunk file's absolute ``path`` and its half-open capture byte range
 ``start`` and ``end``), ``uncovered``, ``violations`` and
 ``transport_intact`` (``persisted_audit`` is the one reader to re-point).
 
+Index-format seam (the format is delegated): the index is read through the
+runner tests' one parser, ``index_records`` in
+``tests/gate/test_antigravity_runner.py``, so both witnesses share one format
+seam: one record per chunk naming its file, whose own fields state its
+half-open capture byte range and carry its SHA-256.
+
 Every node is red until the lane exists in the installed wheel. Pass
 condition: each scenario's exit code, reason, ledger state, files and
 observations match exactly. No network, provider or credential is used, and
@@ -85,6 +91,7 @@ from tests.gate.test_antigravity_runner import (
     WORST_PREFIX,
     WRAPPER_TAG,
     clean_stream,
+    index_records,
     init_event,
     resolve_refs,
     result_event,
@@ -784,9 +791,27 @@ def interval_map(observation: dict) -> list[tuple[str, int, int]]:
     return rows
 
 
-def mentions(text: str, value: int) -> bool:
-    pattern = rf"(?<![\d,]){value:,}(?![\d,])|(?<![\d,]){value}(?![\d,])"
-    return re.search(pattern, text) is not None
+def assert_index_binding(
+    index: bytes, path: str, start: int, end: int, piece: bytes, chunk_digests: set
+) -> None:
+    """AC-7: the one index record naming ``path`` states, in its own fields,
+    exactly the half-open range ``[start, end)`` the test cut from the capture,
+    and of all the chunks' digests binds only that slice's. Read through the
+    runner tests' shared parser, so both witnesses keep one format seam."""
+    records = index_records(index, Path(path).name)
+    assert len(records) == 1, (
+        f"FAIL AC-7: {len(records)} index records name chunk {path}; expected one"
+    )
+    ((digests, intervals),) = records
+    digest = hashlib.sha256(piece).hexdigest()
+    assert digests & chunk_digests == {digest}, (
+        f"FAIL AC-7: the index record for {path} binds digests "
+        f"{sorted(digests & chunk_digests)}, not its slice's {digest}"
+    )
+    assert intervals == {(start, end)}, (
+        f"FAIL AC-7: the index record for {path} states {sorted(intervals)}, not "
+        f"its slice [{start}, {end})"
+    )
 
 
 def test_healthy_chunked_review_reads_every_chunk_whole(installed, tmp_path, hosts):
@@ -824,15 +849,16 @@ def test_healthy_chunked_review_reads_every_chunk_whole(installed, tmp_path, hos
         f"FAIL AC-7: the chunks do not span the capture: {intervals}"
     )
     files = files_of(observation)
-    index = files[observation["index"]].decode("utf-8")
+    index = files[observation["index"]]
+    chunk_digests = {
+        hashlib.sha256(capture[start:end]).hexdigest() for _, start, end in intervals
+    }
     for path, start, end in intervals:
-        piece = files[path]
-        assert hashlib.sha256(piece).hexdigest() in index, (
-            f"FAIL AC-7: the index omits the digest of {path}"
+        piece = capture[start:end]
+        assert files[path] == piece, (
+            f"FAIL AC-7: chunk {path} is not the capture's slice [{start}, {end})"
         )
-        assert mentions(index, end) or (
-            mentions(index, start) and mentions(index, end - start)
-        ), f"FAIL AC-7: the index does not bind {path} to [{start}, {end})"
+        assert_index_binding(index, path, start, end, piece, chunk_digests)
         lines = piece.count(b"\n") + (0 if piece.endswith(b"\n") else 1)
         assert lines <= READ_LINES and len(piece) + lines * WORST_PREFIX <= READ_BYTES
     reads = {(row["launch"], row["path"]) for row in host.rows("reads.jsonl")}

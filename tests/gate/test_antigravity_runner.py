@@ -1065,77 +1065,203 @@ def chunk_files(launch: dict) -> list[bytes]:
 
 HEX_DIGEST = re.compile(r"\b[0-9a-f]{64}\b")
 NUMBER = re.compile(r"(?<![\w.])\d{1,3}(?:,\d{3})+(?![\d,])|(?<![\w.,])\d+(?![\d,])")
+# How a delegated index may spell a chunk's interval: [start, end) directly,
+# start plus length, or one two-integer range. Keys are compared folded
+# (lower case, letters and digits only). The runner picks the spelling; the
+# test reads whichever fields the record carries and requires them all to
+# agree with the interval it computed itself.
+START_KEYS = frozenset({"start", "offset", "begin", "from", "bytestart", "startbyte"})
+END_KEYS = frozenset({"end", "stop", "to", "byteend", "endbyte"})
+LENGTH_KEYS = frozenset({"length", "size", "bytes", "len", "bytelength", "bytecount"})
+RANGE_KEYS = frozenset({"range", "byterange", "interval", "span", "bytes"})
+FIELD = re.compile(r"\b([a-z_]+)\s*[=:]\s*(\d{1,3}(?:,\d{3})+|\d+)(?![\d,])", re.I)
+QUOTES = "\"'`"
 
 
-def index_records(index: bytes) -> list[tuple[str, list[str]]]:
-    """The delivered index's records, whatever its delegated format.
+def _fold(key: object) -> str:
+    return re.sub(r"[^a-z0-9]", "", str(key).lower())
 
-    A JSON index yields each object's own scalar values (nested objects are
-    their own records); any other index yields one record per non-blank line.
-    Each record is ``(text, scalars)``.
-    """
+
+def _as_int(value: object) -> int | None:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str) and re.fullmatch(
+        r"\d{1,3}(?:,\d{3})+|\d+", value.strip()
+    ):
+        return int(value.strip().replace(",", ""))
+    return None
+
+
+def _names(value: object, name: str) -> bool:
+    return isinstance(value, str) and Path(value.strip().strip(QUOTES)).name == name
+
+
+def _interval_of(fields: dict[str, object], ordered: list[int]) -> set[tuple[int, int]]:
+    """Every interval a record's fields state, as ``{(start, end)}``.
+
+    ``fields`` are the record's keyed values under folded keys; ``ordered`` its
+    unkeyed integers in order (a plain line or a positional array). Keyed
+    fields win; unkeyed integers count only when they are exactly one pair,
+    read as ``[start, end)``."""
+    stated: set[tuple[int, int]] = set()
+    for key in RANGE_KEYS:
+        value = fields.get(key)
+        if isinstance(value, list):
+            pair = [_as_int(item) for item in value]
+        elif isinstance(value, str):
+            pair = [_as_int(item) for item in NUMBER.findall(value)]
+        else:
+            continue
+        if len(pair) == 2 and None not in pair:
+            stated.add((pair[0], pair[1]))
+
+    def numbers(keys: frozenset[str]) -> set[int]:
+        found = {_as_int(fields[key]) for key in keys if key in fields}
+        return {number for number in found if number is not None}
+
+    starts, ends, lengths = numbers(START_KEYS), numbers(END_KEYS), numbers(LENGTH_KEYS)
+    for first in starts:
+        stated.update((first, last) for last in ends)
+        stated.update((first, first + size) for size in lengths)
+    if not stated and not starts and len(ordered) == 2:
+        stated.add((ordered[0], ordered[1]))
+    if starts and not ends and not lengths:
+        stated.update((first, -1) for first in starts)
+    return stated
+
+
+def _record_digests(values: list[object]) -> set[str]:
+    return {
+        digest
+        for item in values
+        if isinstance(item, str)
+        for digest in HEX_DIGEST.findall(item.lower())
+    }
+
+
+def _line_records(
+    lines: list[str], name: str
+) -> list[tuple[set[str], set[tuple[int, int]]]]:
+    records = []
+    for line in lines:
+        tokens = [token.strip(QUOTES) for token in re.split(r"[\s,;|]+", line)]
+        if not any(Path(token).name == name for token in tokens if token):
+            continue
+        digests = set(HEX_DIGEST.findall(line))
+        rest = HEX_DIGEST.sub(" ", line)
+        rest = " ".join(t for t in rest.split() if Path(t.strip(QUOTES)).name != name)
+        fields = {
+            _fold(key): int(number.replace(",", ""))
+            for key, number in FIELD.findall(rest)
+        }
+        ordered = [
+            int(n.replace(",", "")) for n in NUMBER.findall(FIELD.sub(" ", rest))
+        ]
+        records.append((digests, _interval_of(fields, ordered)))
+    return records
+
+
+def _table_rows(lines: list[str]) -> list[dict[str, str]] | None:
+    """A Markdown table's body rows keyed by its header, or None."""
+    table = [line for line in lines if line.lstrip().startswith("|")]
+    if len(table) < 2:
+        return None
+    cells = [
+        [cell.strip() for cell in row.strip().strip("|").split("|")] for row in table
+    ]
+    header, rows = cells[0], []
+    for row in cells[1:]:
+        if all(re.fullmatch(r":?-{2,}:?", cell) for cell in row if cell):
+            continue
+        rows.append(dict(zip(header, row, strict=False)))
+    return rows
+
+
+def index_records(
+    index: bytes, name: str
+) -> list[tuple[set[str], set[tuple[int, int]]]]:
+    """The delivered index's records naming chunk file ``name``, whatever its
+    delegated format, each as ``(digests, intervals)``: the record's own
+    64-hex values and every interval its own fields state.
+
+    The one index parser for the runner and installed witnesses. Formats, in
+    order: JSON (objects at any depth), JSON Lines, a Markdown table with a
+    header row, else one record per non-blank line. A structured record is an
+    object with a string value naming the file (or the object a key naming
+    the file maps to), or a flat array with such a string; its fields are
+    read by folded key name. A line record is read as ``key=value``/``key:
+    value`` fields or, without keys, exactly two integers after the name and
+    digests are removed."""
     text = index.decode("utf-8")
+    lines = [line for line in text.splitlines() if line.strip()]
     try:
-        value = json.loads(text)
+        value: object = json.loads(text)
     except ValueError:
-        return [(line, [line]) for line in text.splitlines() if line.strip()]
-    records: list[tuple[str, list[str]]] = []
+        try:
+            value = [json.loads(line) for line in lines]
+        except ValueError:
+            value = _table_rows(lines)
+            if value is None:
+                return _line_records(lines, name)
+    records: list[tuple[set[str], set[tuple[int, int]]]] = []
 
-    def walk(node: object) -> None:
+    def walk(node: object, key_names: bool) -> None:
         if isinstance(node, dict):
-            scalars = [
-                str(item)
-                for item in node.values()
-                if not isinstance(item, dict | list) and item is not None
-            ]
-            for item in node.values():
-                if isinstance(item, list) and all(
-                    isinstance(entry, int | str) for entry in item
-                ):
-                    scalars.extend(str(entry) for entry in item)
-            records.append((" ".join(scalars), scalars))
-            for item in node.values():
-                walk(item)
+            if key_names or any(_names(item, name) for item in node.values()):
+                fields = {_fold(key): item for key, item in node.items()}
+                records.append(
+                    (_record_digests(list(node.values())), _interval_of(fields, []))
+                )
+            for key, item in node.items():
+                walk(item, _names(key, name) and isinstance(item, dict))
         elif isinstance(node, list):
+            if any(_names(item, name) for item in node) and all(
+                not isinstance(item, dict | list) for item in node
+            ):
+                ordered = [n for n in map(_as_int, node) if n is not None]
+                records.append((_record_digests(node), _interval_of({}, ordered)))
             for item in node:
-                walk(item)
+                walk(item, False)
 
-    walk(value)
+    walk(value, False)
     return records
 
 
 def assert_index_binds_each_chunk(launch: dict, capture: bytes, ac: str) -> None:
-    """AC-7: for each written chunk, the one index record naming its file
-    carries exactly its digest and its byte interval, computed here from the
-    captured bytes, and no other chunk's digest."""
+    """AC-7: for each written chunk, the one index record naming its file states
+    exactly the interval computed here (every interval field the record carries
+    agrees), and binds the digest of that slice of the capture and no other
+    chunk's digest."""
     files = files_of(launch)
-    records = index_records(files[launch["index"]])
+    index = files[launch["index"]]
     expected, start = [], 0
     for path in launch["chunks"]:
         piece = files[path]
         assert capture[start : start + len(piece)] == piece, (
             f"FAIL {ac}: chunk {Path(path).name} is not the capture at {start}"
         )
-        digest = hashlib.sha256(piece).hexdigest()
-        expected.append((Path(path).name, start, start + len(piece), digest))
+        expected.append((Path(path).name, start, start + len(piece)))
         start += len(piece)
-    digests = {digest for *_, digest in expected}
-    for name, first, last, digest in expected:
-        naming = [text for text, scalars in records if name in text]
+    digests = {
+        hashlib.sha256(capture[first:last]).hexdigest() for _, first, last in expected
+    }
+    for name, first, last in expected:
+        naming = index_records(index, name)
         assert len(naming) == 1, (
             f"FAIL {ac}: {len(naming)} index records name chunk {name}; expected one"
         )
-        (text,) = naming
-        found = set(HEX_DIGEST.findall(text)) & digests
-        assert found == {digest}, (
-            f"FAIL {ac}: the index record for {name} binds digests {sorted(found)}, "
-            f"not its own {digest}"
+        ((found, intervals),) = naming
+        assert intervals == {(first, last)}, (
+            f"FAIL {ac}: the index record for {name} states intervals "
+            f"{sorted(intervals)}; the chunk is the capture's [{first}, {last})"
         )
-        stripped = HEX_DIGEST.sub(" ", text.replace(name, " "))
-        numbers = {int(value.replace(",", "")) for value in NUMBER.findall(stripped)}
-        assert {first, last} <= numbers or {first, last - first} <= numbers, (
-            f"FAIL {ac}: the index record for {name} does not bind its interval "
-            f"[{first}, {last}): it names {sorted(numbers)}"
+        digest = hashlib.sha256(capture[first:last]).hexdigest()
+        assert found & digests == {digest}, (
+            f"FAIL {ac}: the index record for {name} binds digests "
+            f"{sorted(found & digests)}, not the digest of capture[{first}:{last}] "
+            f"({digest})"
         )
 
 
@@ -1257,36 +1383,48 @@ def test_ac4_run_gate_naming_only_the_cli_launches_and_records_neon_high(
 
 
 def test_ac9_each_physical_launch_carries_a_fresh_token(tmp_path, monkeypatch, agy):
-    """AC-9: two physical launches of one slot each carry a fresh launch token,
-    identified as the value the runner hands its reaper after that launch
-    (digests only), present in that launch's environment, never in its argv,
-    and different between the launches."""
+    """AC-9: two physical launches of one slot each carry a fresh launch token.
+    Each launch's token is bound to that launch alone: it is the value the
+    runner handed its reaper while that launch's run completed (observed before
+    the next launch starts; digests only), present in that launch's
+    environment, never in its argv; the two tokens differ."""
     require_runner("AC-9")
     _host, state_path = spec_host(tmp_path, monkeypatch)
-    agy.scenario(clean_stream() + [{"$exit": 1}])
-    first = run_gate()
-    assert not first.ok
-    agy.scenario()
-    second = run_gate()
-    assert second.ok, second.to_envelope()
-    one, two = agy.launches()
-    reaped = {row["sha256"] for row in agy.rows("reaps.jsonl")}
-    assert reaped, "FAIL AC-9: the runner handed no token to its reaper"
-    tokens = []
-    for launch in (one, two):
+
+    def token_of(launch: dict, reaped: set[str], which: str) -> str:
+        assert reaped, f"FAIL AC-9: the {which} run handed no token to its reaper"
         carried = {
             digest for name, digest in launch["env"].items() if name != MARKER
         } & reaped
         assert len(carried) == 1, (
-            "FAIL AC-9: expected exactly one environment value of the launch to be "
-            f"the token its reaper was given; found {len(carried)}"
+            f"FAIL AC-9: expected exactly one environment value of the {which} "
+            f"launch to be a token its own run gave the reaper; found {len(carried)}"
         )
         argv_digests = {
             hashlib.sha256(arg.encode()).hexdigest() for arg in launch["argv"]
         }
-        assert not argv_digests & carried, "FAIL AC-9: the launch token is in argv"
-        tokens.append(carried.pop())
-    assert tokens[0] != tokens[1], "FAIL AC-9: both launches carried the same token"
+        assert not argv_digests & carried, (
+            f"FAIL AC-9: the {which} launch token is in argv"
+        )
+        return carried.pop()
+
+    agy.scenario(clean_stream() + [{"$exit": 1}])
+    first = run_gate()
+    assert not first.ok
+    (one,) = agy.launches()
+    seen = len(agy.rows("reaps.jsonl"))
+    token_one = token_of(
+        one, {row["sha256"] for row in agy.rows("reaps.jsonl")}, "first"
+    )
+    agy.scenario()
+    second = run_gate()
+    assert second.ok, second.to_envelope()
+    launched_first, two = agy.launches()
+    assert launched_first == one, "fixture: the first launch record changed"
+    token_two = token_of(
+        two, {row["sha256"] for row in agy.rows("reaps.jsonl")[seen:]}, "second"
+    )
+    assert token_one != token_two, "FAIL AC-9: both launches carried the same token"
 
 
 ALTERED = ("chunk", "index", "launch")
@@ -2104,54 +2242,47 @@ def test_ac14_reviewed_source_write_goes_to_the_recording_admission(
 # AC-17: a delivered chunk changed after its whole read (runner-level, m6)
 # --------------------------------------------------------------------------- #
 ALTERED_CHUNK = 1
-COVERAGE_LINE = re.compile(r"uncovered|incomplete.coverage|not covered", re.I)
 
 
-def _named_ranges(text: str, ranges: list[tuple[int, int]]) -> set[tuple[int, int]]:
-    """Which ``(start, end)`` pairs a text names, start before end, close together."""
-    plain = re.sub(r"(?<=\d),(?=\d{3})", "", text)
-    named = set()
-    for first, last in ranges:
-        pattern = rf"(?<!\d){first}(?!\d)\D{{1,16}}(?<!\d){last}(?!\d)"
-        if re.search(pattern, plain):
-            named.add((first, last))
-    return named
-
-
-def test_ac17_chunk_changed_after_its_whole_read_fails_naming_its_range(
+def test_ac17_chunk_changed_after_its_whole_read_leaves_the_capture_uncovered(
     tmp_path, monkeypatch, agy
 ):
     """AC-17 through the real runner and audit: every chunk is read whole, then
-    one delivered chunk file is altered before the run ends, so it no longer
-    matches its frozen digest at completion. The run fails as
-    ``antigravity-incomplete-coverage``; the coverage report names exactly that
-    chunk's byte range, computed here from the frozen route."""
+    one delivered chunk file is really altered before the run ends, so a
+    transport file no longer matches its frozen digest at completion. Under the
+    global credit rule (a read counts only when every transport file still
+    matches), no read is credited: the run fails as
+    ``antigravity-incomplete-coverage`` and the persisted audit, read from its
+    structured fields, has the transport not intact, the whole capture
+    uncovered and nothing credited. A diagnostic may name the altered file;
+    that is not required."""
     require_audit("AC-17")
     _host, state_path = spec_host(tmp_path, monkeypatch, prompt=chunked_prompt(80_000))
     agy.scenario(clean_stream({"$alter_chunk": ALTERED_CHUNK}))
     result = run_gate()
+    capture = capture_of(agy)
     route = route_of(agy, "chunked", "AC-17")
-    ranges = [(start, end) for start, end, _digest in route["chunks"]]
-    assert len(ranges) > ALTERED_CHUNK, "fixture: the capture was not chunked enough"
+    assert len(route["chunks"]) > ALTERED_CHUNK, "fixture: too few chunks"
     assert agy.rows("altered.jsonl"), "fixture: the double never altered the chunk"
-    assert not result.ok, "FAIL AC-17: a chunk changed after its read was credited"
+    (launch,) = agy.launches()
+    assert len(launch["chunks"]) == len(route["chunks"]), (
+        "fixture: the double did not observe and read every chunk"
+    )
+    assert not result.ok, "FAIL AC-17: a run whose transport changed was credited"
     assert_hard_failure(state_path, agy, "antigravity-incomplete-coverage", "AC-17")
-    texts = [
-        gate_log(state_path),
-        json.dumps(summary_for(state_path)),
-        json.dumps(result.to_envelope(), default=str),
-    ]
-    lines = [
-        line
-        for text in texts
-        for line in text.replace("\\n", "\n").splitlines()
-        if COVERAGE_LINE.search(line)
-    ]
-    assert lines, "FAIL AC-17: nothing reports the uncovered byte ranges"
-    named = set().union(*(_named_ranges(line, ranges) for line in lines))
-    assert named == {ranges[ALTERED_CHUNK]}, (
-        f"FAIL AC-17: the coverage report names {sorted(named)}, expected exactly "
-        f"the altered chunk's range {ranges[ALTERED_CHUNK]}"
+    audit = summary_for(state_path).get("audit")
+    assert isinstance(audit, dict), "FAIL AC-17: the summary carries no audit record"
+    assert audit.get("transport_intact") is False, (
+        f"FAIL AC-17: the audit records transport_intact "
+        f"{audit.get('transport_intact')!r} after a chunk file changed"
+    )
+    assert audit.get("uncovered") == [[0, len(capture)]], (
+        f"FAIL AC-17: uncovered is {audit.get('uncovered')}, expected the whole "
+        f"capture [[0, {len(capture)}]] once a transport file changed"
+    )
+    assert audit.get("credited") == [], (
+        f"FAIL AC-17: reads were credited after a transport file changed: "
+        f"{audit.get('credited')}"
     )
 
 
@@ -2303,17 +2434,22 @@ VERSION_STATES = {
     "differing": OTHER_VERSION,
     "unavailable": None,
 }
-VERSION_WARNING = re.compile(r"warn.*(version|agy)|(version|agy).*warn", re.I)
+# The gate log's ``<Name>Warning:`` convention (as ``DiffWarning:``): the
+# version diagnostic is keyed on its own prefix and on nothing else.
+VERSION_WARNING = re.compile(r"(?:^|\s)AgyVersionWarning:")
+UNKNOWN_VERSION = re.compile(r"\b(unknown|unavailable)\b", re.I)
 
 
 def test_ac13_version_state_is_recorded_without_changing_the_outcome(
     tmp_path, monkeypatch, agy
 ):
     """AC-13: the same input on three identical hosts, with ``agy --version``
-    matching, differing and unavailable. The gate log and summary record each
-    state; the outcome, the input's identity and the reviewer selection are
-    equal across all three; a version warning appears exactly when the version
-    differs or is unavailable, never on a match."""
+    matching, differing and unavailable. The summary's ``agy_version`` records
+    ``state``, ``tested`` and ``reported`` (null when unavailable); the gate log
+    writes one ``AgyVersionWarning:`` line naming the tested and reported
+    versions when they differ, or the tested version and an unknown reported
+    version when the probe fails, and no such line on a match. The outcome, the
+    input's identity and the reviewer selection are equal across all three."""
     require_runner("AC-13")
     observed = {}
     for state, reported in VERSION_STATES.items():
@@ -2339,26 +2475,45 @@ def test_ac13_version_state_is_recorded_without_changing_the_outcome(
                 row["execution_config"],
             ),
         }
+        version = summary_for(state_path).get("agy_version")
+        assert isinstance(version, dict) and {"state", "tested", "reported"} <= set(
+            version
+        ), f"FAIL AC-13: the summary's agy_version is {version!r} ({state})"
+        assert {key: version[key] for key in ("state", "tested", "reported")} == {
+            "state": state,
+            "tested": TESTED_VERSION,
+            "reported": reported,
+        }, (
+            f"FAIL AC-13: the summary records agy_version {version} "
+            f"for the {state} state"
+        )
         log = gate_log(state_path)
-        summary = json.dumps(summary_for(state_path))
-        for text, where in ((log, "gate log"), (summary, "summary")):
-            if state == "matching":
-                assert TESTED_VERSION in text, (
-                    f"FAIL AC-13: the {where} lacks the matching version"
-                )
-            elif state == "differing":
-                assert TESTED_VERSION in text and OTHER_VERSION in text, (
-                    f"FAIL AC-13: the {where} does not name both versions"
-                )
-            else:
-                assert re.search(r"unavailable|unknown", text, re.I), (
-                    f"FAIL AC-13: the {where} does not say the version is unknown"
-                )
         warnings = [line for line in log.splitlines() if VERSION_WARNING.search(line)]
         if state == "matching":
+            assert TESTED_VERSION in log, (
+                "FAIL AC-13: the gate log does not record the matching version"
+            )
             assert warnings == [], f"FAIL AC-13: a matching version warned: {warnings}"
+            continue
+        assert len(warnings) == 1, (
+            f"FAIL AC-13: expected one AgyVersionWarning: line for the {state} "
+            f"state, got {warnings}"
+        )
+        (warning,) = warnings
+        assert TESTED_VERSION in warning, (
+            f"FAIL AC-13: the {state} warning does not name the tested "
+            f"version: {warning}"
+        )
+        if state == "differing":
+            assert OTHER_VERSION in warning, (
+                f"FAIL AC-13: the differing warning does not name the reported "
+                f"version {OTHER_VERSION}: {warning}"
+            )
         else:
-            assert warnings, f"FAIL AC-13: no version warning for the {state} state"
+            assert UNKNOWN_VERSION.search(warning), (
+                f"FAIL AC-13: the unavailable warning does not call the reported "
+                f"version unknown: {warning}"
+            )
     assert observed["matching"]["outcome"][0], "FAIL AC-13: the clean run failed"
     for key in ("outcome", "identity", "recorded_identity", "selection"):
         values = {state: observed[state][key] for state in VERSION_STATES}

@@ -19,10 +19,12 @@ The other tools' names are assumptions taken from the CLI's advertised
 parameter vocabulary; m5's canary records the real ones, and the m6
 implementer reconciles ``ASSUMED_PARAMETERS`` and the shell helpers with that
 record. The result shapes of `grep_search`, `find_by_name` and `list_dir` are
-unobserved until m5's canary records them in ``RECORDED_RESULT_SHAPES``
-(``test_ac21_structured_result_shapes_on_antigravity``); an entry proof with
-no recorded shape stays pending outside m6's selection
-(``test_ac21_unmeasured_structured_entry_proof_is_pending``).
+unobserved until m5's canary record is transcribed into
+``RECORDED_RESULT_SHAPES``, each kind as showing entries, as an unmeasured
+summary, or as missing. ``test_ac21_structured_result_shapes_on_antigravity``
+checks every kind not recorded as missing, and fails for a kind not yet
+transcribed. An entry proof with no recorded entry shape stays pending outside
+m6's selection (``test_ac21_unmeasured_structured_entry_proof_is_pending``).
 
 Activation seams, owned by the m6 implementer (adapt the adapters below, not
 the cases, if the delegated names differ):
@@ -65,7 +67,7 @@ import signal
 import subprocess
 import sys
 import time
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Collection, Iterable
 from dataclasses import dataclass
 from pathlib import Path
 from types import ModuleType
@@ -1233,58 +1235,78 @@ def test_ac21_unknown_directory_grounds_no_refusal_and_warns(
 STRUCTURED_KINDS = ("grep_search", "find_by_name", "list_dir")
 
 
+ENTRIES = "entries"
+SUMMARY = "summary"
+MISSING = "missing"
+
+
 @dataclass(frozen=True)
 class RecordedResultShape:
     """
-    One structured kind's result as m5's live call recorded it.
+    One structured kind as m5's live call recorded it, in one of three
+    outcomes:
 
-    ``parameters`` searches or lists the feature directory. ``result`` builds
-    that call's result for the given absolute entries. ``shows_entries`` is
-    True when the stream shows the entries, and False for a kind m5 recorded
-    as unmeasured: its result is a summary that shows none.
+    - ``ENTRIES``: the stream shows the result's entries;
+    - ``SUMMARY``: the kind is unmeasured; its result is a summary showing
+      none;
+    - ``MISSING``: the call never appeared, so the kind is reported to the
+      owner as unobserved, m6 does not rely on it, and it has no shape.
+
+    For ``ENTRIES`` and ``SUMMARY``, ``parameters`` searches or lists the
+    feature directory and ``result`` builds that call's result for the given
+    absolute entries. A ``MISSING`` row carries neither.
     """
 
-    shows_entries: bool
-    parameters: Callable[[AuditLayout], dict[str, object]]
-    result: Callable[[list[str]], object]
+    outcome: str
+    parameters: Callable[[AuditLayout], dict[str, object]] | None = None
+    result: Callable[[list[str]], object] | None = None
 
 
-# Transcribed from m5's canary record, one row per structured kind. m5 records
-# every kind, either showing entries or unmeasured with a summary; no shape is
-# invented here.
+# Transcribed from m5's canary record, one row per structured kind. No shape
+# is invented here.
 RECORDED_RESULT_SHAPES: dict[str, RecordedResultShape] = {}
 
-# Kinds whose entry proof has no recorded shape: unmeasured, or not yet
-# transcribed. Their entry cases are pending and sit outside m6's selection.
-ENTRY_PROOF_PENDING = tuple(
-    kind
-    for kind in STRUCTURED_KINDS
-    if kind not in RECORDED_RESULT_SHAPES
-    or not RECORDED_RESULT_SHAPES[kind].shows_entries
-)
+
+def _recorded(kind: str, *outcomes: str) -> bool:
+    row = RECORDED_RESULT_SHAPES.get(kind)
+    return row is not None and row.outcome in outcomes
 
 
-@pytest.mark.parametrize("kind", STRUCTURED_KINDS)
+# Kinds with a shape check in m6: every kind not recorded as missing. A kind
+# not yet transcribed stays here and fails.
+SHAPE_PROOF_KINDS = tuple(k for k in STRUCTURED_KINDS if not _recorded(k, MISSING))
+# Kinds whose observed-entry proof has no recorded shape: not yet transcribed,
+# unmeasured or missing.
+ENTRY_PROOF_PENDING = tuple(k for k in STRUCTURED_KINDS if not _recorded(k, ENTRIES))
+
+
+@pytest.mark.parametrize("kind", SHAPE_PROOF_KINDS)
 def test_ac21_structured_result_shapes_on_antigravity(
     layout: AuditLayout, kind: str
 ) -> None:
     """
     Red discriminator (AC-21 (b) and the unrecognized-shape rule; m6): each
-    structured kind in the shape m5 recorded.
+    structured kind not recorded as missing, in the shape m5 recorded. Each
+    kind is its own node, so the entry and summary checks run independently.
 
     - A kind whose results show entries: a result showing an entry under
       `reviews/` fails as out-of-scope-access.
-    - A kind m5 recorded as unmeasured: its summary shape raises no violation
+    - A kind recorded as unmeasured: its observed summary raises no violation
       and logs no warning. Its entry proof is pending, outside m6's
       selection, in ``test_ac21_unmeasured_structured_entry_proof_is_pending``.
 
-    It fails until the kind's ``RECORDED_RESULT_SHAPES`` row is transcribed
-    from m5's canary record.
+    A kind recorded as missing has no node here; its entry proof is pending
+    there too. A kind not yet transcribed fails here until its
+    ``RECORDED_RESULT_SHAPES`` row is added from m5's canary record.
     """
     shape = RECORDED_RESULT_SHAPES.get(kind)
     assert shape is not None, (
         f"FAIL AC-21 (b): m5's canary record of {kind} is not transcribed; add "
-        "its RECORDED_RESULT_SHAPES row, showing entries or unmeasured"
+        "its RECORDED_RESULT_SHAPES row: entries, summary or missing"
+    )
+    assert shape.outcome in (ENTRIES, SUMMARY), shape
+    assert shape.parameters is not None and shape.result is not None, (
+        f"FAIL AC-21 (b): the {kind} row records {shape.outcome} with no shape"
     )
     stream = AgyStream(layout).tool(
         kind,
@@ -1294,7 +1316,7 @@ def test_ac21_structured_result_shapes_on_antigravity(
 
     view = run_audit(stream)
 
-    if shape.shows_entries:
+    if shape.outcome == ENTRIES:
         assert (OUT_OF_SCOPE, 1) in view.violations, (
             f"FAIL AC-21 (b): a {kind} result showing a reviews/ entry raised "
             f"{view.violations}"
@@ -1309,14 +1331,19 @@ def test_ac21_structured_result_shapes_on_antigravity(
 @pytest.mark.parametrize("kind", ENTRY_PROOF_PENDING)
 def test_ac21_unmeasured_structured_entry_proof_is_pending(kind: str) -> None:
     """
-    PENDING, outside m6's selection (AC-21 (b)): a structured kind with no
-    recorded entry-showing shape has no observed-entry fixture, so its proof
-    stays pending and is reported, never invented. The case disappears once
-    the kind's row records it as showing entries; the shell fallback and the
+    PENDING, outside m6's selection and AC-21's bindings (AC-21 (b)): a
+    structured kind not recorded as showing entries (not yet transcribed,
+    unmeasured or missing) has no observed-entry fixture. Its proof stays
+    pending and is reported, never invented.
+
+    Each such kind is one failing node. A kind leaves the parameter set once
+    its row records it as showing entries. When no kind is left, pytest's
+    default empty-parameter-set handling collects one skipped node for this
+    function; it does not disappear. The shell fallback and the
     unrecognized-shape cases stay in m6's required proof.
     """
-    shape = RECORDED_RESULT_SHAPES.get(kind)
-    state = "not transcribed" if shape is None else "recorded as unmeasured"
+    row = RECORDED_RESULT_SHAPES.get(kind)
+    state = "not transcribed" if row is None else f"recorded as {row.outcome}"
     pytest.fail(
         f"PENDING AC-21 (b): {kind} is {state}; its observed-entry proof has no "
         "recorded shape"
@@ -1596,17 +1623,21 @@ def test_review_scope_unknown_directory_is_ambiguous_not_named(
 # process. Every write that lands under the watched root is followed by a
 # snapshot of the file's whole resulting contents: appends, writes split
 # across calls, `os.write`, and whole-file replacement by `os.replace` or
-# `os.rename`. Snapshots go to a directory outside the root, synchronously, so
-# they survive a SIGKILL.
+# `os.rename`. Every child process launched with a file under the root as its
+# stdout is recorded at the launch, before it starts, with that file and its
+# argv: that file is the launch's monitor stream. Records go to a directory
+# outside the root, synchronously, so they survive a SIGKILL.
 RECORDER_SOURCE = r"""
 import builtins as _builtins
 import io as _io
 import json as _json
 import os as _os
+import subprocess as _subprocess
 
 
 def install(root, out_dir, assign):
     real_open = _io.open
+    real_popen = _subprocess.Popen
     real_fdopen = _os.fdopen
     real_write = _os.write
     real_replace = _os.replace
@@ -1707,12 +1738,48 @@ def install(root, out_dir, assign):
         real_rename(src, dst, *args, **kwargs)
         snapshot(watched(dst))
 
+    def stream_path(target):
+        if target is None or isinstance(target, bool):
+            return None
+        if isinstance(target, int):
+            fd = target
+        else:
+            try:
+                fd = target.fileno()
+            except (AttributeError, OSError, ValueError):
+                return None
+        return fd_path(fd) if fd >= 0 else None
+
+    def text(item):
+        if isinstance(item, (str, bytes, _os.PathLike)):
+            return _os.fsdecode(item)
+        return str(item)
+
+    class RecordingPopen(real_popen):
+        def __init__(self, args, *rest, **kwargs):
+            stdout = kwargs.get("stdout", rest[3] if len(rest) > 3 else None)
+            path = stream_path(stdout)
+            if path is not None:
+                if isinstance(args, (str, bytes, _os.PathLike)):
+                    argv = [text(args)]
+                else:
+                    argv = [text(item) for item in args]
+                counter[0] += 1
+                name = _os.path.join(
+                    out_dir, "%d-%06d.launch" % (_os.getpid(), counter[0])
+                )
+                with real_open(name + ".part", "w", encoding="utf-8") as handle:
+                    _json.dump({"stdout": path, "argv": argv}, handle)
+                real_rename(name + ".part", name)
+            super().__init__(args, *rest, **kwargs)
+
     assign(_builtins, "open", recording_open)
     assign(_io, "open", recording_open)
     assign(_os, "fdopen", recording_fdopen)
     assign(_os, "write", recording_write)
     assign(_os, "replace", recording_replace)
     assign(_os, "rename", recording_rename)
+    assign(_subprocess, "Popen", RecordingPopen)
 """
 
 
@@ -1749,6 +1816,36 @@ def _in_run_temp(path: str, reviews: Path) -> bool:
     return len(relative.parts) > 1 and ".tmp." in relative.parts[0]
 
 
+Launch = tuple[int, str, list[str]]
+
+
+def _recorded_launches(directory: Path) -> list[Launch]:
+    """Each recorded launch as (launching process ID, stdout file, argv)."""
+    launches = []
+    for record in sorted(directory.glob("*.launch")):
+        value = json.loads(record.read_text(encoding="utf-8"))
+        launcher = int(record.name.split("-", 1)[0])
+        launches.append((launcher, value["stdout"], value["argv"]))
+    return launches
+
+
+def _monitor_streams(launches: list[Launch], reviews: Path) -> dict[str, int]:
+    """
+    Each reviewer launch's monitor stream, mapped to the launching process:
+    the file an `agy` launch was handed as stdout, recorded at the launch,
+    where that file is in a run temp directory. This is the spec's one stated
+    exception. It is identified by the launch alone, never by what the file
+    holds or by its name, so no other file can qualify by carrying stream
+    text.
+    """
+    return {
+        path: launcher
+        for launcher, path, argv in launches
+        if _in_run_temp(path, reviews)
+        and any(os.path.basename(item) == "agy" for item in argv)
+    }
+
+
 # Text only an audit record (or the raw stream it is built from) carries: the
 # command lines of the credential steps' tool parameters.
 AUDIT_MARKERS = ("git status --short", "rg -n SERVICE_TOKEN src")
@@ -1757,22 +1854,16 @@ History = dict[str, list[tuple[int, str]]]
 
 
 def _destinations(
-    states: list[tuple[int, str, str]], raw_lines: tuple[str, ...], reviews: Path
+    states: list[tuple[int, str, str]], streams: Collection[str]
 ) -> History:
     """
     Every gate-log and audit-record destination the runs wrote, located by
     what was written rather than by a fixed path: any `.log` file, and any
-    file one of whose states carries audit-record text. Unredacted raw-stream
-    copies in a run temp directory, the spec's one stated exception, are left
-    out; they are files there that held an unredacted token-bearing stream
-    line. Each destination maps to its rebuilt states in write order, with the
-    writing process.
+    file one of whose states carries audit-record text. Only the given
+    monitor streams, identified at their launch, are left out; no file is
+    left out for what it holds. Each destination maps to its rebuilt states
+    in write order, with the writing process.
     """
-    raw = {
-        path
-        for _, path, content in states
-        if _in_run_temp(path, reviews) and any(line in content for line in raw_lines)
-    }
     marked = {
         path
         for _, path, content in states
@@ -1780,7 +1871,7 @@ def _destinations(
     }
     history: History = {}
     for writer, path, content in states:
-        if path in marked and path not in raw:
+        if path in marked and path not in streams:
             history.setdefault(path, []).append((writer, content))
     return history
 
@@ -1935,25 +2026,33 @@ def _echoing_review() -> dict[str, Any]:
 
 
 def _persisted_stream(
-    reviews: Path, last_line: str, child: subprocess.Popen[bytes], output: Path
+    recordings: Path,
+    reviews: Path,
+    last_line: str,
+    child: subprocess.Popen[bytes],
+    output: Path,
 ) -> Path:
     """
-    Wait until a file in a run temp directory holds the stream's last line:
-    the stream as the run persisted it, observed on disk before any terminal
-    event lets the run classify.
+    Wait until the interrupted run's monitor stream, identified at its
+    launch, holds the stream's last line: the stream as the run persisted it,
+    observed on disk before any terminal event lets the run classify. The
+    content is read only to time the kill, never to identify the stream.
     """
     deadline = time.monotonic() + 30
     needle = last_line.encode()
     while True:
-        for path in sorted(reviews.glob("*.tmp.*/*")):
-            if path.is_file() and needle in path.read_bytes():
-                return path.resolve()
+        streams = _monitor_streams(_recorded_launches(recordings), reviews)
+        for path, launcher in sorted(streams.items()):
+            if launcher == child.pid and needle in Path(path).read_bytes():
+                return Path(path)
         assert child.poll() is None, (
             "FAIL AC-18: the interrupted run ended before its stream was "
             f"persisted: {output.read_text(errors='replace')[-2000:]}"
         )
         assert time.monotonic() < deadline, (
-            "FAIL AC-18: no run temp directory ever held the persisted stream"
+            "FAIL AC-18: the interrupted run's monitor stream, an `agy` "
+            "launch's stdout in a run temp directory, never held the persisted "
+            f"stream; recorded launches {_recorded_launches(recordings)}"
         )
         time.sleep(0.05)
 
@@ -1978,16 +2077,23 @@ def test_ac18_redaction_holds_at_every_write_on_interrupted_and_completed_runs(
     - Interrupted: a child `heddle run-gate`, recorded in its own process.
       The doubled `agy` writes its tool steps and holds with no terminal
       event, so the run cannot classify. The test waits until it observes the
-      persisted stream in a run temp directory, then kills the launcher. The
-      run must have written its gate log by then. Every kept file is then
-      checked: the observed raw stream is the only one that may hold the
-      token, since recovery has not yet proved the launcher gone.
+      persisted stream, then kills the launcher. The run must have written
+      its gate log by then. Every kept file is then checked: the run's
+      monitor stream is the only one that may hold the token, since recovery
+      has not yet proved the launcher gone.
     - Completed: the next gate run, recorded in this process, runs the
       recovery pass, which proves the killed launcher gone and redacts that
       stream, then completes its own review. A recorded destination lists
       every tool name, path and command line.
     - At the end no kept file holds the token, the kept response and both
       raw streams included.
+
+    The raw stream, the spec's one stated exception, is identified
+    independently of content: each run's monitor stream is the file its
+    `agy` launch was handed as stdout, recorded at the launch, in a run temp
+    directory. Only those files are exempt from the write-time check; every
+    other gate-log and audit-record destination's whole write history is
+    checked, whatever it holds.
     """
     _require_antigravity_lane()
     monkeypatch.delenv("HEDDLE_AGENT_SESSION", raising=False)
@@ -2025,7 +2131,9 @@ def test_ac18_redaction_holds_at_every_write_on_interrupted_and_completed_runs(
             start_new_session=True,
         )
     try:
-        observed = _persisted_stream(reviews, raw_lines[-1], child, child_output)
+        observed = _persisted_stream(
+            recordings, reviews, raw_lines[-1], child, child_output
+        )
         os.killpg(child.pid, signal.SIGKILL)
         child.wait(timeout=10)
     finally:
@@ -2055,7 +2163,12 @@ def test_ac18_redaction_holds_at_every_write_on_interrupted_and_completed_runs(
     assert code == 0 and response["ok"] and response["data"]["accepted"], response
     assert double.launches() == 2
 
-    history = _destinations(_recorded_states(recordings), raw_lines, reviews)
+    streams = _monitor_streams(_recorded_launches(recordings), reviews)
+    assert {child.pid, os.getpid()} <= set(streams.values()), (
+        "FAIL AC-18: each run's monitor stream must be identified at its "
+        f"launch, as an `agy` launch's stdout in a run temp directory: {streams}"
+    )
+    history = _destinations(_recorded_states(recordings), streams)
     written_by = {writer for states in history.values() for writer, _ in states}
     assert {child.pid, os.getpid()} <= written_by, (
         "FAIL AC-18: gate-log or audit-record writes were not recorded on both "

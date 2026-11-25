@@ -373,8 +373,10 @@ AC24_READINGS = {
         "it to Claude and Codex or exempts Antigravity"
     ),
     "agy-host-rule-precedence": (
-        "and say in one sentence that AGENTS.md, injected as user rules, "
-        "outranks the prompt, with no sentence saying the reverse"
+        "and rule for AGENTS.md, injected as user rules: a sentence that it "
+        "outranks, overrides or takes precedence over the prompt, or a "
+        "conflict clause (such as 'when they conflict') giving it the win, "
+        "with no sentence or exception giving the prompt the win"
     ),
 }
 
@@ -407,12 +409,13 @@ AC24_SCOPE_EXCLUSIONS = (
     ),
 )
 
-# agy injects the host's AGENTS.md as user rules that outrank the gate prompt.
-# Each pattern reads "subject ... verb ... object" inside one sentence and
-# carries the direction it states: +1 when the host rules win, -1 when the
-# prompt wins. A negation just before the subject or the verb flips it.
+# agy injects the host's AGENTS.md as user rules that outrank the gate prompt,
+# so in a conflict the host rules control. The block is read clause by clause
+# and each pattern carries the direction it states: +1 when the host rules
+# win, -1 when the prompt wins. A negation just before the subject or the
+# verb flips it. Precedence patterns read "subject ... verb ... object".
 _AC24_HOST_RULES = (
-    r"(?:agents\.md|user_rules|\b(?:host|user|these|those|such|its|their) rules\b)"
+    r"(?:agents\.md|user_rules|\b(?:host|user|these|those|such|its|their) rules?\b)"
 )
 _AC24_PROMPT = r"prompt"
 _AC24_OUTRANKS = (
@@ -441,8 +444,49 @@ AC24_PRECEDENCE_STATEMENTS = tuple(
         (_AC24_PROMPT, _AC24_HOST_RULES, _AC24_OUTRANKED, 1),
     )
 )
+# A clause that speaks of a conflict also states who wins it: "<side> wins",
+# "<side> loses" (subject and verb with no comma or colon between them), or
+# "agy follows <side>". These rulings count only in such a clause, and an
+# exception that hands the conflict to the prompt reverses the block.
+AC24_CONFLICT_CUE = re.compile(
+    r"conflict|contradict|disagree|clash|inconsisten|at odds|\bdiffer(?:s|ing)?\b"
+    r"|otherwise|whatever|regardless|even (?:if|when|where|though)"
+)
+_AC24_WINS = (
+    r"wins?|prevails?|controls?|governs?|decides?|comes? first|takes? over"
+    r"|(?:is|are|gets?) (?:followed|obeyed)|applies|apply"
+)
+_AC24_LOSES = (
+    r"loses?|yields?|gives? way"
+    r"|(?:is|are|gets?) (?:ignored|overridden|dropped|set aside)"
+)
+_AC24_SIDES = (
+    (_AC24_HOST_RULES, _AC24_PROMPT, 1),
+    (_AC24_PROMPT, _AC24_HOST_RULES, -1),
+)
+AC24_CONFLICT_RULINGS = tuple(
+    (
+        re.compile(rf"{side}(?P<mid>(?:(?!{other})[^,:]){{0,30}}?)\b(?:{verbs})\b"),
+        outcome * direction,
+    )
+    for side, other, direction in _AC24_SIDES
+    for verbs, outcome in ((_AC24_WINS, 1), (_AC24_LOSES, -1))
+) + tuple(
+    (
+        re.compile(
+            r"(?P<mid>)\b(?:follows?|obeys?|sides? with|goes? with|defers? to)\b"
+            rf"(?:(?!{other}).){{0,20}}?{side}"
+        ),
+        direction,
+    )
+    for side, other, direction in _AC24_SIDES
+)
+AC24_CONFLICT_EXCEPTION = re.compile(
+    r"\b(?:except|unless|save for|but not when|only (?:when|if|where))\b"
+    r"[^.;]{0,80}?(?:prompt|conflict|contradict|disagree|clash|otherwise)"
+)
 AC24_NEGATION = re.compile(
-    r"\b(?:not|never|cannot|can't|doesn't|don't|isn't|aren't|no longer)\b"
+    r"\b(?:not|never|cannot|can't|won't|doesn't|don't|isn't|aren't|no longer)\b"
 )
 
 
@@ -491,17 +535,35 @@ def _ac24_negated(text: str, words: int) -> bool:
     return AC24_NEGATION.search(" ".join(text.split()[-words:])) is not None
 
 
-def _ac24_precedence_signs(block: str) -> set[int]:
-    """The directions the block's sentences state: +1 where host rules
-    outrank the prompt, -1 where the prompt outranks host rules."""
-    signs: set[int] = set()
+def _ac24_direction(clause: str, match: re.Match[str], direction: int) -> int:
+    before = re.split(r"[,:(]", clause[: match.start()])[-1]
+    flips = _ac24_negated(before, 3) + _ac24_negated(match["mid"], 2)
+    return -direction if flips % 2 else direction
+
+
+def _ac24_precedence_readings(block: str) -> set[int]:
+    """Every direction the block states: +1 where host rules control, -1
+    where the prompt does. A precedence sentence is itself a ruling on a
+    conflict; an exception clause about the prompt or a conflict counts -1."""
+    stated: set[int] = set()
     for sentence in re.split(r"(?<=[.;!?])\s+", block):
-        for pattern, direction in AC24_PRECEDENCE_STATEMENTS:
-            for match in pattern.finditer(sentence):
-                clause = re.split(r"[,:(]", sentence[: match.start()])[-1]
-                flips = _ac24_negated(clause, 3) + _ac24_negated(match["mid"], 2)
-                signs.add(-direction if flips % 2 else direction)
-    return signs
+        clauses = re.split(
+            r",\s*(?=(?:but|so|yet|while|whereas|although|though)\b)", sentence
+        )
+        for clause in clauses:
+            cue = AC24_CONFLICT_CUE.search(clause) is not None
+            patterns = AC24_PRECEDENCE_STATEMENTS + (
+                AC24_CONFLICT_RULINGS if cue else ()
+            )
+            signs = {
+                _ac24_direction(clause, match, direction)
+                for pattern, direction in patterns
+                for match in pattern.finditer(clause)
+            }
+            if (cue or signs) and AC24_CONFLICT_EXCEPTION.search(clause):
+                signs.add(-1)
+            stated |= signs
+    return stated
 
 
 def _ac24_describes(topic: str, block: str) -> bool:
@@ -514,7 +576,7 @@ def _ac24_describes(topic: str, block: str) -> bool:
     if topic == "reviews-rule-on-every-lane":
         return _ac24_states_every_lane_scope(block)
     if topic == "agy-host-rule-precedence":
-        return _ac24_precedence_signs(block) == {1}
+        return _ac24_precedence_readings(block) == {1}
     return True
 
 
@@ -538,7 +600,7 @@ def test_ac24_documented_surfaces_describe_the_antigravity_lane(topic: str) -> N
 # Matcher controls for the two read topics. Pure in-memory text, no surface
 # read; they pass now. Every rejected text holds the topic's old terms (a lane
 # name, reviews/ and a failure word, or AGENTS.md and a precedence word), so
-# each rejection comes from the scope or direction reading.
+# each rejection comes from the scope, direction or conflict reading.
 AC24_ACCEPTED = {
     "every-lane-including-antigravity": (
         "reviews-rule-on-every-lane",
@@ -555,21 +617,48 @@ AC24_ACCEPTED = {
         "The `reviews/` rule holds on all three lanes: an Antigravity reviewer "
         "that opens a sibling review fails like a Claude or Codex one.",
     ),
+    # "whatever those rules say" reports what the lane block tells the
+    # reviewer, which the contract has it say; it names no winner, so the
+    # precedence sentence stands as the ruling.
     "user-rules-take-precedence": (
         "agy-host-rule-precedence",
         "`agy` injects the host `AGENTS.md` as user rules that take precedence "
         "over the prompt, so the lane block forbids `heddle` whatever those "
         "rules say.",
     ),
-    "prompt-outranked-by-host-rules": (
+    "user-rules-outrank-the-prompt": (
         "agy-host-rule-precedence",
-        "In `agy` the gate prompt is outranked by `AGENTS.md`, which arrives "
-        "as user rules.",
+        "`agy` injects `AGENTS.md` as user rules that outrank the gate prompt.",
     ),
-    "prompt-cannot-override": (
+    "host-rules-override-the-prompt": (
         "agy-host-rule-precedence",
-        "Antigravity loads `AGENTS.md` as user rules, and the gate prompt "
-        "cannot override those rules.",
+        "In `agy`, host rules from `AGENTS.md` override the review prompt.",
+    ),
+    "conflict-follows-host-rules": (
+        "agy-host-rule-precedence",
+        "`agy` injects the host `AGENTS.md` as user rules that take precedence "
+        "over the prompt: when the two conflict, the reviewer follows "
+        "`AGENTS.md`.",
+    ),
+    "prompt-outranked-in-any-conflict": (
+        "agy-host-rule-precedence",
+        "In `agy` the gate prompt is outranked by `AGENTS.md` in any conflict, "
+        "because `AGENTS.md` arrives as user rules.",
+    ),
+    "prompt-cannot-override-in-a-contradiction": (
+        "agy-host-rule-precedence",
+        "Antigravity loads `AGENTS.md` as user rules, and where they contradict "
+        "the gate prompt, the prompt cannot override those rules.",
+    ),
+    "whatever-the-prompt-says": (
+        "agy-host-rule-precedence",
+        "Whatever the gate prompt says, `agy` follows the host `AGENTS.md`, "
+        "which it injects as user rules.",
+    ),
+    "host-rules-win-the-conflict": (
+        "agy-host-rule-precedence",
+        "`AGENTS.md` outranks the prompt in `agy`; when they conflict, the "
+        "host rules win and the prompt loses.",
     ),
 }
 AC24_REJECTED = {
@@ -624,6 +713,35 @@ AC24_REJECTED = {
         "agy-host-rule-precedence",
         "In `agy`, `AGENTS.md` takes precedence; the prompt is a user message.",
     ),
+    "conflict-exception-gives-the-prompt-the-win": (
+        "agy-host-rule-precedence",
+        "In `agy`, host `AGENTS.md` outranks the gate prompt, except when it "
+        "contradicts the prompt, in which case the prompt wins.",
+    ),
+    "but-the-prompt-wins-a-conflict": (
+        "agy-host-rule-precedence",
+        "`agy` injects `AGENTS.md` as user rules that outrank the prompt, but "
+        "when they conflict, the prompt wins.",
+    ),
+    "unless-the-prompt-says-otherwise": (
+        "agy-host-rule-precedence",
+        "`agy` gives `AGENTS.md` precedence over the gate prompt unless the "
+        "prompt says otherwise.",
+    ),
+    "only-outside-a-conflict": (
+        "agy-host-rule-precedence",
+        "`AGENTS.md` outranks the prompt in `agy` only when the two do not conflict.",
+    ),
+    "conflict-follows-the-prompt": (
+        "agy-host-rule-precedence",
+        "`AGENTS.md` takes precedence over the prompt in `agy`; where the two "
+        "conflict, the reviewer follows the prompt.",
+    ),
+    "host-rules-yield-in-a-conflict": (
+        "agy-host-rule-precedence",
+        "`agy` injects `AGENTS.md` as user rules that outrank the prompt, yet "
+        "in a conflict the host rules yield.",
+    ),
 }
 # The terms a term-only check accepted; every rejected control holds them.
 AC24_TERM_ONLY = {
@@ -644,7 +762,7 @@ AC24_TERM_ONLY = {
 def test_ac24_matcher_accepts_the_contract_wording(case: str) -> None:
     """AC-24 matcher control (passes now): text that scopes the reviews/
     rule to every lane with Antigravity, or says AGENTS.md outranks the
-    prompt, describes its topic."""
+    prompt or wins a conflict with it, describes its topic."""
     topic, text = AC24_ACCEPTED[case]
     assert any(_ac24_describes(topic, block) for block in _ac24_split(text)), (
         f"FAIL AC-24: the matcher rejects contract wording for {topic}: {text!r}"
@@ -656,8 +774,9 @@ def test_ac24_matcher_rejects_omitted_lanes_and_reversed_precedence(
     case: str,
 ) -> None:
     """AC-24 matcher control (passes now): text that omits Antigravity from
-    the reviews/ rule, narrows it to Claude and Codex, or states agy's
-    precedence reversed, negated or without a direction describes nothing."""
+    the reviews/ rule, narrows it to Claude and Codex, states agy's
+    precedence reversed, negated or without a direction, hands a conflict to
+    the prompt, or gives no direction describes nothing."""
     topic, text = AC24_REJECTED[case]
     blocks = _ac24_split(text)
     assert any(
