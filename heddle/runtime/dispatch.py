@@ -8,12 +8,14 @@ typed application service. Unexpected adapter failures share one error envelope.
 from __future__ import annotations
 
 import json
+import os
 import sys
 from collections.abc import Mapping
 from importlib import import_module
 from importlib.metadata import PackageNotFoundError
 from typing import Any, cast
 
+from heddle.contracts.gates import GATE_AGENT_SESSION, HEDDLE_AGENT_SESSION_ENV
 from heddle.contracts.operations import ManualAction
 from heddle.contracts.result import (
     ExitCode,
@@ -67,6 +69,13 @@ def run(argv: list[str] | None = None) -> int:
     args = list(sys.argv[1:] if argv is None else argv)
     json_mode, tokens = _split_global_flags(args)
     try:
+        # A gate reviewer's child may read but never change Heddle state. The
+        # guard resolves the contract before the run-gate and drive
+        # diversions and before any command parses its own flags, so it holds
+        # for every mutating contract alike.
+        refused = _gate_session_refusal(tokens)
+        if refused is not None:
+            return _emit_gate_session_refusal(refused, json_mode)
         # Help stays on the cold metadata path. Execution handlers receive
         # their original argv and emit their original typed results; only
         # unexpected exceptions reach the shared envelope below.
@@ -109,6 +118,45 @@ def run(argv: list[str] | None = None) -> int:
         if json_mode:
             _print_envelope(failure)
         return int(failure.exit_code)
+
+
+def _gate_session_refusal(tokens: list[str]) -> str | None:
+    """The mutating command a gate reviewer's session may not run, if any.
+
+    Help is read-only and an unknown command keeps its usage outcome.
+    """
+    if os.environ.get(HEDDLE_AGENT_SESSION_ENV) != GATE_AGENT_SESSION:
+        return None
+    name = _resolve_command_name(tokens)
+    if name is None:
+        return None
+    if not _BY_NAME[name].mutating or _has_help_flag(tokens[len(name.split()) :]):
+        return None
+    return name
+
+
+def _emit_gate_session_refusal(name: str, json_mode: bool) -> int:
+    marker = f"{HEDDLE_AGENT_SESSION_ENV}={GATE_AGENT_SESSION}"
+    result = HeddleResult.failure(
+        HeddleError(
+            code="gate-session-refused",
+            message=(
+                f"`heddle {name}` changes Heddle state, and this is a gate "
+                f"reviewer's session ({marker})"
+            ),
+            hint=(
+                f"{marker} marks a gate reviewer's session, which may read but "
+                "not change Heddle state; run state-changing commands from a "
+                f"session without {HEDDLE_AGENT_SESSION_ENV}"
+            ),
+        ),
+        exit_code=ExitCode.FATAL,
+    )
+    if json_mode:
+        _print_envelope(result)
+    else:
+        print(_render_failure_text(result), file=sys.stderr)
+    return int(result.exit_code)
 
 
 def _is_run_gate(args: list[str]) -> bool:

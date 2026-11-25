@@ -52,3 +52,8 @@ def pytest_configure(config: pytest.Config) -> None:
     from heddle.contracts.review_assignments import DRIVEN_SESSION_ENV
 
     os.environ.pop(DRIVEN_SESSION_ENV, None)
+    # A suite run by a gate reviewer would otherwise refuse every fixture's
+    # mutating `heddle` command.
+    from heddle.contracts.gates import HEDDLE_AGENT_SESSION_ENV
+
+    os.environ.pop(HEDDLE_AGENT_SESSION_ENV, None)

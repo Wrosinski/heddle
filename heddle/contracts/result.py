@@ -83,6 +83,9 @@ ERROR_CODES: frozenset[str] = frozenset(
         "disposition-batch-invalid",
         # A recorded feature baseline that is missing or diverged blocks readiness.
         "baseline-unavailable",
+        # A gate reviewer's session (HEDDLE_AGENT_SESSION=gate) ran a command
+        # whose contract is mutating.
+        "gate-session-refused",
     }
 )
 
