@@ -2,8 +2,7 @@ from __future__ import annotations
 
 import os
 
-HEDDLE_AGENT_SESSION_ENV = "HEDDLE_AGENT_SESSION"
-GATE_AGENT_SESSION = "gate"
+from heddle.contracts.gates import GATE_AGENT_SESSION, HEDDLE_AGENT_SESSION_ENV
 
 
 def gate_agent_env() -> dict[str, str]:

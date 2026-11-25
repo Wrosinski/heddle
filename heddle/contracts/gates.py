@@ -1,10 +1,15 @@
-"""Built-in current review roles shared by policy and execution."""
+"""Built-in current review roles, and the gate reviewer's session marker, shared
+by policy and execution."""
 
 from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
 from types import MappingProxyType
+
+# A gate runner sets this marker on the reviewer child it launches.
+HEDDLE_AGENT_SESSION_ENV = "HEDDLE_AGENT_SESSION"
+GATE_AGENT_SESSION = "gate"
 
 
 @dataclass(frozen=True)
