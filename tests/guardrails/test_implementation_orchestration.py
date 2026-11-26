@@ -30,7 +30,7 @@ def test_provider_skill_is_explicit_and_carries_the_canonical_contract():
     assert IMPLEMENT_BRIEFING in claude_body
     assert WORK_PACKAGE_BRIEF in claude_body
     assert "supervise multiple" in claude_body
-    assert "write ownership does\nnot overlap" in claude_body
+    assert "write ownership does not overlap" in " ".join(claude_body.split())
 
 
 def test_provider_workers_pin_models_and_cannot_delegate_further():

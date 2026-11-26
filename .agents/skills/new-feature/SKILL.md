@@ -1,99 +1,89 @@
 ---
 name: new-feature
 description: |
-  Kick off a new feature through Phase 1 (Research & Brainstorming) and
-  Phase 2 (Specification). Takes an optional feature brief path. Use when
-  starting a new feature from scratch within the current session.
+  Start a new Heddle feature: research it, agree the route and scope with the
+  user, then enter the workflow that writes the Feature Spec and
+  Implementation Plan. Takes an optional feature brief path. Use when starting
+  a new feature from scratch within the current session.
 ---
 
-# New Feature Inception
+# New Feature
 
-Enter Heddle's native intake and, when selected, its feature workflow. This
-skill is a launcher, not a second policy resolver or copy of the workflow.
+Start new feature work through Heddle's own commands. This skill gets you into
+the workflow. The `heddle` commands and the stage briefings they deliver hold
+the rules. The skill takes an optional path to a feature brief.
 
-## When to Use
+## Approach
 
-- Starting genuinely new feature work from a verbal request or written brief
-- Discovering related specifications and deciding the smallest useful scope
-- Producing the Feature Spec and Implementation Plan for a confirmed Heddle route
+- **One feature, one workspace.** Resume work that already exists instead of
+  starting a second workspace for it. For analysis without starting a feature,
+  use the `pre-implementation-analysis` skill.
+- **The user chooses the route.** Heddle recommends a route and a review
+  matrix; a recommendation is not approval. Direct work creates no feature
+  workspace, spec, plan, or review schedule and follows the user's scoped
+  request. On the Heddle route this skill writes research and specifications,
+  and no production code.
+- **Heddle's commands write the records.** Do not hand-edit `state.yaml` or
+  intake records, because the commands run their checks when they write them.
+  When a command refuses, do what its message says.
+- **Settled choices stay settled.** Keep research and scope choices that are
+  already recorded. Reopen one only when new evidence bears on it.
+- **Stop only at Heddle's checkpoints:** the research checkpoint, the
+  specification checkpoint at the end of specify, and the review change
+  confirmation after each document review. This skill adds no approval step
+  of its own. For who decides an open choice and how to ask, follow
+  `heddle/resources/decision-routing.md`; kickoff delivers the host's full
+  policy.
+- **Keep one spec and one plan per feature,** and let Heddle track progress.
 
-For an in-progress feature, resume the existing workspace instead of starting
-another one. For analysis without feature inception, use
-`/pre-implementation-analysis`.
+## Steps
 
-## Invocation
+1. If the user gave a brief, read it. Keep the original research reference
+   unchanged, because formal admission records its identity. After admission,
+   add to the generated `plans/<slug>/brief.md` without rewriting the approved
+   provenance.
+2. Run `heddle orient --json`. If it finds existing work, follow its routing
+   and resume that feature.
+3. Research the intended outcome and the code it will touch, following
+   `docs/workflow/brainstorming-guidelines.md`. Use
+   `heddle search "<intent>" --titles-only` to find related specs and
+   precedents before you scan directories. Keep a research reference.
+   Delegate exploration only when the tools allow it, it is permitted, and it
+   helps alongside your own work; combine what comes back into one result.
+4. Propose the route, with scope, complexity, and testability, and give your
+   reasons.
+5. Describe the concept in the brief's `## Concept` section and offer the
+   opt-in concept review.
+6. At the research checkpoint, record in that section, before step 7 fixes the
+   research reference:
+   - the owner's approval of the concept;
+   - whether the owner skips the specification checkpoint or the review change
+     confirmation for this feature (both are on unless `checkpoints` in
+     `.heddle.yaml` turns one off); and
+   - the e2e execution grant, when the specification checkpoint will not run.
+7. Record the intake with
+   `heddle feature prepare <slug> --area <area> --from-file <research-input>`.
+   The command's help defines the input. Preparing creates no formal feature,
+   and the matrix it recommends is not approval.
+8. Confirm the route with the user. For the Heddle route, show the complete
+   resolved matrix and record the user's actual confirmation with
+   `heddle feature policy <slug> --from-file <confirmed-policy> --expect-revision <N>`.
+   Leave the host's exclusions as they are.
+9. After the policy is confirmed, run `heddle feature start <slug>`. Follow the
+   `next_actions` it returns, including a feature switch when it emits one, and
+   take no other transition.
+10. Run `heddle orient --feature <slug> --json`, then
+    `heddle kickoff --feature <slug>` only when orient routes there.
+11. From here kickoff and the specify briefing own the stage. Run
+    `heddle validate` at the briefing's checkpoints. Advance only through
+    `heddle phase-exit` or the driver, when the runtime and your execution
+    permission allow it.
 
-`/new-feature [brief-path]`
+## Where the rules live
 
-Read a supplied brief before entering the workflow. Keep the original research
-reference intact; formal admission binds its identity. After admission, enrich
-the generated `plans/<slug>/brief.md` without rewriting the approved provenance.
-
-## Native Entry Sequence
-
-1. Run `heddle orient --json`. If it resolves existing work, follow its emitted
-   routing and resume that feature; do not create a duplicate workspace.
-2. For new work, research the intended outcome and actual integration surface
-   under `docs/workflow/brainstorming-guidelines.md`. Retain a research
-   reference and propose the route plus scope, complexity, and testability with
-   reasons. Describe the concept in the brief's `## Concept` section, offer the
-   opt-in concept review, and record the owner's approval there at the research
-   checkpoint, before step 3 binds the research reference. Record there too
-   whether the owner skips the specification checkpoint or the review change
-   confirmation for this feature (both on unless `checkpoints` in `.heddle.yaml`
-   turns one off), and when the specification checkpoint will not run, the e2e
-   execution grant.
-3. Use `heddle feature prepare <slug> --area <area> --from-file <research-input>`
-   to record the intake. Native help defines its input contract. Preparation
-   creates no formal feature, and its recommended matrix is not approval.
-4. Confirm the user's route. Direct work creates no feature workspace, spec,
-   plan, or review schedule. For the Heddle route, present the complete resolved
-   matrix and record the user's actual confirmation with `heddle feature policy
-   <slug> --from-file <confirmed-policy> --expect-revision <N>`. Do not infer
-   approval from the recommendation or rewrite host exclusions.
-5. Only after formal policy confirmation, run `heddle feature start <slug>`.
-   Follow returned `next_actions`, including a feature switch when emitted;
-   do not infer an alternate transition or introduce a tier argument.
-6. Run `heddle orient --feature <slug> --json`, then `heddle kickoff --feature
-   <slug>` only when orientation routes there.
-
-## Decision ownership
-
-Use `heddle/resources/decision-routing.md` for ownership and question quality;
-feature kickoff delivers the resolved host policy in full. Preserve this skill's
-analysis/authoring boundary and applicable standing authorization. A review or
-diagnosis request alone grants no implementation authority.
-
-## Research and Specification Contract
-
-For an admitted feature, kickoff and the packaged specify briefing own the
-current stage. The research checkpoint is distinct from the specification
-checkpoint at specify exit and from the review change confirmation after each
-document review. Honor already-recorded research and scope choices; reopen them
-only for material new evidence. This skill adds no separate approval step.
-
-Use these sources for their respective contracts:
-
-- `docs/workflow/brainstorming-guidelines.md`: research, decomposition,
-  consequential commitments, and per-part scope authorization;
-- `docs/workflow/workflow.md`: confirmation, execution authority, and lifecycle;
-- `docs/workflow/document-structure.md`: spec commitments and canonical ACs,
-  plan approach and technical architecture, and the knowledge index; and
-- `heddle search "<intent>" --titles-only`: related specs and precedents
-  before broad directory scanning.
-
-Use independent exploration only when available, authorized, and useful beside
-local work. Synthesize its evidence into one research result.
-
-Run `heddle validate` at the briefing's checkpoints. Advance only through
-`heddle phase-exit` or the driver when the runtime and execution authority
-permit it. Required decisions and authorization stops remain mandatory.
-
-## Constraints
-
-- Never hand-edit `state.yaml` or intake records; native commands own them.
-- For a Heddle route, this skill authors research and specifications, not
-  production implementation. Direct work follows the user's scoped request.
-- Keep one canonical document pair and one native progress owner.
-- On a native refusal, follow its exact diagnostic and legal remedy; do not
-  substitute a remembered legacy procedure or silently fall back to a provider.
+- `docs/workflow/brainstorming-guidelines.md`: research, splitting the work
+  into parts, and scope approval for each part.
+- `docs/workflow/workflow.md`: confirmation, execution permission, and the
+  feature lifecycle.
+- `docs/workflow/document-structure.md`: the spec, the plan, and the knowledge
+  index.

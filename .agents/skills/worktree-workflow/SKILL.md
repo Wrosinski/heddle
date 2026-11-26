@@ -9,147 +9,139 @@ description: |
 
 # Git Worktree Workflow
 
-Use a dedicated worktree for genuinely separate work. Treat creation and
-cleanup as different authority boundaries: creating an isolated workspace does
-not imply permission to integrate, discard, or remove it later.
+Give separate work its own worktree, and check a worktree with fresh evidence
+before it is removed.
 
-## When to use
+## Approach
 
-Create a worktree for a new feature, standalone implementation, or independent
-documentation effort that warrants its own branch. Continue in the current
-worktree for adjustments, fixes, review, investigation, or small work belonging
-to the active context.
+- **A worktree is for separate work.** Create one for a new feature, a
+  standalone implementation, or an independent documentation effort that
+  deserves its own branch. Stay in the current worktree for adjustments, fixes,
+  review, investigation, or small work that belongs to what is under way there.
+- **Creating and removing are separate permissions.** Permission to create a
+  worktree does not cover merging it, discarding it, or removing it later.
+- **Decide removal from evidence gathered now.** A handoff, a
+  remembered divergence count, a branch name, or an earlier clean status does
+  not count. Gather the evidence for each worktree separately.
+- **Ask before anything that can lose work.** These need the user's go-ahead:
+  removing a worktree; deleting by hand or with force (`--force`, `-D`);
+  treating a squash- or rebase-merged branch as merged; and discarding ignored
+  files that no repository rule declares disposable. Creating a worktree and
+  every read-only command below need none. Fetch, merge, push, prune, and
+  deleting a remote branch are not cleanup steps; leave them out.
+- **How worktrees behave.** Commits are shared. Each worktree has its own
+  working directory, index, and `HEAD`, and its own installed dependencies and
+  build artifacts. The stash list is shared. A branch can be checked out in
+  only one worktree at a time. Never create a worktree inside another
+  worktree's directory tree; removing the outer worktree can delete the inner
+  one's files.
 
-## Create and set up
+## Steps: create a worktree
 
-Inspect the registered worktrees and choose the intended local start point:
+1. List the registered worktrees and choose the local start point:
 
-```bash
-git worktree list --porcelain
-git worktree add -b <branch> ../<branch> <start-point>
-```
+   ```bash
+   git worktree list --porcelain
+   git worktree add -b <branch> ../<branch> <start-point>
+   ```
 
-For an already-existing local branch:
+   For a local branch that already exists:
 
-```bash
-git worktree add ../<branch> <branch>
-```
+   ```bash
+   git worktree add ../<branch> <branch>
+   ```
 
-Enter the new directory and follow the repository's own setup instructions.
-Confirm its documented interpreter or toolchain works before editing. Do not
-infer remote access, dependency installation, or credential use from this
-skill; those actions need their ordinary task authority.
+2. Enter the new directory and follow the repository's own setup instructions.
+   Check that its documented interpreter or toolchain works before you edit.
+   This skill adds no permission and no restriction for network access,
+   installing dependencies, or credentials; the task and the repository's
+   instructions decide those.
+3. Work only inside that worktree.
 
-Work only inside the intended worktree. Commits are shared through Git's object
-store, but each worktree has its own working directory, index, and `HEAD`.
+## Steps: check a worktree before removal
 
-## Cleanup is a fresh audit
+The check is read-only and uses local Git data. Passing it makes a worktree
+eligible; the removal still needs the user's go-ahead.
 
-Never decide cleanup from a handoff, remembered divergence count, branch name,
-or earlier clean status. Select one explicit registered worktree and one
-explicit local integration ref, then recompute the evidence below. The audit is
-read-only and does not itself authorize removal.
+1. **Name the inputs.** Pick one registered worktree and one explicit local
+   integration ref. Use a local ref, not a remote-tracking one, and do not
+   contact a remote.
+2. **Confirm the target.** Start from another worktree. Resolve the target to
+   an absolute path, match it to one entry in the listing, and confirm Git
+   reports the same top level:
 
-### 1. Validate the exact target
+   ```bash
+   git worktree list --porcelain
+   git -C <target> rev-parse --show-toplevel
+   ```
 
-Start from another worktree. Resolve the proposed target to an absolute path,
-match it to one entry from the porcelain listing, and confirm Git agrees on its
-top level:
+   Stop if the path does not match, the worktree is not registered, another
+   process is writing to it, its submodules or index are in a state you did
+   not expect, or you cannot tell which directory the user meant. Report the
+   exact target and what you saw.
+3. **Check that its commits are in the integration ref.** Resolve both sides
+   to current object IDs:
 
-```bash
-git worktree list --porcelain
-git -C <target> rev-parse --show-toplevel
-```
+   ```bash
+   git -C <target> rev-parse --verify HEAD^{commit}
+   git -C <target> rev-parse --verify <integration-ref>^{commit}
+   git -C <target> rev-list --left-right --count <integration-oid>...<worktree-oid>
+   git -C <target> merge-base --is-ancestor <worktree-oid> <integration-oid>
+   ```
 
-Stop on a path mismatch, missing registration, active writer, unexpected
-submodule state, unsupported index condition, or any ambiguity. Report the
-exact target and observed state; do not guess which directory the user meant.
+   For the last command, exit `0` means the worktree's commit is contained in
+   the integration commit, exit `1` means it is not, and a higher exit code
+   means the check failed. The divergence count describes the branch; it does
+   not decide removal.
 
-### 2. Resolve current integration evidence
+   A branch that is not contained stays blocked. If it was squash-merged or
+   rebased, only current human confirmation can establish that the commits are
+   squash/rebase-equivalent; similar messages or diffs do not. Even then the
+   four file lists must be empty, and the user decides that cleanup itself.
+4. **List the local files.** Run all four lists in the target:
 
-Resolve both sides to current object IDs. The integration ref must be local and
-explicit; do not substitute a remote-tracking ref or contact a remote.
+   ```bash
+   git -C <target> diff --name-status --
+   git -C <target> diff --cached --name-status --
+   git -C <target> ls-files --others --exclude-standard
+   git -C <target> ls-files --others --ignored --exclude-standard
+   ```
 
-```bash
-git -C <target> rev-parse --verify HEAD^{commit}
-git -C <target> rev-parse --verify <integration-ref>^{commit}
-git -C <target> rev-list --left-right --count <integration-oid>...<worktree-oid>
-git -C <target> merge-base --is-ancestor <worktree-oid> <integration-oid>
-```
+   They cover unstaged tracked, staged, untracked, and ignored files. Use `-z`
+   when a program parses the output. An entry in any list
+   blocks ordinary removal until its owner saves it or says it can go.
 
-Containment exit `0` means the worktree commit is reachable from the resolved
-integration commit. Exit `1` means it is not contained. Any greater exit code
-is an audit failure. Divergence is descriptive evidence, never disposal
-authority by itself.
+   `.gitignore` does not make a file safe to delete. Leave an ignored file out
+   of the count only when an exact rule in the repository declares that path
+   disposable, or the current owner confirms it can go for this cleanup. A
+   convention, a guess from the filename, or what another worktree contains is
+   not enough.
+5. **Check again, then remove.** Immediately before removal, repeat the target
+   check, both object IDs, the divergence count, the containment check, and
+   all four file lists. If anything changed, stop and report the new evidence.
 
-An uncontained branch stays blocked. If the commits were squash-merged or
-rebased, only current human confirmation may establish that they are
-squash/rebase-equivalent. That exception still requires an empty effective
-inventory and a separate, case-specific cleanup decision; it is never inferred
-from similar messages or diffs.
+   A worktree is eligible only when all three hold: it is still registered,
+   its current commit is contained in the current local integration commit,
+   and the four file lists are empty. With the user's go-ahead, run from
+   another worktree:
 
-### 3. Inventory every local-file class
+   ```bash
+   git worktree remove <target>
+   ```
 
-Run four independent inventories in the target:
+6. **Delete the merged local branch.** Go-ahead to remove the worktree of
+   finished, merged work also covers its local branch. Once the removal
+   succeeds, delete the branch from the checkout whose `HEAD` is the
+   integration ref, because without an upstream `-d` checks containment
+   against the current `HEAD`:
 
-```bash
-git -C <target> diff --name-status --
-git -C <target> diff --cached --name-status --
-git -C <target> ls-files --others --exclude-standard
-git -C <target> ls-files --others --ignored --exclude-standard
-```
+   ```bash
+   git branch -d <branch>
+   ```
 
-These cover unstaged tracked, staged, untracked, and ignored content. Use `-z`
-for machine parsing. An entry in any class blocks ordinary removal until its
-owner preserves or explicitly dispositions it.
+   `-d` refuses a branch that is not merged. Such a branch, for example a
+   squash- or rebase-merged one, needs the user's decision; do not force it
+   with `-D` on your own. Remote branches are out of scope.
 
-`.gitignore` is not disposal authority. Exclude ignored content from the
-effective inventory only when an exact repository-owned declaration identifies
-that path as disposable, or the current owner explicitly confirms disposal for
-this cleanup. A convention, filename guess, or another worktree's contents is
-not enough.
-
-### 4. Recheck, then stop or request removal authority
-
-Immediately before any removal, repeat target validation, both object IDs,
-divergence, containment, and all four inventories. If any result changed, stop
-and report the new evidence.
-
-The ordinary eligible case is conjunctive: the exact target is still
-registered, its current commit is contained by the current local integration
-commit, and its effective inventory is empty. Even then, removal is a
-separately authorized action. When authorized, run from another worktree:
-
-```bash
-git worktree remove <target>
-```
-
-Authorization to remove the worktree of finished, merged work also covers its
-local branch: once the removal succeeds, delete that branch in the same step.
-Use the safe form, which refuses a branch that is not merged, and run it from
-the checkout whose `HEAD` is the integration ref, because without an upstream
-`-d` checks containment against the current `HEAD`:
-
-```bash
-git branch -d <branch>
-```
-
-This covers only the ordinary eligible case above. Never force the deletion
-with `-D`. A squash- or rebase-merged branch, which `-d` refuses, needs its own
-case-specific decision. Remote branches are out of scope.
-
-This audit does not authorize fetch, merge, push, remote contact, remote branch
-deletion, force removal, manual deletion, or prune. Do not infer any of those
-actions as cleanup steps. If the ordinary eligibility proof or the requested
-authority is absent, leave the worktree and its branch intact and report the
-exact blocker.
-
-## Stable rules
-
-- A branch can be checked out in only one worktree at a time.
-- Never create a worktree inside another worktree's directory tree; removing
-  the outer worktree can delete the inner one's files.
-- The stash list is shared; installed dependencies and build artifacts are
-  worktree-local.
-- Containment proves commit reachability, not that local files are disposable.
-- Cleanup evidence is live and per target; repeat it for every worktree.
+If the worktree is not eligible or the go-ahead is missing, leave the worktree
+and its branch as they are and report the exact blocker.

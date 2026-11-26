@@ -99,25 +99,27 @@ def _worktree_gaps(text: str) -> list[str]:
             ),
             "blocking inventory": ("blocks ordinary removal",),
             "conjunctive eligibility": (
-                "eligible case is conjunctive",
-                "effective inventory is empty",
+                "eligible only when all three hold",
+                "the four file lists are empty",
             ),
             "human equivalence exception": (
                 "squash/rebase-equivalent",
                 "current human confirmation",
-                "empty effective inventory",
+                "four file lists must be empty",
             ),
-            "ignored content": (".gitignore", "not disposal authority"),
+            "ignored content": (
+                ".gitignore",
+                "does not make a file safe to delete",
+            ),
             "narrow authority": (
-                "separately authorized",
-                "does not authorize",
+                "need the user's go-ahead",
+                "deleting by hand or with force",
+                "not cleanup steps",
                 "fetch",
                 "merge",
                 "push",
-                "branch deletion",
-                "force removal",
-                "manual deletion",
                 "prune",
+                "deleting a remote branch",
             ),
         },
     )
@@ -231,8 +233,8 @@ def test_ac7_ac8_ac9_worktree_cleanup_contract() -> None:
         ("current human confirmation", "human equivalence exception"),
         ("remembered divergence count", "no remembered authority"),
         ("blocks ordinary removal", "blocking inventory"),
-        ("eligible case is conjunctive", "conjunctive eligibility"),
-        ("does not authorize", "narrow authority"),
+        ("eligible only when all three hold", "conjunctive eligibility"),
+        ("not cleanup steps", "narrow authority"),
     ):
         mutated = text.replace(fragment, "")
         assert expected_gap in _worktree_gaps(mutated), (

@@ -28,26 +28,28 @@ EXPECTED_FRONTMATTER = {
     "new-feature": {
         "name": "new-feature",
         "description": (
-            "Kick off a new feature through Phase 1 (Research & Brainstorming) and\n"
-            "Phase 2 (Specification). Takes an optional feature brief path. Use when\n"
-            "starting a new feature from scratch within the current session."
+            "Start a new Heddle feature: research it, agree the route and scope\n"
+            "with the user, then enter the workflow that writes the Feature Spec\n"
+            "and Implementation Plan. Takes an optional feature brief path. Use\n"
+            "when starting a new feature from scratch within the current session."
         ),
     },
     "pre-implementation-analysis": {
         "name": "pre-implementation-analysis",
         "description": (
-            "Produce a structured pre-implementation analysis "
-            "(dependencies, contracts,\n"
-            "edge cases, risks, open questions) for a change whose blast radius is\n"
-            "larger than one module. Analysis document only, no code."
+            "Analyse the current system before a change whose blast radius is\n"
+            "larger than one module: dependencies, contracts, edge cases, risks,\n"
+            "and open questions. Produces an analysis document only, no code. Use\n"
+            "before planning or building such a change."
         ),
     },
     "root-cause-analysis": {
         "name": "root-cause-analysis",
         "description": (
-            "Root-cause a bug whose symptom may mislead: intermittent, flaky, or\n"
-            'already "fixed" once and back. Produces the causal chain with evidence\n'
-            "and a solution proposal, not the implementation."
+            "Find the real cause of a bug whose symptom may mislead: intermittent,\n"
+            'flaky, or already "fixed" once and back. Produces the chain from cause\n'
+            "to symptom with evidence, and a proposed fix. Does not implement the\n"
+            "fix. Use when a failure needs a diagnosis before anyone changes code."
         ),
     },
 }
@@ -83,8 +85,8 @@ def _analysis_contract_errors(name: str, text: str) -> list[str]:
             "docs/workflow/subagent-exploration-patterns.md",
         ),
         "analysis authority": (
-            "does not authorize implementation",
-            "authorization already supplied",
+            "does not allow implementation",
+            "Permission the user already gave",
         ),
     }
     if name == "pre-implementation-analysis":
@@ -100,11 +102,11 @@ def _analysis_contract_errors(name: str, text: str) -> list[str]:
     per_skill = {
         "pre-implementation-analysis": {
             "coverage lenses": (
-                "six phases below are lenses on one change",
+                "six lenses look at one change",
                 "they do not gate each other",
             ),
             "completion bar": (
-                "## Completion Bar",
+                "The analysis is complete when",
                 "Every file in the change scope",
                 "Every integration point documents both contract directions",
                 "Every open question carries a resolution approach",
@@ -112,7 +114,7 @@ def _analysis_contract_errors(name: str, text: str) -> list[str]:
             ),
             "native search": ('heddle search "<intent>" --titles-only',),
             "conditional delegation": (
-                "while the caller continues useful work",
+                "while you continue useful work",
                 "alone does not require parallel agents",
             ),
         },
@@ -127,11 +129,11 @@ def _analysis_contract_errors(name: str, text: str) -> list[str]:
                 "An external cause can be established",
             ),
             "conditional delegation": (
-                "while the caller continues useful work",
+                "while you continue useful work",
                 "Intermittency or a prior failed fix alone does not require",
             ),
             "actionable recommendation": (
-                "recommended change and its causal connection",
+                "recommended change and how it removes the cause",
                 "smallest meaningful check that distinguishes the diagnosis",
             ),
         },
@@ -224,7 +226,7 @@ def test_p0_ac2_analysis_skills_carry_accepted_semantics(name: str) -> None:
     (
         (
             "pre-implementation-analysis",
-            "six phases below are lenses on one change",
+            "six lenses look at one change",
             "coverage lenses",
         ),
         (
@@ -239,7 +241,7 @@ def test_p0_ac2_analysis_skills_carry_accepted_semantics(name: str) -> None:
         ),
         (
             "root-cause-analysis",
-            "recommended change and its causal connection",
+            "recommended change and how it removes the cause",
             "actionable recommendation",
         ),
     ),
