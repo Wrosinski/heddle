@@ -105,6 +105,9 @@ _VERDICT_EXITS: Mapping[str, ExitCode] = {
 # One progress line per interval while a provider runs, so a long review
 # shows which slots are still working without flooding stderr.
 _PROGRESS_INTERVAL_S = 60.0
+# How long a worker that ended its result without an outcome gets to exit
+# before its launches are reaped; one still running is reaped after the batch.
+_WORKER_EXIT_GRACE_S = 5.0
 # Advice about the selected review inputs' Git status. It is printed before a
 # gate runs or reuses a result, so the human summary does not repeat it.
 _LAUNCH_ADVICE_CODE = "review-input-git-status"
@@ -1112,6 +1115,8 @@ def _execute_batch_workers(
     # Each worker alone holds its pipe's sending end, so a worker that dies,
     # even partway through a result, leaves its pipe at end of file.
     receivers: dict[multiprocessing.connection.Connection, _BatchMember] = {}
+    workers: dict[multiprocessing.connection.Connection, Any] = {}
+    launched_members: list[_BatchMember] = []
     try:
         for member in pending:
             receiver, sender = context.Pipe(duplex=False)
@@ -1132,6 +1137,8 @@ def _execute_batch_workers(
             member.started_monotonic = time.monotonic()
             processes.append(process)
             receivers[receiver] = member
+            workers[receiver] = process
+            launched_members.append(member)
         launched = time.monotonic()
         # A completion does not restart the interval; only a printed line does.
         next_line = launched + _PROGRESS_INTERVAL_S
@@ -1142,20 +1149,24 @@ def _execute_batch_workers(
             for ready in ready_set:
                 receiver = cast(multiprocessing.connection.Connection, ready)
                 member = receivers[receiver]
+                worker = workers.pop(receiver)
+                failure: str | None = None
                 try:
                     kind, value = receiver.recv()
                 except EOFError:
-                    _member_failed(member, "its worker exited without a result")
-                    continue
+                    failure = "its worker exited without a result"
                 except Exception as error:  # noqa: BLE001 - a torn result
-                    _member_failed(member, f"its result could not be read: {error}")
-                    continue
+                    failure = f"its result could not be read: {error}"
+                else:
+                    if kind != "outcome":
+                        failure = value
                 finally:
                     _finish_timing(member)
                     del receivers[receiver]
                     receiver.close()
-                if kind != "outcome":
-                    _member_failed(member, value)
+                if failure is not None:
+                    _member_failed(member, failure)
+                    _reap_after_worker(worker, member)
                     continue
                 member.completion = value
                 member.execution = _execution_name(value)
@@ -1183,7 +1194,27 @@ def _execute_batch_workers(
         _terminate_batch_processes(processes)
         for receiver in receivers:
             receiver.close()
+        # Every worker has ended: launches their workers left unfinished,
+        # killed or interrupted, are reaped and redacted here.
+        _print_cleanup_warnings(
+            entry.recover_launches_for_runtime(
+                member.context for member in launched_members
+            )
+        )
     return None
+
+
+def _reap_after_worker(worker: Any, member: _BatchMember) -> None:
+    """Reap the launches a worker that ended without an outcome left behind,
+    while its siblings still run. A worker still exiting keeps its launches
+    for the pass after every worker has ended."""
+    worker.join(timeout=_WORKER_EXIT_GRACE_S)
+    _print_cleanup_warnings(entry.recover_launches_for_runtime([member.context]))
+
+
+def _print_cleanup_warnings(warnings: tuple[str, ...]) -> None:
+    for warning in warnings:
+        print(f"warning: launch-cleanup: {warning}", file=sys.stderr)
 
 
 def _finish_timing(member: _BatchMember) -> None:

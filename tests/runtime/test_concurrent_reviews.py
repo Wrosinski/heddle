@@ -1727,40 +1727,40 @@ def test_ac12_killed_worker_tokens_are_reaped_by_the_coordinator(
         hung = [lane.init_event(), {"$children": ["daemon"]}, {"$hold": "never"}]
         agy.scenario(
             roles={
-                "behavior-review": hung,
-                "complexity-review": lane.clean_stream(
+                "behavior-review": lane.clean_stream(
                     {"$children": ["daemon"]}, {"$hold": "release"}
                 ),
+                "complexity-review": hung,
             }
         )
 
-        def kill_behavior_worker(_holding) -> None:
+        def kill_complexity_worker(_holding) -> None:
             (launch,) = [
-                row for row in agy.launches() if row["role"] == "behavior-review"
+                row for row in agy.launches() if row["role"] == "complexity-review"
             ]
             worker = launch["ppid"]
             assert worker != os.getpid(), "fixture: members do not run in workers"
             os.kill(worker, signal.SIGKILL)
             killed.append(worker)
 
-        watcher = _release_when(agy, 2, kill_behavior_worker)
+        watcher = _release_when(agy, 2, kill_complexity_worker)
         result = execute_batch()
         watcher.join(timeout=30)
-        assert killed, "fixture: the behavior worker was not killed"
+        assert killed, "fixture: the complexity worker was not killed"
         assert not result.ok
-        behavior = [
+        complexity = [
             row
             for row in result.error.details["members"]
-            if row["gate"] == "behavior-review"
+            if row["gate"] == "complexity-review"
         ]
-        assert behavior and behavior[0]["execution"] in {"failed", "interrupted"}
+        assert complexity and complexity[0]["execution"] in {"failed", "interrupted"}
         left = [row for row in agy.children() if lane.alive(row["pid"], row["start"])]
         assert left == [], f"FAIL AC-12: tokened children outlived the batch: {left}"
         assert tracker.unrelated_alive(), "FAIL AC-12: the unrelated process died"
         recorded = [
             row
             for row in lane.lane_rows(state_path)
-            if row["gate"] == "complexity-review"
+            if row["gate"] == "behavior-review"
         ]
         assert recorded and recorded[-1]["verdict"]["status"] != "error", (
             "FAIL AC-12: the sibling did not record"

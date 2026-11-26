@@ -44,7 +44,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 RUNNER = "heddle.gate.runners.antigravity"
 AUDIT = "heddle.gate.runners.antigravity_audit"
 NEON = {"cli": "antigravity", "model": "gemini-4-neon", "reasoning_effort": "high"}
-TESTED_VERSION = "1.5.16"
+TESTED_VERSION = "1.5.18"
 OTHER_VERSION = "1.6.2"
 INLINE_LIMIT = 160_000
 CEILING = 250_000
@@ -157,7 +157,7 @@ def emit(value):
 SCENARIO = load("scenario.json", {})
 argv = sys.argv[1:]
 if argv == ["--version"]:
-    version = SCENARIO.get("version", "1.5.16")
+    version = SCENARIO.get("version", "1.5.18")
     append("versions.jsonl", {"pid": os.getpid(), "version": version})
     if version is None:
         sys.stderr.write("agy: version information is unavailable\n")
@@ -248,11 +248,16 @@ digests = {path: hashlib.sha256(data).hexdigest() for path, data in observed.ite
 index_path, chunks = None, []
 for path, data in observed.items():
     text = data.decode("utf-8", "replace")
-    found = sorted(
-        (text.find(digest), other)
-        for other, digest in digests.items()
-        if other != path and digest in text
-    )
+    found, taken = [], {}
+    for other, digest in sorted(digests.items()):
+        if other == path or digest not in text:
+            continue
+        # Byte-identical files share a digest: each takes its own occurrence,
+        # so identical chunks keep their places in the index's order.
+        at = text.find(digest, taken.get(digest, -1) + 1)
+        taken[digest] = at = at if at >= 0 else text.find(digest)
+        found.append((at, other))
+    found.sort()
     if len(found) > len(chunks):
         index_path, chunks = path, [other for _, other in found]
 schema_path = flag("--json-schema")
@@ -1422,7 +1427,12 @@ def transport_file(directory: Path, target: str) -> Path:
             index, chunks = path, found
     if target == "chunk":
         assert chunks, "fixture: the run temp directory holds no chunk files"
-        return chunks[0]
+        # A capture copy can share a chunk's digest; a chunk is a file the
+        # index names.
+        listed = index.read_bytes() if index is not None else b""
+        named_chunks = sorted(path for path in chunks if path.name.encode() in listed)
+        assert named_chunks, "fixture: the index names no chunk file"
+        return named_chunks[0]
     assert index is not None, "fixture: the run temp directory holds no index"
     if target == "index":
         return index

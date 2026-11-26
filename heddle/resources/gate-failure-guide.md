@@ -381,3 +381,51 @@ separate native stop-resolution and round-open route afterward.
 **Evidence:** The summary and archived attempt artifacts show output that ended before the required review structure completed.
 
 **Remedy:** A completed current response with truncated content uses retained interpretation above. If provider completion was not established, inspect the archived attempt and log, repair the interruption, and retry only within the existing authority and limit.
+
+## `antigravity-quota`
+
+**Status:** emitted
+
+**Evidence:** The Antigravity stream carries an `AGY_ERROR:` line that reports quota or resource exhaustion, such as status `RESOURCE_EXHAUSTED`. The gate log's `AgyOutcome:` line quotes it. The run is a hard failure: nothing is retained for interpretation, retried, or rerun on another model.
+
+**Remedy:** Wait for the account's Antigravity quota to reset, or raise it, then rerun the same gate. Do not move the slot to another lane or model without an explicit policy change.
+
+## `antigravity-api-error`
+
+**Status:** emitted
+
+**Evidence:** The Antigravity stream carries an `AGY_ERROR:` line that is not a quota error, for example an unavailable service. The gate log's `AgyOutcome:` line quotes it, with its `retryable` flag when agy gave one. No retry or fallback follows.
+
+**Remedy:** Read the quoted error. When agy marks it retryable, rerun the same gate once the service recovers; otherwise correct the reported account, model or request problem first.
+
+## `antigravity-context-compacted`
+
+**Status:** emitted
+
+**Evidence:** The Antigravity stream shows a `checkpoint` step: agy compacted the conversation during the review, so the reviewer may no longer hold the input it read. Compaction outranks a terminal failure or an unread chunk in the same run.
+
+**Remedy:** The review is not credited. Rerun the gate. If compaction recurs, reduce the review input, for example the milestone's diff, so the review fits without compaction.
+
+## `antigravity-unapproved-tool`
+
+**Status:** emitted
+
+**Evidence:** The Antigravity stream shows a tool call outside the lane's allowlist, or a `subagent` step. The gate log names the tool. The allowlist admits only tools whose every target is named in a parameter the audit inspects, so a tool added by a later agy release fails until a Heddle release admits it.
+
+**Remedy:** The review is not credited. Rerun the gate. If the reviewer keeps choosing the tool, check whether an agy upgrade introduced it, and keep that agy version off the lane until Heddle supports it; do not edit the prompt or the stream to hide the call.
+
+## `antigravity-incomplete-coverage`
+
+**Status:** emitted
+
+**Evidence:** The review input was delivered as chunk files, and at least one chunk has no credited whole read. A read is credited only when the chunk was read whole with `view_file` (recorded as `read_file`), nothing wrote to it or named it in executed text before that read, and every transport file still matched its frozen digest when the run ended. The gate summary records the credited reads and the uncovered byte ranges.
+
+**Remedy:** The review is not credited, because the reviewer did not read all of its input. Rerun the gate. If chunks keep going unread, reduce the review input so it needs fewer chunks.
+
+## `out-of-scope-access`
+
+**Status:** emitted
+
+**Evidence:** The reviewer reached outside its review, and the gate log names the access. On every lane this covers naming or reading other review artifacts under the feature's `reviews/` directory. On the Antigravity lane it also covers agy's data directory, recursive searches rooted at `/`, `~`, `$HOME` or `/home`, running `heddle` by name, path or module, running a process-inspection command, and any denied action in the result's `denied_actions` (the lane's only deny rule is on agy's data directory). No retry or fallback follows.
+
+**Remedy:** The review is not credited. Read the named access. When host instructions such as `AGENTS.md` tell agents to run `heddle` or to read earlier reviews, scope those instructions away from review sessions, then rerun the gate.

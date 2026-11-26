@@ -594,7 +594,9 @@ def test_ac12_unreadable_process_table_warns_and_keeps_the_outcome(
 
         def unreadable(function):
             def guarded(path=".", *args, **kwargs):
-                if os.fspath(path).rstrip("/") == "/proc":
+                # A descriptor (shutil.rmtree's scandir(fd)) is not a listing
+                # of /proc; it passes through.
+                if not isinstance(path, int) and os.fspath(path).rstrip("/") == "/proc":
                     raise PermissionError(13, "Permission denied", "/proc")
                 return function(path, *args, **kwargs)
 

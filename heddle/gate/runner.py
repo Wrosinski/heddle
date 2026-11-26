@@ -5,6 +5,7 @@ import shutil
 import traceback
 from pathlib import Path
 
+from heddle.contracts.gate_execution import GATE_CLI_BINARIES
 from heddle.gate.cli import GateArgs
 from heddle.gate.findings import (
     render_review_markdown,
@@ -28,6 +29,7 @@ from heddle.gate.results import (
     read_bounded,
     serialize_review_result,
 )
+from heddle.gate.runners.antigravity import TransportChanged, execute_antigravity
 from heddle.gate.runners.claude import execute_claude
 from heddle.gate.runners.codex import execute_codex
 from heddle.gate.summary import build_summary, write_summary
@@ -103,6 +105,8 @@ class GateRunner:
             preflight_result = prepared.preflight
             paths.log.write_text("")
             log_started = True
+            for warning in paths.recovery_warnings:
+                append_log(paths.log, f"CleanupWarning: {warning}")
             self._log_start(resolved_ctx, paths, diff)
             prompt_text = prepared.transport.stdin
             paths.prompt.write_text(prompt_text)
@@ -386,7 +390,7 @@ class GateRunner:
     ) -> ExecutionResult:
         paths.command_output.write_text(prompt_text)
         cli = prepared.invocation.exec_config.cli
-        cli_bin = self.args.cli_bin or cli
+        cli_bin = self.args.cli_bin or GATE_CLI_BINARIES.get(cli, cli)
         if not _binary_available(cli_bin):
             return self._launch_failure(paths, f"CLI binary not found: {cli_bin}")
         if cli == "claude":
@@ -404,6 +408,16 @@ class GateRunner:
             try:
                 return execute_codex(self.args, paths, prepared)
             except OSError as exc:
+                return self._launch_failure(paths, str(exc))
+        if cli == "antigravity":
+            try:
+                return execute_antigravity(
+                    self.args,
+                    paths,
+                    prepared,
+                    checkout_root=Path(self.args.workdir or self._context.repo_root),
+                )
+            except (OSError, TransportChanged) as exc:
                 return self._launch_failure(paths, str(exc))
         raise ValueError(f"unsupported cli: {cli}")
 

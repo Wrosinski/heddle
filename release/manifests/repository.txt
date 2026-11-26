@@ -105,6 +105,7 @@ heddle/gate/results.py
 heddle/gate/retained.py
 heddle/gate/runner.py
 heddle/gate/runners/__init__.py
+heddle/gate/runners/antigravity.py
 heddle/gate/runners/claude.py
 heddle/gate/runners/codex.py
 heddle/gate/runners/codex_diagnostics.py
@@ -262,6 +263,7 @@ scripts/install-repository-hooks.py
 scripts/pre-push
 scripts/qualify-public-repository.sh
 scripts/run-complete-test-band.py
+tests/antigravity_live_helpers.py
 tests/change_impact_explanation_helpers.py
 tests/change_impact_identity_helpers.py
 tests/change_impact_routing_helpers.py

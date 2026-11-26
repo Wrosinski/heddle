@@ -41,6 +41,7 @@ heddle/gate/results.py
 heddle/gate/retained.py
 heddle/gate/runner.py
 heddle/gate/runners/__init__.py
+heddle/gate/runners/antigravity.py
 heddle/gate/runners/claude.py
 heddle/gate/runners/codex.py
 heddle/gate/runners/codex_diagnostics.py

@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import hashlib
 import io
+import json
 import os
+import re
 import secrets
 import shutil
 import stat
@@ -17,6 +19,12 @@ from typing import Literal
 
 from heddle.gate.cli import GateArgs
 from heddle.gate.types import GateContext
+from heddle.io.process import (
+    LAUNCH_TOKEN_ENV,
+    process_alive,
+    process_start_time,
+    reap_token,
+)
 from heddle.kernel.locking import (
     LOCK_IGNORE_BYTES,
     LOCKS_DIRNAME,
@@ -40,6 +48,9 @@ class GatePaths:
     previous_output: Path | None = None
     previous_summary: Path | None = None
     published_views: tuple[Path, ...] = ()
+    # Warnings from the recovery pass this path set's construction ran, for
+    # the run to log once its own log starts.
+    recovery_warnings: tuple[str, ...] = ()
 
 
 class SummaryEmitter:
@@ -258,11 +269,15 @@ def build_gate_paths(
     artifact_dir.mkdir(parents=True, exist_ok=True)
     for entry in _REVIEWS_TEMP_IGNORE_ENTRIES:
         _ensure_ignore_entry(artifact_dir / ".gitignore", entry)
+    # The recovery pass runs first and alone decides which launch directories
+    # the age sweep must keep, whatever their age.
+    recovery = recover_launches(artifact_dir, grace_s=args.term_grace_seconds)
     cleanup_stale_temp_dirs(
         artifact_dir,
         retained=frozenset(
             PurePosixPath(path).parent.name for path in ctx.indexed_temporary_paths
-        ),
+        )
+        | recovery.keep,
     )
 
     output = artifact_dir / f"{output_name}.md"
@@ -296,12 +311,14 @@ def build_gate_paths(
         temp_dir=temp_dir,
         previous_output=previous_output,
         previous_summary=previous_summary,
+        recovery_warnings=recovery.warnings,
     )
 
 
 def append_log(path: Path, message: str) -> None:
+    """Append one gate-log entry, redacted before it is written."""
     with path.open("a", encoding="utf-8") as handle:
-        handle.write(message.rstrip() + "\n")
+        handle.write(redact_text(message).rstrip() + "\n")
 
 
 def atomic_write_text(path: Path, text: str) -> None:
@@ -612,3 +629,248 @@ def _copy_to_sibling_temp(source: Path, destination: Path) -> Path:
         staged.unlink(missing_ok=True)
         raise
     return staged
+
+
+# --------------------------------------------------------------------------- #
+# Redaction: credential-like values never reach a file Heddle keeps.
+# --------------------------------------------------------------------------- #
+REDACTED = "[redacted]"
+# Every credential body is drawn from this alphabet, which holds no quote and
+# no backslash, so a replacement never spans either and JSON text stays JSON.
+_CREDENTIAL_ALPHABET = (
+    b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-"
+)
+# A match never starts inside a JSON ``\uXXXX`` escape. Of the prefixes only
+# ``A`` is a hex digit, so only the ``A`` shapes carry the guard, after their
+# first letter, which keeps every alternative literal-led for a fast scan.
+_A_NOT_IN_ESCAPE = (
+    r"(?<!\\uA)(?<!\\u[0-9A-Fa-f]A)(?<!\\u[0-9A-Fa-f]{2}A)(?<!\\u[0-9A-Fa-f]{3}A)"
+)
+_CREDENTIAL_PATTERN = (
+    r"gh[pousr]_[A-Za-z0-9]{36,}"
+    r"|github_pat_[A-Za-z0-9_]{22,}"
+    r"|sk-(?:ant-|proj-)?[A-Za-z0-9_-]{20,}"
+    r"|xox[abposr]-[A-Za-z0-9-]{10,}"
+    r"|glpat-[A-Za-z0-9_-]{20,}"
+    rf"|A{_A_NOT_IN_ESCAPE}(?:KIA[0-9A-Z]{{16}}|SIA[0-9A-Z]{{16}}"
+    r"|Iza[0-9A-Za-z_-]{35})"
+)
+_CREDENTIAL_TEXT = re.compile(_CREDENTIAL_PATTERN)
+_CREDENTIAL_BYTES = re.compile(_CREDENTIAL_PATTERN.encode("ascii"))
+_REDACT_BLOCK_BYTES = 1 << 20
+# A run of credential-alphabet bytes longer than this is carried no further
+# between blocks: no credential shape is anywhere near this long.
+_REDACT_CARRY_BYTES = 4096
+
+
+def redact_text(text: str) -> str:
+    """``text`` with every credential-like value replaced."""
+    return _CREDENTIAL_TEXT.sub(REDACTED, text)
+
+
+def redact_bytes(data: bytes) -> bytes:
+    """``data`` with every credential-like value replaced, byte for byte
+    elsewhere."""
+    return _CREDENTIAL_BYTES.sub(REDACTED.encode("ascii"), data)
+
+
+def _safe_cut(data: bytes) -> int:
+    """Where ``data`` can be split so that no credential, and no escape a
+    credential could follow, straddles the cut."""
+    run = len(data) - len(data.rstrip(_CREDENTIAL_ALPHABET))
+    if run == len(data) or run > _REDACT_CARRY_BYTES:
+        return len(data)
+    index = len(data) - run - 1
+    # Keep a backslash with what follows it: ``\u00A`` + ``KIA...`` must be
+    # judged whole.
+    return index if data[index] == 0x5C else index + 1
+
+
+def redact_file(path: Path) -> bool:
+    """Replace ``path`` with its redacted copy, streaming in bounded blocks.
+
+    Returns whether anything was replaced; an unchanged file is left as is.
+    """
+    descriptor, raw_staged = tempfile.mkstemp(
+        prefix=f".{path.name}.", suffix=".redacting", dir=path.parent
+    )
+    staged = Path(raw_staged)
+    changed = False
+    try:
+        with path.open("rb") as source, os.fdopen(descriptor, "wb") as sink:
+            descriptor = -1
+            carry = b""
+            while block := source.read(_REDACT_BLOCK_BYTES):
+                data = carry + block
+                cut = _safe_cut(data)
+                redacted = redact_bytes(data[:cut])
+                changed = changed or redacted != data[:cut]
+                sink.write(redacted)
+                carry = data[cut:]
+            redacted = redact_bytes(carry)
+            changed = changed or redacted != carry
+            sink.write(redacted)
+        if changed:
+            os.replace(staged, path)
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
+        staged.unlink(missing_ok=True)
+    return changed
+
+
+# --------------------------------------------------------------------------- #
+# Launch records and the recovery pass
+# --------------------------------------------------------------------------- #
+LAUNCH_RECORD_NAME = "launch-record.json"
+
+
+@dataclass(frozen=True)
+class LaunchRecord:
+    """One physical launch's token, its launcher and its raw stream, written
+    into the run temp directory before the launch starts."""
+
+    token: str
+    launcher_pid: int
+    launcher_start: int | None
+    raw_stream: str
+    variable: str = LAUNCH_TOKEN_ENV
+    reaped: bool = False
+    redacted: bool = False
+
+
+@dataclass(frozen=True)
+class LaunchRecovery:
+    """What one recovery pass leaves: the launch directories the age sweep
+    must keep, and the cleanup warnings it met."""
+
+    keep: frozenset[str]
+    warnings: tuple[str, ...]
+
+
+def write_launch_record(
+    temp_dir: Path, *, token: str, raw_stream: Path
+) -> LaunchRecord:
+    """Record ``token`` for a launch this process is about to start."""
+    pid = os.getpid()
+    record = LaunchRecord(
+        token=token,
+        launcher_pid=pid,
+        launcher_start=process_start_time(pid),
+        raw_stream=raw_stream.name,
+    )
+    _store_launch_record(temp_dir, record)
+    return record
+
+
+def _store_launch_record(temp_dir: Path, record: LaunchRecord) -> None:
+    atomic_write_text(
+        temp_dir / LAUNCH_RECORD_NAME,
+        json.dumps(
+            {
+                "variable": record.variable,
+                "token": record.token,
+                "launcher": {
+                    "pid": record.launcher_pid,
+                    "start": record.launcher_start,
+                },
+                "raw_stream": record.raw_stream,
+                "reaped": record.reaped,
+                "redacted": record.redacted,
+            },
+            sort_keys=True,
+        ),
+    )
+
+
+def _load_launch_record(path: Path) -> LaunchRecord:
+    value = json.loads(path.read_text(encoding="utf-8"))
+    launcher = value["launcher"]
+    raw_stream = value["raw_stream"]
+    if (
+        not isinstance(value["token"], str)
+        or not isinstance(value["variable"], str)
+        or type(launcher["pid"]) is not int
+        or not (launcher["start"] is None or type(launcher["start"]) is int)
+        or not isinstance(raw_stream, str)
+        or Path(raw_stream).name != raw_stream
+        or not isinstance(value["reaped"], bool)
+        or not isinstance(value["redacted"], bool)
+    ):
+        raise ValueError("unexpected launch record shape")
+    return LaunchRecord(
+        token=value["token"],
+        launcher_pid=launcher["pid"],
+        launcher_start=launcher["start"],
+        raw_stream=raw_stream,
+        variable=value["variable"],
+        reaped=value["reaped"],
+        redacted=value["redacted"],
+    )
+
+
+def finish_launch(
+    temp_dir: Path, record: LaunchRecord, *, grace_s: float
+) -> tuple[str, ...]:
+    """Reap a finished launch's token, then replace its raw stream with the
+    redacted copy. The record goes once both are done; otherwise it stays,
+    updated, so a later pass retries and the sweep keeps the directory.
+    Cleanup is warning-only: the warnings are returned, never raised."""
+    warnings: list[str] = []
+    reaped = record.reaped
+    if not reaped:
+        result = reap_token(record.token, variable=record.variable, grace_s=grace_s)
+        warnings.extend(result.warnings)
+        reaped = result.verified
+    redacted = record.redacted
+    if not redacted:
+        stream = temp_dir / record.raw_stream
+        try:
+            if stream.exists():
+                redact_file(stream)
+            redacted = True
+        except OSError as error:
+            warnings.append(f"could not redact {stream.name}: {error}")
+    path = temp_dir / LAUNCH_RECORD_NAME
+    try:
+        if reaped and redacted:
+            path.unlink(missing_ok=True)
+        else:
+            _store_launch_record(
+                temp_dir, replace(record, reaped=reaped, redacted=redacted)
+            )
+    except OSError as error:
+        warnings.append(f"could not update {path.name}: {error}")
+    return tuple(warnings)
+
+
+def recover_launches(directory: Path, *, grace_s: float) -> LaunchRecovery:
+    """Finish every recorded launch in ``directory`` whose launcher is proven
+    gone, whatever its directory's age; keep every launch directory whose
+    launcher is live or whose cleanup is not yet verified.
+
+    Liveness alone decides, from the recorded process ID and start time: a
+    live launch, its token and its stream are never touched.
+    """
+    keep: set[str] = set()
+    warnings: list[str] = []
+    for candidate in sorted(directory.glob("*.tmp.*")):
+        record_path = candidate / LAUNCH_RECORD_NAME
+        if not candidate.is_dir() or not record_path.is_file():
+            continue
+        try:
+            record = _load_launch_record(record_path)
+        except (OSError, ValueError, KeyError, TypeError) as error:
+            keep.add(candidate.name)
+            warnings.append(f"{candidate.name}: unreadable launch record: {error}")
+            continue
+        if process_alive(record.launcher_pid, record.launcher_start):
+            keep.add(candidate.name)
+            continue
+        warnings.extend(
+            f"{candidate.name}: {warning}"
+            for warning in finish_launch(candidate, record, grace_s=grace_s)
+        )
+        if record_path.exists():
+            keep.add(candidate.name)
+    return LaunchRecovery(keep=frozenset(keep), warnings=tuple(warnings))

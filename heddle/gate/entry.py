@@ -5,7 +5,7 @@ import os
 import shutil
 import stat
 import tempfile
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator
 from contextlib import contextmanager, suppress
 from dataclasses import asdict, replace
 from pathlib import Path
@@ -736,6 +736,21 @@ def gate_lock_path_for_runtime(
         spec_path=context.spec_path,
     )
     return build_gate_lock_path(context, args)
+
+
+def recover_launches_for_runtime(contexts: Iterable[GateContext]) -> tuple[str, ...]:
+    """Reap and redact every launch whose launcher is gone (a killed batch
+    worker's, for one) in each distinct reviews directory of ``contexts``, and
+    return the cleanup warnings. A launch whose launcher still runs is left
+    alone, so live siblings are safe."""
+    from heddle.gate.io import recover_launches, reviews_dir
+    from heddle.io.process import DEFAULT_REAP_GRACE_S
+
+    warnings: list[str] = []
+    for directory in dict.fromkeys(reviews_dir(context) for context in contexts):
+        recovery = recover_launches(directory, grace_s=DEFAULT_REAP_GRACE_S)
+        warnings.extend(recovery.warnings)
+    return tuple(warnings)
 
 
 def run_gate_for_runtime(

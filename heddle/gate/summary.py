@@ -144,6 +144,7 @@ def build_summary(
         findings_note=findings_note,
         verdict=verdict,
         verdict_note=verdict_note,
+        agy_version=execution_result.agy_version,
     )
 
 

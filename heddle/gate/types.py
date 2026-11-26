@@ -58,6 +58,13 @@ class FailureReason(StrEnum):
     REVIEWED_SOURCE_UNAVAILABLE = "reviewed-source-unavailable"
     REFUSAL = "model-refusal"
     MODEL_SUBSTITUTED = "model-substituted"
+    # The Antigravity lane's hard failures (none falls back or retries).
+    ANTIGRAVITY_QUOTA = "antigravity-quota"
+    ANTIGRAVITY_API_ERROR = "antigravity-api-error"
+    ANTIGRAVITY_CONTEXT_COMPACTED = "antigravity-context-compacted"
+    ANTIGRAVITY_UNAPPROVED_TOOL = "antigravity-unapproved-tool"
+    ANTIGRAVITY_INCOMPLETE_COVERAGE = "antigravity-incomplete-coverage"
+    OUT_OF_SCOPE_ACCESS = "out-of-scope-access"
 
 
 @dataclass(frozen=True)
@@ -634,6 +641,19 @@ class ExecutionResult:
     # Only set after strict process and terminal-success validation.
     response_warning: str | None = None
     response_channel: str | None = None
+    # The Antigravity lane's version state for its launch; None elsewhere.
+    agy_version: AgyVersion | None = None
+
+
+@dataclass(frozen=True)
+class AgyVersion:
+    """The ``agy`` version a launch ran under, against the tested one:
+    ``matching``, ``differing``, or ``unavailable`` (``reported`` is None).
+    No state changes an outcome, identity or reviewer selection."""
+
+    state: Literal["matching", "differing", "unavailable"]
+    tested: str
+    reported: str | None
 
 
 @dataclass
@@ -768,6 +788,7 @@ class GateSummary:
     verdict_note: str | None = None
     review_result: ReviewResult | None = None
     retained_review: CapturedReview | None = None
+    agy_version: AgyVersion | None = None
 
     def to_dict(self) -> dict[str, Any]:
         data = cast(
@@ -793,6 +814,8 @@ class GateSummary:
             data.pop("verdict_note", None)
         if not data["artifacts"]["published_views"]:
             data["artifacts"].pop("published_views")
+        if self.agy_version is None:
+            data.pop("agy_version", None)
         return data
 
 
