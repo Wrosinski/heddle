@@ -290,7 +290,13 @@ def _capture_review_inputs(
     )
     preflight_result = preflight(
         gate_type=gate_type,
-        plan_path=str(context.plan_path) if context.plan_path else None,
+        # An anomaly reaches the runtime manifest, so it names the plan by the
+        # checkout-relative label the reviewer's instructions use.
+        plan_path=(
+            _stable_document_path(context, context.plan_path)
+            if context.plan_path
+            else None
+        ),
         milestone=context.milestone,
         milestone_section=context.milestone_section,
         satisfies_ac_ids=context.satisfies_ac_ids,

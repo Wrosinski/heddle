@@ -34,6 +34,7 @@ from heddle.contracts.result import (
 )
 from heddle.contracts.review_assignments import (
     ArtifactRef,
+    AttemptInvocation,
     CanonicalReview,
     EngineFailure,
     RetainedReview,
@@ -821,7 +822,7 @@ def _unrecorded_completion(
     # A stale publication is neither reused nor refused, so a member whose own
     # publication is stale makes one provider call, as a recorded run whose
     # input hash changed executes again.
-    recorded = _recorded_identities(snapshot)
+    recorded = _recorded_invocations(snapshot)
     canonical = tuple(
         item for item in canonical if not _stale_publication(item, prepared, recorded)
     )
@@ -875,21 +876,21 @@ def _unrecorded_completion(
     return None
 
 
-def _recorded_identities(
+def _recorded_invocations(
     snapshot: FeatureSnapshot,
-) -> dict[tuple[object, ...], set[tuple[str, str]]]:
-    """The input identities each recorded slot-round's usable outcome carries.
+) -> dict[tuple[object, ...], list[AttemptInvocation]]:
+    """The invocation each recorded slot-round's usable outcome carries.
 
     Keyed by launch: the feature, gate, scope, assignment, round and reviewer
     slot. A canonical review or a usable capture records a slot-round's output;
     an engine failure records none, so a launch whose only attempts failed is
-    absent. The identity is the input hash and effective prompt digest.
+    absent.
     """
     assignments = {
         assignment.id: assignment
         for assignment in snapshot.state.review_assignments.assignments
     }
-    recorded: dict[tuple[object, ...], set[tuple[str, str]]] = {}
+    recorded: dict[tuple[object, ...], list[AttemptInvocation]] = {}
     for attempt in snapshot.state.review_assignments.attempts:
         assignment = assignments.get(attempt.assignment_id)
         if assignment is None or not isinstance(
@@ -904,31 +905,31 @@ def _recorded_identities(
             attempt.round_number,
             attempt.reviewer_slot,
         )
-        recorded.setdefault(launch, set()).add(
-            (attempt.invocation.input_hash, attempt.invocation.effective_prompt_sha256)
-        )
+        recorded.setdefault(launch, []).append(attempt.invocation)
     return recorded
 
 
 def _stale_publication(
     publication: GateOutcome,
     prepared: PreparedGateRun,
-    recorded: Mapping[tuple[object, ...], set[tuple[str, str]]],
+    recorded: Mapping[tuple[object, ...], list[AttemptInvocation]],
 ) -> bool:
     """Whether an unrecorded publication is stale, judged against its own launch.
 
     A publication's launch is the feature, gate, scope, assignment, round and
     reviewer slot it is bound to; its identity is its input hash and effective
-    prompt digest. It is stale when that identity is not what its own launch
-    now stands for:
+    prompt digest. It is stale when its identity is the only thing that differs
+    from what its own launch now stands for:
     - for the launch being prepared, the current preparation, as for a run in
       flight across an identity change;
-    - for a launch already recorded, its recorded usable outcome, as for the
-      stale publication a rerun leaves behind.
+    - for a launch already recorded, a recorded usable outcome, as for the
+      stale publication a rerun leaves behind. One carrying a recorded
+      outcome's identity is a duplicate, not stale.
 
     Every other publication keeps its binding check, so these still refuse:
-    one for a launch with no recorded usable outcome, including a launch whose
-    only attempts failed, and one carrying its launch's recorded identity.
+    one that also differs in review basis, prompt version, execution or output
+    contract; one for a launch with no recorded usable outcome, including a
+    launch whose only attempts failed; and a duplicate.
     """
     result = publication.review_result
     if result is not None:
@@ -946,6 +947,18 @@ def _stale_publication(
         published.reviewer_slot,
     )
     identity = (published.input_hash, published.effective_prompt_sha256)
+    binding = (
+        published.execution,
+        published.review_basis_hash,
+        published.prompt_version,
+        published.output_contract_version,
+        published.output_contract_sha256,
+        published.review_policy_id,
+    )
+    # An attempt does not record its output contract or review policy. A new
+    # review binds its gate's current contract and no policy (the same gate as
+    # the preparation's, since discovery is per gate), so both come from here.
+    contract = (prepared.output_contract_version, prepared.output_contract_sha256)
     if launch == (
         prepared.feature,
         prepared.gate,
@@ -954,9 +967,40 @@ def _stale_publication(
         prepared.round_number,
         prepared.reviewer_slot,
     ):
-        return identity != (prepared.input_hash, prepared.effective_prompt_sha256)
-    outcomes = recorded.get(launch)
-    return outcomes is not None and identity not in outcomes
+        targets = [
+            (
+                (prepared.input_hash, prepared.effective_prompt_sha256),
+                (
+                    prepared.invocation.exec_config,
+                    prepared.review_basis_hash,
+                    prepared.prompt_version,
+                    *contract,
+                    None,
+                ),
+            )
+        ]
+    else:
+        targets = [
+            (
+                (outcome.input_hash, outcome.effective_prompt_sha256),
+                (
+                    GateExecutionConfig(
+                        cli=outcome.cli,
+                        model=outcome.model,
+                        reasoning_effort=outcome.reasoning_effort,
+                        sandbox=outcome.sandbox,
+                    ),
+                    outcome.review_basis_hash,
+                    outcome.prompt_version,
+                    *contract,
+                    None,
+                ),
+            )
+            for outcome in recorded.get(launch, ())
+        ]
+    if any(identity == expected for expected, _binding in targets):
+        return False
+    return any(binding == expected for _identity, expected in targets)
 
 
 def _batch_worker(sender: Any, member: _BatchMember, feature: str) -> None:
@@ -2167,79 +2211,8 @@ def _retained_reuse(
     from heddle.runtime.review_assignments import retained_response_result
 
     snapshot = resolved.snapshot
-    if snapshot.state.feature_policy is not None:
-        try:
-            orphans = entry.unrecorded_review_captures(
-                resolved.config.root / snapshot.workspace,
-                recorded_paths={r.artifact for r in retained_responses(snapshot.state)}
-                | {r.artifact for fact in snapshot.state.gates for r in fact.runs},
-                rejected_sha256={
-                    r.artifact_sha256
-                    for fact in snapshot.state.gates
-                    for r in fact.runs
-                    if r.verdict.get("status") == "error" and r.artifact_sha256
-                },
-                feature=snapshot.feature,
-                gate=parsed.gate,
-                cli=parsed.cli,
-            )
-            if orphans:
-                if len(orphans) != 1:
-                    raise ValueError(
-                        "multiple unrecorded responses need owner reconciliation"
-                    )
-                orphan = orphans[0]
-                capture = orphan.retained_review
-                assert capture is not None
-                # Publication before ledger failure is recoverable only when the
-                # captured basis still applies. Already indexed responses retain
-                # their explicit old-input interpretation semantics below.
-                invocation = ResolvedGateInvocation(
-                    GateExecutionConfig(**asdict(capture.invocation.execution)),
-                    frozenset(capture.overridden_axes),
-                )
-                checked, manifest = _check_completed_source(
-                    snapshot,
-                    resolved.config,
-                    cast(GateType, GATES.get(parsed.gate)),
-                    capture.invocation.scope,
-                    invocation,
-                    capture.invocation.review_basis_hash,
-                    orphan,
-                )
-                if checked.gate_exit != 0:
-                    raise ValueError(checked.structure_warnings[0])
-                recovered = recording.record_retained_review(
-                    resolved.config.root / snapshot.workspace / WORKSPACE_STATE,
-                    outcome=_with_basis_manifest(
-                        resolved.config.root,
-                        resolved.config.root / snapshot.workspace,
-                        orphan,
-                        manifest,
-                        None,
-                    ),
-                    expected_revision=snapshot.state.revision,
-                )
-                refreshed = resolve_snapshot_from_cwd(snapshot.feature, writable=True)
-                if isinstance(refreshed, ResolveFeatureFailure):
-                    raise refreshed.error
-                row = next(
-                    r
-                    for r in pending_retained(refreshed.snapshot.state)
-                    if r.run_id == recovered.run_id
-                )
-                return retained_response_result(
-                    refreshed.config, refreshed.snapshot, row, cached=True
-                )
-        except (OSError, ValueError) as error:
-            raise KernelError(
-                code="workspace-invalid",
-                message=f"unrecorded completed response needs recovery: {error}",
-                hint=(
-                    "preserve the capture and repair recording; "
-                    "do not rerun the provider"
-                ),
-            ) from error
+    # An indexed response keeps its explicit old-input interpretation semantics
+    # and answers before any preparation.
     for retained in pending_retained(snapshot.state):
         assignment = next(
             a
@@ -2257,7 +2230,125 @@ def _retained_reuse(
             return retained_response_result(
                 resolved.config, snapshot, retained, cached=True
             )
-    return None
+    if snapshot.state.feature_policy is None:
+        return None
+    gate_type = cast(GateType, GATES.get(parsed.gate))
+    try:
+        orphans = entry.unrecorded_review_captures(
+            resolved.config.root / snapshot.workspace,
+            recorded_paths={r.artifact for r in retained_responses(snapshot.state)}
+            | {r.artifact for fact in snapshot.state.gates for r in fact.runs},
+            rejected_sha256={
+                r.artifact_sha256
+                for fact in snapshot.state.gates
+                for r in fact.runs
+                if r.verdict.get("status") == "error" and r.artifact_sha256
+            },
+            feature=snapshot.feature,
+            gate=parsed.gate,
+            cli=parsed.cli,
+        )
+        # A stale capture is neither recovered nor refused here, so its member
+        # makes its one call, as at recovery under the lock.
+        recorded = _recorded_invocations(snapshot)
+        current = [
+            orphan
+            for orphan in orphans
+            if not _stale_capture(resolved, gate_type, orphan, recorded)
+        ]
+        if not current:
+            return None
+        if len(current) != 1:
+            raise ValueError("multiple unrecorded responses need owner reconciliation")
+        orphan = current[0]
+        capture = orphan.retained_review
+        assert capture is not None
+        # Publication before ledger failure is recoverable only when the
+        # captured basis still applies.
+        checked, manifest = _check_completed_source(
+            snapshot,
+            resolved.config,
+            gate_type,
+            capture.invocation.scope,
+            _capture_invocation(capture),
+            capture.invocation.review_basis_hash,
+            orphan,
+        )
+        if checked.gate_exit != 0:
+            raise ValueError(checked.structure_warnings[0])
+        recovered = recording.record_retained_review(
+            resolved.config.root / snapshot.workspace / WORKSPACE_STATE,
+            outcome=_with_basis_manifest(
+                resolved.config.root,
+                resolved.config.root / snapshot.workspace,
+                orphan,
+                manifest,
+                None,
+            ),
+            expected_revision=snapshot.state.revision,
+        )
+        refreshed = resolve_snapshot_from_cwd(snapshot.feature, writable=True)
+        if isinstance(refreshed, ResolveFeatureFailure):
+            raise refreshed.error
+        row = next(
+            r
+            for r in pending_retained(refreshed.snapshot.state)
+            if r.run_id == recovered.run_id
+        )
+        return retained_response_result(
+            refreshed.config, refreshed.snapshot, row, cached=True
+        )
+    except (OSError, ValueError) as error:
+        raise KernelError(
+            code="workspace-invalid",
+            message=f"unrecorded completed response needs recovery: {error}",
+            hint=(
+                "preserve the capture and repair recording; do not rerun the provider"
+            ),
+        ) from error
+
+
+def _capture_invocation(capture: entry.CapturedReview) -> ResolvedGateInvocation:
+    """The invocation a capture ran under: its execution and overridden axes."""
+    return ResolvedGateInvocation(
+        GateExecutionConfig(**asdict(capture.invocation.execution)),
+        frozenset(capture.overridden_axes),
+    )
+
+
+def _stale_capture(
+    resolved: ResolvedSnapshotContext,
+    gate_type: GateType,
+    orphan: GateOutcome,
+    recorded: Mapping[tuple[object, ...], list[AttemptInvocation]],
+) -> bool:
+    """Whether the shared staleness rule sets an unrecorded capture aside.
+
+    The capture is judged against a preparation under its own invocation, not
+    the command's flags, so a capture made on another slot's lane or on a model
+    fallback is judged as it ran.
+    """
+    capture = orphan.retained_review
+    assert capture is not None
+    try:
+        context = entry.build_gate_context(
+            resolved.snapshot,
+            resolved.config,
+            gate_type,
+            cli=capture.invocation.execution.cli,
+            milestone_id=(
+                capture.invocation.scope if gate_type.requires_milestone else None
+            ),
+            source_observations={},
+        )
+        prepared = entry.prepare_gate_run(
+            context, gate_type=gate_type, invocation=_capture_invocation(capture)
+        )
+    except KernelError as error:
+        raise ValueError(
+            f"reviewed source could not be revalidated: {error.message}"
+        ) from error
+    return _stale_publication(orphan, prepared, recorded)
 
 
 @dataclass(frozen=True)
