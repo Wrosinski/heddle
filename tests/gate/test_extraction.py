@@ -625,6 +625,81 @@ def test_ac22_a_marker_in_indented_code_opens_no_fence(marker, shape) -> None:
         assert extract_feature_spec_ac_ids(content) == ["AC-1", "AC-2"]
 
 
+# An HTML block, a comment included, holds its lines as content too. Each case
+# hides a `## ` line and lookalikes; the section's real end follows the block.
+HTML_BLOCK_CASES = {
+    "commented-example": [
+        "<!--",
+        "```markdown",
+        "## Heading inside the commented example",
+        "### Milestone m9: Commented lookalike",
+        "### AC-9: Commented lookalike",
+        "```",
+        "-->",
+    ],
+    "commented-draft": [
+        "<!-- a commented draft",
+        "## Heading inside the comment",
+        "### AC-1: Commented lookalike of the selected heading",
+        "-->",
+    ],
+    "details-block": [
+        "<details>",
+        "## Heading inside the details block",
+        "</details>",
+    ],
+}
+
+
+@pytest.mark.parametrize("shape", SECTION_SHAPES)
+@pytest.mark.parametrize("case", HTML_BLOCK_CASES)
+def test_ac22_an_html_block_hides_its_lines_from_section_structure(case, shape) -> None:
+    """A heading or lookalike inside an HTML block neither ends, starts nor
+    switches a section."""
+    from heddle.gate.extraction import extract_feature_spec_ac_ids
+
+    head, tail = SECTION_SHAPES[shape]
+    body = ["intro", *HTML_BLOCK_CASES[case], "Text after the block stays here."]
+    content = _document([*head, *body, *tail])
+    expected = [*head, *body]
+    if shape != "acceptance-block":
+        expected = expected[2:]
+    assert _extract(shape, content) == "\n".join(expected), (
+        f"FAIL AC-22: a line inside the {case} bounded the {shape}"
+    )
+    if shape == "acceptance-block":
+        assert extract_feature_spec_ac_ids(content) == ["AC-1", "AC-2"]
+
+
+# Where an HTML block ends, or never starts, the next heading is structure.
+# Each case: the body, and whether the blank line before the next heading
+# stays (it ends a block such as `<details>`).
+HTML_BOUNDARY_CASES = {
+    "block-ends-at-a-blank-line": (["intro", "", "<details>", "detail text"], True),
+    # Inline HTML opens no block, so even a heading right after it is real.
+    "inline-html-in-prose": (
+        ["intro names a <slug> inline", "<slug> continues it"],
+        False,
+    ),
+}
+
+
+@pytest.mark.parametrize("shape", SECTION_SHAPES)
+@pytest.mark.parametrize("case", HTML_BOUNDARY_CASES)
+def test_ac22_html_ends_where_commonmark_ends_it(case, shape) -> None:
+    """A block that ends at a blank line exposes the heading after it, and
+    inline HTML in prose opens no block at all."""
+    head, tail = SECTION_SHAPES[shape]
+    body, blank_before_tail = HTML_BOUNDARY_CASES[case]
+    content = _document([*head, *body, *(tail if blank_before_tail else tail[1:])])
+    expected = [*head, *body]
+    if shape != "acceptance-block":
+        expected = expected[2:]
+    assert _extract(shape, content) == "\n".join(expected), (
+        f"FAIL AC-22: the {case} hid the {shape} boundary"
+    )
+
+
 # --------------------------------------------------------------------------- #
 # Survivor (AC-23): plain-LF output is byte-identical to the previous rule.
 # The functions below copy the extractors as they stood before the fence and
@@ -873,16 +948,17 @@ def _plain_lf_documents(seed: int, *, fences: bool, count: int = 400):
         if fences and rng.random() < 0.1:
             lines.extend(fence(closed=False))  # left open to the end of input
         content = "\n".join(lines) + rng.choice(("", "\n", "\n\n"))
-        _assert_top_level_fences(content)
+        _assert_commonmark_scope(content)
         yield content
 
 
-def _assert_top_level_fences(content: str) -> None:
-    """Generator check: CommonMark reads every fence at the top level."""
+def _assert_commonmark_scope(content: str) -> None:
+    """Generator check: every fence is at the top level, and no HTML block."""
     from markdown_it import MarkdownIt
 
     tokens = MarkdownIt("commonmark").parse(content)
     assert all(token.level == 0 for token in tokens if token.type == "fence"), content
+    assert not any(token.type == "html_block" for token in tokens), content
 
 
 def _outcome(function, *args):
@@ -896,13 +972,13 @@ def _outcome(function, *args):
 def test_ac23_survivor_plain_lf_extraction_equals_the_previous_rule(seed) -> None:
     """Survivor: plain-LF input extracts exactly as before.
 
-    Generated documents use LF only, with no other line boundary. The
-    extractors that were fence-aware already see simple CommonMark fences
-    too, each at the top level and closed by its own bare run or left open
-    to the end of the input, where the previous toggle rule and CommonMark
-    agree. The milestone and AC extractors, which change on fenced input,
-    see fence-free input. The fence cases where the rules differ have their
-    own tests.
+    Generated documents use LF only, with no other line boundary, and hold
+    no HTML block. The extractors that were fence-aware already see simple
+    CommonMark fences too, each at the top level and closed by its own bare
+    run or left open to the end of the input, where the previous toggle rule
+    and CommonMark agree. The milestone and AC extractors, which change on
+    fenced input, see fence-free input. The fence and HTML cases where the
+    rules differ have their own tests.
     """
     from heddle.gate import extraction
 

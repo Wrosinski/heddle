@@ -413,13 +413,70 @@ def test_ac22_verified_by_readers_follow_the_commonmark_fence_rule(shape) -> Non
     """A fenced declaration never binds and a fenced lookalike is never
     reported, at any container depth; a fence left open in a list item ends
     with it; lines count at CRLF, CR and LF."""
-    text, real_lines, unread = FENCE_SHAPES[shape]
+    _assert_only_the_real_declaration_reads(FENCE_SHAPES[shape], shape)
+
+
+def _assert_only_the_real_declaration_reads(case, shape) -> None:
+    text, real_lines, unread = case
     parsed = parse_primary_test_bindings("AC-1", text)
     assert [binding.target for binding in parsed.bindings] == [REAL], (
-        f"FAIL AC-22: the {shape} binding does not follow the fence rule"
+        f"FAIL AC-22: the {shape} binding does not follow the CommonMark rule"
     )
     assert verified_by_targets(text) == tuple((line, REAL) for line in real_lines)
     assert unread_verified_by_lines(text) == unread
+
+
+# HTML blocks, comments included, hold their lines as content too: a commented
+# sample declaration never binds, and a commented lookalike is never reported.
+HTML_SHAPES = {
+    "html-comment": (
+        f"<!--\nVerified-by: {EXAMPLE}\n-->\nVerified-by: {REAL}\n",
+        (4,),
+        (),
+    ),
+    "commented-fenced-example": (
+        "<!--\n```markdown\n### AC-9: Lookalike\n"
+        f"Verified-by: {EXAMPLE}\n  Verified-by: {EXAMPLE}\n```\n-->\n\n"
+        f"Verified-by: {REAL}\n",
+        (9,),
+        (),
+    ),
+    "details-block-ends-at-a-blank-line": (
+        f"<details>\nVerified-by: {EXAMPLE}\n\nVerified-by: {REAL}\n",
+        (4,),
+        (),
+    ),
+    "inline-html-in-prose": (
+        "intro names a <slug> inline\n<slug> continues the paragraph\n"
+        f"Verified-by: {REAL}\n",
+        (3,),
+        (),
+    ),
+    "comment-in-a-list-item": (
+        f"- item\n\n  <!--\n  - Verified-by: {EXAMPLE}\n  -->\nVerified-by: {REAL}\n",
+        (6,),
+        (),
+    ),
+    "comment-in-a-blockquote": (
+        f"> <!--\n> Verified-by: {EXAMPLE}\n> -->\n\nVerified-by: {REAL}\n",
+        (5,),
+        (),
+    ),
+    "crlf-comment": (
+        f"<!--\r\nVerified-by: {EXAMPLE}\r\n-->\r\nVerified-by: {REAL}\r\n",
+        (4,),
+        (),
+    ),
+}
+
+
+@pytest.mark.parametrize("shape", HTML_SHAPES)
+def test_ac22_verified_by_readers_skip_html_blocks(shape) -> None:
+    """A declaration or lookalike inside an HTML block, a comment included,
+    never binds and is never reported, at any container depth; a block that
+    ends at a blank line exposes the declaration after it, and inline HTML in
+    prose hides nothing."""
+    _assert_only_the_real_declaration_reads(HTML_SHAPES[shape], shape)
 
 
 # Survivor: plain-LF text reads exactly as under the previous kernel fence rule
@@ -512,8 +569,9 @@ _SIMPLE_FENCES = (
 
 
 def _plain_lf_texts(seed: int, *, fences: bool, count: int = 300):
-    """Generated plain-LF texts; any fence is a CommonMark fence at the top
-    level, closed by its own bare run or left open to the end of the text."""
+    """Generated plain-LF texts holding no HTML block; any fence is a
+    CommonMark fence at the top level, closed by its own bare run or left
+    open to the end of the text."""
     from markdown_it import MarkdownIt
 
     rng = random.Random(seed)
@@ -539,6 +597,7 @@ def _plain_lf_texts(seed: int, *, fences: bool, count: int = 300):
         text = "\n".join(lines) + rng.choice(("", "\n"))
         tokens = MarkdownIt("commonmark").parse(text)
         assert all(token.level == 0 for token in tokens if token.type == "fence")
+        assert not any(token.type == "html_block" for token in tokens)
         yield text
 
 
@@ -546,8 +605,8 @@ def _plain_lf_texts(seed: int, *, fences: bool, count: int = 300):
 def test_ac23_survivor_plain_lf_verified_by_reading_equals_the_previous_rule(
     seed,
 ) -> None:
-    """On plain-LF text with top-level fences the previous rule closed
-    correctly, every reader returns what it returned before. The whole-text
+    """On HTML-free plain-LF text with top-level fences the previous rule
+    closed correctly, every reader returns what it returned before. The whole-text
     target reader, which read fenced lines before, equals its previous output
     on fence-free text and the previous unfenced declarations otherwise."""
     for text in _plain_lf_texts(seed, fences=True):

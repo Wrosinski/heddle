@@ -10,6 +10,8 @@ from collections.abc import Iterator
 from dataclasses import dataclass
 from typing import Literal
 
+from heddle.kernel.markdown_structure import markdown_lines
+
 BindingPolicy = Literal["native", "repository"]
 SelectorKind = Literal["module-function", "class", "qualified-method", "bare-method"]
 
@@ -75,7 +77,8 @@ def parse_primary_test_bindings(ac_id: str, ac_block: str) -> ParsedTestBindings
     """Parse every ``Verified-by`` line's comma-separated targets, in order.
 
     Each line adds its targets to the AC's binding; a repeated target binds
-    once, at its first occurrence. Fenced code is example text and never binds.
+    once, at its first occurrence. A fenced code block or HTML block (an HTML
+    comment included) holds example text, which never binds.
     """
     targets = tuple(
         dict.fromkeys(target for _line, target in verified_by_targets(ac_block))
@@ -109,12 +112,13 @@ def _declared_targets(value: str) -> tuple[str, ...]:
 def verified_by_targets(markdown: str) -> tuple[tuple[int, str], ...]:
     """Return every target VERIFIED_BY reads, paired with its 1-based line.
 
-    Fenced code is example text, so a declaration inside it is never read:
-    the same lines bind here as in ``parse_primary_test_bindings``.
+    A fenced code block or HTML block holds example text, so a declaration
+    inside it is never read: the same lines bind here as in
+    ``parse_primary_test_bindings``.
     """
     return tuple(
         (number, target)
-        for number, line in _unfenced_lines(markdown)
+        for number, line in _lines_outside_verbatim_blocks(markdown)
         if (match := VERIFIED_BY.match(line)) is not None
         for target in _declared_targets(match.group(1))
     )
@@ -123,27 +127,24 @@ def verified_by_targets(markdown: str) -> tuple[tuple[int, str], ...]:
 def unread_verified_by_lines(markdown: str) -> tuple[int, ...]:
     """Return 1-based lines that look like declarations VERIFIED_BY skips.
 
-    Fenced code is example text, so its lines are never reported.
+    A fenced code block or HTML block holds example text, so its lines are
+    never reported.
     """
     return tuple(
         number
-        for number, line in _unfenced_lines(markdown)
+        for number, line in _lines_outside_verbatim_blocks(markdown)
         if _VERIFIED_BY_LOOKALIKE.match(line) and not VERIFIED_BY.match(line)
     )
 
 
-def _unfenced_lines(markdown: str) -> Iterator[tuple[int, str]]:
-    """Yield 1-based numbered lines that no fenced code block covers.
+def _lines_outside_verbatim_blocks(markdown: str) -> Iterator[tuple[int, str]]:
+    """Yield 1-based numbered lines no fenced code block or HTML block covers.
 
-    Lines and fences come from ``markdown_lines``, the one Markdown fence rule,
-    so a line number counts CRLF, CR and LF line endings only.
+    Lines and blocks come from ``markdown_lines``, the one Markdown structure
+    rule, so a line number counts CRLF, CR and LF line endings only.
     """
-    # Imported here: knowledge_search imports knowledge, which imports this
-    # module's Verified-by readers.
-    from heddle.kernel.knowledge_search import markdown_lines
-
     for number, line in enumerate(markdown_lines(markdown), start=1):
-        if not line.fenced:
+        if not line.verbatim:
             yield number, line.text
 
 

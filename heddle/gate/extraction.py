@@ -2,19 +2,18 @@ from __future__ import annotations
 
 import re
 from collections.abc import Iterator
-from typing import TYPE_CHECKING
 
-if TYPE_CHECKING:
-    from heddle.kernel.knowledge_search import MarkdownLine
+from heddle.kernel.markdown_structure import MarkdownLine, markdown_lines
 
 # The section extractors share two rules, both owned by
-# `heddle.kernel.knowledge_search.markdown_lines`:
-# - Fences: a line a CommonMark fenced code block covers, delimiters included
-#   and at any container depth, is content, never structure. A fenced `## `
-#   line (a rejected-layout example, a diff, sample markdown) neither ends a
-#   section nor starts one, and a fenced `### Milestone mN:` or `### AC-N:`
-#   lookalike neither starts nor switches one. Indented code is not a fence,
-#   so a literal marker in it hides nothing.
+# `heddle.kernel.markdown_structure.markdown_lines`:
+# - Verbatim blocks: a line a CommonMark fenced code block or HTML block (an
+#   HTML comment included) covers, at any container depth, is content, never
+#   structure. A `## ` line in such a block (a rejected-layout example, a
+#   diff, sample markdown, a commented-out draft) neither ends a section nor
+#   starts one, and a `### Milestone mN:` or `### AC-N:` lookalike in one
+#   neither starts nor switches one. Indented code is not verbatim here, and
+#   a literal fence marker in it hides nothing.
 # - Lines: lines end at CRLF, CR and LF, as CommonMark counts them, and a
 #   selected span keeps each line's own ending, so an embedded section is its
 #   source bytes. Any other `str.splitlines` boundary stays inside its line.
@@ -22,14 +21,6 @@ if TYPE_CHECKING:
 
 _ACCEPTANCE_CRITERIA = "## Acceptance Criteria"
 _AC_HEADING = re.compile(r"^### (AC-[0-9]+[a-z]?):")
-
-
-def _lines(content: str) -> tuple[MarkdownLine, ...]:
-    # Imported on use, so the CommonMark parser loads only when a section is
-    # read, never on the status and orient paths that import this module.
-    from heddle.kernel.knowledge_search import markdown_lines
-
-    return markdown_lines(content)
 
 
 def _span(raws: list[str]) -> str:
@@ -43,13 +34,13 @@ def extract_markdown_h2_section(content: str, heading: str) -> str:
 def extract_markdown_section(content: str, heading_line: str) -> str:
     collected: list[str] = []
     level = _heading_level(heading_line)
-    for line in _lines(content):
+    for line in markdown_lines(content):
         if not collected:
-            if not line.fenced and line.text == heading_line:
+            if not line.verbatim and line.text == heading_line:
                 collected.append(line.raw)
             continue
         if (
-            not line.fenced
+            not line.verbatim
             and _is_heading(line.text)
             and _heading_level(line.text) <= level
             and line.text != heading_line
@@ -169,25 +160,25 @@ def extract_active_rule_blocks(content: str) -> tuple[str, ...] | None:
     """Capture authored rule text without requiring a rule-ID authoring format.
 
     A paragraph or top-level list item is one source block. Continuations and
-    fenced examples stay with their block; their rules still need assessment.
+    verbatim examples stay with their block; their rules still need assessment.
     None means no section, while an empty tuple means an empty section.
     """
     headings = [
         line.text
-        for line in _lines(content)
-        if not line.fenced
+        for line in markdown_lines(content)
+        if not line.verbatim
         and re.fullmatch(r"#{2,6} Active Enforcement Rules", line.text)
     ]
     if not headings:
         return None
     if len(headings) != 1:
         raise ValueError("the plan has multiple Active Enforcement Rules sections")
-    body = _lines(extract_markdown_section(content, headings[0]))[1:]
+    body = markdown_lines(extract_markdown_section(content, headings[0]))[1:]
     blocks: list[str] = []
     current: list[str] = []
     for line in body:
         starts_item = bool(re.match(r"(?:[-*+] |\d+[.)] )", line.text))
-        if not line.fenced and (not line.text.strip() or starts_item):
+        if not line.verbatim and (not line.text.strip() or starts_item):
             if current:
                 blocks.append(_span(current))
                 current = []
@@ -202,12 +193,12 @@ def extract_active_rule_blocks(content: str) -> tuple[str, ...] | None:
 def extract_milestone_section(content: str, milestone: str) -> str:
     pattern = _milestone_heading_pattern(milestone)
     collected: list[str] = []
-    for line in _lines(content):
+    for line in markdown_lines(content):
         if not collected:
-            if not line.fenced and pattern.search(line.text):
+            if not line.verbatim and pattern.search(line.text):
                 collected.append(line.raw)
             continue
-        if not line.fenced and (
+        if not line.verbatim and (
             line.text.startswith("## ")
             or (line.text.startswith("### ") and not pattern.search(line.text))
         ):
@@ -249,21 +240,22 @@ def _acceptance_criteria(
     """The Acceptance Criteria section's lines, the one owner of AC blocks.
 
     Each line comes with whether it is the section heading and the AC id it
-    opens, if any. The section starts at an unfenced `## Acceptance Criteria`
-    line and ends before the next unfenced `## ` line; a repeated section
-    heading continues it. An unfenced `### AC-N:` line opens block AC-N.
+    opens, if any. The section starts at a `## Acceptance Criteria` line
+    outside every verbatim block and ends before the next such `## ` line; a
+    repeated section heading continues it. A `### AC-N:` line outside every
+    verbatim block opens block AC-N.
     """
     in_acceptance = False
-    for line in _lines(content):
-        if not line.fenced and line.text == _ACCEPTANCE_CRITERIA:
+    for line in markdown_lines(content):
+        if not line.verbatim and line.text == _ACCEPTANCE_CRITERIA:
             in_acceptance = True
             yield line, True, None
             continue
         if not in_acceptance:
             continue
-        if not line.fenced and line.text.startswith("## "):
+        if not line.verbatim and line.text.startswith("## "):
             return
-        match = None if line.fenced else _AC_HEADING.match(line.text)
+        match = None if line.verbatim else _AC_HEADING.match(line.text)
         yield line, False, match.group(1) if match else None
 
 

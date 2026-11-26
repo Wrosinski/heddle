@@ -251,6 +251,41 @@ def test_ac22_a_fenced_sample_declaration_never_binds_or_reaches_the_basis(
     preparation succeeds and the sample's file never enters the review basis.
     Red while the binding parser closes the fence at the run with text.
     """
+    _assert_only_the_real_declaration_reaches_the_basis(
+        tmp_path,
+        monkeypatch,
+        "````markdown\n"
+        "## Heading inside the sample\n"
+        "```` this run is followed by text, so it closes nothing\n"
+        "Verified-by: quality/sample_witness.py::test_missing\n"
+        "````\n\n",
+        "fenced",
+    )
+
+
+def test_ac22_a_commented_sample_declaration_never_binds_or_reaches_the_basis(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """An HTML comment in an AC holds a `## ` heading and a sample declaration
+    naming a missing test. CommonMark reads the comment as one HTML block, so
+    only the real declaration after it binds: preparation succeeds and the
+    sample's file never enters the review basis. Red while the binding parser
+    reads a commented line.
+    """
+    _assert_only_the_real_declaration_reaches_the_basis(
+        tmp_path,
+        monkeypatch,
+        "<!-- a commented sample\n"
+        "## Heading inside the comment\n"
+        "Verified-by: quality/sample_witness.py::test_missing\n"
+        "-->\n\n",
+        "commented",
+    )
+
+
+def _assert_only_the_real_declaration_reaches_the_basis(
+    tmp_path: Path, monkeypatch, sample: str, label: str
+) -> None:
     from heddle.gate import entry
 
     host, _state_path = current_host(tmp_path, monkeypatch, stage="scaffold")
@@ -265,11 +300,7 @@ def test_ac22_a_fenced_sample_declaration_never_binds_or_reaches_the_basis(
         "# Product\n\n## Acceptance Criteria\n\n"
         "### AC-1: Required behavior\n\n"
         "Priority: MUST\n\n"
-        "````markdown\n"
-        "## Heading inside the sample\n"
-        "```` this run is followed by text, so it closes nothing\n"
-        "Verified-by: quality/sample_witness.py::test_missing\n"
-        "````\n\n"
+        f"{sample}"
         "Verified-by: quality/real_witness.py::test_real\n",
         encoding="utf-8",
     )
@@ -279,10 +310,10 @@ def test_ac22_a_fenced_sample_declaration_never_binds_or_reaches_the_basis(
     )
     names = {row.name for row in prepared.reviewed_inputs}
     assert "reviewed/test/quality/real_witness.py" in names, (
-        "FAIL AC-22: the real declaration after the fence did not bind"
+        f"FAIL AC-22: the real declaration after the {label} sample did not bind"
     )
     assert not any("sample_witness" in name for name in names), (
-        "FAIL AC-22: the fenced sample declaration reached the review basis"
+        f"FAIL AC-22: the {label} sample declaration reached the review basis"
     )
 
     basis_context = _scaffold_context(host)
@@ -297,7 +328,7 @@ def test_ac22_a_fenced_sample_declaration_never_binds_or_reaches_the_basis(
         changed_context, _invocation(changed_context)
     )
     assert changed.review_basis_hash == prepared.review_basis_hash, (
-        "FAIL AC-22: the sample's file changes the review basis"
+        f"FAIL AC-22: the {label} sample's file changes the review basis"
     )
 
 

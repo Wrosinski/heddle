@@ -126,6 +126,7 @@ heddle/kernel/knowledge.py
 heddle/kernel/knowledge_search.py
 heddle/kernel/locking.py
 heddle/kernel/managed_regions.py
+heddle/kernel/markdown_structure.py
 heddle/kernel/model.py
 heddle/kernel/project_config.py
 heddle/kernel/readiness.py
@@ -524,6 +525,7 @@ tests/kernel/test_content_identity.py
 tests/kernel/test_decision_guidance.py
 tests/kernel/test_findings_taxonomy.py
 tests/kernel/test_knowledge_search.py
+tests/kernel/test_markdown_structure.py
 tests/kernel/test_primary_test_bindings.py
 tests/kernel/test_project_config.py
 tests/kernel/test_review_closure.py

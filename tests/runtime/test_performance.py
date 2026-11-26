@@ -306,6 +306,174 @@ print(json.dumps({
     )
 
 
+# A fresh CLI process that reports which search modules are loaded after the
+# hot steps and after the control. It reads sys.modules, so a load counts
+# however the import is spelled.
+_SCAFFOLD_IMPORT_PROBE = r"""
+import contextlib
+import io
+import json
+import os
+import sys
+from pathlib import Path
+
+def loaded():
+    return sorted(
+        name
+        for name in sys.modules
+        if name == "heddle.kernel.knowledge_search"
+        or name.split(".")[0] == "markdown_it"
+    )
+
+host = Path(sys.argv[1])
+os.chdir(host)
+from heddle.cli import main
+
+codes = []
+with (
+    contextlib.redirect_stdout(io.StringIO()),
+    contextlib.redirect_stderr(io.StringIO()),
+):
+    for argv in (["status"], ["status", "--json"], ["orient"]):
+        codes.append(main(argv))
+hot = loaded()
+control = {}
+if len(sys.argv) > 2:
+    # Control: a formatting-only change to the recorded spec.
+    spec = host / sys.argv[2]
+    spec.write_text(spec.read_text().replace(sys.argv[3], sys.argv[4]))
+    output = io.StringIO()
+    with contextlib.redirect_stdout(output), contextlib.redirect_stderr(io.StringIO()):
+        control_code = main(["status", "--json"])
+    control = {
+        "code": control_code,
+        "loaded": loaded(),
+        "assignments": json.loads(output.getvalue())["data"]["review_closure"][
+            "assignments"
+        ],
+    }
+print(json.dumps({"codes": codes, "loaded": hot, "control": control}))
+"""
+SCAFFOLDING = "review-test-scaffolding"
+REFLOW = ("A prose line with  a space run.", "A prose line with a space run.")
+
+
+def _reviewed_scaffold_host(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, run_cli, name: str, tail: str
+) -> tuple[Path, str]:
+    """A scaffold-stage host with a closed test-scaffolding review: one
+    round recorded over the spec, plan and bound test, its coverage settled
+    with the spec cited, and nothing changed since."""
+    from tests.content_identity_helpers import git
+    from tests.tiering_helpers import ROLES, entry
+    from tests.tiering_review_helpers import (
+        current_host,
+        dispose,
+        disposition,
+        gate_command,
+        provider_transport,
+        review_content,
+    )
+
+    root = tmp_path / name
+    root.mkdir()
+    overrides = {
+        role: entry(role, mode="off", limit=None, minimum_rounds=0) for role in ROLES
+    }
+    overrides[SCAFFOLDING] = entry(SCAFFOLDING)
+    host, state_path = current_host(
+        root, monkeypatch, stage="scaffold", overrides=overrides
+    )
+    spec = next((host / "docs" / "features").rglob("*.md"))
+    spec.write_text(
+        spec.read_text(encoding="utf-8") + f"\n{REFLOW[0]}\n{tail}", encoding="utf-8"
+    )
+    git(host, "add", "-A")
+    git(host, "commit", "-qm", "authored scaffold inputs")
+    provider_transport(monkeypatch, review_content(SCAFFOLDING))
+    code, result = gate_command(run_cli, "run-gate", SCAFFOLDING)
+    assert code in (0, 4) and result["ok"] and result["data"]["accepted"], result
+    relative = spec.relative_to(host).as_posix()
+    settled = dispose(
+        state_path,
+        [
+            disposition(
+                result["data"]["run_id"],
+                "@coverage",
+                status="settled",
+                references=[relative],
+            )
+        ],
+    )
+    assert settled.ok, settled.to_envelope()
+    return host, relative
+
+
+def _probe_scaffold_imports(host: Path, *control: str) -> dict:
+    result = subprocess.run(
+        [sys.executable, "-c", _SCAFFOLD_IMPORT_PROBE, str(host), *control],
+        cwd=host,
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    assert result.returncode == 0, result.stderr
+    observation = json.loads(result.stdout)
+    assert observation["codes"] == [0, 0, 0]
+    return observation
+
+
+def test_ac11_scaffold_status_and_orient_load_the_parser_only_when_needed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, run_cli
+) -> None:
+    """AC-11 survivor on a scaffold host, whose status and orient assess the
+    recorded test-scaffolding review over the spec's acceptance criteria and
+    bindings.
+
+    With a spec and plan holding no line that could open a fenced code block
+    or an HTML block, unchanged status, status --json and orient load neither
+    the Markdown parser nor the search module. A spec holding a fence needs
+    the parser for an accurate binding subject, so there they load it: the
+    stated limit. The control makes a formatting-only change to the recorded
+    spec afterwards: status then loads the parser and keeps the review's
+    evidence current.
+    """
+    plain, spec = _reviewed_scaffold_host(
+        tmp_path,
+        monkeypatch,
+        run_cli,
+        "plain",
+        "Prose with an inline <slug> placeholder.\n",
+    )
+    observation = _probe_scaffold_imports(plain, spec, *REFLOW)
+    forbidden = observation["loaded"]
+    assert not forbidden, (
+        "FAIL AC-11: unchanged scaffold status and orient loaded search code "
+        f"with no possible fence or HTML block: {forbidden}"
+    )
+    control = observation["control"]
+    assert control["code"] == 0
+    assert any(name.startswith("markdown_it") for name in control["loaded"]), (
+        "status must load the parser once a recorded Markdown input differs raw"
+    )
+    scaffolding = [row for row in control["assignments"] if row["role"] == SCAFFOLDING]
+    assert [(row["closed"], row["evidence_state"]) for row in scaffolding] == [
+        (True, "current")
+    ], (
+        "a formatting-only spec change must leave the scaffold review current: "
+        f"{scaffolding}"
+    )
+
+    fenced, _spec = _reviewed_scaffold_host(
+        tmp_path, monkeypatch, run_cli, "fenced", "```text\n## Example heading\n```\n"
+    )
+    loaded = set(_probe_scaffold_imports(fenced)["loaded"])
+    assert {"heddle.kernel.knowledge_search", "markdown_it"} <= loaded, (
+        "a scaffold spec holding a fence needs the parser for its binding "
+        f"subject, so status and orient load it: {sorted(loaded)}"
+    )
+
+
 def test_ac13_representative_cold_search_budget(tmp_path: Path) -> None:
     """AC-13: one uncached 182-file/~6,681-document search stays below 8 s."""
     try:

@@ -617,12 +617,14 @@ def test_ac10_ac22_fenced_crlf_plan_and_spec_sections_arrive_whole_and_byte_exac
     heading before the real one. The m1 section also holds a four-backtick
     fence around a three-backtick block with a `## ` line inside, which a
     fence rule toggling on every fence-like line would read as a boundary.
-    Indented code holding a literal fence marker sits right before the m2
-    heading and right before the AC-1 heading; it opens no fence, so m1 ends
-    at m2 and the AC-1 block is found. The Antigravity milestone review,
-    reading them through the runtime context, embeds each whole section as
-    its source bytes in its own milestone context, and Heddle's labels stay
-    checkout-relative.
+    Both also hold an HTML comment around the same fenced example, with text
+    after it; CommonMark reads the comment as one HTML block, so a fence-only
+    rule would read its `## ` line as a boundary. Indented code holding a
+    literal fence marker sits right before the m2 heading and right before
+    the AC-1 heading; it opens no fence, so m1 ends at m2 and the AC-1 block
+    is found. The Antigravity milestone review, reading them through the
+    runtime context, embeds each whole section as its source bytes in its own
+    milestone context, and Heddle's labels stay checkout-relative.
     """
     from tests.gate.test_lane_capabilities import (
         assert_sections_arrive_whole,
