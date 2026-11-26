@@ -1211,6 +1211,8 @@ def _current_review_basis(
                     Any, reviewer.execution_config["reasoning_effort"]
                 ),
             ),
+            # The recorded execution, not a new selection.
+            validate_model=False,
         )
         context = entry.build_gate_context(
             frame.snapshot,

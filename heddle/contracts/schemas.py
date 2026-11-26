@@ -400,7 +400,7 @@ HEDDLE_YAML_SECTIONS = (
 )
 LAYOUT_KEYS = ("specs", "plans", "prompts", "schemas", "tests", "source")
 HOST_COMMAND_KEYS = ("test", "lint", "typecheck")
-AGENTS_KEYS = ("claude", "codex")
+AGENTS_KEYS = ("claude", "codex", "antigravity")
 GATES_KEYS = ("enabled",)
 # Owner checkpoints a host may turn off; each defaults to on.
 CHECKPOINTS_KEYS = ("specification", "review_changes")

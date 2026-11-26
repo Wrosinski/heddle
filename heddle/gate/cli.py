@@ -11,6 +11,7 @@ from heddle.contracts.gate_execution import (
     VALID_OVERRIDE_AXES,
     VALID_REASONING_EFFORTS,
     VALID_SANDBOXES_BY_CLI,
+    model_selection_refusal,
 )
 from heddle.contracts.limits import (
     DEFAULT_GATE_INACTIVITY_TIMEOUT_S,
@@ -63,19 +64,30 @@ CLI_FALLBACKS = {
         reasoning_effort="high",
         sandbox="danger-full-access",
     ),
+    "antigravity": GateExecutionConfig(
+        cli="antigravity",
+        model="gemini-4-neon",
+        reasoning_effort="high",
+        sandbox="dangerously-skip-permissions",
+    ),
 }
 
 
 def resolve_gate_execution(
     gate_type: GateType,
     overrides: GateInvocationOverrides,
+    *,
+    validate_model: bool = True,
 ) -> ResolvedGateInvocation:
-    """Resolve one supported gate lane, with each public axis independent."""
+    """Resolve one supported gate lane, with each public axis independent.
+
+    ``validate_model=False`` skips the model-naming rule for new selections, so
+    a recorded review's execution resolves as it did when it ran."""
     if overrides.cli is not None and overrides.cli not in VALID_GATE_CLIS:
         raise KernelError(
             code="usage",
             message=f"unsupported gate CLI: {overrides.cli}",
-            hint="use claude or codex",
+            hint="use claude, codex or antigravity",
         )
     if overrides.model is not None and (
         not overrides.model or overrides.model != overrides.model.strip()
@@ -145,6 +157,20 @@ def resolve_gate_execution(
             code="workspace-invalid",
             message=f"registered gate {gate_type.name}/{cli}: {MODEL_FORMAT_ERROR}",
             hint="fix the registered lane or provider fallback before running the gate",
+        )
+    # A newly selected model must suit its lane. Recorded history is exempt:
+    # state decoding never resolves through here, and recomputing a recorded
+    # review's basis passes validate_model=False.
+    refusal = (
+        model_selection_refusal(cli, model, effort_axis="--reasoning-effort")
+        if validate_model
+        else None
+    )
+    if refusal is not None:
+        raise KernelError(
+            code="usage" if overrides.model is not None else "workspace-invalid",
+            message=refusal[0],
+            hint=refusal[1],
         )
     if effort not in VALID_REASONING_EFFORTS:
         raise KernelError(

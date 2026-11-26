@@ -786,6 +786,34 @@ def test_ac5_confirmation_refuses_gemini_models_on_other_lanes(
     assert "gemini-4-neon" in text, f"FAIL AC-5: refusal must name the model: {text}"
 
 
+def test_ac5_confirmation_refuses_a_secondary_reviewer_naming_its_slot(
+    tmp_path, monkeypatch
+):
+    """A secondary reviewer's model is validated as the primary's is, and the
+    refusal names the role and slot."""
+    import yaml
+
+    from tests.tiering_helpers import FEATURE, blank_host, invoke, prepared, wire_policy
+
+    host = blank_host(tmp_path, monkeypatch)
+    prepared(host)
+    intake = host / ".heddle" / "intake" / f"{FEATURE}.yaml"
+    result = invoke(
+        "FeaturePolicy",
+        slug=FEATURE,
+        payload=wire_policy(
+            overrides={
+                "spec-review": entry(
+                    "spec-review", primary=NEON, secondary=CLAUDE_GEMINI
+                )
+            }
+        ),
+        expect_revision=yaml.safe_load(intake.read_text())["revision"],
+    )
+    text = _refusal_text(result, CLAUDE_GEMINI)
+    assert "spec-review secondary" in text and "gemini-4-neon" in text, text
+
+
 @pytest.mark.parametrize("held", ["history", "current"])
 def test_ac5_survivor_stored_codex_gemini_revision_still_loads(
     tmp_path, monkeypatch, capsys, held

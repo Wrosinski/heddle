@@ -578,3 +578,33 @@ def test_ac5_survivor_existing_lane_models_still_launch(cli, model) -> None:
     """Survivor: the new family rules leave existing selections launchable."""
     resolved = _resolve(cli=cli, model=model)
     assert (resolved.exec_config.cli, resolved.exec_config.model) == (cli, model)
+
+
+def test_ac5_model_refusal_code_follows_where_the_model_came_from() -> None:
+    """A refused model the invoker named is a usage error; one a registered
+    lane policy names is a workspace defect, as for the other registered axes."""
+    from dataclasses import replace
+
+    from heddle.gate.cli import resolve_gate_execution
+    from heddle.gate.registry import GATES
+    from heddle.gate.types import GateInvocationOverrides, GateLanePolicy
+
+    with pytest.raises(KernelError) as named:
+        _resolve(cli=ANTIGRAVITY, model="gemini-4-flash")
+    assert named.value.code == "usage"
+    gate = replace(
+        GATES["spec-review"],
+        lane_policies=(
+            *GATES["spec-review"].lane_policies,
+            GateLanePolicy(
+                cli=ANTIGRAVITY,
+                model="gemini-4-flash",
+                reasoning_effort="high",
+                sandbox="dangerously-skip-permissions",
+            ),
+        ),
+    )
+    with pytest.raises(KernelError) as registered:
+        resolve_gate_execution(gate, GateInvocationOverrides(cli=ANTIGRAVITY))
+    assert registered.value.code == "workspace-invalid"
+    assert "gemini-4-flash" in registered.value.message

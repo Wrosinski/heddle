@@ -155,7 +155,7 @@ def _round(value: Any) -> AssignmentRound:
             ReviewerSlot(
                 _choice(slot["name"], ("primary", "secondary")),
                 Reviewer(
-                    _choice(reviewer["cli"], ("claude", "codex")),
+                    _choice(reviewer["cli"], ("claude", "codex", "antigravity")),
                     _text(reviewer["model"]),
                     _choice(
                         reviewer["reasoning_effort"], ("low", "medium", "high", "xhigh")

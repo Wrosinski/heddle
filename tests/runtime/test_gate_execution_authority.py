@@ -88,7 +88,7 @@ _PUBLIC_INVALID_FORMS = (
     (
         "spec-review",
         ("--cli", "CLAUDE"),
-        "--cli must be one of claude, codex",
+        "--cli must be one of claude, codex, antigravity",
         "use an exact lowercase supported CLI",
     ),
     (
@@ -185,7 +185,7 @@ def test_ac2_invalid_override_human_mode_uses_only_stderr(run_cli) -> None:
     assert code == 2
     assert stdout == ""
     assert stderr == (
-        "heddle: error[usage]: --cli must be one of claude, codex\n"
+        "heddle: error[usage]: --cli must be one of claude, codex, antigravity\n"
         "  hint: use an exact lowercase supported CLI\n"
     )
 

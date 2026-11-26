@@ -192,7 +192,8 @@ def test_ac2_invalid_sandbox_fails_before_execution(
 
     assert caught.value.code == "workspace-invalid"
     assert caught.value.message == (
-        "gate sandbox must be auto for claude or danger-full-access for codex"
+        "gate sandbox must be auto for claude, danger-full-access for codex or "
+        "dangerously-skip-permissions for antigravity"
     )
     assert caught.value.hint == (
         "fix the registered lane or provider fallback before running the gate"
@@ -270,12 +271,18 @@ def test_sandbox_domain_is_per_cli(cli: str, sandbox: str) -> None:
 
 
 def test_every_registered_lane_runs_commands() -> None:
+    # Each lane's own permission value; a lane missing here fails, not defaults.
+    expected_by_lane = {
+        "claude": "auto",
+        "codex": "danger-full-access",
+        "antigravity": "dangerously-skip-permissions",
+    }
     for name, gate in GATES.items():
         assert "Bash" in gate.tool_permissions, name
         for cli in gate.supported_clis:
+            assert cli in expected_by_lane, f"no expected sandbox for {name}/{cli}"
             sandbox = _resolve(name, cli=cli).exec_config.sandbox
-            expected = "auto" if cli == "claude" else "danger-full-access"
-            assert sandbox == expected, (name, cli)
+            assert sandbox == expected_by_lane[cli], (name, cli)
 
 
 def test_ac2_invalid_registered_default_cli_is_a_workspace_defect() -> None:
@@ -297,3 +304,84 @@ def test_ac1_no_parallel_model_or_effort_authority_survives() -> None:
     assert not hasattr(gate_cli, "FABLE_MODEL")
     assert not hasattr(gate_cli, "DEFAULT_CLAUDE_GATE_MODEL")
     assert not hasattr(gate_cli, "DEFAULT_CODEX_GATE_MODEL")
+
+
+def test_ac5_recorded_gemini_review_on_codex_qualifies_while_a_new_launch_is_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, run_cli
+) -> None:
+    """A review recorded on codex with a gemini- model before the naming rule
+    existed still qualifies as review evidence, because recomputing its basis
+    resolves the recorded execution without the rule. Launching the same pair
+    now is refused before any provider call."""
+    from tests.structured_review_helpers import disposition as reviewer_disposition
+    from tests.structured_review_helpers import finding, finding_ref
+    from tests.tiering_helpers import entry
+    from tests.tiering_review_helpers import (
+        current_host,
+        dispose,
+        disposition,
+        gate_command,
+        open_round,
+        provider_transport,
+        review_content,
+        runs,
+    )
+
+    legacy_pair = {
+        "cli": "codex",
+        "model": "gemini-4-neon",
+        "reasoning_effort": "high",
+    }
+    _host_root, path = current_host(
+        tmp_path,
+        monkeypatch,
+        overrides={"spec-review": entry("spec-review", primary=legacy_pair, limit=3)},
+    )
+
+    def record(artifact) -> str:
+        # The build before the rule: the launch records the pair as it ran.
+        provider_transport(monkeypatch, artifact)
+        with monkeypatch.context() as earlier_build:
+            earlier_build.setattr(
+                gate_cli, "model_selection_refusal", lambda *_args, **_kwargs: None
+            )
+            code, result = gate_command(run_cli, "run-gate", "spec-review")
+        assert code != 3 and result["ok"], result
+        run = runs(path)[-1]
+        assert run["execution_config"]["model"] == "gemini-4-neon"
+        return run["run_id"]
+
+    origin = record(
+        review_content(findings=[finding("SP-I1", classification="implement")])
+    )
+    recorded = dispose(
+        path,
+        [
+            disposition(origin, status="retained", requires_inspection=True),
+            disposition(origin, "@coverage", status="settled"),
+        ],
+    )
+    assert recorded.ok, recorded.to_envelope()
+    opened = open_round(path)
+    assert opened.ok, opened.to_envelope()
+
+    calls = provider_transport(monkeypatch, review_content())
+    code, refused = gate_command(run_cli, "run-gate", "spec-review")
+    assert code != 0 and not refused["ok"], refused
+    assert "gemini-4-neon" in refused["error"]["message"], refused
+    assert calls == []
+
+    second_round = review_content()
+    second_round["prior_dispositions"] = [
+        reviewer_disposition(finding_ref(origin, "SP-I1"), action="addressed"),
+        reviewer_disposition(finding_ref(origin, "@coverage"), action="addressed"),
+    ]
+    second = record(second_round)
+    recorded = dispose(
+        path,
+        [
+            disposition(origin, "SP-I1", evidence_kind="review", review_run_id=second),
+            disposition(second, "@coverage", status="settled"),
+        ],
+    )
+    assert recorded.ok, recorded.to_envelope()

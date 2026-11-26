@@ -15,9 +15,15 @@
 #   lint: ruff check .
 #   typecheck: mypy
 #
+# The antigravity lane reviews through the `agy` CLI. With
+# `agents.antigravity: true`, `heddle doctor` reports whether `agy` is on
+# PATH; `false` refuses the lane's review slots. Its models are Gemini 4 base
+# names such as gemini-4-neon, with the effort set separately, never as a
+# name suffix.
 # agents:
 #   claude: true
 #   codex: true
+#   antigravity: true
 #
 # gates:
 #   enabled: [spec-review, plan-review]

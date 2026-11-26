@@ -15,7 +15,7 @@ from heddle.gate.results import review_output_contract
 from heddle.gate.types import GateLanePolicy, GateType
 
 REVIEW_TOOLS = ("Read", "Grep", "Glob", "Bash")
-ALL_CLIS = ("claude", "codex")
+ALL_CLIS = ("claude", "codex", "antigravity")
 CLAUDE_STANDARD_POLICY = GateLanePolicy(
     cli="claude",
     model="claude-opus-5-5",

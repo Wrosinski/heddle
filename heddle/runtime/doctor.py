@@ -25,6 +25,7 @@ import sys
 from pathlib import Path
 
 from heddle.contracts import operations as ops
+from heddle.contracts.gate_execution import GATE_CLI_BINARIES
 from heddle.contracts.result import (
     Diagnostic,
     ExitCode,
@@ -299,17 +300,21 @@ def _probe_assets() -> tuple[str, ...]:
 
 
 def _runner_diagnostics(config: ProjectConfig) -> list[Diagnostic]:
-    """Report executable presence for enabled runners without spawning them."""
+    """Report executable presence for enabled runners without spawning them.
+
+    Each runner is probed by its binary, which the antigravity lane names
+    `agy`; the row keeps the agents key in its code."""
     diagnostics: list[Diagnostic] = []
     for agent in AGENTS_KEYS:
         if not config.agents.get(agent, False):
             continue
-        executable = shutil.which(agent)
+        binary = GATE_CLI_BINARIES[agent]
+        executable = shutil.which(binary)
         if executable is None:
-            message = f"{agent} executable not found on PATH"
+            message = f"{binary} executable not found on PATH"
             source = "absent"
         else:
-            message = f"{agent} executable found at {Path(executable).resolve()}"
+            message = f"{binary} executable found at {Path(executable).resolve()}"
             source = "present"
         diagnostics.append(
             Diagnostic(

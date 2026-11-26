@@ -11,7 +11,8 @@ from pathlib import Path
 from typing import Any
 
 from heddle.contracts import operations as ops
-from heddle.contracts.feature_policy import ConfirmedPolicy
+from heddle.contracts.feature_policy import ConfirmedPolicy, GatePolicy
+from heddle.contracts.gate_execution import model_selection_refusal
 from heddle.contracts.result import Conflict, Diagnostic, HeddleResult, NextAction
 from heddle.kernel.feature_policy import (
     ReviewAllowancePolicyError,
@@ -63,6 +64,7 @@ def _transform(
         return result
     policy = parse_policy(operation.payload)
     for row in policy.entries:
+        _validate_new_selection(row)
         if row.mode == "off":
             continue
         validate_host_review_selection(
@@ -101,6 +103,28 @@ def _transform(
     history.append(wire)
     result["feature_policy"] = wire
     return result
+
+
+def _validate_new_selection(row: GatePolicy) -> None:
+    """Refuse a confirmed reviewer whose model does not suit its lane.
+
+    Only a policy being confirmed is checked; decoding a stored revision keeps
+    the older rules, so history recorded before them still loads."""
+    for slot, reviewer in (("primary", row.primary), ("secondary", row.secondary)):
+        if reviewer is None:
+            continue
+        refusal = model_selection_refusal(
+            reviewer.cli, reviewer.model, effort_axis="reasoning_effort"
+        )
+        if refusal is not None:
+            raise KernelError(
+                code="workspace-invalid",
+                message=(
+                    f"feature policy input is invalid: {row.role} {slot} "
+                    f"reviewer: {refusal[0]}"
+                ),
+                hint=refusal[1],
+            )
 
 
 def _result(

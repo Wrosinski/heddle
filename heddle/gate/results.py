@@ -1008,7 +1008,7 @@ def _result_validator(
             gate=_enum(role),
             scope=_TEXT,
             execution=_object(
-                cli=_enum("claude", "codex"),
+                cli=_enum("claude", "codex", "antigravity"),
                 model=_TEXT,
                 reasoning_effort=_TEXT,
                 sandbox=_TEXT,
