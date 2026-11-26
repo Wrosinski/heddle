@@ -38,6 +38,7 @@ from heddle.contracts.review_assignments import (
     EngineFailure,
     RetainedReview,
     ReviewAssignment,
+    ReviewAttempt,
     UsableReviewCapture,
 )
 from heddle.contracts.schemas import (
@@ -821,7 +822,7 @@ def _unrecorded_completion(
     # A stale publication is neither reused nor refused, so a member whose own
     # publication is stale makes one provider call, as a recorded run whose
     # input hash changed executes again.
-    recorded = _recorded_invocations(resolved) if canonical or captures else {}
+    recorded = _recorded_outcomes(resolved)
     canonical = tuple(
         item
         for item in canonical
@@ -898,50 +899,112 @@ def _launch(invocation: entry.ReviewInvocation) -> tuple[object, ...]:
     )
 
 
-def _recorded_invocations(
-    resolved: ResolvedSnapshotContext,
-) -> dict[tuple[object, ...], list[entry.ReviewInvocation]]:
-    """The binding each recorded slot-round's usable outcome was recorded under.
+@dataclass(frozen=True)
+class _RecordedOutcomes:
+    """The usable outcomes the ledger records, by launch.
 
-    Keyed by launch. A canonical review or a usable capture records a
-    slot-round's output; an engine failure records none, so a launch whose
-    only attempts failed is absent. Each binding is read from the outcome's
-    own artifact, which owns it, through the validation that checks its bytes
-    and its ledger event; an unreadable or mismatched artifact refuses.
+    Indexed from the ledger alone: a canonical review or a usable capture
+    records a slot-round's output; an engine failure records none, so a launch
+    whose only attempts failed is absent. A binding is read only for the
+    launch asked about, from each of its outcomes' own artifacts, so an
+    unrelated attempt's artifact is never opened here; integrity of the whole
+    feature stays with the consumers that validate it.
     """
-    from heddle.runtime.review_assignments import (
-        ReviewEvidenceAccess,
-        validate_retained_access,
-        validate_sources,
+
+    resolved: ResolvedSnapshotContext
+    attempts: Mapping[tuple[object, ...], tuple[ReviewAttempt, ...]]
+
+    def __contains__(self, launch: object) -> bool:
+        return launch in self.attempts
+
+    def bindings(self, launch: tuple[object, ...]) -> list[entry.ReviewInvocation]:
+        """The bindings `launch`'s recorded outcomes were recorded under."""
+        return [
+            _recorded_binding(self.resolved, attempt)
+            for attempt in self.attempts.get(launch, ())
+        ]
+
+
+def _recorded_outcomes(resolved: ResolvedSnapshotContext) -> _RecordedOutcomes:
+    """Index the recorded usable outcomes by launch, opening no artifact."""
+    snapshot = resolved.snapshot
+    assignments = {
+        assignment.id: assignment
+        for assignment in snapshot.state.review_assignments.assignments
+    }
+    attempts: dict[tuple[object, ...], list[ReviewAttempt]] = {}
+    for attempt in snapshot.state.review_assignments.attempts:
+        assignment = assignments.get(attempt.assignment_id)
+        if assignment is None or not isinstance(
+            attempt.outcome, (CanonicalReview, UsableReviewCapture)
+        ):
+            continue
+        launch = (
+            snapshot.feature,
+            assignment.role,
+            assignment.scope,
+            attempt.assignment_id,
+            attempt.round_number,
+            attempt.reviewer_slot,
+        )
+        attempts.setdefault(launch, []).append(attempt)
+    return _RecordedOutcomes(
+        resolved, {launch: tuple(rows) for launch, rows in attempts.items()}
     )
+
+
+def _recorded_binding(
+    resolved: ResolvedSnapshotContext, attempt: ReviewAttempt
+) -> entry.ReviewInvocation:
+    """The binding one recorded outcome was recorded under, from its artifact.
+
+    The artifact owns it. A canonical review is read against its gate event and
+    a usable capture against its retained row, bytes and bindings both; an
+    unreadable or mismatched artifact refuses.
+    """
+    from heddle.kernel.review_assignments import retained_responses
 
     snapshot = resolved.snapshot
-    attempts = tuple(
-        attempt
-        for attempt in snapshot.state.review_assignments.attempts
-        if isinstance(attempt.outcome, (CanonicalReview, UsableReviewCapture))
-    )
-    if not attempts:
-        return {}
-    access = ReviewEvidenceAccess(
-        resolved.config.root, snapshot.workspace, snapshot.feature, snapshot.state
-    )
-    results = validate_sources(access)
-    captures = validate_retained_access(access)
-    recorded: dict[tuple[object, ...], list[entry.ReviewInvocation]] = {}
-    for attempt in attempts:
-        invocation = (
-            captures[attempt.attempt_id].invocation
-            if isinstance(attempt.outcome, UsableReviewCapture)
-            else results[attempt.attempt_id].invocation
+    workspace = resolved.config.root / snapshot.workspace
+    try:
+        if isinstance(attempt.outcome, UsableReviewCapture):
+            row = next(
+                (
+                    row
+                    for row in retained_responses(snapshot.state)
+                    if row.run_id == attempt.attempt_id
+                ),
+                None,
+            )
+            if row is None:
+                raise ValueError("no retained row records it")
+            return entry.read_retained_capture(workspace, row).invocation
+        owner = next(
+            (
+                (fact, run)
+                for fact in snapshot.state.gates
+                for run in fact.runs
+                if run.run_id == attempt.attempt_id
+            ),
+            None,
         )
-        recorded.setdefault(_launch(invocation), []).append(invocation)
-    return recorded
+        if owner is None:
+            raise ValueError("no gate event records it")
+        fact, run = owner
+        return entry.read_recorded_review(
+            workspace, run, feature=snapshot.feature, gate=fact.gate, scope=fact.scope
+        ).invocation
+    except (KernelError, OSError, ValueError) as error:
+        detail = error.message if isinstance(error, KernelError) else str(error)
+        raise ValueError(
+            f"its slot round's recorded review {attempt.attempt_id} could not be "
+            f"validated: {detail}"
+        ) from error
 
 
 def _stale_publication(
     publication: GateOutcome,
-    recorded: Mapping[tuple[object, ...], list[entry.ReviewInvocation]],
+    recorded: _RecordedOutcomes,
     prepared: Callable[[], PreparedGateRun],
 ) -> bool:
     """Whether an unrecorded publication is stale, judged against its own launch.
@@ -953,7 +1016,8 @@ def _stale_publication(
     1. A launch that recorded a usable outcome stands for that outcome and
        only that, read from its own artifact: a publication differing from it
        only in identity is superseded, as the one a rerun leaves behind.
-       `prepared` is not consulted, so no scope is prepared again for it.
+       `prepared` is not consulted, so no scope is prepared again for it, and
+       no other launch's artifact is opened.
     2. A launch with no recorded usable outcome that is the launch `prepared`
        gives stands for that preparation, as for a run in flight across an
        identity change.
@@ -972,7 +1036,7 @@ def _stale_publication(
         assert capture is not None
         published = capture.invocation
     launch = _launch(published)
-    targets = recorded.get(launch, [])
+    targets = recorded.bindings(launch)
     if not targets:
         current = prepared()
         if launch != (
@@ -2250,7 +2314,7 @@ def _retained_reuse(
         # A stale capture is neither recovered nor refused here, so its member
         # makes its one call, as at recovery under the lock. One superseded by
         # its launch's recorded outcome is set aside before any preparation.
-        recorded = _recorded_invocations(resolved) if orphans else {}
+        recorded = _recorded_outcomes(resolved)
         current = [
             orphan
             for orphan in orphans

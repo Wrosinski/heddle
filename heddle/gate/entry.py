@@ -182,6 +182,22 @@ def read_retained_capture(workspace: Path, retained: RetainedReview) -> Captured
     return capture
 
 
+def read_recorded_review(
+    workspace: Path, run: GateRun, *, feature: str, gate: str, scope: str
+) -> ReviewResult:
+    """Contained readback of one recorded canonical review, against its event.
+
+    The bytes must carry the digest the event records, and the content and its
+    invocation must match the event's bindings, as for every recorded source.
+    """
+    _, text = read_contained_utf8_artifact(workspace, relative_path=run.artifact)
+    if artifact_identity(text) != run.artifact_sha256:
+        raise _artifact_error(
+            f"recorded canonical review bytes differ from its event: {run.artifact}"
+        )
+    return retained_review_result(text, run, feature=feature, gate=gate, scope=scope)
+
+
 def interpret_retained_response(
     workspace: Path,
     retained: RetainedReview,

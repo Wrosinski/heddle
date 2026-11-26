@@ -68,7 +68,10 @@ member of the batch is refused. A launch that recorded a usable outcome (a
 canonical review or a usable capture) stands for that outcome alone, with the
 binding read from the outcome's own artifact, so the stale publication a rerun
 leaves behind stays stale for every later launch, whatever has changed since
-in its old scope's sources or in the current output contract. Only a launch
+in its old scope's sources or in the current output contract. Which launches
+recorded an outcome is read from the ledger alone, and only the judged
+launch's artifacts are opened: a missing one refuses, while another slot's
+missing artifact leaves the recovery as it was. Only a launch
 with no recorded usable outcome stands for the current preparation, as for a
 run in flight across the change. Any other binding mismatch still refuses
 before a provider call (survivor control), including a changed identity beside
@@ -1928,5 +1931,78 @@ def test_ac22_standalone_recovery_refuses_a_capture_duplicating_a_recorded_outco
     )
     assert result.error.code == "workspace-invalid", result.to_envelope()
     assert "binding" in result.error.message, result.error.message
+    assert calls == [], "FAIL AC-22: the refused launch called a provider"
+    assert state_path.read_bytes() == before
+
+
+def _record_the_primary(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """A dual-slot host whose Codex primary is recorded in round one, which the
+    Claude secondary still has to serve. Returns the host, its state path and
+    the primary's recorded canonical artifact."""
+    host = _host(tmp_path, monkeypatch, MILESTONE)
+    state_path = host / "plans" / V7_FEATURE / "state.yaml"
+    first, calls = _run_counted(monkeypatch, lambda: run_slot(MILESTONE, PRIMARY))
+    _ok(first)
+    assert calls == [(MILESTONE, PRIMARY)]
+    assert _attempt_outcomes(state_path) == [(1, PRIMARY, "canonical-review")]
+    (run,) = gate_runs(state_path)
+    return host, state_path, state_path.parent / run["artifact"]
+
+
+def test_ac22_standalone_recovery_records_a_capture_beside_a_missing_sibling_artifact(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Recovery rule control, unaffected output stays reusable: only the
+    recorded outcome of a publication's own launch is read. With the Codex
+    primary's recorded canonical file removed, a current capture of the Claude
+    secondary, whose launch recorded nothing, is still recovered by a
+    standalone run without a call: the sibling's artifact cannot be its
+    comparison target. Reading every recorded artifact before looking up the
+    launch would refuse it on the sibling's read.
+    """
+    host, state_path, sibling = _record_the_primary(tmp_path, monkeypatch)
+    _publish(host, MILESTONE, SECONDARY, None, outcome=_capture_outcome)
+    sibling.unlink()
+    result, calls = _run_counted(monkeypatch, lambda: run_slot(MILESTONE, SECONDARY))
+    assert result.ok, (
+        "FAIL AC-22: a missing sibling artifact blocked recovery of a current "
+        f"capture: {result.to_envelope().get('error')}"
+    )
+    assert calls == [], "FAIL AC-22: the current capture was not recovered"
+    assert _attempt_outcomes(state_path) == [
+        (1, PRIMARY, "canonical-review"),
+        (1, SECONDARY, "usable-capture"),
+    ]
+
+
+def test_ac22_standalone_recovery_refuses_when_its_launch_s_recorded_artifact_is_gone(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Recovery rule control, failing loud: a capture whose own launch recorded
+    an outcome is judged against that outcome's artifact. This capture differs
+    from the recorded Codex primary only in identity, so it would be passed as
+    superseded; with the recorded canonical file removed, the standalone run
+    refuses instead, naming the recorded review it could not validate, before
+    any call and with the ledger untouched.
+    """
+    host, state_path, recorded = _record_the_primary(tmp_path, monkeypatch)
+    _context, prepared = _prepare(host, MILESTONE, PRIMARY)
+    assert prepared.round_number == 1
+    _publish(
+        host,
+        MILESTONE,
+        PRIMARY,
+        replace(_observe(prepared).identity, input=_CHANGED_INPUT),
+        outcome=_capture_outcome,
+    )
+    recorded.unlink()
+    before = state_path.read_bytes()
+    result, calls = _run_counted(monkeypatch, lambda: run_slot(MILESTONE, PRIMARY))
+    assert not result.ok, (
+        "FAIL AC-22: a capture was judged without its launch's recorded outcome"
+    )
+    assert result.error.code == "workspace-invalid", result.to_envelope()
+    assert "recorded review" in result.error.message, result.error.message
+    assert "could not be validated" in result.error.message, result.error.message
     assert calls == [], "FAIL AC-22: the refused launch called a provider"
     assert state_path.read_bytes() == before
