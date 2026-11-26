@@ -144,15 +144,18 @@ def _git_ok(cwd: Path, *args: str) -> subprocess.CompletedProcess[str]:
 
 
 def test_ac1_ac2_ac3_architecture_review_skill_contract() -> None:
-    """Red discriminator: the new mirrored review skill carries P3 semantics."""
-    codex = _skill("codex", ARCHITECTURE_SKILL)
+    """Red discriminator: the review skill carries P3 semantics."""
+    agents = _skill("agents", ARCHITECTURE_SKILL)
     claude = _skill("claude", ARCHITECTURE_SKILL)
-    assert codex.is_file() and claude.is_file(), (
-        f"FAIL AC-3: missing architecture-review mirror: {[codex, claude]}"
+    assert agents.is_file() and claude.is_file(), (
+        f"FAIL AC-3: missing architecture-review skill: {[agents, claude]}"
     )
-    text = codex.read_text(encoding="utf-8")
+    assert claude.parent.is_symlink() and claude.resolve() == agents.resolve(), (
+        "FAIL AC-3: architecture-review Claude link does not target .agents/skills"
+    )
+    text = agents.read_text(encoding="utf-8")
     assert text == claude.read_text(encoding="utf-8"), (
-        "FAIL AC-3: architecture-review mirrors drifted"
+        "FAIL AC-3: architecture-review skills drifted"
     )
 
     metadata = _frontmatter(text)
@@ -191,14 +194,17 @@ def test_ac1_ac2_ac3_architecture_review_skill_contract() -> None:
 
 def test_ac7_ac8_ac9_worktree_cleanup_contract() -> None:
     """Red discriminator: cleanup requires fresh, conjunctive evidence."""
-    codex = _skill("codex", WORKTREE_SKILL)
+    agents = _skill("agents", WORKTREE_SKILL)
     claude = _skill("claude", WORKTREE_SKILL)
-    assert codex.is_file() and claude.is_file(), (
-        f"FAIL AC-7/AC-9: missing worktree mirror: {[codex, claude]}"
+    assert agents.is_file() and claude.is_file(), (
+        f"FAIL AC-7/AC-9: missing worktree skill: {[agents, claude]}"
     )
-    text = codex.read_text(encoding="utf-8")
+    assert claude.parent.is_symlink() and claude.resolve() == agents.resolve(), (
+        "FAIL AC-9: worktree Claude link does not target .agents/skills"
+    )
+    text = agents.read_text(encoding="utf-8")
     assert text == claude.read_text(encoding="utf-8"), (
-        "FAIL AC-9: worktree skill mirrors drifted"
+        "FAIL AC-9: worktree skills drifted"
     )
     metadata = _frontmatter(text)
     description = _normalized(str(metadata["description"]))
@@ -277,7 +283,7 @@ def test_ac7_ac8_git_primitives_expose_each_cleanup_input(tmp_path: Path) -> Non
     assert divergence.stdout == "0\t0\n"
     assert _git(tmp_path, "merge-base", "--is-ancestor", head, head).returncode == 0
 
-    skill = _skill("codex", WORKTREE_SKILL).read_text(encoding="utf-8")
+    skill = _skill("agents", WORKTREE_SKILL).read_text(encoding="utf-8")
     missing = [
         command for command in CLEANUP_INVENTORY_COMMANDS if command not in skill
     ]

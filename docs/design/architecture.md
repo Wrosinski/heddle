@@ -295,8 +295,8 @@ region and root AGENTS session-entry region, which a host adopted with
 idempotency and per-file publication are enforced by the projection runtime and
 its focused tests.
 It is not part of the driver loop. Accepted historical plans are not regenerated.
-Repository `.claude/skills` to `.codex/skills` generation is separately scoped
-development tooling, not host skill distribution.
+Repository `.agents/skills` layout and `.claude/skills` symlink validation are
+separately scoped development tooling, not host skill distribution.
 
 `heddle search` owns bounded repository knowledge search using an in-memory FTS5
 index of configured specs and an optional patterns shelf. It uses literal AND

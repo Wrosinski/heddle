@@ -30,5 +30,12 @@ poetry.lock
 /.heddle/live-evidence/
 /.heddle.lock
 
-# Agent skill directories stay local to each checkout.
-/.agents/
+# Agent directories stay local to each checkout except the tracked shared skills.
+/.agents/*
+!/.agents/skills/
+/.agents/skills/*
+!/.agents/skills/architecture-proposal-review/
+!/.agents/skills/new-feature/
+!/.agents/skills/pre-implementation-analysis/
+!/.agents/skills/root-cause-analysis/
+!/.agents/skills/worktree-workflow/

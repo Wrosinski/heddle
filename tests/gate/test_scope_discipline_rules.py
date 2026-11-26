@@ -274,7 +274,7 @@ class TestL3ConceptNote:
             "before `heddle feature prepare` binds the research digest",
         ):
             assert anchor in guidelines, anchor
-        for agent in ("claude", "codex"):
+        for agent in ("agents", "claude"):
             skill = _folded(REPO_ROOT / f".{agent}/skills/new-feature/SKILL.md")
             assert "offer the opt-in concept review" in skill, agent
 

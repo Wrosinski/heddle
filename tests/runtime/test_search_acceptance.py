@@ -309,8 +309,8 @@ def test_ac12_workflow_adopts_native_search_without_mirror_drift(
         "docs/workflow/brainstorming-guidelines.md",
         "docs/workflow/document-structure.md",
         "docs/workflow/subagent-exploration-patterns.md",
-        ".codex/skills/new-feature/SKILL.md",
-        ".codex/skills/pre-implementation-analysis/SKILL.md",
+        ".agents/skills/new-feature/SKILL.md",
+        ".agents/skills/pre-implementation-analysis/SKILL.md",
         ".claude/skills/new-feature/SKILL.md",
         ".claude/skills/pre-implementation-analysis/SKILL.md",
     ]
@@ -331,10 +331,13 @@ def test_ac12_workflow_adopts_native_search_without_mirror_drift(
     assert "fallback" in document_structure.lower()
 
     for skill in ("new-feature", "pre-implementation-analysis"):
-        codex = REPO_ROOT / ".codex" / "skills" / skill / "SKILL.md"
+        agents = REPO_ROOT / ".agents" / "skills" / skill / "SKILL.md"
         claude = REPO_ROOT / ".claude" / "skills" / skill / "SKILL.md"
-        assert codex.read_bytes() == claude.read_bytes(), (
-            f"FAIL AC-12: {skill} Claude/Codex mirrors drifted"
+        assert claude.parent.is_symlink() and claude.resolve() == agents.resolve(), (
+            f"FAIL AC-12: {skill} Claude link does not target .agents/skills"
+        )
+        assert agents.read_bytes() == claude.read_bytes(), (
+            f"FAIL AC-12: {skill} Claude/Agents skills drifted"
         )
 
     from dataclasses import replace
@@ -400,7 +403,7 @@ def test_review_allowance_description_is_searchable_with_round_vocabulary(
 
 def test_p0_ac4_canonical_forbidden_set_covers_the_selected_corpus() -> None:
     """AC-4: one categorized fixture set scans every selected mirror."""
-    for agent in ("codex", "claude"):
+    for agent in ("agents", "claude"):
         for skill in P0_SELECTED_SKILLS:
             path = REPO_ROOT / f".{agent}" / "skills" / skill / "SKILL.md"
             text = path.read_text(encoding="utf-8")

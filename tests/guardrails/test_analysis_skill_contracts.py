@@ -58,7 +58,7 @@ def _skill_path(agent: str, name: str) -> Path:
 
 
 def _skill_text(name: str) -> str:
-    return _skill_path("codex", name).read_text(encoding="utf-8")
+    return _skill_path("agents", name).read_text(encoding="utf-8")
 
 
 def _frontmatter(text: str) -> Mapping[str, object]:
@@ -179,14 +179,20 @@ def test_w5_ac11_reflow_preserves_obligations_but_removal_does_not(name):
 
 
 def test_p0_ac1_selected_skill_mirrors_have_valid_identity() -> None:
-    """Survivor + AC-1: mirrors and trigger metadata stay valid."""
+    """Survivor + AC-1: canonical skills and Claude links stay valid."""
     for name in SKILL_NAMES:
-        codex = _skill_path("codex", name)
+        agents = _skill_path("agents", name)
         claude = _skill_path("claude", name)
-        assert codex.read_bytes() == claude.read_bytes(), (
-            f"FAIL AC-1: {name} Claude/Codex mirrors drifted"
+        assert claude.parent.is_symlink(), (
+            f"FAIL AC-1: {name} Claude skill is not a symlink"
         )
-        metadata = _frontmatter(codex.read_text(encoding="utf-8"))
+        assert claude.resolve() == agents.resolve(), (
+            f"FAIL AC-1: {name} Claude link does not resolve to .agents/skills"
+        )
+        assert agents.read_bytes() == claude.read_bytes(), (
+            f"FAIL AC-1: {name} Claude/Agents skills drifted"
+        )
+        metadata = _frontmatter(agents.read_text(encoding="utf-8"))
         expected = {
             **EXPECTED_FRONTMATTER[name],
             "description": " ".join(EXPECTED_FRONTMATTER[name]["description"].split()),

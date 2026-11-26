@@ -898,10 +898,10 @@ def test_skip_only_guard_rejects_new_unqualified_skip(tmp_path: Path) -> None:
 
 
 @pytest.mark.toolchain
-def test_skill_sync_rejects_drifted_and_missing_mirrors(tmp_path: Path) -> None:
+def test_skill_sync_rejects_copied_and_missing_shared_links(tmp_path: Path) -> None:
     # review rejection: the skill-sync guard resolves the repo root from its own
     # file location (not cwd), so run a copy from a temp scripts/ dir against a
-    # classified skills tree with one drifted mirror and one missing mirror.
+    # classified skills tree with one copied shared skill and one missing link.
     scripts_dir = tmp_path / "scripts"
     scripts_dir.mkdir()
     guard = scripts_dir / "check-skill-sync.py"
@@ -909,13 +909,20 @@ def test_skill_sync_rejects_drifted_and_missing_mirrors(tmp_path: Path) -> None:
         (SCRIPTS / "check-skill-sync.py").read_text(encoding="utf-8"),
         encoding="utf-8",
     )
-    shutil.copytree(REPO_ROOT / ".claude/skills", tmp_path / ".claude/skills")
-    shutil.copytree(REPO_ROOT / ".codex/skills", tmp_path / ".codex/skills")
-    mirror = tmp_path / ".codex/skills"
-    (mirror / "root-cause-analysis/SKILL.md").write_text("drifted\n", encoding="utf-8")
-    (mirror / "worktree-workflow/SKILL.md").unlink()
+    shutil.copytree(
+        REPO_ROOT / ".agents/skills", tmp_path / ".agents/skills", symlinks=True
+    )
+    shutil.copytree(
+        REPO_ROOT / ".claude/skills", tmp_path / ".claude/skills", symlinks=True
+    )
+    claude = tmp_path / ".claude/skills"
+    (claude / "root-cause-analysis").unlink()
+    shutil.copytree(
+        tmp_path / ".agents/skills/root-cause-analysis",
+        claude / "root-cause-analysis",
+    )
 
-    result = subprocess.run(
+    copied = subprocess.run(
         [sys.executable, str(guard)],
         cwd=tmp_path,
         capture_output=True,
@@ -924,9 +931,21 @@ def test_skill_sync_rejects_drifted_and_missing_mirrors(tmp_path: Path) -> None:
         check=False,
     )
 
-    assert result.returncode == 1
-    assert "content drift" in result.stdout
-    assert "missing mirror" in result.stdout
+    assert copied.returncode == 1
+    assert "expected symlink" in copied.stdout
+
+    (claude / "worktree-workflow").unlink()
+    missing = subprocess.run(
+        [sys.executable, str(guard)],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=False,
+    )
+
+    assert missing.returncode == 1
+    assert "missing .claude/skills/worktree-workflow" in missing.stdout
 
 
 def test_ruff_versions_match_across_dev_and_pre_commit() -> None:
