@@ -73,6 +73,7 @@ PINNED_ERROR_CODES = frozenset(
         "disposition-batch-invalid",
         "baseline-unavailable",
         "gate-session-refused",
+        "antigravity-input-too-large",
     }
 )
 
@@ -98,7 +99,7 @@ class TestAC5Vocabularies:
 
     def test_error_codes_equal_req7_vocabulary(self):
         assert ERROR_CODES == PINNED_ERROR_CODES
-        assert len(ERROR_CODES) == 26
+        assert len(ERROR_CODES) == 27
 
     def test_unknown_error_code_raises_value_error(self):
         with pytest.raises(ValueError):

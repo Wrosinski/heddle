@@ -86,6 +86,9 @@ ERROR_CODES: frozenset[str] = frozenset(
         # A gate reviewer's session (HEDDLE_AGENT_SESSION=gate) ran a command
         # whose contract is mutating.
         "gate-session-refused",
+        # An antigravity capture above the lane's 250,000-byte ceiling is
+        # refused in preparation, before any provider launch.
+        "antigravity-input-too-large",
     }
 )
 

@@ -8,6 +8,7 @@ from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, ClassVar, Literal, cast
 
 if TYPE_CHECKING:
+    from heddle.gate.input_navigation import CaptureRoute
     from heddle.gate.results import ReviewOutputContract, ReviewResult
     from heddle.gate.retained import CapturedReview
     from heddle.kernel.source_manifest import SourceEvidence
@@ -410,6 +411,10 @@ class PreparedGateRun:
     # An assignment launch's reviewer-basis manifest, from the capture that
     # produced review_basis_hash; None for a launch outside an assignment.
     reviewer_basis_manifest: SourceEvidence | None = None
+    # The antigravity lane's delivery route, inline or chunked, decided from
+    # transport.stdin alone; None on every other lane. A pure function of the
+    # capture, so the capture's identities cover it.
+    antigravity_route: CaptureRoute | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "runtime_sections", tuple(self.runtime_sections))

@@ -28,10 +28,17 @@ from heddle.gate.extraction import (
     unsupported_command_test_tokens,
     unsupported_explicit_test_tokens,
 )
-from heddle.gate.input_navigation import CODEX_INLINE_LIMIT, NAVIGATION_POLICY
+from heddle.gate.input_navigation import (
+    CODEX_INLINE_LIMIT,
+    NAVIGATION_POLICY,
+    CaptureRoute,
+    route_antigravity_capture,
+)
 from heddle.gate.overlap import compute_overlap
 from heddle.gate.preflight import preflight
 from heddle.gate.prompt import (
+    ANTIGRAVITY_LANE_BLOCK,
+    build_antigravity_milestone_context,
     build_codex_local_review_instructions,
     build_codex_milestone_context,
     build_rerun_ledger,
@@ -122,12 +129,18 @@ class _LaneCapabilities:
     - ``local_instructions``: the section placed before the runtime manifest
       for the gates it names;
     - ``milestone_context``: builds the embedded milestone context for a gate
-      with the milestone context builder, inserted after the runtime manifest.
+      with the milestone context builder, inserted after the runtime manifest;
+    - ``lane_block``: the lane's own rules, the last runtime section of every
+      gate;
+    - ``route_capture``: decides the assembled capture's delivery route, which
+      is frozen with the prepared run. A refused route refuses preparation.
     """
 
     navigation_limit: int | None = None
     local_instructions: _LocalInstructions | None = None
     milestone_context: _MilestoneContextBuilder | None = None
+    lane_block: str | None = None
+    route_capture: Callable[[str], CaptureRoute] | None = None
 
 
 _NO_LANE_CAPABILITIES = _LaneCapabilities()
@@ -150,6 +163,11 @@ _LANE_CAPABILITIES: Mapping[str, _LaneCapabilities] = MappingProxyType(
                 build_codex_local_review_instructions,
             ),
             milestone_context=build_codex_milestone_context,
+        ),
+        "antigravity": _LaneCapabilities(
+            milestone_context=build_antigravity_milestone_context,
+            lane_block=ANTIGRAVITY_LANE_BLOCK,
+            route_capture=route_antigravity_capture,
         ),
     }
 )
@@ -512,6 +530,9 @@ def _prepare_variant(
         # This changes review behavior, unlike the transport-only wrapper.
         # Test the original assembled length once: the inline boundary stays put.
         stdin = NAVIGATION_POLICY + "\n\n" + stdin
+    route = lane.route_capture(stdin) if lane.route_capture is not None else None
+    if route is not None and route.kind == "refused":
+        raise _antigravity_input_too_large(context, gate_type, route)
     transport = PromptTransport(system=captured.prompt.transport.system, stdin=stdin)
     effective_digest = hashlib.sha256(
         canonical_json({"system": transport.system, "stdin": transport.stdin})
@@ -567,6 +588,26 @@ def _prepare_variant(
             )
             for item in context.prior_decisions
         ),
+        antigravity_route=route,
+    )
+
+
+def _antigravity_input_too_large(
+    context: GateContext, gate_type: GateType, route: CaptureRoute
+) -> KernelError:
+    """The refusal of an antigravity capture above the lane's ceiling."""
+    return KernelError(
+        code="antigravity-input-too-large",
+        message=(
+            f"the {gate_type.name} capture for the antigravity lane is "
+            f"{route.size:,} UTF-8 bytes, above the lane's {route.ceiling:,}-byte "
+            "ceiling; no provider was launched"
+        ),
+        hint=(
+            f"amend the feature policy (heddle feature policy {context.feature} "
+            f"--from-file <policy>) so the next round's {gate_type.name} slot "
+            "uses another lane"
+        ),
     )
 
 
@@ -605,6 +646,8 @@ def _runtime_sections(
         # Only a lane with a milestone-context builder constructed any text.
         if milestone_projection.text:
             runtime_sections.append(milestone_projection.text)
+    if lane.lane_block is not None:
+        runtime_sections.append(lane.lane_block)
     return tuple(runtime_sections)
 
 

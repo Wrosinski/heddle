@@ -1,13 +1,39 @@
-"""Lossless navigation of frozen Codex input; no source reads or publication."""
+"""Lossless navigation and routing of frozen gate input.
+
+Pure planning over an assembled capture: the Codex byte-range index and the
+Antigravity delivery route. No source reads or publication.
+"""
 
 from __future__ import annotations
 
 import hashlib
 import json
 import re
+import unicodedata
+from dataclasses import dataclass
 from pathlib import PurePosixPath
+from typing import Literal
 
 CODEX_INLINE_LIMIT = 1_048_576
+# agy delivers at most 192,000 bytes of its wrapped message (a 15-byte header,
+# the content and a trailer of about 400 bytes). Content up to this many UTF-8
+# bytes is sent inline with margin to spare.
+ANTIGRAVITY_INLINE_LIMIT = 160_000
+# Above this many UTF-8 bytes the lane refuses before any launch.
+ANTIGRAVITY_CEILING = 250_000
+# One agy read_file call returns at most 800 lines or 46,080 rendered bytes,
+# each line rendered behind an "N: " prefix. A chunk of at most 36,864 raw
+# bytes and 600 lines renders to at most 36,864 + 600 * len("999999: ") =
+# 41,664 bytes, so it is returned whole even with six-digit line numbers.
+_CHUNK_BYTES = 36_864
+_CHUNK_LINES = 600
+# agy strips code points in Unicode categories Cf, Co and Cn, and every Cc
+# control except these, before the model sees inline content.
+_STRIPPED_CATEGORIES = frozenset({"Cf", "Co", "Cn"})
+_KEPT_CONTROLS = frozenset("\t\n\v\f\r\x85")
+# agy wraps inline content in these tags; inline text that opens or closes
+# one could be read as agy's own framing.
+_WRAPPER_TAG = re.compile(r"</?(?:USER_REQUEST|CONTEXT_SUMMARY)", re.IGNORECASE)
 _RANGE_BYTES = 32_768
 _BEGIN_DIFF = b"\n===== BEGIN AUTHORITATIVE DIFF =====\n"
 _END_DIFF = b"\n===== END AUTHORITATIVE DIFF ====="
@@ -147,3 +173,93 @@ def _kind(path: str | None) -> str:
     }:
         return "guidance"
     return "implementation"
+
+
+@dataclass(frozen=True)
+class CaptureChunk:
+    """One chunk of a chunked capture: a half-open UTF-8 byte range and the
+    SHA-256 of exactly those bytes."""
+
+    start: int
+    end: int
+    sha256: str
+
+
+@dataclass(frozen=True)
+class CaptureRoute:
+    """How an assembled Antigravity capture is delivered, decided once.
+
+    ``size`` is the capture's UTF-8 byte count and ``ceiling`` the lane's
+    refusal threshold. Only a ``chunked`` route has chunks; they partition the
+    capture in order, each starting and ending on a character boundary.
+    """
+
+    kind: Literal["inline", "chunked", "refused"]
+    size: int
+    ceiling: int
+    chunks: tuple[CaptureChunk, ...] = ()
+
+
+def route_antigravity_capture(capture: str) -> CaptureRoute:
+    """Route one assembled capture: inline, whole-readable chunks or refused.
+
+    Size is checked first, so content never rescues an oversized capture.
+    Content agy would alter inline (a stripped code point or a wrapper tag)
+    is chunked at any size, because ``read_file`` returns file bytes
+    unaltered.
+    """
+    raw = capture.encode("utf-8")
+    size = len(raw)
+    if size > ANTIGRAVITY_CEILING:
+        return CaptureRoute("refused", size, ANTIGRAVITY_CEILING)
+    if size <= ANTIGRAVITY_INLINE_LIMIT and not _altered_inline(capture):
+        return CaptureRoute("inline", size, ANTIGRAVITY_CEILING)
+    return CaptureRoute("chunked", size, ANTIGRAVITY_CEILING, _chunk_plan(raw))
+
+
+def _altered_inline(capture: str) -> bool:
+    if _WRAPPER_TAG.search(capture):
+        return True
+    for char in set(capture):
+        category = unicodedata.category(char)
+        if category in _STRIPPED_CATEGORIES or (
+            category == "Cc" and char not in _KEPT_CONTROLS
+        ):
+            return True
+    return False
+
+
+def _chunk_plan(raw: bytes) -> tuple[CaptureChunk, ...]:
+    chunks = []
+    start = 0
+    while start < len(raw):
+        end = _chunk_end(raw, start)
+        chunks.append(
+            CaptureChunk(start, end, hashlib.sha256(raw[start:end]).hexdigest())
+        )
+        start = end
+    return tuple(chunks)
+
+
+def _chunk_end(raw: bytes, start: int) -> int:
+    """The end of the chunk starting at ``start``, within both read limits."""
+    limit = min(start + _CHUNK_BYTES, len(raw))
+    newline = start - 1
+    for _ in range(_CHUNK_LINES):
+        newline = raw.find(b"\n", newline + 1, limit)
+        if newline < 0:
+            break
+    else:
+        # The line limit comes first: end after the last line it allows.
+        return newline + 1
+    if limit == len(raw):
+        return limit
+    # End after the last whole line in the window. A line longer than a
+    # chunk is cut at a character boundary instead.
+    last = raw.rfind(b"\n", start, limit)
+    if last >= 0:
+        return last + 1
+    end = limit
+    while raw[end] & 0xC0 == 0x80:
+        end -= 1
+    return end
