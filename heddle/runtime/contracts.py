@@ -107,7 +107,7 @@ _EXPECT_REVISION = FlagSpec(
     "--expect-revision", "require the current owner revision before mutation"
 )
 _DRY_RUN = FlagSpec("--dry-run", "preview the mutation without writing")
-_CLI = FlagSpec("--cli", "CLI runner (claude|codex)")
+_CLI = FlagSpec("--cli", "CLI runner (claude|codex|antigravity)")
 _MODEL = FlagSpec("--model", "exact provider model ID")
 _REASONING_EFFORT = FlagSpec(
     "--reasoning-effort", "reasoning effort (low|medium|high|xhigh)"

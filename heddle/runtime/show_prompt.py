@@ -46,7 +46,8 @@ _RESOLUTION_EXITS: Mapping[str, ExitCode] = {
 }
 
 _USAGE = (
-    "usage: heddle show-prompt <gate> [--feature <slug>] [--cli claude|codex] "
+    "usage: heddle show-prompt <gate> [--feature <slug>] "
+    "[--cli claude|codex|antigravity] "
     "[--model <id>] [--reasoning-effort low|medium|high|xhigh] [--json]"
 )
 

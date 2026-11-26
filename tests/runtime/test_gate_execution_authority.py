@@ -82,7 +82,8 @@ _PUBLIC_INVALID_FORMS = (
         "spec-review",
         ("--model",),
         "--model requires a value",
-        "usage: heddle {action} <gate> [--feature <slug>] [--cli claude|codex] "
+        "usage: heddle {action} <gate> [--feature <slug>] "
+        "[--cli claude|codex|antigravity] "
         "[--model <id>] [--reasoning-effort low|medium|high|xhigh] [--json]",
     ),
     (

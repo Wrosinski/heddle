@@ -98,7 +98,7 @@ class GateExecutionConfig:
 
 @dataclass(frozen=True)
 class GateLanePolicy:
-    cli: Literal["claude", "codex"]
+    cli: Literal["claude", "codex", "antigravity"]
     model: str | None = None
     reasoning_effort: str | None = None
     sandbox: str | None = None
@@ -106,7 +106,7 @@ class GateLanePolicy:
 
 @dataclass(frozen=True)
 class GateInvocationOverrides:
-    cli: Literal["claude", "codex"] | None = None
+    cli: Literal["claude", "codex", "antigravity"] | None = None
     model: str | None = None
     reasoning_effort: str | None = None
 

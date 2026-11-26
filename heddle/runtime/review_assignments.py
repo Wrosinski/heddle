@@ -16,6 +16,7 @@ from typing import Any, cast
 from heddle.contracts import operations as ops
 from heddle.contracts.decisions import Disposition
 from heddle.contracts.feature_policy import ReviewClosure, ReviewResolution
+from heddle.contracts.gate_execution import model_selection_refusal
 from heddle.contracts.result import (
     Conflict,
     Diagnostic,
@@ -189,6 +190,18 @@ def resolve_invocation(
     # After the frozen reviewer fails for a provider reason in this round, its
     # model fallback serves the slot, and explicit axes must name the fallback.
     reviewer = core.serving_reviewer(state, assignment, row, slot)
+    # A named model other than the slot's own is a new selection, so the
+    # naming rule's remedy outranks the generic tuple mismatch below. Routed
+    # slot commands name the confirmed tuple itself; that selects nothing new.
+    if overrides.model is not None and overrides.model not in {
+        slot.reviewer.model,
+        reviewer.model,
+    }:
+        refusal = model_selection_refusal(
+            slot.reviewer.cli, overrides.model, effort_axis="--reasoning-effort"
+        )
+        if refusal is not None:
+            raise KernelError(code="usage", message=refusal[0], hint=refusal[1])
     for key in ("model", "reasoning_effort"):
         explicit = getattr(overrides, key)
         if explicit is None or explicit == getattr(reviewer, key):
@@ -245,8 +258,10 @@ def resolve_invocation(
                     hint=hint,
                     details=details,
                 )
+    # The slot's tuple is a confirmed selection; a fresh provider call checks
+    # it against the naming rule when the launch decides to execute.
     invocation = resolve_gate_execution(
-        gate_type, GateInvocationOverrides(**asdict(reviewer))
+        gate_type, GateInvocationOverrides(**asdict(reviewer)), validate_model=False
     )
     return invocation
 

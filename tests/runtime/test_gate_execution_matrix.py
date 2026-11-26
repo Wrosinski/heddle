@@ -306,50 +306,76 @@ def test_ac1_no_parallel_model_or_effort_authority_survives() -> None:
     assert not hasattr(gate_cli, "DEFAULT_CODEX_GATE_MODEL")
 
 
+LEGACY_PAIR = {"cli": "codex", "model": "gemini-4-neon", "reasoning_effort": "high"}
+# The routed standalone slot command names the frozen tuple itself.
+LEGACY_ARGS = (
+    "--cli",
+    "codex",
+    "--model",
+    "gemini-4-neon",
+    "--reasoning-effort",
+    "high",
+)
+LEGACY_REFUSAL = "codex cannot run the Gemini model gemini-4-neon"
+
+
+def _legacy_host(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *, secondary=None):
+    """A host whose spec-review primary was confirmed as codex with
+    gemini-4-neon before the naming rule existed."""
+    from tests.tiering_helpers import entry
+    from tests.tiering_review_helpers import current_host
+
+    return current_host(
+        tmp_path,
+        monkeypatch,
+        overrides={
+            "spec-review": entry(
+                "spec-review", primary=LEGACY_PAIR, secondary=secondary, limit=3
+            )
+        },
+    )
+
+
+def _record_before_the_rule(monkeypatch, run_cli, path: Path, artifact, *args) -> str:
+    """Launch the legacy slot as the build before the rule did; the run is
+    recorded as it ran. Returns its run id."""
+    from heddle.runtime import gate_run
+    from tests.tiering_review_helpers import gate_command, provider_transport, runs
+
+    provider_transport(monkeypatch, artifact)
+    with monkeypatch.context() as earlier_build:
+        earlier_build.setattr(
+            gate_run, "model_selection_refusal", lambda *_args, **_kwargs: None
+        )
+        code, result = gate_command(run_cli, "run-gate", "spec-review", *args)
+    assert code != 3 and result["ok"], result
+    run = runs(path)[-1]
+    assert run["execution_config"]["model"] == "gemini-4-neon"
+    return run["run_id"]
+
+
 def test_ac5_recorded_gemini_review_on_codex_qualifies_while_a_new_launch_is_refused(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, run_cli
 ) -> None:
     """A review recorded on codex with a gemini- model before the naming rule
     existed still qualifies as review evidence, because recomputing its basis
-    resolves the recorded execution without the rule. Launching the same pair
-    now is refused before any provider call."""
+    resolves the recorded execution without the rule. A fresh launch of the
+    same pair for the next round is refused before any provider call."""
     from tests.structured_review_helpers import disposition as reviewer_disposition
     from tests.structured_review_helpers import finding, finding_ref
-    from tests.tiering_helpers import entry
     from tests.tiering_review_helpers import (
-        current_host,
         dispose,
         disposition,
         gate_command,
         open_round,
         provider_transport,
         review_content,
-        runs,
     )
 
-    legacy_pair = {
-        "cli": "codex",
-        "model": "gemini-4-neon",
-        "reasoning_effort": "high",
-    }
-    _host_root, path = current_host(
-        tmp_path,
-        monkeypatch,
-        overrides={"spec-review": entry("spec-review", primary=legacy_pair, limit=3)},
-    )
+    _host_root, path = _legacy_host(tmp_path, monkeypatch)
 
     def record(artifact) -> str:
-        # The build before the rule: the launch records the pair as it ran.
-        provider_transport(monkeypatch, artifact)
-        with monkeypatch.context() as earlier_build:
-            earlier_build.setattr(
-                gate_cli, "model_selection_refusal", lambda *_args, **_kwargs: None
-            )
-            code, result = gate_command(run_cli, "run-gate", "spec-review")
-        assert code != 3 and result["ok"], result
-        run = runs(path)[-1]
-        assert run["execution_config"]["model"] == "gemini-4-neon"
-        return run["run_id"]
+        return _record_before_the_rule(monkeypatch, run_cli, path, artifact)
 
     origin = record(
         review_content(findings=[finding("SP-I1", classification="implement")])
@@ -368,7 +394,7 @@ def test_ac5_recorded_gemini_review_on_codex_qualifies_while_a_new_launch_is_ref
     calls = provider_transport(monkeypatch, review_content())
     code, refused = gate_command(run_cli, "run-gate", "spec-review")
     assert code != 0 and not refused["ok"], refused
-    assert "gemini-4-neon" in refused["error"]["message"], refused
+    assert refused["error"]["message"] == LEGACY_REFUSAL, refused
     assert calls == []
 
     second_round = review_content()
@@ -385,3 +411,108 @@ def test_ac5_recorded_gemini_review_on_codex_qualifies_while_a_new_launch_is_ref
         ],
     )
     assert recorded.ok, recorded.to_envelope()
+
+
+@pytest.mark.parametrize("form", ["plain", "routed"])
+def test_ac5_exact_replay_of_a_recorded_legacy_review_returns_the_cached_success(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, run_cli, form
+) -> None:
+    """An exact replay is not a provider call: replaying a review recorded on
+    codex with a gemini- model returns the cached success, whether the command
+    names no reviewer or the routed slot tuple."""
+    from tests.tiering_review_helpers import (
+        gate_command,
+        provider_transport,
+        review_content,
+    )
+
+    _host_root, path = _legacy_host(tmp_path, monkeypatch)
+    args = LEGACY_ARGS if form == "routed" else ()
+    origin = _record_before_the_rule(
+        monkeypatch, run_cli, path, review_content(), *args
+    )
+    before = path.read_bytes()
+    calls = provider_transport(monkeypatch, review_content())
+    code, replay = gate_command(run_cli, "run-gate", "spec-review", *args)
+    assert code == 0 and replay["ok"] and replay["data"]["cached"] is True, (
+        f"FAIL AC-5: the exact replay of a recorded legacy review must return "
+        f"its cached success: {replay}"
+    )
+    assert replay["data"]["run_id"] == origin
+    assert calls == []
+    assert path.read_bytes() == before
+
+
+@pytest.mark.parametrize("form", ["plain", "routed"])
+def test_ac5_show_prompt_previews_a_legacy_frozen_slot(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, run_cli, form
+) -> None:
+    """A preview is not a provider call: show-prompt resolves the frozen codex
+    and gemini-4-neon slot as confirmed."""
+    from tests.tiering_review_helpers import gate_command
+
+    _host_root, path = _legacy_host(tmp_path, monkeypatch)
+    before = path.read_bytes()
+    args = LEGACY_ARGS if form == "routed" else ()
+    code, shown = gate_command(run_cli, "show-prompt", "spec-review", *args)
+    assert code == 0 and shown["ok"], (
+        f"FAIL AC-5: show-prompt must preview the legacy frozen slot: {shown}"
+    )
+    assert path.read_bytes() == before
+
+
+def test_ac5_fresh_launch_of_a_legacy_frozen_slot_is_refused_before_any_provider_call(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, run_cli
+) -> None:
+    """A cache miss on the legacy slot would call the provider, so the naming
+    rule refuses it first, leaving no attempt and no ledger row."""
+    from tests.tiering_review_helpers import (
+        gate_command,
+        provider_transport,
+        review_content,
+    )
+
+    _host_root, path = _legacy_host(tmp_path, monkeypatch)
+    before = path.read_bytes()
+    calls = provider_transport(monkeypatch, review_content())
+    code, refused = gate_command(run_cli, "run-gate", "spec-review")
+    assert code != 0 and not refused["ok"], (
+        f"FAIL AC-5: a fresh launch of codex with gemini-4-neon must be refused: "
+        f"{refused}"
+    )
+    error = refused["error"]
+    assert (error["code"], error["message"]) == ("workspace-invalid", LEGACY_REFUSAL)
+    assert "antigravity lane" in error["hint"], error
+    assert calls == []
+    assert path.read_bytes() == before
+
+
+def test_ac5_run_gates_with_a_legacy_member_on_a_cache_miss_is_refused_before_any_call(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Each batch member is prepared before any provider call; the legacy
+    member's refusal refuses the batch, naming that member."""
+    import multiprocessing
+
+    from tests.concurrent_review_helpers import execute_batch, install_counting_engine
+    from tests.tiering_helpers import FABLE
+
+    _host_root, path = _legacy_host(tmp_path, monkeypatch, secondary=FABLE)
+    before = path.read_bytes()
+    with multiprocessing.Manager() as manager:
+        calls = install_counting_engine(monkeypatch, manager)
+        result = execute_batch()
+        started = list(calls)
+    assert not result.ok, (
+        "FAIL AC-5: a batch holding a fresh codex gemini-4-neon member must be "
+        f"refused: {result.to_envelope()}"
+    )
+    assert result.error is not None
+    assert result.error.message == LEGACY_REFUSAL, result.to_envelope()
+    assert result.error.details["selected_member"] == {
+        "gate": "spec-review",
+        "scope": "feature",
+        "reviewer_slot": "primary",
+    }
+    assert started == []
+    assert path.read_bytes() == before

@@ -17,7 +17,11 @@ from pathlib import Path
 from typing import Any, cast
 
 from heddle.contracts import operations as ops
-from heddle.contracts.gate_execution import FALLBACK_FAILURE_REASONS, model_fallback
+from heddle.contracts.gate_execution import (
+    FALLBACK_FAILURE_REASONS,
+    model_fallback,
+    model_selection_refusal,
+)
 from heddle.contracts.operations import RunGate, RunGates
 from heddle.contracts.result import (
     LAUNCH_REFUSAL_CAUSES,
@@ -121,7 +125,8 @@ class _GateLockDrift(Exception):
 
 
 _USAGE = (
-    "usage: heddle run-gate <gate> [--feature <slug>] [--cli claude|codex] "
+    "usage: heddle run-gate <gate> [--feature <slug>] "
+    "[--cli claude|codex|antigravity] "
     "[--model <id>] [--reasoning-effort low|medium|high|xhigh] [--json]"
 )
 _BATCH_USAGE = "usage: heddle run-gates [--feature <slug>] [--json]"
@@ -715,6 +720,23 @@ def _prepare_member(
             diagnostics=resolved.diagnostics,
             include_feature_switch_action=False,
         )
+    if isinstance(reuse, Execute):
+        # Every fresh run, standalone or batch member, is decided here before
+        # any attempt or ledger write, so this is where a confirmed tuple meets
+        # the current naming rule. Replay, recovery and preview never get here.
+        execution = invocation.exec_config
+        refusal = model_selection_refusal(
+            execution.cli, execution.model, effort_axis="--reasoning-effort"
+        )
+        if refusal is not None:
+            return kernel_error_result(
+                KernelError(
+                    code="workspace-invalid", message=refusal[0], hint=refusal[1]
+                ),
+                exit_codes=_RESOLUTION_EXITS,
+                diagnostics=resolved.diagnostics,
+                include_feature_switch_action=False,
+            )
     attempt = _review_attempt(
         policy,
         snapshot.state,

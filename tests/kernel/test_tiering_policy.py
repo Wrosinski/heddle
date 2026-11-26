@@ -847,6 +847,94 @@ def test_ac5_survivor_stored_codex_gemini_revision_still_loads(
     assert code == 0 and envelope["ok"] is True, envelope
 
 
+def _stored_legacy_policy(tmp_path, monkeypatch):
+    """A prepared intake whose confirmed policy runs spec-review on codex with
+    gemini-4-neon, confirmed by the build before the naming rule. Returns the
+    host, the intake path and the confirmed payload."""
+    import yaml
+
+    from heddle.runtime import feature_policy as runtime_policy
+    from tests.tiering_helpers import (
+        FEATURE,
+        blank_host,
+        invoke,
+        prepared,
+        wire_policy,
+    )
+
+    host = blank_host(tmp_path, monkeypatch)
+    prepared(host)
+    intake = host / ".heddle" / "intake" / f"{FEATURE}.yaml"
+    legacy = wire_policy(
+        overrides={"spec-review": entry("spec-review", primary=CODEX_GEMINI)}
+    )
+    with monkeypatch.context() as earlier_build:
+        earlier_build.setattr(
+            runtime_policy, "model_selection_refusal", lambda *_args, **_kwargs: None
+        )
+        recorded = invoke(
+            "FeaturePolicy",
+            slug=FEATURE,
+            payload=legacy,
+            expect_revision=yaml.safe_load(intake.read_text())["revision"],
+        )
+    assert recorded.ok, recorded.to_envelope()
+    return host, intake, legacy
+
+
+def test_ac5_survivor_exact_retry_of_a_stored_codex_gemini_policy_is_a_no_op(
+    tmp_path, monkeypatch
+):
+    """Survivor: resubmitting the confirmed codex + gemini-4-neon payload at
+    the matching revision is not a new selection, so it succeeds unchanged."""
+    import yaml
+
+    from tests.tiering_helpers import FEATURE, invoke, snapshot
+
+    host, intake, legacy = _stored_legacy_policy(tmp_path, monkeypatch)
+    before = snapshot(host)
+    result = invoke(
+        "FeaturePolicy",
+        slug=FEATURE,
+        payload=legacy,
+        expect_revision=yaml.safe_load(intake.read_text())["revision"],
+    )
+    assert result.ok, (
+        "FAIL AC-5: an exact retry of a stored policy must stay a no-op: "
+        f"{result.to_envelope()}"
+    )
+    assert snapshot(host) == before
+
+
+@pytest.mark.parametrize("change", ["carried", "named"])
+def test_ac5_new_revision_over_a_stored_legacy_policy_validates_every_row(
+    tmp_path, monkeypatch, change
+):
+    """A new policy revision is a new selection in every row: it is refused
+    whether it carries the stored codex + gemini-4-neon row into an amendment
+    or names a gemini- model on another lane."""
+    import yaml
+
+    from tests.tiering_helpers import FEATURE, invoke, snapshot, wire_policy
+
+    host, intake, _legacy = _stored_legacy_policy(tmp_path, monkeypatch)
+    row = (
+        entry("spec-review", primary=CODEX_GEMINI, limit=3)
+        if change == "carried"
+        else entry("spec-review", primary=CLAUDE_GEMINI)
+    )
+    before = snapshot(host)
+    result = invoke(
+        "FeaturePolicy",
+        slug=FEATURE,
+        payload=wire_policy(revision=2, overrides={"spec-review": row}),
+        expect_revision=yaml.safe_load(intake.read_text())["revision"],
+    )
+    text = _refusal_text(result, row.primary)
+    assert "spec-review primary" in text and "gemini-4-neon" in text, text
+    assert snapshot(host) == before
+
+
 @pytest.mark.parametrize("lane", ["codex", "antigravity"])
 def test_ac4_disabled_lane_slot_is_refused_before_execution(
     tmp_path, monkeypatch, capsys, lane

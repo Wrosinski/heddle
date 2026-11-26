@@ -535,6 +535,74 @@ def test_ac5_launch_effort_suffixed_name_hints_base_name_and_effort() -> None:
     )
 
 
+def _public_run_gate_refusal(tmp_path, monkeypatch, capsys, model: str) -> dict:
+    """Refused public run-gate on a confirmed gemini-4-neon/high slot, with
+    no provider call and the host unchanged."""
+    import json
+
+    from heddle.cli import main
+    from heddle.gate.runner import GateRunner
+    from tests.tiering_helpers import entry, snapshot
+    from tests.tiering_review_helpers import (
+        V7_FEATURE,
+        current_host,
+        provider_transport,
+        review_content,
+    )
+
+    neon = {"cli": ANTIGRAVITY, "model": "gemini-4-neon", "reasoning_effort": "high"}
+    host, _path = current_host(
+        tmp_path,
+        monkeypatch,
+        overrides={"spec-review": entry("spec-review", primary=neon)},
+    )
+    calls = provider_transport(monkeypatch, review_content())
+    executed: list[str] = []
+
+    def forbidden(_self, *_args, **_kwargs):
+        executed.append(model)
+        pytest.fail(f"FAIL AC-5: run-gate --model {model} reached execution")
+
+    monkeypatch.setattr(GateRunner, "_execute", forbidden)
+    before = snapshot(host)
+    capsys.readouterr()
+    code = main(
+        ["run-gate", "spec-review", "--feature", V7_FEATURE]
+        + ["--model", model, "--json"]
+    )
+    envelope = json.loads(capsys.readouterr().out)
+    assert code != 0 and not envelope["ok"], envelope
+    assert calls == [] and executed == []
+    assert snapshot(host) == before
+    return envelope["error"]
+
+
+def test_ac5_public_run_gate_effort_suffixed_name_hints_base_name_and_effort(
+    tmp_path, monkeypatch, capsys
+) -> None:
+    """The public launch on a confirmed slot gives the naming rule's remedy
+    for an effort-suffixed name, not the frozen tuple's mismatch."""
+    error = _public_run_gate_refusal(
+        tmp_path, monkeypatch, capsys, "gemini-4-neon-high"
+    )
+    text = f"{error['message']} {error.get('hint') or ''}"
+    assert NEON_BASE_NAME.search(text) and "--reasoning-effort" in text, (
+        "FAIL AC-5: public run-gate must hint to pass gemini-4-neon with "
+        f"--reasoning-effort: {text}"
+    )
+    assert "confirmed reviewer tuple" not in text, text
+    assert error["code"] == "usage", error
+
+
+def test_ac5_survivor_public_run_gate_valid_other_model_keeps_the_tuple_refusal(
+    tmp_path, monkeypatch, capsys
+) -> None:
+    """Survivor: a valid model other than the frozen one is still refused as
+    differing from the confirmed reviewer tuple."""
+    error = _public_run_gate_refusal(tmp_path, monkeypatch, capsys, "gemini-4-hydrogen")
+    assert "model differs from the confirmed reviewer tuple" in error["message"], error
+
+
 @pytest.mark.parametrize("effort", ["low", "medium", "high", "xhigh"])
 def test_ac5_launch_accepts_the_domain_efforts(effort) -> None:
     """Red: each existing effort launches on the lane."""

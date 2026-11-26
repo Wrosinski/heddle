@@ -64,7 +64,6 @@ def _transform(
         return result
     policy = parse_policy(operation.payload)
     for row in policy.entries:
-        _validate_new_selection(row)
         if row.mode == "off":
             continue
         validate_host_review_selection(
@@ -78,6 +77,9 @@ def _transform(
     # Parsed, so either spelling of window 1 on either side is the same policy.
     if previous is not None and parse_policy(previous) == policy:
         return result
+    # An exact retry is not a new selection; every row of a new revision is.
+    for row in policy.entries:
+        _validate_new_selection(row)
     expected = previous["revision"] + 1 if previous else 1
     if policy.revision != expected:
         raise KernelError(
