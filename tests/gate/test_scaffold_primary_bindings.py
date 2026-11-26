@@ -283,6 +283,47 @@ def test_ac22_a_commented_sample_declaration_never_binds_or_reaches_the_basis(
     )
 
 
+def test_ac22_a_frontmatter_comment_opener_hides_no_acceptance_criterion(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """The spec's frontmatter holds a YAML block scalar with a comment opener
+    that never closes, and AC-1 binds a test its file does not define.
+    Frontmatter is metadata, so AC-1 is listed and its binding is read:
+    preparation refuses on the missing test, as the Markdown readers before
+    the CommonMark rule did. Red while the parser reads the frontmatter and
+    hides every acceptance criterion behind the opener.
+    """
+    from heddle.gate import entry
+
+    host, _state_path = current_host(tmp_path, monkeypatch, stage="scaffold")
+    witness = host / "quality/real_witness.py"
+    witness.parent.mkdir()
+    witness.write_text("def test_real():\n    assert True\n", encoding="utf-8")
+    git(host, "add", "quality")
+    git(host, "commit", "-qm", "unchanged witness")
+    (host / SPEC).write_text(
+        "---\nsummary: |\n  <!-- a literal comment opener, never closed\n---\n\n"
+        "# Product\n\n## Acceptance Criteria\n\n"
+        "### AC-1: Required behavior\n\n"
+        "Priority: MUST\n\n"
+        "Verified-by: quality/real_witness.py::test_missing\n",
+        encoding="utf-8",
+    )
+    basis_context = _scaffold_context(host)
+    basis = entry.prepare_current_review_basis(
+        basis_context, _invocation(basis_context)
+    )
+    assert basis.ac_ids == ("AC-1",), (
+        f"FAIL AC-22: frontmatter hid the acceptance criteria: {basis.ac_ids}"
+    )
+    context = _scaffold_context(host)
+    with pytest.raises(KernelError) as raised:
+        entry.prepare_gate_run(
+            context, gate_type=context.gate_type, invocation=_invocation(context)
+        )
+    assert "AC-1: quality/real_witness.py::test_missing" in raised.value.message
+
+
 def _assert_only_the_real_declaration_reaches_the_basis(
     tmp_path: Path, monkeypatch, sample: str, label: str
 ) -> None:

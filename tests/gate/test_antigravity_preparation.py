@@ -622,9 +622,12 @@ def test_ac10_ac22_fenced_crlf_plan_and_spec_sections_arrive_whole_and_byte_exac
     rule would read its `## ` line as a boundary. Indented code holding a
     literal fence marker sits right before the m2 heading and right before
     the AC-1 heading; it opens no fence, so m1 ends at m2 and the AC-1 block
-    is found. The Antigravity milestone review, reading them through the
-    runtime context, embeds each whole section as its source bytes in its own
-    milestone context, and Heddle's labels stay checkout-relative.
+    is found. The spec's frontmatter holds a YAML block scalar with a comment
+    opener that never closes; a parser reading frontmatter as Markdown would
+    hide the whole body behind it. The Antigravity milestone review, reading
+    them through the runtime context, embeds each whole section as its
+    source bytes in its own milestone context, and Heddle's labels stay
+    checkout-relative.
     """
     from tests.gate.test_lane_capabilities import (
         assert_sections_arrive_whole,

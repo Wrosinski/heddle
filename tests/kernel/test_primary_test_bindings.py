@@ -479,6 +479,41 @@ def test_ac22_verified_by_readers_skip_html_blocks(shape) -> None:
     _assert_only_the_real_declaration_reads(HTML_SHAPES[shape], shape)
 
 
+# Frontmatter is metadata: a `Verified-by:` key or a lookalike in it never binds
+# and is never reported, and a comment opener in it hides nothing after it.
+FRONTMATTER_SHAPES = {
+    "verified-by-key": (
+        f"---\nVerified-by: {EXAMPLE}\n  Verified-by: {EXAMPLE}\n---\n"
+        f"Verified-by: {REAL}\n",
+        (5,),
+        (),
+    ),
+    "block-scalar-comment-opener": (
+        f"---\nsummary: |\n  <!-- never closed\n---\nVerified-by: {REAL}\n",
+        (5,),
+        (),
+    ),
+    "crlf": (
+        f"---\r\nVerified-by: {EXAMPLE}\r\n---\r\nVerified-by: {REAL}\r\n",
+        (4,),
+        (),
+    ),
+    # No closing delimiter, so no frontmatter: the declaration binds.
+    "unterminated": (
+        f"---\nsummary: plain\nVerified-by: {REAL}\n",
+        (3,),
+        (),
+    ),
+}
+
+
+@pytest.mark.parametrize("shape", FRONTMATTER_SHAPES)
+def test_ac22_verified_by_readers_skip_frontmatter(shape) -> None:
+    """Declarations count in whole-document lines after frontmatter, and
+    none is read inside it."""
+    _assert_only_the_real_declaration_reads(FRONTMATTER_SHAPES[shape], shape)
+
+
 # Survivor: plain-LF text reads exactly as under the previous kernel fence rule
 # (at most three spaces of indent, closed by a longer or equal run of the same
 # character). The functions below copy that rule.

@@ -700,6 +700,38 @@ def test_ac22_html_ends_where_commonmark_ends_it(case, shape) -> None:
     )
 
 
+# Frontmatter is metadata: a comment opener in a block scalar hides nothing
+# after it, and a lookalike of each selected heading inside it starts nothing.
+FRONTMATTER = [
+    "---",
+    "summary: |",
+    "  <!-- a literal comment opener, never closed",
+    "## Purpose",
+    "### Milestone m1: Frontmatter lookalike",
+    "## Acceptance Criteria",
+    "### AC-1: Frontmatter lookalike",
+    "---",
+]
+
+
+@pytest.mark.parametrize("shape", SECTION_SHAPES)
+def test_ac22_frontmatter_neither_hides_nor_starts_a_section(shape) -> None:
+    """Sections after frontmatter come back whole, and none starts inside it."""
+    from heddle.gate.extraction import extract_feature_spec_ac_ids
+
+    head, tail = SECTION_SHAPES[shape]
+    body = ["intro", "Text after the frontmatter stays here."]
+    content = _document([*FRONTMATTER, *head, *body, *tail])
+    expected = [*head, *body]
+    if shape != "acceptance-block":
+        expected = expected[2:]
+    assert _extract(shape, content) == "\n".join(expected), (
+        f"FAIL AC-22: frontmatter hid or started the {shape}"
+    )
+    if shape == "acceptance-block":
+        assert extract_feature_spec_ac_ids(content) == ["AC-1", "AC-2"]
+
+
 # --------------------------------------------------------------------------- #
 # Survivor (AC-23): plain-LF output is byte-identical to the previous rule.
 # The functions below copy the extractors as they stood before the fence and

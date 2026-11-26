@@ -2054,6 +2054,11 @@ INDENTED_TILDE_MARKER = "    ~~~\n    literal tilde marker in indented code"
 # comment as one HTML block, so neither its fence nor its headings are
 # structure.
 COMMENTED_EXAMPLE = f"<!-- a commented example\n{FENCED_EXAMPLE}-->\n"
+# Spec frontmatter whose YAML block scalar holds a literal comment opener that
+# never closes. Frontmatter is metadata, so it hides nothing after it.
+FRONTMATTER_COMMENT_OPENER = (
+    "---\nsummary: |\n  <!-- a literal comment opener, never closed\n---\n\n"
+)
 
 
 @dataclass(frozen=True)
@@ -2075,6 +2080,7 @@ def write_fenced_crlf_sections(host: Path) -> FencedSections:
     heading sits before the real one, inside an earlier fence. The
     m1 section ends in ``INDENTED_BACKTICK_MARKER`` right before the m2
     heading, and ``INDENTED_TILDE_MARKER`` sits right before the AC-1 heading.
+    The spec opens with ``FRONTMATTER_COMMENT_OPENER``.
     Milestone and AC ids are the fixture's own.
     """
     root = host.as_posix()
@@ -2106,6 +2112,7 @@ def write_fenced_crlf_sections(host: Path) -> FencedSections:
     spec = host / "docs/features/runtime" / f"{V7_FEATURE}.md"
     spec.write_bytes(
         (
+            f"{FRONTMATTER_COMMENT_OPENER}"
             "# Operational example\n\n## Acceptance Criteria\n\n"
             "### AC-2: Another value\n\nExpected: another.\n\n"
             "```text\n### AC-1: Lookalike before the real one\n```\n\n"
@@ -2166,11 +2173,13 @@ def test_ac22_codex_fenced_crlf_plan_and_spec_sections_arrive_whole_and_byte_exa
     with a `## ` line inside. Both also hold an HTML comment around the same
     fenced example, with text after it. Indented code holding a literal fence
     marker sits right before the m2 heading and right before the AC-1
-    heading. The Codex milestone review, reading them through the runtime
-    context, embeds each whole section as its source bytes, and Heddle's
-    labels stay checkout-relative. Red while a fenced or commented line
-    bounds a section, a shorter inner run closes a fence, an indented marker
-    opens one or a span's CRLF is rewritten.
+    heading, and the spec's frontmatter holds a YAML block scalar with a
+    comment opener that never closes. The Codex milestone review, reading
+    them through the runtime context, embeds each whole section as its
+    source bytes, and Heddle's labels stay checkout-relative. Red while a
+    fenced or commented line bounds a section, frontmatter hides one, a
+    shorter inner run closes a fence, an indented marker opens one or a
+    span's CRLF is rewritten.
     """
     host = _host(tmp_path, monkeypatch, MILESTONE)
     sections = write_fenced_crlf_sections(host)

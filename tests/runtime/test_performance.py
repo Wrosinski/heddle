@@ -359,7 +359,13 @@ REFLOW = ("A prose line with  a space run.", "A prose line with a space run.")
 
 
 def _reviewed_scaffold_host(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, run_cli, name: str, tail: str
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    run_cli,
+    name: str,
+    tail: str,
+    *,
+    head: str = "",
 ) -> tuple[Path, str]:
     """A scaffold-stage host with a closed test-scaffolding review: one
     round recorded over the spec, plan and bound test, its coverage settled
@@ -386,7 +392,8 @@ def _reviewed_scaffold_host(
     )
     spec = next((host / "docs" / "features").rglob("*.md"))
     spec.write_text(
-        spec.read_text(encoding="utf-8") + f"\n{REFLOW[0]}\n{tail}", encoding="utf-8"
+        head + spec.read_text(encoding="utf-8") + f"\n{REFLOW[0]}\n{tail}",
+        encoding="utf-8",
     )
     git(host, "add", "-A")
     git(host, "commit", "-qm", "authored scaffold inputs")
@@ -430,9 +437,12 @@ def test_ac11_scaffold_status_and_orient_load_the_parser_only_when_needed(
     recorded test-scaffolding review over the spec's acceptance criteria and
     bindings.
 
-    With a spec and plan holding no line that could open a fenced code block
-    or an HTML block, unchanged status, status --json and orient load neither
-    the Markdown parser nor the search module. A spec holding a fence needs
+    With a spec and plan holding no body line that could open a fenced code
+    block or an HTML block, unchanged status, status --json and orient load
+    neither the Markdown parser nor the search module. The plain spec holds a
+    placeholder tag mid-line and at the start of a prose continuation line,
+    and frontmatter whose block scalar holds a comment opener; none of them
+    can open a block. A spec holding a fence needs
     the parser for an accurate binding subject, so there they load it: the
     stated limit. The control makes a formatting-only change to the recorded
     spec afterwards: status then loads the parser and keeps the review's
@@ -443,7 +453,9 @@ def test_ac11_scaffold_status_and_orient_load_the_parser_only_when_needed(
         monkeypatch,
         run_cli,
         "plain",
-        "Prose with an inline <slug> placeholder.\n",
+        "Prose with an inline <slug> placeholder, and a continuation line\n"
+        "<slug> is the feature it names.\n",
+        head="---\nsummary: |\n  <!-- a literal comment opener, never closed\n---\n\n",
     )
     observation = _probe_scaffold_imports(plain, spec, *REFLOW)
     forbidden = observation["loaded"]
