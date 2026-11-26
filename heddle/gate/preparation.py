@@ -14,8 +14,11 @@ import hashlib
 import io
 import re
 import tokenize
+from collections.abc import Callable, Mapping
 from dataclasses import asdict, dataclass, replace
 from pathlib import Path, PurePosixPath
+from types import MappingProxyType
+from typing import Protocol
 
 from heddle.gate.diff import BaselineTestChange, baseline_test_changes
 from heddle.gate.extraction import (
@@ -93,6 +96,68 @@ _BASIS_DOMAIN = b"heddle.gate-review-basis/v4"
 _INPUT_DOMAIN = b"heddle.gate-input/v4"
 _HEX64 = re.compile(r"^[0-9a-f]{64}$")
 _DIFF_CONSUMING_CONTEXT_BUILDERS = frozenset({"milestone", "test-scaffolding"})
+
+
+class _MilestoneContextBuilder(Protocol):
+    def __call__(
+        self, ctx: GateContext, diff: DiffResult, gate_name: str, *, diff_text: str
+    ) -> str: ...
+
+
+@dataclass(frozen=True)
+class _LocalInstructions:
+    """A lane's local-workspace instruction section and the gates that carry it."""
+
+    gates: frozenset[str]
+    build: Callable[[GateContext, str], str]
+
+
+@dataclass(frozen=True)
+class _LaneCapabilities:
+    """The lane-specific decisions gate preparation takes for one review lane.
+
+    Each field answers one decision, and its default takes none of it:
+    - ``navigation_limit``: an assembled input longer than this many characters
+      is led by the captured-input navigation policy;
+    - ``local_instructions``: the section placed before the runtime manifest
+      for the gates it names;
+    - ``milestone_context``: builds the embedded milestone context for a gate
+      with the milestone context builder, inserted after the runtime manifest.
+    """
+
+    navigation_limit: int | None = None
+    local_instructions: _LocalInstructions | None = None
+    milestone_context: _MilestoneContextBuilder | None = None
+
+
+_NO_LANE_CAPABILITIES = _LaneCapabilities()
+# One row per lane; adding a lane is a row. A lane without a row takes none of
+# the decisions, as every lane but Codex did before this table.
+_LANE_CAPABILITIES: Mapping[str, _LaneCapabilities] = MappingProxyType(
+    {
+        "claude": _NO_LANE_CAPABILITIES,
+        "codex": _LaneCapabilities(
+            navigation_limit=CODEX_INLINE_LIMIT,
+            local_instructions=_LocalInstructions(
+                frozenset(
+                    {
+                        "spec-review",
+                        "plan-review",
+                        "milestone-review",
+                        "review-test-scaffolding",
+                    }
+                ),
+                build_codex_local_review_instructions,
+            ),
+            milestone_context=build_codex_milestone_context,
+        ),
+    }
+)
+
+
+def _lane_capabilities(cli: str) -> _LaneCapabilities:
+    """The one resolver of a lane's preparation decisions."""
+    return _LANE_CAPABILITIES.get(cli, _NO_LANE_CAPABILITIES)
 
 
 def encode_gate_manifest(records: tuple[tuple[str, bytes], ...]) -> bytes:
@@ -244,7 +309,7 @@ def _capture_review_inputs(
         context,
         contract,
         diff,
-        exec_config,
+        _lane_capabilities(exec_config.cli),
         diff_text=diff_text,
     )
     reviewed = _declared_reviewed_inputs(
@@ -430,15 +495,14 @@ def _prepare_variant(
     invocation: ResolvedGateInvocation,
 ) -> PreparedGateRun:
     """Pure rendering and identity over captured sources and disposition data."""
-    runtime_sections = _runtime_sections(
-        context, captured, gate_type, invocation.exec_config
-    )
+    lane = _lane_capabilities(invocation.exec_config.cli)
+    runtime_sections = _runtime_sections(context, captured, gate_type, lane)
     stdin = "\n\n".join(
         section
         for section in (captured.prompt.transport.stdin, *runtime_sections)
         if section
     ).strip()
-    if invocation.exec_config.cli == "codex" and len(stdin) > CODEX_INLINE_LIMIT:
+    if lane.navigation_limit is not None and len(stdin) > lane.navigation_limit:
         # This changes review behavior, unlike the transport-only wrapper.
         # Test the original assembled length once: the inline boundary stays put.
         stdin = NAVIGATION_POLICY + "\n\n" + stdin
@@ -504,7 +568,7 @@ def _runtime_sections(
     context: GateContext,
     captured: _CapturedReviewInputs,
     gate_type: GateType,
-    exec_config: GateExecutionConfig,
+    lane: _LaneCapabilities,
 ) -> tuple[str, ...]:
     runtime_sections: list[str] = []
     if captured.rule_context:
@@ -517,17 +581,10 @@ def _runtime_sections(
     ):
         if builder == "test-scaffolding" and projection.text:
             runtime_sections.append(projection.text)
-    if exec_config.cli == "codex" and gate_type.name in {
-        "spec-review",
-        "plan-review",
-        "milestone-review",
-        "review-test-scaffolding",
-    }:
+    local = lane.local_instructions
+    if local is not None and gate_type.name in local.gates:
         runtime_sections.append(
-            _stable_text(
-                context,
-                build_codex_local_review_instructions(context, gate_type.name),
-            )
+            _stable_text(context, local.build(context, gate_type.name))
         )
     runtime_sections.append(
         _stable_text(
@@ -540,10 +597,11 @@ def _runtime_sections(
             ),
         )
     )
-    if exec_config.cli == "codex" and "milestone" in captured.contract.context_builders:
+    if "milestone" in captured.contract.context_builders:
         milestone_projection = captured.projections[
             captured.contract.context_builders.index("milestone")
         ]
+        # Only a lane with a milestone-context builder constructed any text.
         if milestone_projection.text:
             runtime_sections.append(milestone_projection.text)
     return tuple(runtime_sections)
@@ -788,7 +846,7 @@ def _context_projections(
     context: GateContext,
     contract: GateInputContract,
     prepared_diff: DiffResult,
-    exec_config: GateExecutionConfig,
+    lane: _LaneCapabilities,
     *,
     diff_text: str,
 ) -> tuple[
@@ -864,13 +922,13 @@ def _context_projections(
                     binding_issues.append(resolution.issue)
         elif builder == "milestone":
             text = (
-                build_codex_milestone_context(
+                lane.milestone_context(
                     context,
                     prepared_diff,
                     context.gate_type.name,
                     diff_text=diff_text,
                 )
-                if exec_config.cli == "codex"
+                if lane.milestone_context is not None
                 else ""
             )
             reviewed_inputs = []
