@@ -29,6 +29,10 @@ from heddle.gate.results import (
     decode_review_result,
     serialize_review_result,
 )
+
+# The runtime compares a publication with the binding its launch's preparation
+# gives through this seam.
+from heddle.gate.results import bind_review_invocation as bind_review_invocation
 from heddle.gate.types import (
     DiffResult,
     FindingsInfo,
@@ -49,6 +53,7 @@ from heddle.kernel.project_config import KernelError
 
 if TYPE_CHECKING:
     from heddle.contracts.review_assignments import RetainedReview
+    from heddle.gate.results import ReviewInvocation as ReviewInvocation
     from heddle.gate.retained import CapturedReview as CapturedReview
     from heddle.kernel.model import FeatureSnapshot
     from heddle.kernel.project_config import ProjectConfig

@@ -60,23 +60,26 @@ which status and orient read as current (freshness observed at the public
 boundary, see that test); and the recovery control below. The Antigravity half
 belongs to m4.
 
-Recovery rule (owner ruling, 2026-11-24): an unrecorded publication with the
-same feature, gate, scope, assignment, round and reviewer slot as the prepared
-run, whose input hash or effective prompt digest is its only difference from
-the preparation, is stale. It is not reused, its member makes exactly one
-provider call, and no member of the batch is refused. Staleness is judged
-against the publication's own launch, so the stale publication a rerun leaves
-behind, whose launch has since recorded a usable outcome (a canonical review or
-a usable capture) differing from it only in identity, stays stale for every
-later launch. Any other binding mismatch still refuses before a provider call
-(survivor control), including a changed identity beside another difference
-(output contract, prompt version, execution), a publication whose launch
-recorded only failures and a duplicate of a recorded outcome. The rule is one
-predicate, `_stale_publication` (heddle/runtime/gate_run.py), shared by
-`_unrecorded_completion`, which sets stale publications aside before the
-binding check (`validate_review_replay`, heddle/gate/entry.py), and by
-standalone `run-gate`'s unrecorded-capture path, which judges a capture under
-its own invocation. Canonical outputs and usable captures are both covered.
+Recovery rule (owner ruling, 2026-11-24): an unrecorded publication whose
+input hash or effective prompt digest is its only difference from what its own
+launch (feature, gate, scope, assignment, round and reviewer slot) stands for
+is stale. It is not reused, its member makes exactly one provider call, and no
+member of the batch is refused. A launch that recorded a usable outcome (a
+canonical review or a usable capture) stands for that outcome alone, with the
+binding read from the outcome's own artifact, so the stale publication a rerun
+leaves behind stays stale for every later launch, whatever has changed since
+in its old scope's sources or in the current output contract. Only a launch
+with no recorded usable outcome stands for the current preparation, as for a
+run in flight across the change. Any other binding mismatch still refuses
+before a provider call (survivor control), including a changed identity beside
+another difference (output contract, prompt version, execution), a publication
+whose launch recorded only failures and a duplicate of a recorded outcome. The
+rule is one predicate, `_stale_publication` (heddle/runtime/gate_run.py),
+shared by `_unrecorded_completion`, which sets stale publications aside before
+the binding check (`validate_review_replay`, heddle/gate/entry.py), and by
+standalone `run-gate`'s unrecorded-capture path, which prepares a capture's
+launch under its own invocation only when no recorded outcome decides it.
+Canonical outputs and usable captures are both covered.
 
 Label normalization also covers the preflight anomaly that names the plan, and
 a checkout root that the runtime manifest's JSON escapes.
@@ -1766,3 +1769,164 @@ def test_ac22_non_ascii_checkout_root_keeps_labels_relative_and_identities_equal
     assert identities[0] == identities[1] == PINS["codex-milestone-review"].identity, (
         "FAIL AC-22: identities differ under non-ASCII checkout roots"
     )
+
+
+def test_ac22_standalone_later_milestone_runs_past_a_superseded_capture(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Recovery rule, judged against a publication's own launch, before any
+    preparation: a capture whose launch recorded a usable outcome is judged
+    against that outcome alone. On a two-milestone host, m1's Codex capture is
+    stale, recovery reruns its slot and records the replacement, and m2 becomes
+    current. After an edit to a file only m1 owns, a standalone run of m2's
+    Codex slot passes the superseded capture and makes its one call. Prepared
+    again under m1's scope instead, the capture would read as that launch's
+    current output and refuse on m1's changed source.
+    """
+    from heddle.contracts import operations as ops
+    from heddle.runtime.application import execute
+    from tests.concurrent_review_helpers import dual
+    from tests.readiness_helpers import verify
+    from tests.tiering_completion_helpers import final_host
+
+    host = final_host(
+        tmp_path,
+        monkeypatch,
+        stage="implement",
+        verify_now=False,
+        overrides={MILESTONE: dual(MILESTONE, window=1)},
+    )
+    verify(host.state, "m1")
+    _context, prepared = _prepare(host.root, MILESTONE, PRIMARY)
+    assert prepared.scope == "m1"
+    _publish(
+        host.root,
+        MILESTONE,
+        PRIMARY,
+        replace(_observe(prepared).identity, input=_CHANGED_INPUT),
+        outcome=_capture_outcome,
+    )
+    captures = sorted(host.state.parent.glob("reviews/*.capture.json"))
+    assert len(captures) == 1, "fixture lost its capture"
+    recovered, calls = _recover(monkeypatch)
+    assert recovered.ok, recovered.to_envelope()
+    assert sorted(calls) == [(MILESTONE, PRIMARY), (MILESTONE, SECONDARY)]
+    assert _attempt_outcomes(host.state) == [
+        (1, PRIMARY, "canonical-review"),
+        (1, SECONDARY, "canonical-review"),
+    ]
+    _ok(
+        dispose(
+            host.state,
+            [
+                disposition(row["run_id"], "@coverage", status="settled")
+                for row in gate_runs(host.state)
+            ],
+        )
+    )
+    _ok(execute(ops.MilestoneAdvance(feature=V7_FEATURE)))
+    _ok(execute(ops.MilestoneAdvance(feature=V7_FEATURE)))
+    milestones = yaml.safe_load(host.state.read_text())["milestones"]
+    assert [(row["id"], row["status"]) for row in milestones] == [
+        ("m1", "done"),
+        ("m2", "current"),
+    ]
+    source = host.root / "src/example.py"
+    source.write_text(source.read_text() + "\n# An edit after m1's review.\n")
+    verify(host.state, "m2")
+    result, calls = _run_counted(monkeypatch, lambda: run_slot(MILESTONE, PRIMARY))
+    assert result.ok, (
+        "FAIL AC-22: a capture superseded by its launch's recorded outcome "
+        f"refused the later milestone: {result.to_envelope().get('error')}"
+    )
+    assert calls == [(MILESTONE, PRIMARY)], calls
+    gates = yaml.safe_load(host.state.read_text())["gates"]
+    assert [(gate["scope"], len(gate["runs"])) for gate in gates] == [
+        ("m1", 2),
+        ("m2", 1),
+    ], gates
+    assert all(path.exists() for path in captures), "a publication was removed"
+
+
+def test_ac22_next_round_runs_past_the_leftover_after_an_output_schema_change(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Recovery rule, against the recorded outcome's own binding: the leftover
+    and its launch's recorded replacement were both bound to the output
+    contract of their time, read from the replacement's own artifact. When the
+    current schema digest changes afterwards, the leftover still differs from
+    its replacement only in identity, so the next round passes it and makes
+    its one call under the new contract. Taking the recorded outcome's
+    contract from the current preparation would refuse it as another binding.
+    """
+    from heddle.gate.registry import GATES
+    from heddle.gate.results import canonical_json
+
+    host, state_path, _runs = _recover_and_open_the_next_round(tmp_path, monkeypatch)
+    reviews = host / "plans" / V7_FEATURE / "reviews"
+    left = {
+        path: path.read_bytes()
+        for path in reviews.glob(f"{MILESTONE}-m1.codex.*.review.json")
+    }
+    assert len(left) == 2, "fixture lost the leftover or its replacement"
+    gate = GATES[MILESTONE]
+    schema = json.loads(gate.output_contract.schema_json)
+    schema["description"] = "A same-version annotation of the output contract."
+    raw = canonical_json(schema)
+    contract = replace(
+        gate.output_contract,
+        schema_json=raw.decode("utf-8"),
+        schema_sha256=hashlib.sha256(raw).hexdigest(),
+    )
+    assert contract.schema_sha256 != gate.output_contract.schema_sha256
+    monkeypatch.setitem(GATES, MILESTONE, replace(gate, output_contract=contract))
+    result, calls = _run_the_next_round(monkeypatch)
+    assert result.ok, (
+        "FAIL AC-22: a schema change made the superseded leftover refuse the "
+        f"next round: {result.to_envelope().get('error')}"
+    )
+    assert calls == [(MILESTONE, PRIMARY)], calls
+    latest = json.loads(
+        (state_path.parent / gate_runs(state_path)[-1]["artifact"]).read_text()
+    )
+    assert latest["invocation"]["output_contract_sha256"] == contract.schema_sha256
+    assert all(path.read_bytes() == raw for path, raw in left.items())
+
+
+def test_ac22_standalone_recovery_refuses_a_capture_duplicating_a_recorded_outcome(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Recovery rule control, standalone: a capture bound to a launch whose
+    recorded outcome carries the same identity is a duplicate, not superseded,
+    so standalone `run-gate` hands it to the binding check, as the batch does.
+    Bound to round one's Codex launch while round two is current, it is not
+    that launch's exact replay and refuses there, before any call and with the
+    ledger untouched. Without the check it would reach the recorder, whose
+    round guard refuses it only after the capture's source is revalidated.
+    """
+    host, state_path, runs = _recover_and_open_the_next_round(tmp_path, monkeypatch)
+    recorded = next(
+        row for row in gate_runs(state_path) if row["run_id"] == runs[PRIMARY]
+    )
+    _publish(
+        host,
+        MILESTONE,
+        PRIMARY,
+        Identity(
+            recorded["effective_prompt_sha256"],
+            recorded["review_basis_hash"],
+            recorded["input_hash"],
+        ),
+        outcome=_capture_outcome,
+        round_number=recorded["round_number"],
+    )
+    before = state_path.read_bytes()
+    result, calls = _run_the_next_round(monkeypatch)
+    assert not result.ok, (
+        "FAIL AC-22: a capture duplicating a recorded outcome was recorded "
+        "instead of refusing"
+    )
+    assert result.error.code == "workspace-invalid", result.to_envelope()
+    assert "binding" in result.error.message, result.error.message
+    assert calls == [], "FAIL AC-22: the refused launch called a provider"
+    assert state_path.read_bytes() == before
