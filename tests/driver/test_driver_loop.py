@@ -1403,8 +1403,8 @@ def test_antigravity_ceiling_refusal_stops_drive(
     naming the size, the ceiling and the policy remedy. No provider of any lane
     launches: the engine seam records every call, and the doubled agy and
     claude on PATH record every process (an agy version probe is not a
-    launch). No gate run is recorded. Red discriminator until preparation
-    refuses.
+    launch). The measured drive spawns no phase session, and no gate run is
+    recorded. Red discriminator until preparation refuses.
     """
     from tests.gate.test_antigravity_preparation import (
         assert_ceiling_refusal,
@@ -1431,8 +1431,10 @@ def test_antigravity_ceiling_refusal_stops_drive(
 
     fit_capture(host, "spec-review", total, drive)
     prior = runs(state_path)
+    sessions_before = len(seen["sessions"])
 
     code, envelope, _out, _err = drive()
+    sessions = seen["sessions"][sessions_before:]
 
     assert code != 0 and not envelope["ok"], (
         f"FAIL AC-8: the drive did not stop on the oversized capture: {envelope}"
@@ -1443,11 +1445,14 @@ def test_antigravity_ceiling_refusal_stops_drive(
         error["message"],
         error["hint"],
         total,
-        f"the drive (sessions spawned: {seen['sessions']})",
+        f"the drive (sessions spawned: {sessions})",
     )
     assert launches() == [], f"FAIL AC-8: engine launches {launches()}"
     assert agy.launches() == [] and agy.claude_calls() == [], (
         "FAIL AC-8: a provider process launched"
+    )
+    assert sessions == [], (
+        f"FAIL AC-8: the refused drive spawned phase sessions: {sessions}"
     )
     recorded = runs(state_path)[len(prior) :]
     assert recorded == [], f"FAIL AC-8: the refused drive recorded runs: {recorded}"

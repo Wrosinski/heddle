@@ -437,7 +437,9 @@ def require_lane_value() -> None:
     )
 
 
-def antigravity_host(tmp_path, monkeypatch, reviewer=None):
+def antigravity_host(tmp_path, monkeypatch, reviewer=None, *, role="spec-review"):
+    """An operational host at ``role``'s stage whose ``role`` slot is the lane."""
+    from heddle.contracts.review_assignments import ROLE_STAGES
     from tests.tiering_helpers import entry
     from tests.tiering_review_helpers import current_host
 
@@ -445,10 +447,8 @@ def antigravity_host(tmp_path, monkeypatch, reviewer=None):
     return current_host(
         tmp_path,
         monkeypatch,
-        stage="spec-review",
-        overrides={
-            "spec-review": entry("spec-review", primary=reviewer or ANTIGRAVITY)
-        },
+        stage=ROLE_STAGES[role],
+        overrides={role: entry(role, primary=reviewer or ANTIGRAVITY)},
     )
 
 
@@ -606,6 +606,33 @@ def test_ac22_embedded_bodies_keep_the_checkout_path_and_labels_stay_relative(
     assert frozen_route(prepared).kind == "inline"
 
 
+def test_ac10_ac22_fenced_crlf_plan_and_spec_sections_arrive_whole_and_byte_exact(
+    tmp_path, monkeypatch
+):
+    """AC-10/AC-22: real plan and spec files with fences and CRLF spans.
+
+    The host's m1 plan section and AC-1 block each hold a fenced example (a
+    `## ` heading and milestone and AC lookalikes, text after it) and a CRLF
+    span naming the checkout path, with a fenced lookalike of each selected
+    heading before the real one. The Antigravity milestone review, reading
+    them through the runtime context, embeds each whole section as its source
+    bytes in its own milestone context, and Heddle's labels stay
+    checkout-relative.
+    """
+    from tests.gate.test_lane_capabilities import (
+        assert_sections_arrive_whole,
+        prepare_reviewer,
+        write_fenced_crlf_sections,
+    )
+
+    host, _state_path = antigravity_host(tmp_path, monkeypatch, role="milestone-review")
+    sections = write_fenced_crlf_sections(host)
+    _context, prepared = prepare_reviewer(host, "milestone-review", ANTIGRAVITY)
+    assert prepared.invocation.exec_config.cli == "antigravity"
+    assert_sections_arrive_whole(prepared, host, sections, "AC-10/AC-22 antigravity")
+    assert frozen_route(prepared).kind == "inline"
+
+
 # --------------------------------------------------------------------------- #
 # AC-10: the milestone context and the lane block
 # --------------------------------------------------------------------------- #
@@ -635,7 +662,10 @@ def test_ac10_lane_block_names_forbidden_tools_and_paths_and_bans_heddle(
     """AC-10: the runtime lane block in milestone and final peer review captures.
 
     It names forbidden tools and paths, says not to run heddle whatever host
-    rules say, and says to read captured input with read_file only.
+    rules say, and says to read captured input with read_file only. The
+    ``reviews/`` rule draws the run temp directory boundary: this run's chunk
+    index and chunks may be read, and every other ``reviews/`` path, sibling
+    and earlier review output included, stays forbidden.
     """
     lane = prepare_body(checkout, "VALUE = 2\n", gate=gate)
     codex = prepare_body(checkout, "VALUE = 2\n", gate=gate, cli="codex")
@@ -655,8 +685,24 @@ def test_ac10_lane_block_names_forbidden_tools_and_paths_and_bans_heddle(
         and re.search(r"AGENTS|CLAUDE|host|repositor|rule|instruction", line, re.I)
         for line in lines
     ), "FAIL AC-10: no line bans heddle whatever the host rules say"
-    assert any("read_file" in line and "only" in line.lower() for line in lines), (
+    read_rule = [
+        line for line in lines if "read_file" in line and "only" in line.lower()
+    ]
+    assert read_rule, (
         "FAIL AC-10: no line says to read captured input with read_file only"
+    )
+    assert any(
+        "index" in line.lower() and "chunk" in line.lower() for line in read_rule
+    ), "FAIL AC-10: the read_file rule does not name the chunk index and the chunks"
+    reviews_rule = " ".join(line for line in lines if "reviews/" in line).lower()
+    assert re.search(r"\b(?:this|the current) run\b", reviews_rule) and all(
+        word in reviews_rule for word in ("index", "chunk")
+    ), "FAIL AC-10: the reviews/ rule does not allow this run's chunk index and chunks"
+    assert re.search(
+        r"\b(?:every|any|all) other\b[^.;]*\b(?:forbidden|never|not)\b", reviews_rule
+    ) and all(word in reviews_rule for word in ("sibling", "earlier")), (
+        "FAIL AC-10: the reviews/ rule does not keep every other reviews/ path, "
+        "sibling and earlier review output included, forbidden"
     )
 
 

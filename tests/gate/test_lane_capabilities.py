@@ -60,6 +60,12 @@ which status and orient read as current (freshness observed at the public
 boundary, see that test); and the recovery control below. The Antigravity half
 belongs to m4.
 
+Fenced and CRLF sections (AC-22, both embedding lanes, shared helpers
+`write_fenced_crlf_sections` and `assert_sections_arrive_whole`): real plan and
+spec files whose milestone section and selected AC block hold a fenced example
+and a CRLF span arrive whole as their source bytes. These fixtures put the
+checkout path in the plan and spec, so they record no identity.
+
 Recovery rule (owner ruling, 2026-11-24): an unrecorded publication whose
 input hash or effective prompt digest is its only difference from what its own
 launch (feature, gate, scope, assignment, round and reviewer slot) stands for
@@ -484,6 +490,14 @@ def _invocation(snapshot, config, gate, slot_reviewer):
 
 def _prepare(host: Path, role: str, slot: str):
     """Prepare one slot through the runtime's gate context and preparation."""
+    return prepare_reviewer(host, role, SLOT_REVIEWERS[role][slot])
+
+
+def prepare_reviewer(host: Path, role: str, reviewer: dict[str, str]):
+    """Prepare `reviewer`'s slot through the runtime's gate context and preparation.
+
+    The plan and spec are read from the host's files, as a real run reads them.
+    """
     from heddle.gate import entry
     from heddle.gate.registry import GATES
     from heddle.kernel.model import resolve_snapshot
@@ -492,7 +506,6 @@ def _prepare(host: Path, role: str, slot: str):
     config = load_project_config(host)
     snapshot = resolve_snapshot(config, V7_FEATURE)
     gate = GATES[role]
-    reviewer = SLOT_REVIEWERS[role][slot]
     invocation = _invocation(snapshot, config, gate, reviewer)
     context = entry.build_gate_context(snapshot, config, gate, cli=reviewer["cli"])
     prepared = entry.prepare_gate_run(context, gate_type=gate, invocation=invocation)
@@ -2006,3 +2019,131 @@ def test_ac22_standalone_recovery_refuses_when_its_launch_s_recorded_artifact_is
     assert "could not be validated" in result.error.message, result.error.message
     assert calls == [], "FAIL AC-22: the refused launch called a provider"
     assert state_path.read_bytes() == before
+
+
+# ---------------------------------------------------------------------------
+# AC-22: fenced and CRLF plan and spec sections arrive whole as source bytes
+# ---------------------------------------------------------------------------
+
+# A fenced example holding a `## ` heading and milestone and AC lookalikes,
+# including lookalikes of the selected headings.
+FENCED_EXAMPLE = (
+    "```markdown\n"
+    "## Example heading inside a fence\n"
+    "### Milestone m9: Fenced lookalike\n"
+    "### Milestone m1: Fenced lookalike of the selected heading\n"
+    "### AC-9: Fenced lookalike\n"
+    "### AC-1: Fenced lookalike of the selected heading\n"
+    "```\n"
+)
+
+
+@dataclass(frozen=True)
+class FencedSections:
+    """What a capture must embed whole, as the source bytes of the host files."""
+
+    milestone: str
+    acceptance: str
+    spans: tuple[str, ...]
+
+
+def write_fenced_crlf_sections(host: Path) -> FencedSections:
+    """Rewrite the host plan and spec so m1 and AC-1 hold fences and CRLF spans.
+
+    The m1 plan section and the AC-1 block each hold ``FENCED_EXAMPLE`` with
+    text after it, and a CRLF span naming the checkout path. A fenced
+    lookalike of each selected heading sits before the real one, inside an
+    earlier fence. Milestone and AC ids are the fixture's own.
+    """
+    root = host.as_posix()
+    plan_span = f"Plan CRLF span: {root}/plan/input.json\r\nsecond plan line\r\n"
+    spec_span = f"Spec CRLF span: {root}/spec/input.json\r\nsecond spec line\r\n"
+    milestone = (
+        "### Milestone m1: Declared value\n\nSatisfies: AC-1\n\n"
+        "Implement the declared value.\n\n"
+        f"{FENCED_EXAMPLE}\nPlan text after the fence.\n{plan_span}"
+        "End of the m1 section."
+    )
+    block = (
+        "### AC-1: Declared value\n\nPriority: MUST\n"
+        "Action: Read VALUE.\nExpected: The value is 7.\n\n"
+        f"{FENCED_EXAMPLE}\nSpec text after the fence.\n{spec_span}"
+        "End of the AC-1 block."
+    )
+    plan = host / "plans" / V7_FEATURE / "plan.md"
+    plan.write_bytes(
+        (
+            "# Plan\n\n~~~text\n### Milestone m1: Lookalike before the real one\n"
+            f"~~~\n\n{milestone}\n\n### Milestone m2: Verify the value\n\n"
+            "Satisfies: AC-1\n\nVerify the declared value.\n"
+        ).encode()
+    )
+    spec = host / "docs/features/runtime" / f"{V7_FEATURE}.md"
+    spec.write_bytes(
+        (
+            "# Operational example\n\n## Acceptance Criteria\n\n"
+            "### AC-2: Another value\n\nExpected: another.\n\n"
+            "```text\n### AC-1: Lookalike before the real one\n```\n\n"
+            f"Text after the AC-2 fence.\n\n{block}\n\n"
+            "## Decision Log\n\nNo decisions yet.\n"
+        ).encode()
+    )
+    return FencedSections(
+        milestone=milestone,
+        # The section heading, then the selected block (the extractor's shape).
+        acceptance=f"## Acceptance Criteria\n{block}",
+        spans=(plan_span, spec_span),
+    )
+
+
+def assert_sections_arrive_whole(
+    prepared, host: Path, sections: FencedSections, label: str
+) -> None:
+    """The capture embeds each whole section byte for byte; labels stay relative.
+
+    Each section must sit exactly between two of Heddle's delimiter lines, so
+    a section cut short or started early at a lookalike fails. Booleans keep
+    pytest from printing the whole prompt on failure.
+    """
+    stdin = prepared.transport.stdin
+    root = host.as_posix()
+    outside_diff = stdin.replace(prepared.diff_text, "")
+    for name, text in (
+        ("plan milestone section", sections.milestone),
+        ("spec AC-1 block", sections.acceptance),
+    ):
+        whole = f"=====\n{text}\n=====" in outside_diff
+        assert whole, (
+            f"FAIL {label}: the {name} is not embedded whole as its source bytes; "
+            f"text after the fence kept: {'text after the fence' in outside_diff}, "
+            f"CRLF kept: {chr(13) in outside_diff}"
+        )
+    kept = [span in outside_diff for span in sections.spans]
+    assert all(kept), f"FAIL {label}: CRLF spans kept byte-exact: {kept}"
+    labels = outside_diff
+    for text in (sections.milestone, sections.acceptance):
+        labels = labels.replace(text, "")
+    assert root not in labels, (
+        f"FAIL {label}: a Heddle-generated label carries the checkout path"
+    )
+    assert f"plans/{V7_FEATURE}/plan.md" in labels, (
+        f"FAIL {label}: the generated labels do not name the plan checkout-relative"
+    )
+
+
+def test_ac22_codex_fenced_crlf_plan_and_spec_sections_arrive_whole_and_byte_exact(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Discriminator (AC-22, Codex): real plan and spec files whose m1 section
+    and AC-1 block hold a fenced example (a `## ` heading and milestone and AC
+    lookalikes, text after it) and a CRLF span naming the checkout path. The
+    Codex milestone review, reading them through the runtime context, embeds
+    each whole section as its source bytes, and Heddle's labels stay
+    checkout-relative. Red while a fenced line bounds a section or a span's
+    CRLF is rewritten.
+    """
+    host = _host(tmp_path, monkeypatch, MILESTONE)
+    sections = write_fenced_crlf_sections(host)
+    _context, prepared = _prepare(host, MILESTONE, PRIMARY)
+    assert prepared.invocation.exec_config.cli == "codex"
+    assert_sections_arrive_whole(prepared, host, sections, "AC-22 codex")

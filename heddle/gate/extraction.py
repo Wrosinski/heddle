@@ -1,6 +1,41 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Iterator
+from typing import NamedTuple
+
+# The section extractors share two rules, kept here once:
+# - Fences: a line inside a ```/~~~ code fence, or a delimiter itself, is
+#   content, never structure. A fenced `## ` line (a rejected-layout example,
+#   a diff, sample markdown) neither ends a section nor starts one, and a
+#   fenced `### Milestone mN:` or `### AC-N:` lookalike neither starts nor
+#   switches one.
+# - Terminators: a selected span keeps each line's own terminator (CRLF and
+#   every other `str.splitlines` boundary), so an embedded section is its
+#   source bytes. Only whitespace at the span's two ends is stripped.
+
+_ACCEPTANCE_CRITERIA = "## Acceptance Criteria"
+_AC_HEADING = re.compile(r"^### (AC-[0-9]+[a-z]?):")
+
+
+class _Line(NamedTuple):
+    text: str  # the line without its terminator, for structure checks
+    raw: str  # the line with its own terminator, for the selected span
+    fenced: bool  # a fence delimiter or a line inside a fence
+
+
+def _lines(content: str) -> Iterator[_Line]:
+    in_fence = False
+    for raw in content.splitlines(keepends=True):
+        text = raw.splitlines()[0]
+        delimiter = _is_fence_delimiter(text)
+        if delimiter:
+            in_fence = not in_fence
+        yield _Line(text, raw, delimiter or in_fence)
+
+
+def _span(raws: list[str]) -> str:
+    return "".join(raws).strip()
 
 
 def extract_markdown_h2_section(content: str, heading: str) -> str:
@@ -8,40 +43,22 @@ def extract_markdown_h2_section(content: str, heading: str) -> str:
 
 
 def extract_markdown_section(content: str, heading_line: str) -> str:
-    # Fence-aware: a `## `-prefixed line inside a ```/~~~ code fence (a
-    # rejected-layout example, a diff, sample markdown in a free-form
-    # section body) is fenced content, not a section boundary — without
-    # tracking, it both truncates the slice early and can start a section
-    # at a fenced lookalike heading.
-    lines = content.splitlines()
     collected: list[str] = []
-    level = 0
-    in_section = False
-    in_fence = False
-    for line in lines:
-        is_fence_delimiter = _is_fence_delimiter(line)
-        if is_fence_delimiter and not (in_section or in_fence):
-            in_fence = True
-            continue
-        if is_fence_delimiter:
-            in_fence = not in_fence
-        if not in_section:
-            if not in_fence and line == heading_line:
-                in_section = True
-                level = _heading_level(heading_line)
-                collected.append(line)
+    level = _heading_level(heading_line)
+    for line in _lines(content):
+        if not collected:
+            if not line.fenced and line.text == heading_line:
+                collected.append(line.raw)
             continue
         if (
-            collected
-            and not in_fence
-            and not is_fence_delimiter
-            and _is_heading(line)
-            and _heading_level(line) <= level
-            and line != heading_line
+            not line.fenced
+            and _is_heading(line.text)
+            and _heading_level(line.text) <= level
+            and line.text != heading_line
         ):
             break
-        collected.append(line)
-    return "\n".join(collected).strip()
+        collected.append(line.raw)
+    return _span(collected)
 
 
 def extract_explicit_test_paths(content: str, *, tests_root: str) -> tuple[str, ...]:
@@ -162,54 +179,48 @@ def extract_active_rule_blocks(content: str) -> tuple[str, ...] | None:
     fenced examples stay with their block; their rules still need assessment.
     None means no section, while an empty tuple means an empty section.
     """
-    headings = []
-    in_fence = False
-    for line in content.splitlines():
-        if _is_fence_delimiter(line):
-            in_fence = not in_fence
-        elif not in_fence and re.fullmatch(r"#{2,6} Active Enforcement Rules", line):
-            headings.append(line)
+    headings = [
+        line.text
+        for line in _lines(content)
+        if not line.fenced
+        and re.fullmatch(r"#{2,6} Active Enforcement Rules", line.text)
+    ]
     if not headings:
         return None
     if len(headings) != 1:
         raise ValueError("the plan has multiple Active Enforcement Rules sections")
-    body = extract_markdown_section(content, headings[0]).splitlines()[1:]
+    body = list(_lines(extract_markdown_section(content, headings[0])))[1:]
     blocks: list[str] = []
     current: list[str] = []
-    in_fence = False
     for line in body:
-        starts_item = bool(re.match(r"(?:[-*+] |\d+[.)] )", line))
-        if not in_fence and (not line.strip() or starts_item):
+        starts_item = bool(re.match(r"(?:[-*+] |\d+[.)] )", line.text))
+        if not line.fenced and (not line.text.strip() or starts_item):
             if current:
-                blocks.append("\n".join(current).strip())
+                blocks.append(_span(current))
                 current = []
-            if not line.strip():
+            if not line.text.strip():
                 continue
-        current.append(line)
-        if _is_fence_delimiter(line):
-            in_fence = not in_fence
+        current.append(line.raw)
     if current:
-        blocks.append("\n".join(current).strip())
+        blocks.append(_span(current))
     return tuple(blocks)
 
 
 def extract_milestone_section(content: str, milestone: str) -> str:
     pattern = _milestone_heading_pattern(milestone)
-    lines = content.splitlines()
     collected: list[str] = []
-    in_section = False
-    for line in lines:
-        if not in_section and pattern.search(line):
-            in_section = True
-        if not in_section:
+    for line in _lines(content):
+        if not collected:
+            if not line.fenced and pattern.search(line.text):
+                collected.append(line.raw)
             continue
-        if collected and (
-            line.startswith("## ")
-            or (line.startswith("### ") and not pattern.search(line))
+        if not line.fenced and (
+            line.text.startswith("## ")
+            or (line.text.startswith("### ") and not pattern.search(line.text))
         ):
             break
-        collected.append(line)
-    return "\n".join(collected).strip()
+        collected.append(line.raw)
+    return _span(collected)
 
 
 def _milestone_heading_pattern(milestone: str) -> re.Pattern[str]:
@@ -218,45 +229,47 @@ def _milestone_heading_pattern(milestone: str) -> re.Pattern[str]:
 
 
 def extract_acceptance_criteria_blocks(content: str, ac_ids: list[str]) -> str:
+    """The `## Acceptance Criteria` heading and the blocks of ``ac_ids``."""
     wanted = set(ac_ids)
-    lines = content.splitlines()
-    in_acceptance = False
-    print_block = False
+    selected = False
     collected: list[str] = []
-    for line in lines:
-        if line == "## Acceptance Criteria":
-            in_acceptance = True
-            collected.append(line)
-            continue
-        if (
-            in_acceptance
-            and line.startswith("## ")
-            and line != "## Acceptance Criteria"
-        ):
-            break
-        if in_acceptance and re.match(r"^### AC-[0-9]+[a-z]?:", line):
-            match = re.search(r"AC-[0-9]+[a-z]?", line)
-            print_block = bool(match and match.group(0) in wanted)
-        if in_acceptance and print_block:
-            collected.append(line)
-    return "\n".join(collected).strip()
+    for line, heading, opened in _acceptance_criteria(content):
+        if opened is not None:
+            selected = opened in wanted
+        if heading or selected:
+            collected.append(line.raw)
+    return _span(collected)
 
 
 def extract_feature_spec_ac_ids(content: str) -> list[str]:
-    lines = content.splitlines()
+    """The AC ids in spec order, read from the same blocks as the extractor."""
+    return [
+        opened
+        for _line, _heading, opened in _acceptance_criteria(content)
+        if opened is not None
+    ]
+
+
+def _acceptance_criteria(content: str) -> Iterator[tuple[_Line, bool, str | None]]:
+    """The Acceptance Criteria section's lines, the one owner of AC blocks.
+
+    Each line comes with whether it is the section heading and the AC id it
+    opens, if any. The section starts at an unfenced `## Acceptance Criteria`
+    line and ends before the next unfenced `## ` line; a repeated section
+    heading continues it. An unfenced `### AC-N:` line opens block AC-N.
+    """
     in_acceptance = False
-    ids: list[str] = []
-    for line in lines:
-        if line == "## Acceptance Criteria":
+    for line in _lines(content):
+        if not line.fenced and line.text == _ACCEPTANCE_CRITERIA:
             in_acceptance = True
+            yield line, True, None
             continue
-        if in_acceptance and line.startswith("## "):
-            break
-        if in_acceptance and re.match(r"^### AC-[0-9]+[a-z]?:", line):
-            match = re.search(r"AC-[0-9]+[a-z]?", line)
-            if match:
-                ids.append(match.group(0))
-    return ids
+        if not in_acceptance:
+            continue
+        if not line.fenced and line.text.startswith("## "):
+            return
+        match = None if line.fenced else _AC_HEADING.match(line.text)
+        yield line, False, match.group(1) if match else None
 
 
 def _is_heading(line: str) -> bool:
