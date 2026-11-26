@@ -38,6 +38,7 @@ from heddle.contracts.review_assignments import (
     EngineFailure,
     RetainedReview,
     ReviewAssignment,
+    UsableReviewCapture,
 )
 from heddle.contracts.schemas import (
     REVIEW_LAUNCH_MODES,
@@ -817,6 +818,16 @@ def _unrecorded_completion(
         gate=parsed.gate,
         cli=prepared.invocation.exec_config.cli,
     )
+    # A stale publication is neither reused nor refused, so a member whose own
+    # publication is stale makes one provider call, as a recorded run whose
+    # input hash changed executes again.
+    recorded = _recorded_identities(snapshot)
+    canonical = tuple(
+        item for item in canonical if not _stale_publication(item, prepared, recorded)
+    )
+    captures = tuple(
+        item for item in captures if not _stale_publication(item, prepared, recorded)
+    )
     if len(canonical) + len(captures) > 1:
         raise ValueError(
             f"multiple unrecorded {parsed.gate} outputs need reconciliation"
@@ -862,6 +873,90 @@ def _unrecorded_completion(
             raise ValueError("retained invocation binding differs from prepared replay")
         return outcome
     return None
+
+
+def _recorded_identities(
+    snapshot: FeatureSnapshot,
+) -> dict[tuple[object, ...], set[tuple[str, str]]]:
+    """The input identities each recorded slot-round's usable outcome carries.
+
+    Keyed by launch: the feature, gate, scope, assignment, round and reviewer
+    slot. A canonical review or a usable capture records a slot-round's output;
+    an engine failure records none, so a launch whose only attempts failed is
+    absent. The identity is the input hash and effective prompt digest.
+    """
+    assignments = {
+        assignment.id: assignment
+        for assignment in snapshot.state.review_assignments.assignments
+    }
+    recorded: dict[tuple[object, ...], set[tuple[str, str]]] = {}
+    for attempt in snapshot.state.review_assignments.attempts:
+        assignment = assignments.get(attempt.assignment_id)
+        if assignment is None or not isinstance(
+            attempt.outcome, (CanonicalReview, UsableReviewCapture)
+        ):
+            continue
+        launch = (
+            snapshot.feature,
+            assignment.role,
+            assignment.scope,
+            attempt.assignment_id,
+            attempt.round_number,
+            attempt.reviewer_slot,
+        )
+        recorded.setdefault(launch, set()).add(
+            (attempt.invocation.input_hash, attempt.invocation.effective_prompt_sha256)
+        )
+    return recorded
+
+
+def _stale_publication(
+    publication: GateOutcome,
+    prepared: PreparedGateRun,
+    recorded: Mapping[tuple[object, ...], set[tuple[str, str]]],
+) -> bool:
+    """Whether an unrecorded publication is stale, judged against its own launch.
+
+    A publication's launch is the feature, gate, scope, assignment, round and
+    reviewer slot it is bound to; its identity is its input hash and effective
+    prompt digest. It is stale when that identity is not what its own launch
+    now stands for:
+    - for the launch being prepared, the current preparation, as for a run in
+      flight across an identity change;
+    - for a launch already recorded, its recorded usable outcome, as for the
+      stale publication a rerun leaves behind.
+
+    Every other publication keeps its binding check, so these still refuse:
+    one for a launch with no recorded usable outcome, including a launch whose
+    only attempts failed, and one carrying its launch's recorded identity.
+    """
+    result = publication.review_result
+    if result is not None:
+        published = result.invocation
+    else:
+        capture = publication.retained_review
+        assert capture is not None
+        published = capture.invocation
+    launch = (
+        published.feature,
+        published.gate,
+        published.scope,
+        published.assignment_id,
+        published.round_number,
+        published.reviewer_slot,
+    )
+    identity = (published.input_hash, published.effective_prompt_sha256)
+    if launch == (
+        prepared.feature,
+        prepared.gate,
+        prepared.scope,
+        prepared.assignment_id,
+        prepared.round_number,
+        prepared.reviewer_slot,
+    ):
+        return identity != (prepared.input_hash, prepared.effective_prompt_sha256)
+    outcomes = recorded.get(launch)
+    return outcomes is not None and identity not in outcomes
 
 
 def _batch_worker(sender: Any, member: _BatchMember, feature: str) -> None:

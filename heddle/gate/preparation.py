@@ -575,7 +575,7 @@ def _runtime_sections(
         runtime_sections.append(captured.rule_context)
     ledger = build_rerun_ledger(context)
     if ledger:
-        runtime_sections.append(_stable_text(context, ledger))
+        runtime_sections.append(ledger)
     for builder, projection in zip(
         captured.contract.context_builders, captured.projections, strict=True
     ):
@@ -583,18 +583,13 @@ def _runtime_sections(
             runtime_sections.append(projection.text)
     local = lane.local_instructions
     if local is not None and gate_type.name in local.gates:
-        runtime_sections.append(
-            _stable_text(context, local.build(context, gate_type.name))
-        )
+        runtime_sections.append(local.build(context, gate_type.name))
     runtime_sections.append(
-        _stable_text(
+        build_runtime_manifest(
             context,
-            build_runtime_manifest(
-                context,
-                captured.diff,
-                captured.overlap,
-                captured.preflight,
-            ),
+            captured.diff,
+            captured.overlap,
+            captured.preflight,
         )
     )
     if "milestone" in captured.contract.context_builders:
@@ -938,10 +933,7 @@ def _context_projections(
                 "register a typed context projection before using this builder",
             )
         projections.append(
-            ContextProjection(
-                text=_stable_text(context, text),
-                reviewed_inputs=tuple(reviewed_inputs),
-            )
+            ContextProjection(text=text, reviewed_inputs=tuple(reviewed_inputs))
         )
     return (
         tuple(projections),
@@ -1656,11 +1648,6 @@ def _paths_overlap(left: str, right: str) -> bool:
         or left_path in right_path.parents
         or right_path in left_path.parents
     )
-
-
-def _stable_text(context: GateContext, text: str) -> str:
-    root = context.repo_root.as_posix().rstrip("/")
-    return text.replace(f"{root}/", "")
 
 
 def _input_error(message: str, hint: str) -> KernelError:

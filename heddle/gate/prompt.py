@@ -400,6 +400,20 @@ def _reviewer_path(context: GateContext, path: Path | str | None) -> str:
         return candidate.as_posix()
 
 
+def _checkout_label(ctx: GateContext, path: Path | str | None) -> str:
+    """A generated path label in a runtime section, relative to the checkout.
+
+    Only the path labels Heddle generates go through here: section headers,
+    instruction paths and the runtime manifest's locations. An embedded body
+    (a diff, a plan or spec section, verification-command facts, a prior
+    review) is delivered as captured, checkout paths included.
+    """
+    if path is None:
+        return ""
+    root = ctx.repo_root.as_posix().rstrip("/")
+    return str(path).removeprefix(f"{root}/")
+
+
 def compute_prompt_version(gate_type: GateType, repo_root: Path) -> str | None:
     """Hash the prompt this gate would be given: its template, every partial
     the template splices in, and the shared standards doc they are all
@@ -490,8 +504,8 @@ def build_runtime_manifest(
     payload: dict[str, Any] = {
         "gate": ctx.gate_type.name,
         "feature": ctx.feature,
-        "plan": str(ctx.plan_path or ""),
-        "spec": str(ctx.spec_path or ""),
+        "plan": _checkout_label(ctx, ctx.plan_path),
+        "spec": _checkout_label(ctx, ctx.spec_path),
         "milestone": {
             "number": ctx.milestone,
             "title": ctx.milestone_title,
@@ -500,7 +514,8 @@ def build_runtime_manifest(
         },
         "diff": {
             "source": diff.source,
-            "source_detail": diff.source_detail,
+            # A provided diff file is named by its absolute path.
+            "source_detail": _checkout_label(ctx, diff.source_detail),
             "changed_files": diff.changed_files,
             "untracked_files": diff.untracked_files,
         },
@@ -736,27 +751,31 @@ def build_codex_local_review_instructions(ctx: GateContext, gate_name: str) -> s
             "alias exists in this environment."
         ),
     ]
+    spec = _checkout_label(ctx, ctx.spec_path)
     if gate_name == "spec-review":
         if ctx.spec_path:
-            lines.append(f"Read this Feature Spec from disk: {ctx.spec_path}")
+            lines.append(f"Read this Feature Spec from disk: {spec}")
         return "\n".join(lines)
     if ctx.plan_path:
-        lines.append(f"Read this Implementation Plan from disk: {ctx.plan_path}")
+        lines.append(
+            "Read this Implementation Plan from disk: "
+            f"{_checkout_label(ctx, ctx.plan_path)}"
+        )
     if ctx.spec_path:
         if gate_name == "milestone-review":
             lines.append(
                 "Read the current milestone's satisfied Acceptance Criteria and "
                 "their explicitly referenced defining commitments from this "
-                f"Feature Spec: {ctx.spec_path}"
+                f"Feature Spec: {spec}"
             )
         elif gate_name == "review-test-scaffolding":
             lines.append(
                 "Read the Acceptance Criteria and only their explicitly referenced "
                 "defining commitments from this Feature Spec: "
-                f"{ctx.spec_path}"
+                f"{spec}"
             )
         else:
-            lines.append(f"Read this Feature Spec from disk: {ctx.spec_path}")
+            lines.append(f"Read this Feature Spec from disk: {spec}")
     return "\n".join(lines)
 
 
@@ -792,12 +811,13 @@ def build_codex_milestone_context(
         ),
     ]
 
+    plan = _checkout_label(ctx, ctx.plan_path)
     yaml_header = extract_yaml_header(ctx.plan_content)
     if yaml_header and ctx.plan_path:
         sections.extend(
             [
                 "",
-                f"===== BEGIN IMPLEMENTATION PLAN YAML HEADER: {ctx.plan_path} =====",
+                f"===== BEGIN IMPLEMENTATION PLAN YAML HEADER: {plan} =====",
                 yaml_header,
                 "===== END IMPLEMENTATION PLAN YAML HEADER =====",
             ]
@@ -808,7 +828,7 @@ def build_codex_milestone_context(
             [
                 "",
                 "Resolved input: Current Milestone section",
-                f"===== BEGIN CURRENT MILESTONE SECTION: {ctx.plan_path} =====",
+                f"===== BEGIN CURRENT MILESTONE SECTION: {plan} =====",
                 ctx.milestone_section,
                 "===== END CURRENT MILESTONE SECTION =====",
             ]
@@ -831,7 +851,7 @@ def build_codex_milestone_context(
                     "Resolved input: Feature Spec Acceptance Criteria section",
                     (
                         "===== BEGIN FEATURE SPEC ACCEPTANCE CRITERIA: "
-                        f"{ctx.spec_path} ====="
+                        f"{_checkout_label(ctx, ctx.spec_path)} ====="
                     ),
                     acceptance,
                     "===== END FEATURE SPEC ACCEPTANCE CRITERIA =====",
@@ -901,12 +921,13 @@ def build_test_scaffolding_context(
             ]
         )
 
+    plan = _checkout_label(ctx, ctx.plan_path)
     yaml_header = extract_yaml_header(ctx.plan_content)
     if yaml_header and ctx.plan_path:
         sections.extend(
             [
                 "",
-                f"===== BEGIN IMPLEMENTATION PLAN YAML HEADER: {ctx.plan_path} =====",
+                f"===== BEGIN IMPLEMENTATION PLAN YAML HEADER: {plan} =====",
                 yaml_header,
                 "===== END IMPLEMENTATION PLAN YAML HEADER =====",
             ]

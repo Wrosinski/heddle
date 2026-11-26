@@ -24,49 +24,54 @@ recorded identities independent of the machine and of later wording edits:
   the review basis, so a path there would make the basis, and the input hash,
   depend on the disposable host's location.
 
-Today `_stable_text` strips `<checkout>/` from every runtime section, so the
-recorded AC-22 baselines are independent of the checkout path: each was
-observed equal under two differently named temporary roots.
+When the baselines were recorded, `_stable_text` stripped `<checkout>/` from
+every runtime section, embedded bodies included, so each recorded AC-22
+baseline is independent of the checkout path: each was observed equal under two
+differently named temporary roots. The fix replaced it with normalization of
+Heddle-generated path labels only.
 
-AC-23 survivor pins (pass now, must pass byte for byte after the refactor and
-the fix): each Codex preparation decision (navigation, local instructions for
-the four gates, milestone insertion and construction) and Claude runs. Each pin
-holds the effective digest, review basis, input hash and the exact replay text:
-the SHA-256 of the provider stdin, the exact system text, and the ordered
-runtime sections by first line and SHA-256.
+AC-23 survivor pins: each Codex preparation decision (navigation, local
+instructions for the four gates, milestone insertion and construction) and
+Claude runs reproduce their recorded preparation byte for byte through the
+refactor and the fix. Each pin holds the effective digest, review basis, input
+hash and the exact replay text: the SHA-256 of the provider stdin, the exact
+system text, and the ordered runtime sections by first line and SHA-256.
 
-AC-22 red discriminators:
+AC-22 discriminators, red until the fix:
 
 - Codex: the milestone diff and test-file bodies arrive byte-exact, labels stay
   checkout-relative, and the effective digest and input hash differ from the
-  recorded baseline while the review basis equals it. Fails now because
-  `_stable_text` rewrites the embedded bodies;
+  recorded baseline while the review basis equals it;
 - Claude: the same, for the body Claude embeds. Claude embeds no diff and no
   test-file body, so its affected input is a review-test-scaffolding run whose
   verification-command facts carry the checkout path;
 - recovery after landing, for each lane (`AFFECTED`): the affected member's
   output, published under its recorded pre-change identity, is stale and its
   member makes exactly one provider call, while the other member's output is
-  reused. Fails now because the identity has not changed, so both are reused;
+  reused;
 - the recovery rule, one signal at a time: a publication whose input hash
   alone, or effective prompt digest alone, differs reruns once beside a reused
-  member. Fails now because recovery refuses any binding difference.
+  member.
 
-AC-22 survivors (pass now and after the fix): the affected input's review basis
-under any checkout path; the Claude milestone review, which embeds no diff and
-keeps its identities; a review recorded before the identity change, which
-status and orient read as current (freshness observed at the public boundary,
-see that test); and the recovery control below. The Antigravity half belongs
-to m4.
+AC-22 survivors, which held before and after the fix: the affected input's
+review basis under any checkout path; the Claude milestone review, which embeds
+no diff and keeps its identities; a review recorded before the identity change,
+which status and orient read as current (freshness observed at the public
+boundary, see that test); and the recovery control below. The Antigravity half
+belongs to m4.
 
 Recovery rule (owner ruling, 2026-11-24): an unrecorded publication with the
 same feature, gate, scope, assignment, round and reviewer slot as the prepared
 run, but a different input hash or effective prompt digest, is stale. It is
 not reused, its member makes exactly one provider call, and no member of the
-batch is refused. Any other binding mismatch still refuses before a provider
-call (survivor control). Today `_unrecorded_completion`
-(heddle/runtime/gate_run.py) refuses every mismatch through
-`validate_review_replay` (heddle/gate/entry.py); m3 owns both.
+batch is refused. Staleness is judged against the publication's own launch, so
+the stale publication a rerun leaves behind, whose launch has since recorded a
+usable outcome with another identity, stays stale for every later launch. Any
+other binding mismatch still refuses before a provider call (survivor control),
+including a publication whose launch recorded only failures and a duplicate of
+a recorded outcome. `_unrecorded_completion` (heddle/runtime/gate_run.py) sets
+stale publications aside before the binding check, `validate_review_replay`
+(heddle/gate/entry.py).
 
 Test seams: `heddle.gate.diff.resolve_diff` (`_inject_checkout_bodies`), the
 gate-engine provider doubles at `heddle.gate.entry.run_gate_for_runtime`
@@ -98,6 +103,7 @@ from tests.concurrent_review_helpers import (
     revision,
     run_slot,
     same_gate_host,
+    typed_failure,
 )
 from tests.tiering_review_helpers import V7_FEATURE, dispose, disposition
 
@@ -747,9 +753,9 @@ def _pin_diff(observed: Pin, pinned: Pin) -> dict[str, tuple]:
 def test_ac23_survivor_prepared_identity_and_replay_text_equal_the_recorded_pin(
     name: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Survivor pin (AC-23): passes on the unmodified code and must keep passing
-    byte for byte after the capability-table refactor and the checkout-path fix.
-    """
+    """Survivor pin (AC-23): the prepared identities and replay text equal the
+    preparation recorded before the capability-table refactor and the
+    checkout-path fix, byte for byte."""
     fixture = FIXTURES[name]
     host = _host(tmp_path, monkeypatch, fixture.role, large=fixture.large)
     _context, prepared = _prepare(host, fixture.role, fixture.slot)
@@ -774,8 +780,8 @@ def test_ac22_survivor_recorded_basis_is_the_basis_under_any_checkout_path(
     checkout: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Survivor pin (AC-22 baseline): the affected Codex input's review basis
-    equals the recorded baseline wherever the checkout lives, now and after the
-    fix, because embedded bodies are not part of the basis."""
+    equals the recorded baseline wherever the checkout lives, before and after
+    the fix, because embedded bodies are not part of the basis."""
     host = _host(tmp_path, monkeypatch, MILESTONE, checkout=checkout)
     _inject_checkout_bodies(monkeypatch)
     _context, prepared = _prepare(host, MILESTONE, PRIMARY)
@@ -789,9 +795,11 @@ def test_ac22_survivor_recorded_basis_is_the_basis_under_any_checkout_path(
 def test_ac22_codex_embedded_bodies_arrive_byte_exact_with_new_identities(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Red discriminator (AC-22, Codex): today `_stable_text` strips the
-    checkout path from the embedded diff, so the body is rewritten and the
-    identities still equal the recorded baseline."""
+    """Discriminator (AC-22, Codex): the embedded milestone diff and test-file
+    body arrive byte-exact with the checkout path, no Heddle-generated label
+    carries it, and the effective digest and input hash differ from the recorded
+    baseline while the review basis equals it. Before the fix `_stable_text`
+    rewrote the bodies, so the identities equalled the baseline."""
     host = _host(tmp_path, monkeypatch, MILESTONE)
     _inject_checkout_bodies(monkeypatch)
     root = host.as_posix()
@@ -825,10 +833,12 @@ def test_ac22_codex_embedded_bodies_arrive_byte_exact_with_new_identities(
 def test_ac22_claude_command_facts_arrive_byte_exact_with_new_identities(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Red discriminator (AC-22, Claude half): the Claude affected input is a
+    """Discriminator (AC-22, Claude half): the Claude affected input is a
     review-test-scaffolding run whose embedded verification-command facts carry
-    the checkout path. Today `_stable_text` strips it from the facts, so the
-    commands are rewritten and the identities equal the recorded baseline.
+    the checkout path. The facts arrive byte-exact, no Heddle-generated label
+    carries the path, and the effective digest and input hash differ from the
+    recorded baseline while the review basis equals it. Before the fix
+    `_stable_text` rewrote the commands, so the identities equalled the baseline.
 
     The owner's ruling names an embedded plan section or the
     verification-command facts; this uses the facts. A plan-section body
@@ -886,7 +896,7 @@ def test_ac22_survivor_review_recorded_before_the_change_reads_current_in_status
 ) -> None:
     """Survivor (AC-22 freshness, public boundary): a review of the affected
     input recorded before the identity change reads as current in status and
-    orient, today and after the fix.
+    orient, before and after the fix.
 
     Freshness is observed where Heddle judges a recorded review: a disposition
     whose evidence is a later-round review of the affected input. Round one
@@ -1005,12 +1015,12 @@ def test_ac22_survivor_review_recorded_before_the_change_reads_current_in_status
 def test_ac22_recovery_reruns_only_the_affected_member_published_before_landing(
     lane: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Red discriminator (AC-22 recovery witness): outputs published under the
+    """Discriminator (AC-22 recovery witness): outputs published under the
     recorded pre-change identities (an in-flight run at landing) are
-    recovered. The affected member's identity must have changed, so recovery
-    treats its publication as stale: its output is not reused and it makes
-    exactly one provider call. The other member is reused with none. Today
-    both are reused and the double sees no call.
+    recovered. The affected member's identity has changed, so recovery treats
+    its publication as stale: its output is not reused and it makes exactly
+    one provider call. The other member is reused with none. Before the fix the
+    identity did not change, so both were reused and the double saw no call.
 
     Codex case: the affected Codex milestone member beside the unaffected
     Claude milestone member (the AC-23 Claude milestone fixture). Claude case:
@@ -1062,13 +1072,13 @@ def test_ac22_recovery_reruns_only_the_affected_member_published_before_landing(
 def test_ac22_recovery_reruns_a_member_whose_input_or_effective_digest_alone_differs(
     slot: str, signal: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Red discriminator (AC-22 recovery rule): either identity signal alone
+    """Discriminator (AC-22 recovery rule): either identity signal alone
     makes a publication stale. One member is published under its recorded
     AC-23 identity with exactly one of the input hash and the effective prompt
     digest replaced, the other under its recorded AC-23 identity unchanged. The
     changed member reruns once and the other is reused; a rule that needs both
-    signals to differ refuses the batch and fails here. Today recovery refuses
-    any binding difference, so the batch is refused.
+    signals to differ refuses the batch and fails here, as recovery that
+    refused any binding difference did before the fix.
     """
     host = _host(tmp_path, monkeypatch, MILESTONE)
     other = SECONDARY if slot == PRIMARY else PRIMARY
@@ -1085,6 +1095,211 @@ def test_ac22_recovery_reruns_a_member_whose_input_or_effective_digest_alone_dif
     _assert_only_rerun(result, calls, MILESTONE, slot, other)
 
 
+def test_ac22_recovery_reuses_a_current_publication_beside_a_stale_one(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Recovery rule, a stale rerun interrupted after it published: the member
+    has a stale publication and a current one. The stale one is set aside
+    before the one-output-per-member check, so the current one is reused with
+    no provider call and nothing is refused. Without that, two unrecorded
+    outputs would refuse the batch for reconciliation.
+    """
+    host = _host(tmp_path, monkeypatch, MILESTONE)
+    pinned = PINS["codex-milestone-review"].identity
+    _publish(
+        host,
+        MILESTONE,
+        PRIMARY,
+        replace(pinned, input=_sha256("published before landing: input")),
+    )
+    _publish(host, MILESTONE, PRIMARY, pinned)
+    _publish(host, MILESTONE, SECONDARY, PINS["claude-milestone-review"].identity)
+    result, calls = _recover(monkeypatch)
+    assert result.ok, result.to_envelope()
+    assert calls == [], "FAIL AC-22: a current publication was not reused"
+    members = {member_key(row): row for row in result.data["members"]}
+    assert [row["reuse"] for row in members.values()] == ["recovered"] * 2
+    assert [row["publication"] for row in members.values()] == ["recorded"] * 2
+
+
+def _counting_review_engine(
+    monkeypatch: pytest.MonkeyPatch, manager, slot: str, finding_id: str
+):
+    """Fork-safe provider double that counts calls across worker processes;
+    `slot` raises `finding_id` in round 1, as `_review_engine` does."""
+    from tests.structured_review_helpers import finding
+
+    calls = manager.list()
+
+    def run(gate_type, context, *, feature, **_kwargs):
+        prepared = context.prepared_run
+        assert prepared is not None
+        calls.append((gate_type.name, prepared.reviewer_slot))
+        raised = prepared.reviewer_slot == slot and prepared.round_number == 1
+        findings = (finding(finding_id, classification="implement"),) if raised else ()
+        return canonical_outcome(gate_type, context, feature, findings=findings)
+
+    monkeypatch.setattr("heddle.gate.entry.run_gate_for_runtime", run)
+    return calls
+
+
+def _recover_and_open_the_next_round(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> tuple[Path, Path, dict[str, str]]:
+    """The Codex AC-22 recovery, then the assignment's verification round.
+
+    Recovery reruns the stale Codex member, whose round-one report raises a
+    finding, and reuses the Claude member; the stale Codex publication stays
+    behind, unrecorded. The lead retains the finding and opens round two, which
+    the Codex slot alone serves. Returns the host, its state path and the
+    round-one run of each slot.
+    """
+    case = AFFECTED["codex-milestone-diff"]
+    host = _host(tmp_path, monkeypatch, case.role)
+    state_path = host / "plans" / V7_FEATURE / "state.yaml"
+    _affected_input(host, monkeypatch, case)
+    _publish(host, case.role, case.slot, case.baseline)
+    _publish(host, case.role, SECONDARY, case.reusable)
+    with multiprocessing.Manager() as manager:
+        calls = _counting_review_engine(
+            monkeypatch, manager, case.slot, case.finding_id
+        )
+        recovered = _ok(execute_batch())
+        assert list(calls) == [(case.role, case.slot)]
+    runs = {row["reviewer_slot"]: row["run_id"] for row in recovered.data["members"]}
+    _ok(
+        dispose(
+            state_path,
+            [
+                disposition(runs[case.slot], case.finding_id, status="retained"),
+                *(
+                    disposition(run_id, "@coverage", status="settled")
+                    for run_id in runs.values()
+                ),
+            ],
+        )
+    )
+    _ok(
+        _open_verification_round(
+            state_path, case.role, _gate_scope(state_path, case.role)
+        )
+    )
+    return host, state_path, runs
+
+
+def _run_the_next_round(monkeypatch: pytest.MonkeyPatch):
+    """Run round two's Codex slot, counting provider calls."""
+    with multiprocessing.Manager() as manager:
+        calls = install_counting_engine(monkeypatch, manager)
+        result = run_slot(MILESTONE, PRIMARY)
+        observed = list(calls)
+    return result, observed
+
+
+def test_ac22_recovery_lets_the_next_round_run_past_the_stale_leftover(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Recovery rule, judged against a publication's own launch: the stale
+    publication a rerun leaves behind is bound to a launch that has since
+    recorded a usable outcome with another identity, so it stays stale. The
+    assignment's next round neither reuses nor refuses it and makes its one
+    call. Judged against the launch being prepared instead, that publication
+    would refuse every later launch of the gate on its CLI as another binding.
+    """
+    host, _state_path, _runs = _recover_and_open_the_next_round(tmp_path, monkeypatch)
+    reviews = host / "plans" / V7_FEATURE / "reviews"
+    left = sorted(reviews.glob(f"{MILESTONE}-m1.codex.*.review.json"))
+    assert len(left) == 2, "fixture lost the stale publication beside the rerun"
+    result, calls = _run_the_next_round(monkeypatch)
+    assert result.ok, (
+        "FAIL AC-22: the stale publication left by the rerun refused the next "
+        f"round: {result.to_envelope().get('error')}"
+    )
+    assert calls == [(MILESTONE, PRIMARY)], calls
+    assert all(path.exists() for path in left), "a publication was removed"
+
+
+def test_ac22_recovery_still_refuses_a_publication_whose_launch_only_failed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Recovery rule control: only a recorded usable outcome (a canonical review
+    or a usable capture) makes another launch's publication stale. Here the
+    Claude secondary's round-one attempt fails with an engine failure, then a
+    Codex publication bound to that secondary launch appears. Its launch has
+    recorded no output, so the publication may still be recoverable there: the
+    Codex primary's launch refuses it as another binding, before any call,
+    instead of skipping it.
+    """
+    host = _host(tmp_path, monkeypatch, MILESTONE)
+    state_path = host / "plans" / V7_FEATURE / "state.yaml"
+    monkeypatch.setattr(
+        "heddle.gate.entry.run_gate_for_runtime",
+        lambda gate_type, context, **_kwargs: typed_failure(
+            context, (gate_type.name, context.prepared_run.reviewer_slot)
+        ),
+    )
+    run_slot(MILESTONE, SECONDARY)
+    attempts = yaml.safe_load(state_path.read_text())["review_assignments"]["attempts"]
+    assert [(row["reviewer_slot"], row["outcome"]["kind"]) for row in attempts] == [
+        (SECONDARY, "engine-failure")
+    ], attempts
+    _publish(
+        host,
+        MILESTONE,
+        PRIMARY,
+        PINS["codex-milestone-review"].identity,
+        reviewer_slot=SECONDARY,
+    )
+    before = state_path.read_bytes()
+    with multiprocessing.Manager() as manager:
+        calls = install_counting_engine(monkeypatch, manager)
+        result = run_slot(MILESTONE, PRIMARY)
+        observed = list(calls)
+    assert not result.ok, (
+        "FAIL AC-22: a publication whose launch recorded only an engine failure "
+        "was skipped instead of refusing"
+    )
+    assert result.error.code == "workspace-invalid", result.to_envelope()
+    assert "binding" in result.error.message, result.error.message
+    assert observed == [], "FAIL AC-22: the refused launch called a provider"
+    assert state_path.read_bytes() == before
+
+
+def test_ac22_recovery_still_refuses_a_duplicate_of_a_recorded_outcome(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Recovery rule control: a publication carrying its recorded launch's own
+    identity is a duplicate of that recorded outcome, not a stale one, so the
+    next round refuses it as another binding before any call. The duplicate is
+    bound to round one's Codex launch with the recorded rerun's identities and
+    different content; the stale publication beside it is still set aside.
+    """
+    host, state_path, runs = _recover_and_open_the_next_round(tmp_path, monkeypatch)
+    recorded = next(
+        row for row in gate_runs(state_path) if row["run_id"] == runs[PRIMARY]
+    )
+    _publish(
+        host,
+        MILESTONE,
+        PRIMARY,
+        Identity(
+            recorded["effective_prompt_sha256"],
+            recorded["review_basis_hash"],
+            recorded["input_hash"],
+        ),
+        round_number=recorded["round_number"],
+    )
+    before = state_path.read_bytes()
+    result, calls = _run_the_next_round(monkeypatch)
+    assert not result.ok, (
+        "FAIL AC-22: a duplicate of a recorded outcome was skipped instead of refusing"
+    )
+    assert result.error.code == "workspace-invalid", result.to_envelope()
+    assert "binding" in result.error.message, result.error.message
+    assert calls == [], "FAIL AC-22: the refused launch called a provider"
+    assert state_path.read_bytes() == before
+
+
 @pytest.mark.parametrize(
     "binding",
     [
@@ -1099,7 +1314,7 @@ def test_ac22_survivor_recovery_still_refuses_any_other_binding_mismatch(
     """Survivor control (AC-22 recovery rule): only an input-hash or
     effective-digest difference makes an unrecorded publication stale. A
     publication bound to another reviewer slot or assignment still refuses the
-    batch before any provider call, today and after the fix. The publication
+    batch before any provider call, before and after the fix. The publication
     carries the recorded AC-23 identities of the uninjected input, which equal
     its preparation before and after the fix, so only the binding differs.
     """
