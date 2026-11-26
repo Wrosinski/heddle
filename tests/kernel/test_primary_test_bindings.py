@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import random
 import re
 from pathlib import Path
@@ -479,13 +480,15 @@ def test_ac22_verified_by_readers_skip_html_blocks(shape) -> None:
     _assert_only_the_real_declaration_reads(HTML_SHAPES[shape], shape)
 
 
-# Frontmatter is metadata: a `Verified-by:` key or a lookalike in it never binds
-# and is never reported, and a comment opener in it hides nothing after it.
+# Frontmatter is metadata, split off once by the spec reader: a `Verified-by:`
+# key or a lookalike in it never binds and is never reported, a comment opener
+# in it hides nothing after it, and declarations count in whole-file lines,
+# also past a thematic break that opens the body.
 FRONTMATTER_SHAPES = {
     "verified-by-key": (
-        f"---\nVerified-by: {EXAMPLE}\n  Verified-by: {EXAMPLE}\n---\n"
+        f"---\nVerified-by: {EXAMPLE}\nnotes:\n  - Verified-by: {EXAMPLE}\n---\n"
         f"Verified-by: {REAL}\n",
-        (5,),
+        (6,),
         (),
     ),
     "block-scalar-comment-opener": (
@@ -498,20 +501,121 @@ FRONTMATTER_SHAPES = {
         (4,),
         (),
     ),
-    # No closing delimiter, so no frontmatter: the declaration binds.
-    "unterminated": (
-        f"---\nsummary: plain\nVerified-by: {REAL}\n",
-        (3,),
-        (),
+    "thematic-breaks-open-the-body": (
+        f"---\ntype: feature-spec\n---\n---\nVerified-by: {REAL}\n"
+        f"- Verified-by: {EXAMPLE}\n---\n",
+        (5,),
+        (6,),
     ),
 }
 
 
 @pytest.mark.parametrize("shape", FRONTMATTER_SHAPES)
-def test_ac22_verified_by_readers_skip_frontmatter(shape) -> None:
-    """Declarations count in whole-document lines after frontmatter, and
-    none is read inside it."""
-    _assert_only_the_real_declaration_reads(FRONTMATTER_SHAPES[shape], shape)
+def test_ac22_verified_by_readers_skip_frontmatter(shape, tmp_path) -> None:
+    """The spec reader splits frontmatter off once and the Verified-by readers
+    read the body: declarations count in whole-file lines after the
+    frontmatter, none inside it is read, and a thematic break opening the
+    body is Markdown."""
+    text, real_lines, unread = FRONTMATTER_SHAPES[shape]
+    spec = tmp_path / "spec.md"
+    spec.write_bytes(text.encode())
+    facts = read_spec_verified_by_lines(spec)
+    assert facts.targets == tuple((line, REAL) for line in real_lines), (
+        f"FAIL AC-22: the {shape} spec reads targets {facts.targets}"
+    )
+    assert facts.unread_lines == unread
+
+
+# A body or an acceptance criterion block has no frontmatter: a leading `---`
+# is a thematic break, so declarations after it are read, lookalikes after it
+# are reported, and a comment opener after it opens an HTML block.
+BODY_SHAPES = {
+    "thematic-break-pair": (
+        f"---\nVerified-by: {REAL}\n- Verified-by: {EXAMPLE}\n---\n",
+        (2,),
+        (3,),
+    ),
+    "comment-opener-after-a-leading-rule": (
+        f"---\nVerified-by: {REAL}\n  <!-- never closed\n---\nVerified-by: {EXAMPLE}\n",
+        (2,),
+        (),
+    ),
+    "crlf": (
+        f"---\r\nVerified-by: {REAL}\r\n  Verified-by: {EXAMPLE}\r\n---\r\n",
+        (2,),
+        (3,),
+    ),
+}
+
+
+@pytest.mark.parametrize("shape", BODY_SHAPES)
+def test_ac22_verified_by_readers_find_no_frontmatter_in_a_body(shape) -> None:
+    """The readers take a body or block, never a whole file, so a leading
+    `---` pair hides no declaration and no lookalike between them."""
+    _assert_only_the_real_declaration_reads(BODY_SHAPES[shape], shape)
+
+
+TINY = (
+    Path(__file__).resolve().parents[2] / "tests" / "fixtures" / "workspaces" / "tiny"
+)
+
+
+def test_ac22_validate_reads_declarations_between_thematic_breaks_after_frontmatter(
+    tmp_path, monkeypatch, capsys
+) -> None:
+    """Public validate on a real spec with YAML metadata whose body opens
+    with a thematic break: a declaration and a lookalike between it and a
+    later thematic break are both advised, at their whole-file lines."""
+    import yaml
+
+    from heddle.cli import main
+    from tests.runtime.validation_helpers import (
+        clean_current_host,
+        read_yaml,
+        state_path,
+        write_yaml,
+    )
+
+    host = clean_current_host(tmp_path, TINY, "thematic-breaks")
+    relative = "docs/features/example/sample-feature.md"
+    spec = host / relative
+    lines = spec.read_text(encoding="utf-8").splitlines(keepends=True)
+    closing = lines.index("---\n", 1)
+    assert isinstance(yaml.safe_load("".join(lines[1:closing])), dict)
+    declaration = "Verified-by: tests/test_acceptance.py::test_flow"
+    lookalike = "- Verified-by: tests/test_cli.py::test_count"
+    body = ["---\n", f"{declaration}\n", f"{lookalike}\n", "---\n"]
+    spec.write_text(
+        "".join([*lines[: closing + 1], *body, *lines[closing + 1 :]]),
+        encoding="utf-8",
+    )
+    state = read_yaml(state_path(host))
+    state["commands"]["acceptance_test"] = "pytest tests/test_cli.py -q"
+    write_yaml(state_path(host), state)
+    file_lines = spec.read_text(encoding="utf-8").splitlines()
+    assert file_lines[closing + 1] == file_lines[closing + 4] == "---"
+
+    monkeypatch.chdir(host)
+    code = main(["validate", "--json"])
+    envelope = json.loads(capsys.readouterr().out)
+
+    assert code == 4 and envelope["ok"] is True
+    advised = sorted(
+        (diagnostic["code"], diagnostic["severity"], diagnostic["message"])
+        for diagnostic in envelope["diagnostics"]
+        if diagnostic["code"] in {"verified-by-unread", "verified-by-unselected"}
+    )
+    declared_at = file_lines.index(declaration) + 1
+    lookalike_at = file_lines.index(lookalike) + 1
+    assert [(kind, severity) for kind, severity, _message in advised] == [
+        ("verified-by-unread", "advisory"),
+        ("verified-by-unselected", "advisory"),
+    ], f"FAIL AC-22: validate advised {advised}"
+    assert f"{relative}:{lookalike_at} looks like a Verified-by" in advised[0][2]
+    assert (
+        f"{relative}:{declared_at} Verified-by target "
+        "tests/test_acceptance.py::test_flow is not selected"
+    ) in advised[1][2]
 
 
 # Survivor: plain-LF text reads exactly as under the previous kernel fence rule

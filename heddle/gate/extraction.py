@@ -18,6 +18,9 @@ from heddle.kernel.markdown_structure import MarkdownLine, markdown_lines
 #   selected span keeps each line's own ending, so an embedded section is its
 #   source bytes. Any other `str.splitlines` boundary stays inside its line.
 #   Only whitespace at the span's two ends is stripped.
+# - Frontmatter: each extractor takes a whole document (`content` is a spec
+#   or plan file as written), so its frontmatter is metadata, never a section;
+#   a section re-read after extraction is a cut block with no frontmatter.
 
 _ACCEPTANCE_CRITERIA = "## Acceptance Criteria"
 _AC_HEADING = re.compile(r"^### (AC-[0-9]+[a-z]?):")
@@ -34,7 +37,7 @@ def extract_markdown_h2_section(content: str, heading: str) -> str:
 def extract_markdown_section(content: str, heading_line: str) -> str:
     collected: list[str] = []
     level = _heading_level(heading_line)
-    for line in markdown_lines(content):
+    for line in markdown_lines(content, whole_document=True):
         if not collected:
             if not line.verbatim and line.text == heading_line:
                 collected.append(line.raw)
@@ -165,7 +168,7 @@ def extract_active_rule_blocks(content: str) -> tuple[str, ...] | None:
     """
     headings = [
         line.text
-        for line in markdown_lines(content)
+        for line in markdown_lines(content, whole_document=True)
         if not line.verbatim
         and re.fullmatch(r"#{2,6} Active Enforcement Rules", line.text)
     ]
@@ -173,7 +176,8 @@ def extract_active_rule_blocks(content: str) -> tuple[str, ...] | None:
         return None
     if len(headings) != 1:
         raise ValueError("the plan has multiple Active Enforcement Rules sections")
-    body = markdown_lines(extract_markdown_section(content, headings[0]))[1:]
+    section = extract_markdown_section(content, headings[0])
+    body = markdown_lines(section, whole_document=False)[1:]
     blocks: list[str] = []
     current: list[str] = []
     for line in body:
@@ -193,7 +197,7 @@ def extract_active_rule_blocks(content: str) -> tuple[str, ...] | None:
 def extract_milestone_section(content: str, milestone: str) -> str:
     pattern = _milestone_heading_pattern(milestone)
     collected: list[str] = []
-    for line in markdown_lines(content):
+    for line in markdown_lines(content, whole_document=True):
         if not collected:
             if not line.verbatim and pattern.search(line.text):
                 collected.append(line.raw)
@@ -246,7 +250,7 @@ def _acceptance_criteria(
     verbatim block opens block AC-N.
     """
     in_acceptance = False
-    for line in markdown_lines(content):
+    for line in markdown_lines(content, whole_document=True):
         if not line.verbatim and line.text == _ACCEPTANCE_CRITERIA:
             in_acceptance = True
             yield line, True, None

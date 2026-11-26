@@ -39,10 +39,27 @@ _POSSIBLE_OPENER = re.compile(
     re.IGNORECASE,
 )
 # Start condition 7: a complete open or closing tag followed only by
-# whitespace. Such a line starts with `<` or `</` and a letter, and its last
-# non-whitespace character is `>`; checking the line end, not the tag, keeps
-# a quoted `>` inside an attribute value from hiding one.
-_POSSIBLE_TAG_LINE = re.compile(_CONTAINER_PREFIX + r"</?[a-z]", re.IGNORECASE)
+# whitespace. This is markdown-it's own condition-7 pattern, copied from
+# `markdown_it.common.html_re.HTML_OPEN_CLOSE_TAG_STR` (a test pins the copy
+# to it), so a quoted `>` inside an attribute value is read by grammar and a
+# tag followed by prose is no tag line. Its leading `^` is dropped here
+# because the tag starts after the line's container prefixes.
+_ATTR_NAME = "[a-zA-Z_:][a-zA-Z0-9:._-]*"
+_UNQUOTED = "[^\"'=<>`\\x00-\\x20]+"
+_SINGLE_QUOTED = "'[^']*'"
+_DOUBLE_QUOTED = '"[^"]*"'
+_ATTR_VALUE = "(?:" + _UNQUOTED + "|" + _SINGLE_QUOTED + "|" + _DOUBLE_QUOTED + ")"
+_ATTRIBUTE = "(?:\\s+" + _ATTR_NAME + "(?:\\s*=\\s*" + _ATTR_VALUE + ")?)"
+_OPEN_TAG = "<[A-Za-z][A-Za-z0-9\\-]*" + _ATTRIBUTE + "*\\s*\\/?>"
+_CLOSE_TAG = "<\\/[A-Za-z][A-Za-z0-9\\-]*\\s*>"
+_HTML_OPEN_CLOSE_TAG_STR = "^(?:" + _OPEN_TAG + "|" + _CLOSE_TAG + ")"
+_TAG_LINE = re.compile(
+    _CONTAINER_PREFIX + _HTML_OPEN_CLOSE_TAG_STR.removeprefix("^") + r"\s*$"
+)
+# The parser replaces each NUL with U+FFFD before it reads a line, which an
+# unquoted attribute value accepts; the tag check reads the line the same way.
+_NUL = "\x00"
+_REPLACEMENT_CHARACTER = "\ufffd"
 
 
 class MarkdownLine(NamedTuple):
@@ -54,20 +71,25 @@ class MarkdownLine(NamedTuple):
 
 
 @lru_cache(maxsize=16)
-def markdown_lines(text: str) -> tuple[MarkdownLine, ...]:
-    """Return the document's lines, each flagged when a verbatim block covers it.
+def markdown_lines(text: str, *, whole_document: bool) -> tuple[MarkdownLine, ...]:
+    """Return the text's lines, each flagged when a verbatim block covers it.
 
     This is the one rule for reading Markdown structure: the gate's section
     extractors and the kernel's ``Verified-by`` readers both take it from
     here. A line is verbatim when frontmatter, a CommonMark fenced code block
     or an HTML block (an HTML comment included) covers it.
 
-    Frontmatter: when the first line is exactly ``---``, the frontmatter runs
+    Frontmatter is interpreted once, by whoever holds the whole document, so
+    the caller says which it passes. ``whole_document=True`` is a whole file
+    as written: when its first line is exactly ``---``, the frontmatter runs
     through the next line that is exactly ``---``, both delimiters included;
     with no such line there is no frontmatter. Its lines are metadata, never
     Markdown structure, so they are verbatim and the parser never sees them:
     only the body after the closing delimiter is parsed, and the block lines
-    it finds are counted in whole-document lines.
+    it finds are counted in whole-document lines. ``whole_document=False`` is
+    a body whose frontmatter was already split off, or a block or section cut
+    from a document: it has no frontmatter, so a leading ``---`` is Markdown
+    (a thematic break) and every line is parsed.
 
     Fenced code blocks and HTML blocks count at any container depth (list
     items and blockquotes included), the fence delimiters included. A block
@@ -86,9 +108,10 @@ def markdown_lines(text: str) -> tuple[MarkdownLine, ...]:
     line ending opens no further line.
 
     The CommonMark parser loads only when some body line could open a fence
-    or an HTML block under CommonMark's start conditions, so a document with
-    no such line is read without it. The result is cached, because callers
-    read one document many times, once per section or acceptance criterion.
+    or an HTML block under CommonMark's start conditions (condition 7 checked
+    exactly as the parser checks it), so a text with no such line is read
+    without it. The result is cached, because callers read one document many
+    times, once per section or acceptance criterion.
     """
     spans: list[tuple[str, str]] = []
     start = 0
@@ -97,7 +120,7 @@ def markdown_lines(text: str) -> tuple[MarkdownLine, ...]:
         start = match.end()
     if start < len(text):
         spans.append((text[start:], text[start:]))
-    frontmatter = _frontmatter_line_count(spans)
+    frontmatter = _frontmatter_line_count(spans) if whole_document else 0
     verbatim = set(range(frontmatter))
     body = spans[frontmatter:]
     if any(_could_open_block(line) for line, _raw in body):
@@ -127,4 +150,4 @@ def _frontmatter_line_count(spans: list[tuple[str, str]]) -> int:
 def _could_open_block(line: str) -> bool:
     if _POSSIBLE_OPENER.match(line):
         return True
-    return _POSSIBLE_TAG_LINE.match(line) is not None and line.rstrip().endswith(">")
+    return _TAG_LINE.match(line.replace(_NUL, _REPLACEMENT_CHARACTER)) is not None

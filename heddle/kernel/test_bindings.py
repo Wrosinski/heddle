@@ -76,9 +76,10 @@ class TestBindingResolution:
 def parse_primary_test_bindings(ac_id: str, ac_block: str) -> ParsedTestBindings:
     """Parse every ``Verified-by`` line's comma-separated targets, in order.
 
-    Each line adds its targets to the AC's binding; a repeated target binds
-    once, at its first occurrence. A fenced code block or HTML block (an HTML
-    comment included) holds example text, which never binds.
+    ``ac_block`` is one acceptance criterion's block cut from the spec, never
+    a whole file. Each line adds its targets to the AC's binding; a repeated
+    target binds once, at its first occurrence. A fenced code block or HTML
+    block (an HTML comment included) holds example text, which never binds.
     """
     targets = tuple(
         dict.fromkeys(target for _line, target in verified_by_targets(ac_block))
@@ -112,9 +113,10 @@ def _declared_targets(value: str) -> tuple[str, ...]:
 def verified_by_targets(markdown: str) -> tuple[tuple[int, str], ...]:
     """Return every target VERIFIED_BY reads, paired with its 1-based line.
 
-    A fenced code block or HTML block holds example text, so a declaration
-    inside it is never read: the same lines bind here as in
-    ``parse_primary_test_bindings``.
+    ``markdown`` is a document body (its frontmatter already split off) or a
+    block cut from one, and lines count from its first line. A fenced code
+    block or HTML block holds example text, so a declaration inside it is
+    never read: the same lines bind here as in ``parse_primary_test_bindings``.
     """
     return tuple(
         (number, target)
@@ -127,6 +129,7 @@ def verified_by_targets(markdown: str) -> tuple[tuple[int, str], ...]:
 def unread_verified_by_lines(markdown: str) -> tuple[int, ...]:
     """Return 1-based lines that look like declarations VERIFIED_BY skips.
 
+    ``markdown`` is a document body or block, as for ``verified_by_targets``.
     A fenced code block or HTML block holds example text, so its lines are
     never reported.
     """
@@ -141,9 +144,13 @@ def _lines_outside_verbatim_blocks(markdown: str) -> Iterator[tuple[int, str]]:
     """Yield 1-based numbered lines no fenced code block or HTML block covers.
 
     Lines and blocks come from ``markdown_lines``, the one Markdown structure
-    rule, so a line number counts CRLF, CR and LF line endings only.
+    rule, so a line number counts CRLF, CR and LF line endings only. The text
+    is a body or block, never a whole file: its frontmatter, if it had any,
+    was split off by the caller, so a leading ``---`` is a thematic break.
     """
-    for number, line in enumerate(markdown_lines(markdown), start=1):
+    for number, line in enumerate(
+        markdown_lines(markdown, whole_document=False), start=1
+    ):
         if not line.verbatim:
             yield number, line.text
 

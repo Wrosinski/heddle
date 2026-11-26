@@ -4,7 +4,8 @@ antigravity-reviewer-lane-v1, AC-22: the gate's section extractors and the
 kernel's Verified-by readers take their lines and verbatim flags from
 ``heddle.kernel.markdown_structure.markdown_lines``. A line is verbatim when a
 CommonMark fenced code block or HTML block covers it; the parser loads only
-for a document holding a line that could open one.
+for a document holding a line that could open one. Frontmatter is read only
+when the caller passes a whole document; a body or block has none.
 """
 
 from __future__ import annotations
@@ -22,8 +23,23 @@ from heddle.kernel.markdown_structure import MarkdownLine, markdown_lines
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
-def _verbatim(text: str) -> list[int]:
-    return [index for index, line in enumerate(markdown_lines(text)) if line.verbatim]
+def _verbatim(text: str, *, whole_document: bool = True) -> list[int]:
+    lines = markdown_lines(text, whole_document=whole_document)
+    return [index for index, line in enumerate(lines) if line.verbatim]
+
+
+def _parser_verbatim(text: str) -> list[int]:
+    """markdown-it's own fence and HTML block lines for the whole text."""
+    from markdown_it import MarkdownIt
+
+    return sorted(
+        {
+            index
+            for token in MarkdownIt("commonmark").parse(text)
+            if token.type in {"fence", "html_block"} and token.map is not None
+            for index in range(token.map[0], token.map[1])
+        }
+    )
 
 
 _FENCE_SHAPES_DOCUMENT = (
@@ -61,7 +77,7 @@ _FENCE_SHAPES_DOCUMENT = (
 
 def test_ac22_markdown_lines_flag_every_line_a_commonmark_fence_covers() -> None:
     """Fence lines, delimiters included, at any container depth."""
-    lines = markdown_lines(_FENCE_SHAPES_DOCUMENT)
+    lines = markdown_lines(_FENCE_SHAPES_DOCUMENT, whole_document=True)
     assert [line.text for line in lines] == _FENCE_SHAPES_DOCUMENT.split("\n")[:-1]
     verbatim = _verbatim(_FENCE_SHAPES_DOCUMENT)
     assert verbatim == [1, 2, 3, 4, 7, 8, 9, 10, 11, 12, 18, 19, 21, 22, 23], (
@@ -115,7 +131,7 @@ def test_ac22_markdown_lines_end_lines_at_crlf_cr_and_lf_only() -> None:
     a vertical tab or a line separator stays inside its line."""
     line = MarkdownLine
     text = "a\r\n```\rb\u2028c\n```\r\n\vtail"
-    lines = markdown_lines(text)
+    lines = markdown_lines(text, whole_document=True)
     assert lines == (
         line("a", "a\r\n", False),
         line("```", "```\r", True),
@@ -124,8 +140,8 @@ def test_ac22_markdown_lines_end_lines_at_crlf_cr_and_lf_only() -> None:
         line("\vtail", "\vtail", False),
     ), f"FAIL AC-22: lines are not counted at CRLF, CR and LF only: {lines}"
     assert "".join(item.raw for item in lines) == text
-    assert markdown_lines("a\n") == (line("a", "a\n", False),)
-    assert markdown_lines("") == ()
+    assert markdown_lines("a\n", whole_document=True) == (line("a", "a\n", False),)
+    assert markdown_lines("", whole_document=True) == ()
 
 
 # Each case: the document and its verbatim lines. A YAML block scalar holding
@@ -175,12 +191,47 @@ def test_ac22_frontmatter_is_verbatim_and_never_parsed(case) -> None:
     scalar hides nothing after it; a `---` that opens no frontmatter is
     Markdown."""
     text, expected = FRONTMATTER_CASES[case]
-    lines = markdown_lines(text)
+    lines = markdown_lines(text, whole_document=True)
     assert "".join(line.raw for line in lines) == text
     verbatim = _verbatim(text)
     assert verbatim == expected, (
         f"FAIL AC-22: the {case} frontmatter reads as {verbatim}"
     )
+
+
+# Each case: a body or block that starts with `---`, and its verbatim lines.
+# Read as a body, the leading `---` is a thematic break and every line is
+# Markdown, so a comment opener in what looks like a block scalar opens an
+# HTML block that runs to the end.
+BODY_CASES = {
+    "thematic-break-pair": (
+        "---\nVerified-by: tests/test_a.py::test_one\n"
+        "- Verified-by: tests/test_a.py::test_two\n---\n",
+        [],
+    ),
+    "block-scalar-comment-opener": (
+        "---\nsummary: |\n  <!-- a literal opener, never closed\n---\n# Title\n",
+        [2, 3, 4],
+    ),
+    "fence-between-thematic-breaks": ("---\n```\n## code\n```\n---\n", [1, 2, 3]),
+    "crlf": ("---\r\n<!-- note -->\r\n---\r\ntext\r\n", [1]),
+}
+
+
+@pytest.mark.parametrize("case", BODY_CASES)
+def test_ac22_a_body_or_block_has_no_frontmatter(case) -> None:
+    """A body whose frontmatter was already split off, or a block cut from a
+    document, is read with ``whole_document=False``: a leading `---` is
+    Markdown and every line is parsed, as markdown-it reads the text. The
+    same text read as a whole document opens with frontmatter."""
+    text, expected = BODY_CASES[case]
+    body = markdown_lines(text, whole_document=False)
+    assert "".join(line.raw for line in body) == text
+    verbatim = _verbatim(text, whole_document=False)
+    assert verbatim == expected == _parser_verbatim(text), (
+        f"FAIL AC-22: the {case} body reads as {verbatim}"
+    )
+    assert markdown_lines(text, whole_document=True)[0].verbatim
 
 
 def test_ac22_the_html_block_names_are_markdown_its() -> None:
@@ -192,6 +243,61 @@ def test_ac22_the_html_block_names_are_markdown_its() -> None:
 
     assert sorted(_HTML_BLOCK_NAMES) == sorted(block_names)
     assert len(set(_HTML_BLOCK_NAMES)) == len(_HTML_BLOCK_NAMES)
+
+
+def test_ac22_the_tag_pattern_is_markdown_its() -> None:
+    """The opener check's copy of CommonMark's condition-7 tag pattern is the
+    parser's own."""
+    from markdown_it.common.html_re import HTML_OPEN_CLOSE_TAG_STR
+
+    from heddle.kernel.markdown_structure import _HTML_OPEN_CLOSE_TAG_STR
+
+    assert _HTML_OPEN_CLOSE_TAG_STR == HTML_OPEN_CLOSE_TAG_STR
+
+
+# Lines only start condition 7 could open, and whether markdown-it reads each,
+# alone, as an HTML block: a complete open or closing tag followed by nothing
+# but whitespace, in or out of containers, opens one; a tag followed by prose
+# or a malformed tag opens none.
+_TAG_LINES = [
+    ("open-tag", "<feature-id>", True),
+    ("closing-tag", "</slug>", True),
+    ("quoted-close-bracket", '<a title="x>y">', True),
+    ("single-quoted-close-bracket", "<a b='>' c>", True),
+    ("self-closing-then-spaces", "<slug/>  ", True),
+    ("unicode-space-after", "<a b>\u3000", True),
+    ("no-break-space-before-attribute", "<a\u00a0b=c>", True),
+    ("nul-in-unquoted-value", "<a b=x\x00y>", True),
+    ("in-a-quoted-list-item", "> - <slug/>", True),
+    ("in-an-ordered-item", "1. </x >", True),
+    ("placeholder-sentence", "<slug> is the feature named in <scope>", False),
+    ("tag-then-text", "<slug> text", False),
+    ("quoted-close-bracket-then-text", '<a title="x>y"> text', False),
+    ("no-space-between-attributes", "<a b='x'c>", False),
+    ("digit-attribute-name", "<a 1b>", False),
+    ("missing-value", "<a b=>", False),
+    ("backtick-value", "<a b=`x`>", False),
+    ("digit-tag-name", "<1>", False),
+    ("space-before-name", "< a>", False),
+    ("nul-value-then-text", "<a b=x\x00y> z", False),
+]
+
+
+@pytest.mark.parametrize(
+    ("line", "opens"),
+    [(line, opens) for _id, line, opens in _TAG_LINES],
+    ids=[case_id for case_id, _line, _opens in _TAG_LINES],
+)
+def test_ac22_the_tag_line_check_is_markdown_its_condition_7(line, opens) -> None:
+    """A line no other start condition opens loads the parser exactly when
+    markdown-it reads it, alone, as an HTML block: a placeholder tag followed
+    by prose never does, and a complete tag alone on its line always does."""
+    from heddle.kernel.markdown_structure import _could_open_block
+
+    assert _could_open_block(line) is opens, (
+        f"FAIL AC-22: the tag line check reads {line!r} as {not opens}"
+    )
+    assert bool(_parser_verbatim(line + "\n")) is opens
 
 
 # Frontmatter content for the agreement test, in chunks of lines; no line is
@@ -252,7 +358,7 @@ def test_ac22_the_frontmatter_boundary_agrees_with_the_repository_readers(
     compared_with_read_markdown = 0
     for shape, text in _frontmatter_documents(seed):
         path.write_bytes(text.encode())
-        lines = markdown_lines(text)
+        lines = markdown_lines(text, whole_document=True)
         try:
             body_line = read_markdown(path).body_line
             refusal = ""
@@ -264,7 +370,7 @@ def test_ac22_the_frontmatter_boundary_agrees_with_the_repository_readers(
             body_start = None
         if shape == "closed":
             assert body_start is not None, text
-            boundary = len(markdown_lines(text[:body_start]))
+            boundary = len(markdown_lines(text[:body_start], whole_document=True))
             assert all(line.verbatim for line in lines[:boundary]), text
             assert (lines[boundary].text, lines[boundary].verbatim) == (_BODY, False)
             if body_line is None:
@@ -288,7 +394,7 @@ import sys
 
 from heddle.kernel.markdown_structure import markdown_lines
 
-lines = markdown_lines(sys.argv[1])
+lines = markdown_lines(sys.argv[1], whole_document=True)
 print(json.dumps({
     "verbatim": [index for index, line in enumerate(lines) if line.verbatim],
     "loaded": sorted(
@@ -305,6 +411,8 @@ _NO_OPENER = (
 
 
 _LEADING_PLACEHOLDER = "Prose continues on the next line,\n<slug> is the feature.\n"
+# A paragraph opening with a placeholder tag and ending with another.
+_PLACEHOLDER_SENTENCE = "\n<slug> is the feature named in <scope>\n"
 _FRONTMATTER_OPENER = "---\nsummary: |\n  <!-- a literal opener\n---\n"
 
 
@@ -315,14 +423,18 @@ _FRONTMATTER_OPENER = "---\nsummary: |\n  <!-- a literal opener\n---\n"
         (_NO_OPENER + "```\ncode\n```\n", [9, 10, 11], True),
         (_NO_OPENER + "<!-- note -->\n", [9], True),
         (_NO_OPENER + _LEADING_PLACEHOLDER, [], False),
+        (_NO_OPENER + _PLACEHOLDER_SENTENCE, [], False),
         (_FRONTMATTER_OPENER + _NO_OPENER, [0, 1, 2, 3], False),
+        (_NO_OPENER + "\n<feature-id>\n", [10], True),
     ],
     ids=[
         "no-opener",
         "fence",
         "html-comment",
         "leading-placeholder",
+        "placeholder-sentence",
         "frontmatter-comment-opener",
+        "complete-tag-line",
     ],
 )
 def test_ac22_the_parser_loads_only_for_a_possible_fence_or_html_block(
@@ -331,7 +443,8 @@ def test_ac22_the_parser_loads_only_for_a_possible_fence_or_html_block(
     """In a fresh process, a document with no body line that could open a
     fence or an HTML block is read without importing the parser or the
     search module, even with a placeholder tag starting a prose line or a
-    comment opener in its frontmatter; a fence or a comment loads both."""
+    comment opener in its frontmatter; a fence, a comment or a complete tag
+    alone on its line loads both."""
     result = subprocess.run(
         [sys.executable, "-c", _LOADED_PROBE, text],
         cwd=REPO_ROOT,
@@ -406,6 +519,7 @@ _OPENERS = (
     '<a title="x>y">',
     "<a b='>' c>",
     "<slug/>  ",
+    "<a b=x\x00y>",
     # Near misses: no block starts on these.
     "<!1",
     "<!-",
@@ -430,6 +544,7 @@ _PLAIN = (
     "> quote",
     "<slug> is the feature it names.",
     "<feature-id> names the feature, and <b>bold</b> too.",
+    "<slug> is the feature named in <scope>",
 )
 
 
@@ -459,11 +574,13 @@ def _generated_documents(seed: int, count: int = 400):
 def test_ac22_the_opener_check_misses_no_fence_or_html_block(seed, monkeypatch) -> None:
     """Soundness of the parser-free path, against markdown-it itself.
 
-    The flags always equal frontmatter plus markdown-it's fence and HTML
-    block lines in the body: every body markdown-it reads such a block in is
-    parsed, and every document read without the parser has none. A body
-    with no opener line, placeholder prose included, is always read without
-    the parser, whatever its frontmatter holds.
+    Read as a whole document, the flags always equal frontmatter plus
+    markdown-it's fence and HTML block lines in the body: every body
+    markdown-it reads such a block in is parsed, and every document read
+    without the parser has none. A body with no opener line, placeholder
+    prose included, is always read without the parser, whatever its
+    frontmatter holds. Read as a body, the same text has no frontmatter and
+    its flags equal markdown-it's lines for the whole text.
     """
     from markdown_it import MarkdownIt
 
@@ -501,5 +618,16 @@ def test_ac22_the_opener_check_misses_no_fence_or_html_block(seed, monkeypatch) 
             assert opener, (
                 f"FAIL AC-22: an opener-free body loaded the parser: {text!r}"
             )
+        whole = sorted(
+            {
+                index
+                for token in parser.parse(text)
+                if token.type in {"fence", "html_block"} and token.map is not None
+                for index in range(token.map[0], token.map[1])
+            }
+        )
+        assert _verbatim(text, whole_document=False) == whole, (
+            f"FAIL AC-22: body flags differ from markdown-it: {text!r}"
+        )
     markdown_lines.cache_clear()
     assert unparsed >= 50, f"too few documents took the parser-free path: {unparsed}"

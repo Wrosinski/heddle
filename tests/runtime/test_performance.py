@@ -440,13 +440,14 @@ def test_ac11_scaffold_status_and_orient_load_the_parser_only_when_needed(
     With a spec and plan holding no body line that could open a fenced code
     block or an HTML block, unchanged status, status --json and orient load
     neither the Markdown parser nor the search module. The plain spec holds a
-    placeholder tag mid-line and at the start of a prose continuation line,
-    and frontmatter whose block scalar holds a comment opener; none of them
-    can open a block. A spec holding a fence needs
-    the parser for an accurate binding subject, so there they load it: the
-    stated limit. The control makes a formatting-only change to the recorded
-    spec afterwards: status then loads the parser and keeps the review's
-    evidence current.
+    placeholder tag mid-line, a sentence that opens and ends with a
+    placeholder tag (as a continuation line and as a paragraph), and
+    frontmatter whose block scalar holds a comment opener; none of them can
+    open a block. A spec holding a fence, or a complete tag alone on its
+    line, needs the parser for an accurate binding subject, so there they
+    load it: the stated limit. The control makes a formatting-only change to
+    the recorded spec afterwards: status then loads the parser and keeps the
+    review's evidence current.
     """
     plain, spec = _reviewed_scaffold_host(
         tmp_path,
@@ -454,7 +455,8 @@ def test_ac11_scaffold_status_and_orient_load_the_parser_only_when_needed(
         run_cli,
         "plain",
         "Prose with an inline <slug> placeholder, and a continuation line\n"
-        "<slug> is the feature it names.\n",
+        "<slug> is the feature named in <scope>\n\n"
+        "<slug> is the feature named in <scope>\n",
         head="---\nsummary: |\n  <!-- a literal comment opener, never closed\n---\n\n",
     )
     observation = _probe_scaffold_imports(plain, spec, *REFLOW)
@@ -476,14 +478,18 @@ def test_ac11_scaffold_status_and_orient_load_the_parser_only_when_needed(
         f"{scaffolding}"
     )
 
-    fenced, _spec = _reviewed_scaffold_host(
-        tmp_path, monkeypatch, run_cli, "fenced", "```text\n## Example heading\n```\n"
-    )
-    loaded = set(_probe_scaffold_imports(fenced)["loaded"])
-    assert {"heddle.kernel.knowledge_search", "markdown_it"} <= loaded, (
-        "a scaffold spec holding a fence needs the parser for its binding "
-        f"subject, so status and orient load it: {sorted(loaded)}"
-    )
+    for name, tail in (
+        ("fenced", "```text\n## Example heading\n```\n"),
+        ("tagged", "\n<feature-id>\n"),
+    ):
+        host, _spec = _reviewed_scaffold_host(
+            tmp_path, monkeypatch, run_cli, name, tail
+        )
+        loaded = set(_probe_scaffold_imports(host)["loaded"])
+        assert {"heddle.kernel.knowledge_search", "markdown_it"} <= loaded, (
+            f"a scaffold spec holding a block ({name}) needs the parser for its "
+            f"binding subject, so status and orient load it: {sorted(loaded)}"
+        )
 
 
 def test_ac13_representative_cold_search_budget(tmp_path: Path) -> None:
