@@ -169,16 +169,18 @@ class TestExtractionDriftSensitivity:
 
 # --------------------------------------------------------------------------- #
 # antigravity-reviewer-lane-v1, AC-22: embedded plan and spec sections equal
-# their source bytes. The section extractors treat fenced lines as content and
-# keep every selected line's own terminator; for plain-LF input they still
-# return exactly what the previous rule returned (survivor, AC-23).
+# their source bytes. The section extractors treat the lines a CommonMark
+# fenced code block covers as content and keep every selected line's own line
+# ending; for plain-LF input they still return exactly what the previous rule
+# returned (survivor, AC-23).
 # --------------------------------------------------------------------------- #
 
-# Every boundary `str.splitlines` recognizes, the multi-character CRLF first.
-TERMINATOR_NAMES = {
-    "\r\n": "crlf",
-    "\r": "cr",
-    "\n": "lf",
+# The line endings CommonMark counts, the multi-character CRLF first.
+TERMINATOR_NAMES = {"\r\n": "crlf", "\r": "cr", "\n": "lf"}
+TERMINATORS = tuple(TERMINATOR_NAMES)
+# Every other boundary `str.splitlines` recognizes: CommonMark ends no line at
+# these, so each stays inside its line.
+INLINE_SEPARATOR_NAMES = {
     "\v": "vt",
     "\f": "ff",
     "\x1c": "fs",
@@ -188,7 +190,6 @@ TERMINATOR_NAMES = {
     "\u2028": "line-separator",
     "\u2029": "paragraph-separator",
 }
-TERMINATORS = tuple(TERMINATOR_NAMES)
 FENCED_EXAMPLE = [
     "```markdown",
     "## Example heading inside a fence",
@@ -205,11 +206,12 @@ def _document(lines: list[str], terminator: str = "\n") -> str:
 
 
 def test_splitlines_boundaries_are_the_terminators_covered_here() -> None:
-    """Fixture check: ``TERMINATORS`` is exactly what ``str.splitlines`` splits on."""
+    """Fixture check: the line endings and the inline separators together are
+    exactly what ``str.splitlines`` splits on."""
     boundaries = {
         chr(code) for code in range(0x110000) if len(f"a{chr(code)}b".splitlines()) == 2
     }
-    assert boundaries | {"\r\n"} == set(TERMINATORS)
+    assert boundaries | {"\r\n"} == set(TERMINATORS) | set(INLINE_SEPARATOR_NAMES)
     assert len("a\r\nb".splitlines()) == 2
 
 
@@ -290,6 +292,37 @@ def test_ac22_active_rule_blocks_keep_their_own_line_terminators(terminator) -> 
         terminator.join(item),
         terminator.join(paragraph),
     ), f"FAIL AC-22: rule blocks do not keep their {terminator!r} terminators"
+
+
+@pytest.mark.parametrize(
+    "separator", INLINE_SEPARATOR_NAMES, ids=INLINE_SEPARATOR_NAMES.get
+)
+def test_ac22_a_separator_commonmark_does_not_count_stays_inside_its_line(
+    separator,
+) -> None:
+    """A heading after such a separator shares its line, so it bounds nothing,
+    and the separator stays in the span as its source byte."""
+    from heddle.gate.extraction import (
+        extract_acceptance_criteria_blocks,
+        extract_feature_spec_ac_ids,
+        extract_markdown_section,
+        extract_milestone_section,
+    )
+
+    purpose = f"## Purpose\nbody{separator}## Next on the same line\nmore"
+    doc = f"# Doc\n\n{purpose}\n\n## Next\ntail\n"
+    assert extract_markdown_section(doc, "## Purpose") == purpose, (
+        f"FAIL AC-22: {separator!r} ended a line inside the section"
+    )
+    milestone = f"### Milestone m1: First\nbody{separator}### Milestone m2: Same line"
+    plan = f"# Plan\n\n{milestone}\n\n### Milestone m2: Second\ntail\n"
+    assert extract_milestone_section(plan, "m1") == milestone
+    block = f"### AC-1: One\nbody{separator}### AC-2: Same line\nmore"
+    spec = f"## Acceptance Criteria\n{block}\n\n### AC-3: Three\n## Next\n"
+    assert extract_acceptance_criteria_blocks(spec, ["AC-1"]) == (
+        f"## Acceptance Criteria\n{block}"
+    )
+    assert extract_feature_spec_ac_ids(spec) == ["AC-1", "AC-3"]
 
 
 def test_ac22_mixed_terminators_inside_a_span_are_its_source_bytes() -> None:
@@ -437,9 +470,10 @@ def test_ac22_ac_ids_name_exactly_the_blocks_the_extractor_selects() -> None:
 
 
 # A fence closes only at a run of its own character, at least as long as the
-# run that opened it, with nothing but whitespace after it. Each case hides a
-# `## ` line that a rule toggling on every fence-like line would treat as a
-# boundary; the section's real end follows the fence, so the fence must close.
+# run that opened it, indented at most three spaces, with nothing but
+# whitespace after it, as CommonMark specifies. Each case hides a `## ` line
+# that a looser closing rule would treat as a boundary; the section's real end
+# follows the fence, so the fence must close.
 FENCE_CASES = {
     "nested-block": [
         "````markdown",
@@ -473,6 +507,12 @@ FENCE_CASES = {
         "``` not a closing run",
         "## Heading after a run with text",
         "```   ",
+    ],
+    "over-indented-run": [
+        "```",
+        "    ```",
+        "## Heading after a run indented four spaces",
+        "   ```",
     ],
 }
 SECTION_SHAPES = {
@@ -509,7 +549,8 @@ def _extract(shape: str, content: str) -> str:
 @pytest.mark.parametrize("case", FENCE_CASES)
 def test_ac22_a_fence_closes_only_at_its_own_marker(case, shape) -> None:
     """Inside an open fence, a line closes it only when its run is the same
-    character, at least as long, with nothing but whitespace after it."""
+    character, at least as long, indented at most three spaces, with nothing
+    but whitespace after it."""
     from heddle.gate.extraction import extract_feature_spec_ac_ids
 
     head, tail = SECTION_SHAPES[shape]
@@ -527,8 +568,9 @@ def test_ac22_a_fence_closes_only_at_its_own_marker(case, shape) -> None:
 
 @pytest.mark.parametrize("shape", SECTION_SHAPES)
 def test_ac22_a_fence_left_open_runs_to_the_end_of_the_input(shape) -> None:
-    """An unclosed fence keeps every later line as content, so the section
-    runs to the end of the input, as it did under the toggle rule."""
+    """A top-level fence left open keeps every later line as content, so the
+    section runs to the end of the input, as CommonMark and the toggle rule
+    both end it."""
     head, tail = SECTION_SHAPES[shape]
     body = ["intro", "```text", "## Heading inside", *tail]
     expected = [*head, *body]
@@ -537,6 +579,50 @@ def test_ac22_a_fence_left_open_runs_to_the_end_of_the_input(shape) -> None:
     assert _extract(shape, _document([*head, *body])) == "\n".join(expected), (
         f"FAIL AC-22: an unclosed fence did not run the {shape} to the end"
     )
+
+
+# A fence left open inside a list item or a blockquote ends with its
+# container, which the next unindented, unquoted line closes.
+OPEN_CONTAINER_FENCES = {
+    "list-item": ["- item", "  ```text", "  ## Heading inside the item's fence"],
+    "blockquote": ["> ```text", "> ## Heading inside the quoted fence"],
+}
+
+
+@pytest.mark.parametrize("shape", SECTION_SHAPES)
+@pytest.mark.parametrize("container", OPEN_CONTAINER_FENCES)
+def test_ac22_a_fence_left_open_ends_with_its_container(container, shape) -> None:
+    """The line that closes the container is structure again, so the section
+    ends at its real boundary instead of running to the end of the input."""
+    head, tail = SECTION_SHAPES[shape]
+    body = ["intro", "", *OPEN_CONTAINER_FENCES[container]]
+    expected = [*head, *body]
+    if shape != "acceptance-block":
+        expected = expected[2:]
+    assert _extract(shape, _document([*head, *body, *tail])) == "\n".join(expected), (
+        f"FAIL AC-22: a fence left open in a {container} hid the {shape} boundary"
+    )
+
+
+@pytest.mark.parametrize("shape", SECTION_SHAPES)
+@pytest.mark.parametrize("marker", ["    ```", "    ~~~"], ids=["backtick", "tilde"])
+def test_ac22_a_marker_in_indented_code_opens_no_fence(marker, shape) -> None:
+    """A run indented four spaces is indented code, not a fence opening, so
+    the boundary after it still ends the section."""
+    from heddle.gate.extraction import extract_feature_spec_ac_ids
+
+    head, tail = SECTION_SHAPES[shape]
+    body = ["intro", "", marker, "    literal text in indented code"]
+    expected = [*head, *body]
+    if shape != "acceptance-block":
+        expected = expected[2:]
+    content = _document([*head, *body, *tail])
+    assert _extract(shape, content) == "\n".join(expected), (
+        f"FAIL AC-22: a literal {marker.strip()} marker in indented code hid the "
+        f"{shape} boundary"
+    )
+    if shape == "acceptance-block":
+        assert extract_feature_spec_ac_ids(content) == ["AC-1", "AC-2"]
 
 
 # --------------------------------------------------------------------------- #
@@ -736,7 +822,7 @@ TEXT_LINES = (
     "é€🚀 multibyte",
 )
 # Simple fences: each opening line paired with the bare run that closes it.
-# On these, the previous toggle rule and the marker-matching rule agree.
+# Placed at the top level, the previous toggle rule and CommonMark agree.
 SIMPLE_FENCES = (
     ("```", "```"),
     ("```python", "```"),
@@ -770,7 +856,10 @@ def _plain_lf_documents(seed: int, *, fences: bool, count: int = 400):
     def fence(closed: bool) -> list[str]:
         opening, closing = rng.choice(SIMPLE_FENCES)
         body = [rng.choice(vocabulary) for _ in range(rng.randint(0, 4))]
-        return [opening, *body, closing] if closed else [opening, *body]
+        lines = [opening, *body, closing] if closed else [opening, *body]
+        # An indented opening right after a list item would open inside the
+        # item; a blank line and an unindented paragraph close any list first.
+        return ["", "text", *lines] if opening.startswith(" ") else lines
 
     for _ in range(count):
         lines: list[str] = []
@@ -783,7 +872,17 @@ def _plain_lf_documents(seed: int, *, fences: bool, count: int = 400):
             lines.insert(rng.randint(0, len(lines)), "## Acceptance Criteria")
         if fences and rng.random() < 0.1:
             lines.extend(fence(closed=False))  # left open to the end of input
-        yield "\n".join(lines) + rng.choice(("", "\n", "\n\n"))
+        content = "\n".join(lines) + rng.choice(("", "\n", "\n\n"))
+        _assert_top_level_fences(content)
+        yield content
+
+
+def _assert_top_level_fences(content: str) -> None:
+    """Generator check: CommonMark reads every fence at the top level."""
+    from markdown_it import MarkdownIt
+
+    tokens = MarkdownIt("commonmark").parse(content)
+    assert all(token.level == 0 for token in tokens if token.type == "fence"), content
 
 
 def _outcome(function, *args):
@@ -798,11 +897,12 @@ def test_ac23_survivor_plain_lf_extraction_equals_the_previous_rule(seed) -> Non
     """Survivor: plain-LF input extracts exactly as before.
 
     Generated documents use LF only, with no other line boundary. The
-    extractors that were fence-aware already see simple fences too: each is
-    closed by its own bare run or left open to the end of the input, where
-    the previous toggle rule and the marker-matching rule agree. The
-    milestone and AC extractors, which change on fenced input, see fence-free
-    input. The fence cases where the rules differ have their own tests.
+    extractors that were fence-aware already see simple CommonMark fences
+    too, each at the top level and closed by its own bare run or left open
+    to the end of the input, where the previous toggle rule and CommonMark
+    agree. The milestone and AC extractors, which change on fenced input,
+    see fence-free input. The fence cases where the rules differ have their
+    own tests.
     """
     from heddle.gate import extraction
 

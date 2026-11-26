@@ -6,8 +6,9 @@ import os
 import re
 import sqlite3
 from dataclasses import dataclass
+from functools import lru_cache
 from pathlib import Path
-from typing import Literal
+from typing import Literal, NamedTuple
 
 from markdown_it import MarkdownIt
 from markdown_it import __version__ as _MARKDOWN_IT_VERSION
@@ -101,6 +102,53 @@ def markdown_block_ranges(text: str) -> tuple[tuple[int, int], ...]:
             ranges.append((start, index))
             start = None
     return tuple(sorted(ranges))
+
+
+class MarkdownLine(NamedTuple):
+    """One line of a Markdown document as the CommonMark parser counts it."""
+
+    text: str  # the line without its line ending
+    raw: str  # the line with its own line ending, if it has one
+    fenced: bool  # a fenced code block covers it, delimiters included
+
+
+@lru_cache(maxsize=16)
+def markdown_lines(text: str) -> tuple[MarkdownLine, ...]:
+    """Return the document's lines, each flagged when a fenced code block covers it.
+
+    This is the one fence rule for reading Markdown structure: the section
+    extractors and the ``Verified-by`` readers both take it from here. A line
+    is fenced when a CommonMark ``fence`` token covers it, at any container
+    depth (list items and blockquotes included), the opening and closing
+    delimiters included. Indented code and HTML blocks are not fences. A
+    fence left open ends where CommonMark ends it: at the end of its
+    container, or of the document.
+
+    Lines end at ``\\r\\n``, ``\\r`` and ``\\n``, as the parser counts them, and
+    ``raw`` keeps each line's own ending. Any other boundary ``str.splitlines``
+    knows (a vertical tab, a form feed, the file, group and record separators,
+    NEL, U+2028 or U+2029) stays inside its line. A final line ending opens no
+    further line. The parse is cached, because callers read one document many
+    times, once per section or acceptance criterion.
+    """
+    fenced: set[int] = set()
+    for token in _MARKDOWN.parse(text):
+        if token.type == "fence" and token.map is not None:
+            fenced.update(range(token.map[0], token.map[1]))
+    lines: list[MarkdownLine] = []
+    start = 0
+    for match in _LINE_BREAK.finditer(text):
+        lines.append(
+            MarkdownLine(
+                text[start : match.start()],
+                text[start : match.end()],
+                len(lines) in fenced,
+            )
+        )
+        start = match.end()
+    if start < len(text):
+        lines.append(MarkdownLine(text[start:], text[start:], len(lines) in fenced))
+    return tuple(lines)
 
 
 def search_knowledge(

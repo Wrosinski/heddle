@@ -242,6 +242,65 @@ def test_binding_only_inputs_share_capture_and_review_basis(
     assert "quality/binding_witness.py::test_first" in fresh_error.value.message
 
 
+def test_ac22_a_fenced_sample_declaration_never_binds_or_reaches_the_basis(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """A four-backtick fence in an AC holds a `## ` heading, a run of the same
+    length followed by text (which closes nothing) and a sample declaration
+    naming a missing test. Only the real declaration after the fence binds:
+    preparation succeeds and the sample's file never enters the review basis.
+    Red while the binding parser closes the fence at the run with text.
+    """
+    from heddle.gate import entry
+
+    host, _state_path = current_host(tmp_path, monkeypatch, stage="scaffold")
+    real_path = host / "quality/real_witness.py"
+    sample_path = host / "quality/sample_witness.py"
+    real_path.parent.mkdir()
+    real_path.write_text("def test_real():\n    assert True\n", encoding="utf-8")
+    sample_path.write_text("def test_present():\n    assert True\n", encoding="utf-8")
+    git(host, "add", "quality")
+    git(host, "commit", "-qm", "unchanged witnesses")
+    (host / SPEC).write_text(
+        "# Product\n\n## Acceptance Criteria\n\n"
+        "### AC-1: Required behavior\n\n"
+        "Priority: MUST\n\n"
+        "````markdown\n"
+        "## Heading inside the sample\n"
+        "```` this run is followed by text, so it closes nothing\n"
+        "Verified-by: quality/sample_witness.py::test_missing\n"
+        "````\n\n"
+        "Verified-by: quality/real_witness.py::test_real\n",
+        encoding="utf-8",
+    )
+    context = _scaffold_context(host)
+    prepared = entry.prepare_gate_run(
+        context, gate_type=context.gate_type, invocation=_invocation(context)
+    )
+    names = {row.name for row in prepared.reviewed_inputs}
+    assert "reviewed/test/quality/real_witness.py" in names, (
+        "FAIL AC-22: the real declaration after the fence did not bind"
+    )
+    assert not any("sample_witness" in name for name in names), (
+        "FAIL AC-22: the fenced sample declaration reached the review basis"
+    )
+
+    basis_context = _scaffold_context(host)
+    basis = entry.prepare_current_review_basis(
+        basis_context, _invocation(basis_context)
+    )
+    assert basis.review_basis_hash == prepared.review_basis_hash
+    sample_path.write_text("def test_changed():\n    assert True\n", encoding="utf-8")
+    git(host, "commit", "-qam", "change only the sample's file")
+    changed_context = _scaffold_context(host)
+    changed = entry.prepare_current_review_basis(
+        changed_context, _invocation(changed_context)
+    )
+    assert changed.review_basis_hash == prepared.review_basis_hash, (
+        "FAIL AC-22: the sample's file changes the review basis"
+    )
+
+
 def test_binding_issues_do_not_turn_basis_observation_into_admission(
     tmp_path: Path, monkeypatch
 ) -> None:

@@ -2046,6 +2046,10 @@ NESTED_FENCE = (
     "### Milestone m9: Lookalike after the nested block\n"
     "````\n"
 )
+# Indented code holding a literal fence marker: four spaces of indent make it
+# code, not a fence opening, so the heading after it still bounds the section.
+INDENTED_BACKTICK_MARKER = "    ```\n    literal backtick marker in indented code"
+INDENTED_TILDE_MARKER = "    ~~~\n    literal tilde marker in indented code"
 
 
 @dataclass(frozen=True)
@@ -2063,7 +2067,9 @@ def write_fenced_crlf_sections(host: Path) -> FencedSections:
     The m1 plan section and the AC-1 block each hold ``FENCED_EXAMPLE`` with
     text after it, and a CRLF span naming the checkout path; the m1 section
     also holds ``NESTED_FENCE`` before its span. A fenced lookalike of each
-    selected heading sits before the real one, inside an earlier fence.
+    selected heading sits before the real one, inside an earlier fence. The
+    m1 section ends in ``INDENTED_BACKTICK_MARKER`` right before the m2
+    heading, and ``INDENTED_TILDE_MARKER`` sits right before the AC-1 heading.
     Milestone and AC ids are the fixture's own.
     """
     root = host.as_posix()
@@ -2073,7 +2079,8 @@ def write_fenced_crlf_sections(host: Path) -> FencedSections:
         "### Milestone m1: Declared value\n\nSatisfies: AC-1\n\n"
         "Implement the declared value.\n\n"
         f"{FENCED_EXAMPLE}\nPlan text after the fence.\n\n{NESTED_FENCE}\n"
-        f"Plan text after the nested fence.\n{plan_span}End of the m1 section."
+        f"Plan text after the nested fence.\n{plan_span}End of the m1 section.\n\n"
+        f"{INDENTED_BACKTICK_MARKER}"
     )
     block = (
         "### AC-1: Declared value\n\nPriority: MUST\n"
@@ -2095,7 +2102,7 @@ def write_fenced_crlf_sections(host: Path) -> FencedSections:
             "# Operational example\n\n## Acceptance Criteria\n\n"
             "### AC-2: Another value\n\nExpected: another.\n\n"
             "```text\n### AC-1: Lookalike before the real one\n```\n\n"
-            f"Text after the AC-2 fence.\n\n{block}\n\n"
+            f"Text after the AC-2 fence.\n\n{INDENTED_TILDE_MARKER}\n\n{block}\n\n"
             "## Decision Log\n\nNo decisions yet.\n"
         ).encode()
     )
@@ -2149,10 +2156,13 @@ def test_ac22_codex_fenced_crlf_plan_and_spec_sections_arrive_whole_and_byte_exa
     and AC-1 block hold a fenced example (a `## ` heading and milestone and AC
     lookalikes, text after it) and a CRLF span naming the checkout path; the
     m1 section also holds a four-backtick fence around a three-backtick block
-    with a `## ` line inside. The Codex milestone review, reading them through
-    the runtime context, embeds each whole section as its source bytes, and
-    Heddle's labels stay checkout-relative. Red while a fenced line bounds a
-    section, a shorter inner run closes a fence or a span's CRLF is rewritten.
+    with a `## ` line inside. Indented code holding a literal fence marker
+    sits right before the m2 heading and right before the AC-1 heading. The
+    Codex milestone review, reading them through the runtime context, embeds
+    each whole section as its source bytes, and Heddle's labels stay
+    checkout-relative. Red while a fenced line bounds a section, a shorter
+    inner run closes a fence, an indented marker opens one or a span's CRLF
+    is rewritten.
     """
     host = _host(tmp_path, monkeypatch, MILESTONE)
     sections = write_fenced_crlf_sections(host)

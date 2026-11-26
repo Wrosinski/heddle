@@ -23,7 +23,6 @@ _VERIFIED_BY_LOOKALIKE = re.compile(
     r"verified[ \t_-]*by[*_]*[ \t]*:",
     re.IGNORECASE,
 )
-_FENCE = re.compile(r"^[ \t]{0,3}(`{3,}|~{3,})")
 _CONTROL_OPERATORS = frozenset({"&&", "||", ";", ";;", "|", "|&", "&", "(", ")"})
 # Options whose value names tests to leave out; that value never selects.
 _EXCLUDING_OPTIONS = ("--deselect", "--ignore", "--ignore-glob")
@@ -79,12 +78,7 @@ def parse_primary_test_bindings(ac_id: str, ac_block: str) -> ParsedTestBindings
     once, at its first occurrence. Fenced code is example text and never binds.
     """
     targets = tuple(
-        dict.fromkeys(
-            target
-            for _number, line in _unfenced_lines(ac_block)
-            if (match := VERIFIED_BY.match(line)) is not None
-            for target in _declared_targets(match.group(1))
-        )
+        dict.fromkeys(target for _line, target in verified_by_targets(ac_block))
     )
     if not targets:
         return ParsedTestBindings(
@@ -113,10 +107,15 @@ def _declared_targets(value: str) -> tuple[str, ...]:
 
 
 def verified_by_targets(markdown: str) -> tuple[tuple[int, str], ...]:
-    """Return every target VERIFIED_BY reads, paired with its 1-based line."""
+    """Return every target VERIFIED_BY reads, paired with its 1-based line.
+
+    Fenced code is example text, so a declaration inside it is never read:
+    the same lines bind here as in ``parse_primary_test_bindings``.
+    """
     return tuple(
-        (markdown.count("\n", 0, match.start()) + 1, target)
-        for match in VERIFIED_BY.finditer(markdown)
+        (number, target)
+        for number, line in _unfenced_lines(markdown)
+        if (match := VERIFIED_BY.match(line)) is not None
         for target in _declared_targets(match.group(1))
     )
 
@@ -134,24 +133,18 @@ def unread_verified_by_lines(markdown: str) -> tuple[int, ...]:
 
 
 def _unfenced_lines(markdown: str) -> Iterator[tuple[int, str]]:
-    """Yield 1-based numbered lines outside fenced code and its delimiters."""
-    fence_marker: str | None = None
-    fence_size = 0
-    for number, line in enumerate(markdown.splitlines(), start=1):
-        delimiter = _FENCE.match(line)
-        if fence_marker is not None:
-            if (
-                delimiter is not None
-                and delimiter.group(1)[0] == fence_marker
-                and len(delimiter.group(1)) >= fence_size
-            ):
-                fence_marker = None
-            continue
-        if delimiter is not None:
-            fence_marker = delimiter.group(1)[0]
-            fence_size = len(delimiter.group(1))
-            continue
-        yield number, line
+    """Yield 1-based numbered lines that no fenced code block covers.
+
+    Lines and fences come from ``markdown_lines``, the one Markdown fence rule,
+    so a line number counts CRLF, CR and LF line endings only.
+    """
+    # Imported here: knowledge_search imports knowledge, which imports this
+    # module's Verified-by readers.
+    from heddle.kernel.knowledge_search import markdown_lines
+
+    for number, line in enumerate(markdown_lines(markdown), start=1):
+        if not line.fenced:
+            yield number, line.text
 
 
 # Bound test sources are parsed by Heddle's own interpreter, which may be older

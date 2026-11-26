@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
+import random
+import re
 from pathlib import Path
+
+import pytest
 
 from heddle.kernel.knowledge import (
     read_spec_verification_facts,
@@ -10,6 +14,7 @@ from heddle.kernel.knowledge import (
 )
 from heddle.kernel.test_bindings import (
     PARSER_PYTHON,
+    VERIFIED_BY,
     dropped_command_tokens,
     inspect_python_test_source,
     is_python_source_issue,
@@ -18,6 +23,7 @@ from heddle.kernel.test_bindings import (
     selector_rebind_pairs,
     unread_verified_by_lines,
     unselected_test_targets,
+    verified_by_targets,
 )
 
 
@@ -341,3 +347,216 @@ def test_dropped_command_tokens_only_removals_that_keep_the_rest_in_order() -> N
         is None
     )
     assert dropped_command_tokens(current, "runner 'unterminated") is None
+
+
+# antigravity-reviewer-lane-v1, AC-22: every Verified-by reader takes its lines
+# and fences from the one CommonMark rule the gate's section extractors use, so
+# a declaration binds exactly when a reader of the rendered spec sees it
+# outside a code block.
+
+REAL = "tests/test_a.py::test_real"
+EXAMPLE = "tests/test_a.py::test_example"
+# Each shape: the AC text, then the 1-based lines of REAL's declarations and of
+# the lookalike lines the readers report as unread.
+FENCE_SHAPES = {
+    "top-level-info-string": (
+        f"Verified-by: {REAL}\n```python\nVerified-by: {EXAMPLE}\n```\n",
+        (1,),
+        (),
+    ),
+    "run-followed-by-text": (
+        "````\n## Heading\n```` not a closing run\n"
+        f"Verified-by: {EXAMPLE}\n````\nVerified-by: {REAL}\n",
+        (6,),
+        (),
+    ),
+    "list-item": (
+        f"- item\n  ```\n  Verified-by: {EXAMPLE}\n  ```\nVerified-by: {REAL}\n",
+        (5,),
+        (),
+    ),
+    "blockquote": (
+        f"> ```\n> Verified-by: {EXAMPLE}\n> ```\n\nVerified-by: {REAL}\n",
+        (5,),
+        (),
+    ),
+    "indented-code": (
+        f"intro\n\n    ```\n    Verified-by: {EXAMPLE}\n\nVerified-by: {REAL}\n",
+        (6,),
+        (4,),
+    ),
+    "left-open-at-the-top-level": (
+        f"Verified-by: {REAL}\n~~~\nVerified-by: {EXAMPLE}\n",
+        (1,),
+        (),
+    ),
+    "left-open-in-a-list-item": (
+        f"- item\n  ```\n  code\nVerified-by: {REAL}\n",
+        (4,),
+        (),
+    ),
+    "crlf": (
+        f"Verified-by: {REAL}\r\n```\r\nVerified-by: {EXAMPLE}\r\n```\r\n",
+        (1,),
+        (),
+    ),
+    "cr": (
+        f"```\rVerified-by: {EXAMPLE}\r```\rVerified-by: {REAL}\r",
+        (4,),
+        (),
+    ),
+}
+
+
+@pytest.mark.parametrize("shape", FENCE_SHAPES)
+def test_ac22_verified_by_readers_follow_the_commonmark_fence_rule(shape) -> None:
+    """A fenced declaration never binds and a fenced lookalike is never
+    reported, at any container depth; a fence left open in a list item ends
+    with it; lines count at CRLF, CR and LF."""
+    text, real_lines, unread = FENCE_SHAPES[shape]
+    parsed = parse_primary_test_bindings("AC-1", text)
+    assert [binding.target for binding in parsed.bindings] == [REAL], (
+        f"FAIL AC-22: the {shape} binding does not follow the fence rule"
+    )
+    assert verified_by_targets(text) == tuple((line, REAL) for line in real_lines)
+    assert unread_verified_by_lines(text) == unread
+
+
+# Survivor: plain-LF text reads exactly as under the previous kernel fence rule
+# (at most three spaces of indent, closed by a longer or equal run of the same
+# character). The functions below copy that rule.
+_PREVIOUS_FENCE = re.compile(r"^[ \t]{0,3}(`{3,}|~{3,})")
+_PREVIOUS_LOOKALIKE = re.compile(
+    r"^[ \t]*(?:>[ \t]*)*(?:(?:[-*+]|\d+[.)])[ \t]+)?[*_]*"
+    r"verified[ \t_-]*by[*_]*[ \t]*:",
+    re.IGNORECASE,
+)
+
+
+def _previous_unfenced_lines(markdown: str):
+    fence_marker = None
+    fence_size = 0
+    for number, line in enumerate(markdown.splitlines(), start=1):
+        delimiter = _PREVIOUS_FENCE.match(line)
+        if fence_marker is not None:
+            if (
+                delimiter is not None
+                and delimiter.group(1)[0] == fence_marker
+                and len(delimiter.group(1)) >= fence_size
+            ):
+                fence_marker = None
+            continue
+        if delimiter is not None:
+            fence_marker = delimiter.group(1)[0]
+            fence_size = len(delimiter.group(1))
+            continue
+        yield number, line
+
+
+def _previous_declarations(markdown: str) -> list[tuple[int, str]]:
+    return [
+        (number, part.strip())
+        for number, line in _previous_unfenced_lines(markdown)
+        if (match := VERIFIED_BY.match(line)) is not None
+        for part in match.group(1).split(",")
+        if part.strip()
+    ]
+
+
+def _previous_whole_text_targets(markdown: str) -> list[tuple[int, str]]:
+    return [
+        (markdown.count("\n", 0, match.start()) + 1, part.strip())
+        for match in VERIFIED_BY.finditer(markdown)
+        for part in match.group(1).split(",")
+        if part.strip()
+    ]
+
+
+def _previous_unread_lines(markdown: str) -> list[int]:
+    return [
+        number
+        for number, line in _previous_unfenced_lines(markdown)
+        if _PREVIOUS_LOOKALIKE.match(line) and not VERIFIED_BY.match(line)
+    ]
+
+
+_DECLARATION_LINES = (
+    "Verified-by: tests/test_a.py::test_one",
+    "Verified-by: tests/test_a.py::test_one, tests/test_b.py::test_two",
+    "Verified-by: tests/test_c.py",
+    "Verified-by:",
+    "- Verified-by: tests/test_list.py",
+    "  Verified-by: tests/test_indent.py",
+    "verified-by: tests/test_case.py",
+    "Verified by: tests/test_space.py",
+    "1. **Verified-by:** tests/test_bold.py",
+    "> Verified-by : tests/test_quote.py",
+)
+_PROSE_LINES = (
+    "",
+    "text",
+    "## Heading",
+    "### AC-1: One",
+    "- item",
+    "  indented text",
+    "Prose names the `Verified-by:` line.",
+)
+_SIMPLE_FENCES = (
+    ("```", "```"),
+    ("```python", "```"),
+    ("~~~", "~~~"),
+    ("  ```", "  ```"),
+    ("~~~~", "~~~~"),
+    ("````text", "````"),
+)
+
+
+def _plain_lf_texts(seed: int, *, fences: bool, count: int = 300):
+    """Generated plain-LF texts; any fence is a CommonMark fence at the top
+    level, closed by its own bare run or left open to the end of the text."""
+    from markdown_it import MarkdownIt
+
+    rng = random.Random(seed)
+    vocabulary = _DECLARATION_LINES * 2 + _PROSE_LINES
+
+    def fence(closed: bool) -> list[str]:
+        opening, closing = rng.choice(_SIMPLE_FENCES)
+        body = [rng.choice(vocabulary) for _ in range(rng.randint(0, 4))]
+        lines = [opening, *body, closing] if closed else [opening, *body]
+        # An indented opening right after a list item would open inside the
+        # item; a blank line and an unindented paragraph close any list first.
+        return ["", "text", *lines] if opening.startswith(" ") else lines
+
+    for _ in range(count):
+        lines: list[str] = []
+        for _ in range(rng.randint(0, 30)):
+            if fences and rng.random() < 0.15:
+                lines.extend(fence(closed=True))
+            else:
+                lines.append(rng.choice(vocabulary))
+        if fences and rng.random() < 0.1:
+            lines.extend(fence(closed=False))
+        text = "\n".join(lines) + rng.choice(("", "\n"))
+        tokens = MarkdownIt("commonmark").parse(text)
+        assert all(token.level == 0 for token in tokens if token.type == "fence")
+        yield text
+
+
+@pytest.mark.parametrize("seed", range(3))
+def test_ac23_survivor_plain_lf_verified_by_reading_equals_the_previous_rule(
+    seed,
+) -> None:
+    """On plain-LF text with top-level fences the previous rule closed
+    correctly, every reader returns what it returned before. The whole-text
+    target reader, which read fenced lines before, equals its previous output
+    on fence-free text and the previous unfenced declarations otherwise."""
+    for text in _plain_lf_texts(seed, fences=True):
+        previous = _previous_declarations(text)
+        parsed = parse_primary_test_bindings("AC-1", text)
+        assert [binding.target for binding in parsed.bindings] == list(
+            dict.fromkeys(target for _line, target in previous)
+        ), text
+        assert verified_by_targets(text) == tuple(previous), text
+        assert list(unread_verified_by_lines(text)) == _previous_unread_lines(text)
+    for text in _plain_lf_texts(seed + 100, fences=False):
+        assert verified_by_targets(text) == tuple(_previous_whole_text_targets(text))

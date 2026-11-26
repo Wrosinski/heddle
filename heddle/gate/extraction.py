@@ -2,54 +2,34 @@ from __future__ import annotations
 
 import re
 from collections.abc import Iterator
-from typing import NamedTuple
+from typing import TYPE_CHECKING
 
-# The section extractors share two rules, kept here once:
-# - Fences: a line inside a ```/~~~ code fence, or a delimiter itself, is
-#   content, never structure. A fenced `## ` line (a rejected-layout example,
-#   a diff, sample markdown) neither ends a section nor starts one, and a
-#   fenced `### Milestone mN:` or `### AC-N:` lookalike neither starts nor
-#   switches one. A fence opens at a line whose first non-blank text is a run
-#   of three or more backticks or tildes, at any indent, since fences inside
-#   list items are indented. It closes only at a run of the same character,
-#   at least as long, with nothing but whitespace after it, so an info-string
-#   line, a shorter run or the other character inside it is content. A fence
-#   left open runs to the end of the input: every later line is content.
-# - Terminators: a selected span keeps each line's own terminator (CRLF and
-#   every other `str.splitlines` boundary), so an embedded section is its
-#   source bytes. Only whitespace at the span's two ends is stripped.
+if TYPE_CHECKING:
+    from heddle.kernel.knowledge_search import MarkdownLine
+
+# The section extractors share two rules, both owned by
+# `heddle.kernel.knowledge_search.markdown_lines`:
+# - Fences: a line a CommonMark fenced code block covers, delimiters included
+#   and at any container depth, is content, never structure. A fenced `## `
+#   line (a rejected-layout example, a diff, sample markdown) neither ends a
+#   section nor starts one, and a fenced `### Milestone mN:` or `### AC-N:`
+#   lookalike neither starts nor switches one. Indented code is not a fence,
+#   so a literal marker in it hides nothing.
+# - Lines: lines end at CRLF, CR and LF, as CommonMark counts them, and a
+#   selected span keeps each line's own ending, so an embedded section is its
+#   source bytes. Any other `str.splitlines` boundary stays inside its line.
+#   Only whitespace at the span's two ends is stripped.
 
 _ACCEPTANCE_CRITERIA = "## Acceptance Criteria"
 _AC_HEADING = re.compile(r"^### (AC-[0-9]+[a-z]?):")
 
 
-_FENCE_RUN = re.compile(r"(`{3,}|~{3,})(.*)")
+def _lines(content: str) -> tuple[MarkdownLine, ...]:
+    # Imported on use, so the CommonMark parser loads only when a section is
+    # read, never on the status and orient paths that import this module.
+    from heddle.kernel.knowledge_search import markdown_lines
 
-
-class _Line(NamedTuple):
-    text: str  # the line without its terminator, for structure checks
-    raw: str  # the line with its own terminator, for the selected span
-    fenced: bool  # a fence delimiter or a line inside a fence
-
-
-def _lines(content: str) -> Iterator[_Line]:
-    marker = ""  # the open fence's opening run; empty outside a fence
-    for raw in content.splitlines(keepends=True):
-        text = raw.splitlines()[0]
-        run = _FENCE_RUN.match(text.lstrip())
-        if not marker:
-            if run is not None:
-                marker = run.group(1)
-            yield _Line(text, raw, run is not None)
-            continue
-        if (
-            run is not None
-            and run.group(1)[0] == marker[0]
-            and len(run.group(1)) >= len(marker)
-            and not run.group(2).strip()
-        ):
-            marker = ""
-        yield _Line(text, raw, True)
+    return markdown_lines(content)
 
 
 def _span(raws: list[str]) -> str:
@@ -202,7 +182,7 @@ def extract_active_rule_blocks(content: str) -> tuple[str, ...] | None:
         return None
     if len(headings) != 1:
         raise ValueError("the plan has multiple Active Enforcement Rules sections")
-    body = list(_lines(extract_markdown_section(content, headings[0])))[1:]
+    body = _lines(extract_markdown_section(content, headings[0]))[1:]
     blocks: list[str] = []
     current: list[str] = []
     for line in body:
@@ -263,7 +243,9 @@ def extract_feature_spec_ac_ids(content: str) -> list[str]:
     ]
 
 
-def _acceptance_criteria(content: str) -> Iterator[tuple[_Line, bool, str | None]]:
+def _acceptance_criteria(
+    content: str,
+) -> Iterator[tuple[MarkdownLine, bool, str | None]]:
     """The Acceptance Criteria section's lines, the one owner of AC blocks.
 
     Each line comes with whether it is the section heading and the AC id it
