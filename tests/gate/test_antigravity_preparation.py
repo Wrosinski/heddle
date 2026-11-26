@@ -614,7 +614,10 @@ def test_ac10_ac22_fenced_crlf_plan_and_spec_sections_arrive_whole_and_byte_exac
     The host's m1 plan section and AC-1 block each hold a fenced example (a
     `## ` heading and milestone and AC lookalikes, text after it) and a CRLF
     span naming the checkout path, with a fenced lookalike of each selected
-    heading before the real one. The Antigravity milestone review, reading
+    heading before the real one. The m1 section also holds a four-backtick
+    fence around a three-backtick block with a `## ` line inside, which a
+    fence rule toggling on every fence-like line would read as a boundary.
+    The Antigravity milestone review, reading
     them through the runtime context, embeds each whole section as its source
     bytes in its own milestone context, and Heddle's labels stay
     checkout-relative.

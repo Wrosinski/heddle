@@ -436,6 +436,109 @@ def test_ac22_ac_ids_name_exactly_the_blocks_the_extractor_selects() -> None:
     )
 
 
+# A fence closes only at a run of its own character, at least as long as the
+# run that opened it, with nothing but whitespace after it. Each case hides a
+# `## ` line that a rule toggling on every fence-like line would treat as a
+# boundary; the section's real end follows the fence, so the fence must close.
+FENCE_CASES = {
+    "nested-block": [
+        "````markdown",
+        "```python",
+        "## Heading inside the inner block",
+        "```",
+        "## Heading after the inner block",
+        "````",
+    ],
+    "info-string-line": [
+        "```",
+        "plain fenced text",
+        "```python",
+        "## Heading after an info-string line",
+        "```",
+    ],
+    "longer-closing-run": [
+        "~~~~",
+        "~~~",
+        "## Heading after a shorter run",
+        "~~~~~~",
+    ],
+    "other-character": [
+        "```",
+        "~~~",
+        "## Heading after the other character",
+        "```",
+    ],
+    "text-after-a-run": [
+        "  ```",
+        "``` not a closing run",
+        "## Heading after a run with text",
+        "```   ",
+    ],
+}
+SECTION_SHAPES = {
+    "markdown-section": (
+        ["# Doc", "", "## Purpose"],
+        ["", "## Next", "tail"],
+    ),
+    "milestone-section": (
+        ["# Plan", "", "### Milestone m1: First"],
+        ["", "### Milestone m2: Second", "tail"],
+    ),
+    "acceptance-block": (
+        ["## Acceptance Criteria", "### AC-1: One"],
+        ["", "### AC-2: Two", "two", "## Next", "### AC-3: Outside"],
+    ),
+}
+
+
+def _extract(shape: str, content: str) -> str:
+    from heddle.gate.extraction import (
+        extract_acceptance_criteria_blocks,
+        extract_markdown_section,
+        extract_milestone_section,
+    )
+
+    if shape == "markdown-section":
+        return extract_markdown_section(content, "## Purpose")
+    if shape == "milestone-section":
+        return extract_milestone_section(content, "m1")
+    return extract_acceptance_criteria_blocks(content, ["AC-1"])
+
+
+@pytest.mark.parametrize("shape", SECTION_SHAPES)
+@pytest.mark.parametrize("case", FENCE_CASES)
+def test_ac22_a_fence_closes_only_at_its_own_marker(case, shape) -> None:
+    """Inside an open fence, a line closes it only when its run is the same
+    character, at least as long, with nothing but whitespace after it."""
+    from heddle.gate.extraction import extract_feature_spec_ac_ids
+
+    head, tail = SECTION_SHAPES[shape]
+    body = ["intro", *FENCE_CASES[case], "Text after the fence stays in the section."]
+    content = _document([*head, *body, *tail])
+    expected = [*head, *body]
+    if shape != "acceptance-block":
+        expected = expected[2:]
+    assert _extract(shape, content) == "\n".join(expected), (
+        f"FAIL AC-22: the {case} fence bounded the {shape} or never closed"
+    )
+    if shape == "acceptance-block":
+        assert extract_feature_spec_ac_ids(content) == ["AC-1", "AC-2"]
+
+
+@pytest.mark.parametrize("shape", SECTION_SHAPES)
+def test_ac22_a_fence_left_open_runs_to_the_end_of_the_input(shape) -> None:
+    """An unclosed fence keeps every later line as content, so the section
+    runs to the end of the input, as it did under the toggle rule."""
+    head, tail = SECTION_SHAPES[shape]
+    body = ["intro", "```text", "## Heading inside", *tail]
+    expected = [*head, *body]
+    if shape != "acceptance-block":
+        expected = expected[2:]
+    assert _extract(shape, _document([*head, *body])) == "\n".join(expected), (
+        f"FAIL AC-22: an unclosed fence did not run the {shape} to the end"
+    )
+
+
 # --------------------------------------------------------------------------- #
 # Survivor (AC-23): plain-LF output is byte-identical to the previous rule.
 # The functions below copy the extractors as they stood before the fence and
@@ -632,7 +735,16 @@ TEXT_LINES = (
     "AC-1 named in prose",
     "é€🚀 multibyte",
 )
-FENCE_LINES = ("```", "```python", "~~~", "  ```", "~~~~")
+# Simple fences: each opening line paired with the bare run that closes it.
+# On these, the previous toggle rule and the marker-matching rule agree.
+SIMPLE_FENCES = (
+    ("```", "```"),
+    ("```python", "```"),
+    ("~~~", "~~~"),
+    ("  ```", "  ```"),
+    ("~~~~", "~~~~"),
+    ("````text", "````"),
+)
 SECTION_HEADINGS = (
     "## Acceptance Criteria",
     "## Purpose",
@@ -654,11 +766,23 @@ def _plain_lf_documents(seed: int, *, fences: bool, count: int = 400):
     # hold an Acceptance Criteria section or a milestone with a real body.
     blocks = tuple(line for line in HEADING_LINES if line.startswith("### "))
     vocabulary = HEADING_LINES + blocks * 2 + TEXT_LINES * 2
-    vocabulary += FENCE_LINES if fences else ()
+
+    def fence(closed: bool) -> list[str]:
+        opening, closing = rng.choice(SIMPLE_FENCES)
+        body = [rng.choice(vocabulary) for _ in range(rng.randint(0, 4))]
+        return [opening, *body, closing] if closed else [opening, *body]
+
     for _ in range(count):
-        lines = [rng.choice(vocabulary) for _ in range(rng.randint(0, 40))]
+        lines: list[str] = []
+        for _ in range(rng.randint(0, 40)):
+            if fences and rng.random() < 0.15:
+                lines.extend(fence(closed=True))
+            else:
+                lines.append(rng.choice(vocabulary))
         if rng.random() < 0.6:
             lines.insert(rng.randint(0, len(lines)), "## Acceptance Criteria")
+        if fences and rng.random() < 0.1:
+            lines.extend(fence(closed=False))  # left open to the end of input
         yield "\n".join(lines) + rng.choice(("", "\n", "\n\n"))
 
 
@@ -674,8 +798,11 @@ def test_ac23_survivor_plain_lf_extraction_equals_the_previous_rule(seed) -> Non
     """Survivor: plain-LF input extracts exactly as before.
 
     Generated documents use LF only, with no other line boundary. The
-    extractors that were fence-aware already see fences too; the milestone
-    and AC extractors, which change on fenced input, see fence-free input.
+    extractors that were fence-aware already see simple fences too: each is
+    closed by its own bare run or left open to the end of the input, where
+    the previous toggle rule and the marker-matching rule agree. The
+    milestone and AC extractors, which change on fenced input, see fence-free
+    input. The fence cases where the rules differ have their own tests.
     """
     from heddle.gate import extraction
 

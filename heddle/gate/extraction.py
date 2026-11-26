@@ -9,13 +9,21 @@ from typing import NamedTuple
 #   content, never structure. A fenced `## ` line (a rejected-layout example,
 #   a diff, sample markdown) neither ends a section nor starts one, and a
 #   fenced `### Milestone mN:` or `### AC-N:` lookalike neither starts nor
-#   switches one.
+#   switches one. A fence opens at a line whose first non-blank text is a run
+#   of three or more backticks or tildes, at any indent, since fences inside
+#   list items are indented. It closes only at a run of the same character,
+#   at least as long, with nothing but whitespace after it, so an info-string
+#   line, a shorter run or the other character inside it is content. A fence
+#   left open runs to the end of the input: every later line is content.
 # - Terminators: a selected span keeps each line's own terminator (CRLF and
 #   every other `str.splitlines` boundary), so an embedded section is its
 #   source bytes. Only whitespace at the span's two ends is stripped.
 
 _ACCEPTANCE_CRITERIA = "## Acceptance Criteria"
 _AC_HEADING = re.compile(r"^### (AC-[0-9]+[a-z]?):")
+
+
+_FENCE_RUN = re.compile(r"(`{3,}|~{3,})(.*)")
 
 
 class _Line(NamedTuple):
@@ -25,13 +33,23 @@ class _Line(NamedTuple):
 
 
 def _lines(content: str) -> Iterator[_Line]:
-    in_fence = False
+    marker = ""  # the open fence's opening run; empty outside a fence
     for raw in content.splitlines(keepends=True):
         text = raw.splitlines()[0]
-        delimiter = _is_fence_delimiter(text)
-        if delimiter:
-            in_fence = not in_fence
-        yield _Line(text, raw, delimiter or in_fence)
+        run = _FENCE_RUN.match(text.lstrip())
+        if not marker:
+            if run is not None:
+                marker = run.group(1)
+            yield _Line(text, raw, run is not None)
+            continue
+        if (
+            run is not None
+            and run.group(1)[0] == marker[0]
+            and len(run.group(1)) >= len(marker)
+            and not run.group(2).strip()
+        ):
+            marker = ""
+        yield _Line(text, raw, True)
 
 
 def _span(raws: list[str]) -> str:
@@ -165,11 +183,6 @@ def _inline_code(line: str) -> tuple[str, ...]:
         segments.append(line[start + len(marker) : end])
         offset = end + len(marker)
     return tuple(segments)
-
-
-def _is_fence_delimiter(line: str) -> bool:
-    stripped = line.lstrip()
-    return stripped.startswith("```") or stripped.startswith("~~~")
 
 
 def extract_active_rule_blocks(content: str) -> tuple[str, ...] | None:

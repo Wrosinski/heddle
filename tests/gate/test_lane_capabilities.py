@@ -2036,6 +2036,16 @@ FENCED_EXAMPLE = (
     "### AC-1: Fenced lookalike of the selected heading\n"
     "```\n"
 )
+# A four-backtick fence around a three-backtick block: the inner run is
+# shorter, so it neither closes the outer fence nor exposes its headings.
+NESTED_FENCE = (
+    "````markdown\n"
+    "```python\n"
+    "## Heading inside a nested block\n"
+    "```\n"
+    "### Milestone m9: Lookalike after the nested block\n"
+    "````\n"
+)
 
 
 @dataclass(frozen=True)
@@ -2051,9 +2061,10 @@ def write_fenced_crlf_sections(host: Path) -> FencedSections:
     """Rewrite the host plan and spec so m1 and AC-1 hold fences and CRLF spans.
 
     The m1 plan section and the AC-1 block each hold ``FENCED_EXAMPLE`` with
-    text after it, and a CRLF span naming the checkout path. A fenced
-    lookalike of each selected heading sits before the real one, inside an
-    earlier fence. Milestone and AC ids are the fixture's own.
+    text after it, and a CRLF span naming the checkout path; the m1 section
+    also holds ``NESTED_FENCE`` before its span. A fenced lookalike of each
+    selected heading sits before the real one, inside an earlier fence.
+    Milestone and AC ids are the fixture's own.
     """
     root = host.as_posix()
     plan_span = f"Plan CRLF span: {root}/plan/input.json\r\nsecond plan line\r\n"
@@ -2061,8 +2072,8 @@ def write_fenced_crlf_sections(host: Path) -> FencedSections:
     milestone = (
         "### Milestone m1: Declared value\n\nSatisfies: AC-1\n\n"
         "Implement the declared value.\n\n"
-        f"{FENCED_EXAMPLE}\nPlan text after the fence.\n{plan_span}"
-        "End of the m1 section."
+        f"{FENCED_EXAMPLE}\nPlan text after the fence.\n\n{NESTED_FENCE}\n"
+        f"Plan text after the nested fence.\n{plan_span}End of the m1 section."
     )
     block = (
         "### AC-1: Declared value\n\nPriority: MUST\n"
@@ -2136,11 +2147,12 @@ def test_ac22_codex_fenced_crlf_plan_and_spec_sections_arrive_whole_and_byte_exa
 ) -> None:
     """Discriminator (AC-22, Codex): real plan and spec files whose m1 section
     and AC-1 block hold a fenced example (a `## ` heading and milestone and AC
-    lookalikes, text after it) and a CRLF span naming the checkout path. The
-    Codex milestone review, reading them through the runtime context, embeds
-    each whole section as its source bytes, and Heddle's labels stay
-    checkout-relative. Red while a fenced line bounds a section or a span's
-    CRLF is rewritten.
+    lookalikes, text after it) and a CRLF span naming the checkout path; the
+    m1 section also holds a four-backtick fence around a three-backtick block
+    with a `## ` line inside. The Codex milestone review, reading them through
+    the runtime context, embeds each whole section as its source bytes, and
+    Heddle's labels stay checkout-relative. Red while a fenced line bounds a
+    section, a shorter inner run closes a fence or a span's CRLF is rewritten.
     """
     host = _host(tmp_path, monkeypatch, MILESTONE)
     sections = write_fenced_crlf_sections(host)
