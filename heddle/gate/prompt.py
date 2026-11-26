@@ -779,6 +779,32 @@ def build_codex_local_review_instructions(ctx: GateContext, gate_name: str) -> s
     return "\n".join(lines)
 
 
+_CODEX_MILESTONE_PREAMBLE = (
+    "AUTHORITATIVE INPUT RESOLUTION OVERRIDE FOR CODEX:",
+    (
+        "- Treat the embedded blocks below as the resolved source of truth for "
+        "this gate's required inputs."
+    ),
+    (
+        "- When the prompt says to locate, read, or obtain the plan/spec sections "
+        "or diff, use the embedded blocks below."
+    ),
+    (
+        "- Do not rely on shell, filesystem, or git commands inside the sandbox "
+        "when the needed content is embedded here."
+    ),
+    (
+        "- Use the Gate Runtime Manifest to diagnose missing inputs, zero-overlap "
+        "diffs, or ownership mismatches before doing any extra workspace "
+        "exploration."
+    ),
+    (
+        "- Only report missing inputs if the corresponding embedded block is "
+        "absent from this prompt."
+    ),
+)
+
+
 def build_codex_milestone_context(
     ctx: GateContext,
     diff: DiffResult,
@@ -786,30 +812,15 @@ def build_codex_milestone_context(
     *,
     diff_text: str,
 ) -> str:
-    sections: list[str] = [
-        "AUTHORITATIVE INPUT RESOLUTION OVERRIDE FOR CODEX:",
-        (
-            "- Treat the embedded blocks below as the resolved source of truth for "
-            "this gate's required inputs."
-        ),
-        (
-            "- When the prompt says to locate, read, or obtain the plan/spec sections "
-            "or diff, use the embedded blocks below."
-        ),
-        (
-            "- Do not rely on shell, filesystem, or git commands inside the sandbox "
-            "when the needed content is embedded here."
-        ),
-        (
-            "- Use the Gate Runtime Manifest to diagnose missing inputs, zero-overlap "
-            "diffs, or ownership mismatches before doing any extra workspace "
-            "exploration."
-        ),
-        (
-            "- Only report missing inputs if the corresponding embedded block is "
-            "absent from this prompt."
-        ),
-    ]
+    return _milestone_context(ctx, gate_name, diff_text, _CODEX_MILESTONE_PREAMBLE)
+
+
+def _milestone_context(
+    ctx: GateContext, gate_name: str, diff_text: str, preamble: tuple[str, ...]
+) -> str:
+    """The embedded milestone context: plan header and milestone section, the
+    milestone's acceptance criteria and the diff, each body as captured."""
+    sections: list[str] = list(preamble)
 
     plan = _checkout_label(ctx, ctx.plan_path)
     yaml_header = extract_yaml_header(ctx.plan_content)
