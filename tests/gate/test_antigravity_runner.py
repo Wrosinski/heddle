@@ -30,7 +30,7 @@ import signal
 import subprocess
 import sys
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Collection
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -1381,20 +1381,29 @@ def test_ac9_each_physical_launch_carries_a_fresh_token(tmp_path, monkeypatch, a
 
 
 ALTERED = ("chunk", "index", "launch")
+# Where a transport file is altered: right after the runner writes the
+# transport, or right after it records the launch token, the last bookkeeping
+# step before the launch.
+WRITE_SEAM = "write_transport"
+RECORD_SEAM = "write_launch_record"
 
 
-def alter_after_write(monkeypatch, state_path: Path, target: str, record: Path) -> None:
+def alter_after_write(
+    monkeypatch, state_path: Path, target: str, record: Path, seam: str = WRITE_SEAM
+) -> None:
     """Alter one transport file between the runner's write and its re-verification.
 
     Seam: ``heddle.gate.runners.antigravity.write_transport`` writes the launch
     message, chunks and index into the run temp directory and returns before
-    re-verification. The change keeps the file's length.
+    re-verification; ``write_launch_record`` (the ``seam`` argument) records
+    the launch token after that write and before the launch. The change keeps
+    the file's length.
     """
     runner = importlib.import_module(RUNNER)
-    assert hasattr(runner, "write_transport"), (
-        f"FAIL AC-9: {RUNNER} exposes no write-to-verify seam write_transport"
+    assert hasattr(runner, seam), (
+        f"FAIL AC-9: {RUNNER} exposes no write-to-verify seam {seam}"
     )
-    original = runner.write_transport
+    original = getattr(runner, seam)
     reviews = state_path.parent / "reviews"
 
     def altered(*args, **kwargs):
@@ -1409,7 +1418,7 @@ def alter_after_write(monkeypatch, state_path: Path, target: str, record: Path) 
         record.write_text(str(path))
         return written
 
-    monkeypatch.setattr(runner, "write_transport", altered)
+    monkeypatch.setattr(runner, seam, altered)
 
 
 def transport_file(directory: Path, target: str) -> Path:
@@ -1487,6 +1496,37 @@ def test_ac9_altered_transport_file_fails_standalone_before_any_launch(
     assert changed in gate_log(state_path) or changed in json.dumps(
         result.to_envelope()
     ), f"FAIL AC-9: no warning names the changed file {changed}"
+
+
+@pytest.mark.parametrize("target", ALTERED)
+def test_ac9_transport_altered_after_the_launch_record_fails_before_any_launch(
+    tmp_path, monkeypatch, agy, target
+):
+    """AC-9 standalone: a chunk, index or launch message altered after the
+    launch token is recorded, the last step before the launch, still fails
+    the run as ``execution-failure`` naming the changed file, agy never
+    launches, and no launch record is left behind."""
+    require_runner("AC-9")
+    _host, state_path = spec_host(tmp_path, monkeypatch, prompt=chunked_prompt())
+    record = tmp_path / "altered.txt"
+    alter_after_write(monkeypatch, state_path, target, record, seam=RECORD_SEAM)
+    result = run_gate()
+    assert not result.ok
+    assert record.exists(), "fixture: the launch-record seam was not reached"
+    assert agy.launches() == [], f"FAIL AC-9: agy launched after the {target} changed"
+    rows = lane_rows(state_path)
+    assert rows and rows[-1].get("failure_reason") == "execution-failure", (
+        f"FAIL AC-9: the altered run recorded {rows[-1:]}"
+    )
+    changed = Path(record.read_text())
+    assert changed.name in gate_log(state_path), (
+        f"FAIL AC-9: no warning names the changed file {changed.name}"
+    )
+    from heddle.gate.io import LAUNCH_RECORD_NAME
+
+    assert not (changed.parent / LAUNCH_RECORD_NAME).exists(), (
+        "FAIL AC-9: a launch that never started left its token recorded"
+    )
 
 
 # --------------------------------------------------------------------------- #
@@ -1726,6 +1766,44 @@ RUNNER_ROWS = {
     ),
     "nonzero-exit": (clean_stream() + [{"$exit": 1}], "exit"),
 }
+# Malformed stream records beside an otherwise valid run, and an init event
+# whose model is blank: a JSON-shaped line must be one event object, and only
+# a named model is an identity.
+STREAM_SHAPE_ROWS = {
+    "array-line": (clean_stream({"$raw": '["step_update", {}]'}), "transport-error"),
+    "unterminated-string-line": (
+        clean_stream({"$raw": '"step_update'}),
+        "transport-error",
+    ),
+    "bare-json-value": (clean_stream({"$raw": "null"}), "transport-error"),
+    "blank-init-model": (
+        clean_stream(head=[init_event("")]),
+        "transport-error",
+    ),
+    "whitespace-init-model": (
+        clean_stream(head=[init_event("   ")]),
+        "transport-error",
+    ),
+}
+OUTCOME_ROWS = {**RUNNER_ROWS, **STREAM_SHAPE_ROWS}
+
+
+def test_ac11_plain_text_notices_stay_diagnostics(tmp_path, monkeypatch, agy):
+    """AC-11 control: plain-text lines that are not JSON, such as an update
+    notice and the measured ``error: interrupted`` text, are diagnostics
+    beside an otherwise valid stream, which records."""
+    require_runner("AC-11")
+    _host, state_path = spec_host(tmp_path, monkeypatch)
+    agy.scenario(
+        clean_stream(
+            {"$raw": "A newer agy release is available; run agy update to install."},
+            {"$raw": "error: interrupted"},
+            {"$raw": "  checking for updates (12.5 s)"},
+        )
+    )
+    result = run_gate()
+    assert result.ok, f"FAIL AC-11: a plain-text notice failed the run: {result}"
+    assert_recorded(state_path, "AC-11")
 
 
 def _spec_batch_host(tmp_path, monkeypatch, prompt=None):
@@ -1733,12 +1811,12 @@ def _spec_batch_host(tmp_path, monkeypatch, prompt=None):
     return spec_host(tmp_path, monkeypatch, secondary=FABLE, prompt=prompt)
 
 
-@pytest.mark.parametrize("row", list(RUNNER_ROWS))
+@pytest.mark.parametrize("row", list(OUTCOME_ROWS))
 def test_ac11_runner_outcome_row_standalone(tmp_path, monkeypatch, agy, row):
     """AC-11 rows 3, 5 and 7 standalone; each is a hard failure with one launch."""
     require_runner("AC-11")
     _host, state_path = spec_host(tmp_path, monkeypatch)
-    ops, reason = RUNNER_ROWS[row]
+    ops, reason = OUTCOME_ROWS[row]
     agy.scenario(ops)
     result = run_gate()
     assert not result.ok, f"FAIL AC-11: {row} recorded as a success"
@@ -1826,7 +1904,9 @@ def assert_member_outcomes(result, state_path, agy, cases: dict, ac: str) -> Non
     assert agy.claude_calls() == [], f"FAIL {ac}: a member fell back to another lane"
 
 
-@pytest.mark.parametrize(("first", "second"), paired(RUNNER_ROWS))
+@pytest.mark.parametrize(
+    ("first", "second"), paired(RUNNER_ROWS) + paired(STREAM_SHAPE_ROWS)
+)
 def test_ac11_runner_outcome_rows_as_batch_members(
     tmp_path, monkeypatch, agy, first, second
 ):
@@ -1835,12 +1915,12 @@ def test_ac11_runner_outcome_rows_as_batch_members(
     require_runner("AC-11")
     _host, state_path = peer_host(tmp_path, monkeypatch)
     cases = {
-        gate: (row, RUNNER_ROWS[row][1] if row else None)
+        gate: (row, OUTCOME_ROWS[row][1] if row else None)
         for gate, row in zip(PEER, (first, second), strict=True)
     }
     agy.scenario(
         roles={
-            gate: RUNNER_ROWS[row][0] if row else clean_stream()
+            gate: OUTCOME_ROWS[row][0] if row else clean_stream()
             for gate, (row, _reason) in cases.items()
         }
     )
@@ -2399,6 +2479,19 @@ VERSION_STATES = {
 # version diagnostic is keyed on its own prefix and on nothing else.
 VERSION_WARNING = re.compile(r"(?:^|\s)AgyVersionWarning:")
 UNKNOWN_VERSION = re.compile(r"\b(unknown|unavailable)\b", re.I)
+# Failed launches on each host before its clean run: agy exits nonzero, and
+# reading the stream fails once agy has run.
+FAILED_LAUNCHES = {"exit": "nonzero-exit", "execution-failure": "unreadable-stream"}
+
+
+def unreadable_stream(monkeypatch) -> None:
+    """Reading a finished launch's stream raises ``OSError``."""
+    runner = importlib.import_module(RUNNER)
+
+    def unreadable(path):
+        raise OSError(5, "Input/output error", str(path))
+
+    monkeypatch.setattr(runner, "read_stream", unreadable)
 
 
 def test_ac13_version_state_is_recorded_without_changing_the_outcome(
@@ -2410,13 +2503,52 @@ def test_ac13_version_state_is_recorded_without_changing_the_outcome(
     writes one ``AgyVersionWarning:`` line naming the tested and reported
     versions when they differ, or the tested version and an unknown reported
     version when the probe fails, and no such line on a match. The outcome, the
-    input's identity and the reviewer selection are equal across all three."""
+    input's identity and the reviewer selection are equal across all three.
+    Two failed launches on each host before its clean run, a nonzero exit and
+    a stream that cannot be read once agy has run, record the same
+    ``agy_version`` with the same failure reason, identity and selection across
+    all three."""
     require_runner("AC-13")
     observed = {}
+    failed: dict[str, dict[str, str]] = {reason: {} for reason in FAILED_LAUNCHES}
     for state, reported in VERSION_STATES.items():
         root = tmp_path / state
         root.mkdir()
         _host, state_path = spec_host(root, monkeypatch)
+        for reason, launch in FAILED_LAUNCHES.items():
+            launches = len(agy.launches())
+            with monkeypatch.context() as patch:
+                if launch == "unreadable-stream":
+                    unreadable_stream(patch)
+                    agy.scenario(version=reported)
+                else:
+                    agy.scenario(clean_stream() + [{"$exit": 1}], version=reported)
+                failure = run_gate()
+            assert not failure.ok and len(agy.launches()) == launches + 1, (
+                f"fixture: the {launch} run did not launch once and fail ({state})"
+            )
+            row = lane_rows(state_path)[-1]
+            version = summary_for(state_path).get("agy_version") or {}
+            assert {key: version.get(key) for key in ("state", "reported")} == {
+                "state": state,
+                "reported": reported,
+            }, (
+                f"FAIL AC-13: the {launch} failure records agy_version {version} "
+                f"for the {state} state"
+            )
+            failed[reason][state] = json.dumps(
+                [
+                    row.get("failure_reason"),
+                    row.get("input_hash"),
+                    row.get("review_basis_hash"),
+                    row["reviewer_slot"],
+                    row["execution_config"],
+                ],
+                sort_keys=True,
+            )
+            assert row.get("failure_reason") == reason, (
+                f"FAIL AC-13: the {launch} run failed as {row.get('failure_reason')}"
+            )
         agy.scenario(version=reported)
         before = len(agy.rows("versions.jsonl"))
         result = run_gate()
@@ -2455,26 +2587,30 @@ def test_ac13_version_state_is_recorded_without_changing_the_outcome(
                 "FAIL AC-13: the gate log does not record the matching version"
             )
             assert warnings == [], f"FAIL AC-13: a matching version warned: {warnings}"
-            continue
-        assert len(warnings) == 1, (
-            f"FAIL AC-13: expected one AgyVersionWarning: line for the {state} "
-            f"state, got {warnings}"
-        )
-        (warning,) = warnings
-        assert TESTED_VERSION in warning, (
-            f"FAIL AC-13: the {state} warning does not name the tested "
-            f"version: {warning}"
-        )
-        if state == "differing":
-            assert OTHER_VERSION in warning, (
-                f"FAIL AC-13: the differing warning does not name the reported "
-                f"version {OTHER_VERSION}: {warning}"
-            )
         else:
-            assert UNKNOWN_VERSION.search(warning), (
-                f"FAIL AC-13: the unavailable warning does not call the reported "
-                f"version unknown: {warning}"
+            assert len(warnings) == 1, (
+                f"FAIL AC-13: expected one AgyVersionWarning: line for the {state} "
+                f"state, got {warnings}"
             )
+            (warning,) = warnings
+            assert TESTED_VERSION in warning, (
+                f"FAIL AC-13: the {state} warning does not name the tested "
+                f"version: {warning}"
+            )
+            if state == "differing":
+                assert OTHER_VERSION in warning, (
+                    f"FAIL AC-13: the differing warning does not name the reported "
+                    f"version {OTHER_VERSION}: {warning}"
+                )
+            else:
+                assert UNKNOWN_VERSION.search(warning), (
+                    f"FAIL AC-13: the unavailable warning does not call the reported "
+                    f"version unknown: {warning}"
+                )
+    for reason, rows in failed.items():
+        assert len(set(rows.values())) == 1, (
+            f"FAIL AC-13: the {reason} failure differs across version states: {rows}"
+        )
     assert observed["matching"]["outcome"][0], "FAIL AC-13: the clean run failed"
     for key in ("outcome", "identity", "recorded_identity", "selection"):
         values = {state: observed[state][key] for state in VERSION_STATES}
@@ -2530,3 +2666,195 @@ def test_ac18_echoed_credential_reaches_no_kept_file(tmp_path, monkeypatch, agy,
     assert (captures(state_path) != []) == (kept == "retained")
     leaked = files_holding(host, token.encode())
     assert leaked == [], f"FAIL AC-18: the credential reached kept files {leaked}"
+
+
+def _strings(value: object) -> list[str]:
+    if isinstance(value, str):
+        return [value]
+    if isinstance(value, dict):
+        return [
+            text for item in value.items() for part in item for text in _strings(part)
+        ]
+    if isinstance(value, list):
+        return [text for item in value for text in _strings(item)]
+    return []
+
+
+def _decoded_views(data: bytes) -> list[bytes]:
+    """A kept file's bytes, and every base64 string value inside it when it is
+    JSON, JSON lines or YAML, decoded."""
+    views = [data]
+    documents: list[object] = []
+    try:
+        documents.append(json.loads(data))
+    except ValueError:
+        try:
+            documents.extend(json.loads(line) for line in data.splitlines() if line)
+        except ValueError:
+            try:
+                documents.append(yaml.safe_load(data))
+            except yaml.YAMLError:
+                pass
+    for text in (text for document in documents for text in _strings(document)):
+        if len(text) >= 8 and re.fullmatch(r"[A-Za-z0-9+/]+={0,2}", text):
+            try:
+                views.append(base64.b64decode(text, validate=True))
+            except ValueError:
+                pass
+    return views
+
+
+def decoded_holding(
+    root: Path, needle: bytes, exempt: Collection[Path] = ()
+) -> list[str]:
+    """Kept files under ``root`` holding ``needle`` as written or inside a
+    decoded base64 value."""
+    return [
+        str(path.relative_to(root))
+        for path in sorted(root.rglob("*"))
+        if path.is_file()
+        and path not in exempt
+        and any(needle in view for view in _decoded_views(path.read_bytes()))
+    ]
+
+
+def run_gate_in_child(gate: str = SPEC) -> None:
+    """Run the gate in a forked process that then exits, as the process of a
+    ``heddle run-gate`` command does."""
+    import multiprocessing
+
+    child = multiprocessing.get_context("fork").Process(target=run_gate, args=(gate,))
+    child.start()
+    child.join(timeout=60)
+    assert child.exitcode == 0, "fixture: the forked gate run did not finish"
+
+
+@pytest.mark.parametrize("kept", ["recorded", "retained"])
+def test_ac18_unredactable_stream_fails_the_run_and_reaches_no_kept_artifact(
+    tmp_path, monkeypatch, agy, kept
+):
+    """AC-18: when the raw stream cannot be replaced by its redacted copy, the
+    run fails as ``execution-failure``, nothing is recorded or retained, and
+    no kept artifact holds the credential, decoded or not; only the run temp
+    directory's raw stream does. Once that run's process has exited, the next
+    run's recovery pass redacts it. The run would otherwise have been
+    ``kept``.
+
+    Injection seam: ``os.replace`` refuses the redacted copy (a staged file
+    whose name ends ``.redacting``) with ``PermissionError``, in the forked
+    process that runs the first gate.
+    """
+    require_runner("AC-18")
+    host, state_path = spec_host(tmp_path, monkeypatch)
+    token = credential(f"unredactable-{kept}")
+    review = echo(agy.reviews[SPEC], token)
+    if kept == "retained":
+        review["extra"] = f"kept {token}"
+    agy.scenario(
+        clean_stream(
+            tool_step(
+                "run_command",
+                {"CommandLine": f"grep -rn {token} src"},
+                shell_output(f"src/example.py:1:{token}\n"),
+            ),
+            result=result_event(response=f"Echoed {token}."),
+        ),
+        reviews={**agy.reviews, SPEC: review},
+    )
+    real_replace = os.replace
+
+    def refused(source, destination, *args, **kwargs):
+        if str(source).endswith(".redacting"):
+            raise PermissionError(13, "Permission denied", str(destination))
+        return real_replace(source, destination, *args, **kwargs)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(os, "replace", refused)
+        run_gate_in_child()
+
+    rows = lane_rows(state_path)
+    assert rows and rows[-1].get("failure_reason") == "execution-failure", (
+        f"FAIL AC-18: the unredacted run recorded {rows[-1:]}"
+    )
+    assert captures(state_path) == [], "FAIL AC-18: the unredacted run was retained"
+    assert re.search(r"could not be redacted", gate_log(state_path)), (
+        "FAIL AC-18: the gate log does not say the stream could not be redacted"
+    )
+    (launch,) = agy.launches()
+    raw = [
+        path
+        for path in temp_dir_of(launch).iterdir()
+        if path.is_file() and token.encode() in path.read_bytes()
+    ]
+    assert len(raw) == 1, f"fixture: expected one raw stream holding the token: {raw}"
+    leaked = decoded_holding(host, token.encode(), exempt=raw)
+    assert leaked == [], f"FAIL AC-18: the credential reached kept files {leaked}"
+
+    agy.scenario()
+    assert run_gate().ok
+    leaked = decoded_holding(host, token.encode())
+    assert leaked == [], f"FAIL AC-18: recovery left the credential in {leaked}"
+
+
+# The redactor streams in 1 MiB blocks; each case puts a cut inside a
+# credential that ends a run of more than 5,000 credential-alphabet bytes.
+REDACT_BLOCK = 1 << 20
+
+
+def _cut_secret(shape: str) -> str:
+    body = hashlib.sha256(shape.encode()).hexdigest() * 4
+    return {
+        "gh": credential("block-cut"),
+        "gh-long": "gh" + "p_" + body[:50],
+        "aiza": "AI" + "za" + body[:35],
+        "sk-long": "s" + "k-" + body * 24,
+        "sk-across-two-cuts": "s" + "k-" + "Q" * (REDACT_BLOCK + REDACT_BLOCK // 2),
+    }[shape]
+
+
+CUT_CASES = {
+    "gh-cut-after-its-prefix": ("gh", 4),
+    "gh-cut-mid-body": ("gh", 20),
+    "gh-cut-before-its-last-byte": ("gh", 39),
+    "gh-long-cut-past-its-deciding-bytes": ("gh-long", 45),
+    "aiza-cut-mid-body": ("aiza", 19),
+    "sk-long-cut-near-its-start": ("sk-long", 10),
+    "sk-across-two-cuts": ("sk-across-two-cuts", 10),
+}
+
+
+@pytest.mark.parametrize("case", list(CUT_CASES))
+def test_ac18_streamed_redaction_does_not_depend_on_where_blocks_are_cut(
+    tmp_path, case
+):
+    """AC-18: a credential at the end of a 5,000-byte run of credential-alphabet
+    bytes, with a 1 MiB block cut inside it, is redacted by the streamed file
+    redactor exactly as the whole-buffer redactor redacts the same bytes."""
+    from heddle.gate.io import redact_bytes, redact_file
+
+    shape, into = CUT_CASES[case]
+    secret = _cut_secret(shape).encode()
+    head = b'{"event": "tool", "output": "' + b"x" * 5_000
+    start = REDACT_BLOCK - into
+    padding = start - len(head) - len(b'{"pad": ""}\n')
+    data = (
+        b'{"pad": "'
+        + b" " * padding
+        + b'"}\n'
+        + head
+        + secret
+        + b'"}\n{"event": "finish"}\n'
+    )
+    assert data[start : start + len(secret)] == secret, "fixture: misplaced secret"
+    path = tmp_path / "raw.out"
+    path.write_bytes(data)
+
+    assert redact_file(path) is True
+    redacted = path.read_bytes()
+    assert redacted == redact_bytes(data), (
+        f"FAIL AC-18: the streamed redaction of {case} differs from the "
+        "whole-buffer redaction"
+    )
+    assert secret[:12] not in redacted and secret[-12:] not in redacted, (
+        f"FAIL AC-18: part of the {case} credential survived redaction"
+    )

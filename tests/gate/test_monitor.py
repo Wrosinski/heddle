@@ -7,6 +7,7 @@ Uses real subprocess spawning with tiny shell commands as CLI mocks.
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import signal
@@ -793,3 +794,463 @@ def test_ac12_ps_eww_parser_returns_exactly_the_tokened_pids(
     )
     assert _ps_eww_pids("  PID COMMAND\n", PS_VARIABLE, PS_TOKEN) == frozenset()
     assert _ps_eww_pids(output, PS_VARIABLE, "0" * len(PS_TOKEN)) == frozenset()
+
+
+# ---------------------------------------------------------------------------
+# AC-12 at the observation boundary: each signal goes to a process whose
+# identity was bound before its environment was read, an unverifiable
+# process or launcher is left untouched with a warning, and cleanup verifies
+# only when a final scan finds no tokened process. Real processes; the
+# injections sit at ``/proc`` reads and the process-descriptor call.
+# ---------------------------------------------------------------------------
+SLEEPER = "import time; time.sleep(60)"
+# On SIGTERM: fork a tokened child that sleeps, record its PID, and exit.
+LATE_CHILD = """
+import os, signal, sys, time
+def stop(*_):
+    child = os.fork()
+    if child == 0:
+        signal.signal(signal.SIGTERM, signal.SIG_DFL)
+        time.sleep(60)
+        os._exit(0)
+    with open(sys.argv[1], "w") as handle:
+        handle.write(str(child))
+    os._exit(0)
+signal.signal(signal.SIGTERM, stop)
+open(sys.argv[2], "w").close()
+time.sleep(60)
+"""
+# On every SIGTERM: fork a successor with the same handler, and exit.
+RESPAWNING = """
+import os, signal, sys, time
+def stop(*_):
+    if os.fork() != 0:
+        os._exit(0)
+signal.signal(signal.SIGTERM, stop)
+open(sys.argv[1], "w").close()
+while True:
+    time.sleep(1)
+"""
+
+
+def _spawn(
+    code: str, *args: str, token: str | None = None, variable: str | None = None
+) -> Any:
+    """A Python process running ``code``, with ``token`` in its environment
+    under ``variable`` (the launch-token variable by default) when given;
+    returned once it has started."""
+    import subprocess
+
+    from heddle.io.process import LAUNCH_TOKEN_ENV
+
+    env = {
+        name: value for name, value in os.environ.items() if name != LAUNCH_TOKEN_ENV
+    }
+    if token is not None:
+        env[variable or LAUNCH_TOKEN_ENV] = token
+    return subprocess.Popen(
+        [sys.executable, "-c", code, *args],
+        env=env,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+
+
+def _wait_for_file(path: Path, timeout: float = 10.0) -> None:
+    deadline = time.monotonic() + timeout
+    while not path.exists():
+        assert time.monotonic() < deadline, f"fixture: {path.name} never appeared"
+        time.sleep(0.01)
+
+
+def _this_launcher() -> Any:
+    from heddle.io.process import ProcessIdentity, process_start_time
+
+    return ProcessIdentity(os.getpid(), process_start_time(os.getpid()))
+
+
+def _tokened_pids(token: str) -> list[int]:
+    from heddle.io.process import LAUNCH_TOKEN_ENV
+
+    needle = f"{LAUNCH_TOKEN_ENV}={token}".encode()
+    found = []
+    for entry in os.listdir("/proc"):
+        if not entry.isdigit() or int(entry) == os.getpid():
+            continue
+        try:
+            environment = Path(f"/proc/{entry}/environ").read_bytes()
+            state = Path(f"/proc/{entry}/stat").read_text().rsplit(")", 1)[1].split()[0]
+        except OSError:
+            continue
+        if state != "Z" and needle in environment.split(b"\0"):
+            found.append(int(entry))
+    return found
+
+
+def _kill_tokened(token: str) -> None:
+    """Teardown: SIGKILL every process still carrying ``token``."""
+    deadline = time.monotonic() + 10
+    while pids := _tokened_pids(token):
+        for pid in pids:
+            try:
+                os.kill(pid, signal.SIGKILL)
+            except OSError:
+                pass
+        assert time.monotonic() < deadline, f"fixture: tokened processes {pids} stay"
+        time.sleep(0.01)
+
+
+def _stop(*processes: Any) -> None:
+    for process in processes:
+        if process.poll() is None:
+            process.kill()
+        process.wait()
+
+
+def _recorded_launch(tmp_path: Path, token: str, raw: bytes) -> tuple[Path, Any]:
+    """A launch directory recorded by this process, holding a raw stream."""
+    from heddle.gate.io import write_launch_record
+
+    directory = tmp_path / "reviews"
+    temp = directory / "spec-review.antigravity.tmp.probe"
+    temp.mkdir(parents=True)
+    stream = temp / "raw.out"
+    stream.write_bytes(raw)
+    return temp, write_launch_record(temp, token=token, raw_stream=stream)
+
+
+def _raw_with(secret: str) -> bytes:
+    return (json.dumps({"event": "tool", "output": f"found {secret}"}) + "\n").encode()
+
+
+def test_ac12_unreadable_launcher_stat_leaves_its_launch_untouched(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """AC-12: a recovery pass that cannot read its launcher's stat cannot prove
+    the launcher gone. The launch directory is kept with a warning, its tokened
+    child keeps running and its raw stream stays as written. Readable again,
+    the live launcher keeps its launch without a warning; the unrelated
+    process lives throughout.
+
+    Injection seam: opening ``/proc/<launcher>/stat`` raises
+    ``PermissionError``.
+    """
+    import builtins
+
+    from heddle.gate.io import LAUNCH_RECORD_NAME, recover_launches
+    from heddle.io.process import new_launch_token
+
+    lane = _antigravity()
+    token = new_launch_token()
+    secret = lane.credential("unverifiable-launcher")
+    temp, _record = _recorded_launch(tmp_path, token, _raw_with(secret))
+    child = _spawn(SLEEPER, token=token)
+    unrelated = _spawn(SLEEPER)
+    try:
+        real_open = builtins.open
+        stat = f"/proc/{os.getpid()}/stat"
+
+        def unreadable(file: Any, *args: Any, **kwargs: Any) -> Any:
+            if file == stat:
+                raise PermissionError(13, "Permission denied", stat)
+            return real_open(file, *args, **kwargs)
+
+        with monkeypatch.context() as patch:
+            patch.setattr(builtins, "open", unreadable)
+            recovery = recover_launches(temp.parent, grace_s=0.2)
+
+        assert temp.name in recovery.keep, (
+            "FAIL AC-12: a launch whose launcher is unverifiable was not kept"
+        )
+        assert any(
+            str(os.getpid()) in warning and re.search(r"cannot verify", warning)
+            for warning in recovery.warnings
+        ), (
+            f"FAIL AC-12: no warning names the unverifiable launcher: "
+            f"{recovery.warnings}"
+        )
+        assert child.poll() is None, (
+            "FAIL AC-12: recovery reaped the token of an unverifiable launcher"
+        )
+        assert secret.encode() in (temp / "raw.out").read_bytes(), (
+            "FAIL AC-12: recovery touched the stream of an unverifiable launcher"
+        )
+        assert (temp / LAUNCH_RECORD_NAME).is_file()
+
+        readable = recover_launches(temp.parent, grace_s=0.2)
+        assert temp.name in readable.keep and readable.warnings == ()
+        assert child.poll() is None and unrelated.poll() is None
+    finally:
+        _stop(child, unrelated)
+
+
+def test_ac12_a_reused_process_id_is_never_signalled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """AC-12: the tokened process's ID passes to an unrelated process between
+    the environment read and the second start-time read. Cleanup never signals
+    the new holder of the ID, and a fresh observation finds it untokened.
+    Without the injection, a pass stops the tokened process and still spares
+    the other two.
+
+    Injection seam: once ``/proc/<tokened>/environ`` is opened, opening any
+    ``/proc/<tokened>/`` file and ``os.pidfd_open(<tokened>)`` answer for the
+    replacement process.
+    """
+    import builtins
+
+    from heddle.io.process import new_launch_token, process_start_time, reap_token
+
+    token = new_launch_token()
+    tokened = _spawn(SLEEPER, token=token)
+    # Start times count clock ticks: the replacement starts a few ticks later,
+    # as a process that reuses an ID always does.
+    time.sleep(0.05)
+    replacement = _spawn(SLEEPER)
+    unrelated = _spawn(SLEEPER)
+    try:
+        assert process_start_time(tokened.pid) != process_start_time(replacement.pid), (
+            "fixture: the two processes share a start time"
+        )
+        real_open, real_pidfd_open = builtins.open, os.pidfd_open
+        prefix = f"/proc/{tokened.pid}/"
+        reused = False
+
+        def reopened(file: Any, *args: Any, **kwargs: Any) -> Any:
+            nonlocal reused
+            if isinstance(file, str) and file.startswith(prefix):
+                if reused:
+                    file = f"/proc/{replacement.pid}/{file[len(prefix) :]}"
+                elif file.endswith("/environ"):
+                    reused = True
+            return real_open(file, *args, **kwargs)
+
+        def pidfd_open(pid: int, *args: Any) -> int:
+            if reused and pid == tokened.pid:
+                pid = replacement.pid
+            return real_pidfd_open(pid, *args)
+
+        with monkeypatch.context() as patch:
+            patch.setattr(builtins, "open", reopened)
+            patch.setattr(os, "pidfd_open", pidfd_open)
+            injected = reap_token(token, launcher=_this_launcher(), grace_s=0.2)
+
+        assert reused, "fixture: the tokened process's environment was never read"
+        assert replacement.poll() is None, (
+            "FAIL AC-12: cleanup signalled the process that took over the ID"
+        )
+        assert tokened.pid not in injected.found, (
+            f"FAIL AC-12: an ID that changed hands was taken as tokened: {injected}"
+        )
+
+        result = reap_token(token, launcher=_this_launcher(), grace_s=0.2)
+        assert result.verified and result.found == (tokened.pid,), result
+        assert tokened.wait(timeout=5) is not None
+        assert replacement.poll() is None and unrelated.poll() is None
+    finally:
+        _stop(tokened, replacement, unrelated)
+
+
+def test_ac12_unreadable_environment_leaves_the_process_and_record_in_place(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """AC-12: a process the launcher started whose environment cannot be read
+    may carry the token. Cleanup leaves it running, names it in a warning and
+    keeps the launch record unreaped; the raw stream is still redacted and the
+    unrelated process lives.
+
+    Injection seam: opening ``/proc/<child>/environ`` raises
+    ``PermissionError``.
+    """
+    import builtins
+
+    from heddle.gate.io import LAUNCH_RECORD_NAME, finish_launch
+    from heddle.io.process import new_launch_token
+
+    lane = _antigravity()
+    token = new_launch_token()
+    secret = lane.credential("unreadable-environment")
+    temp, record = _recorded_launch(tmp_path, token, _raw_with(secret))
+    child = _spawn(SLEEPER, token=token)
+    unrelated = _spawn(SLEEPER)
+    try:
+        real_open = builtins.open
+        environ = f"/proc/{child.pid}/environ"
+
+        def unreadable(file: Any, *args: Any, **kwargs: Any) -> Any:
+            if file == environ:
+                raise PermissionError(13, "Permission denied", environ)
+            return real_open(file, *args, **kwargs)
+
+        with monkeypatch.context() as patch:
+            patch.setattr(builtins, "open", unreadable)
+            cleanup = finish_launch(temp, record, grace_s=0.2)
+
+        assert child.poll() is None, (
+            "FAIL AC-12: cleanup signalled a process it could not judge"
+        )
+        assert any(str(child.pid) in warning for warning in cleanup.warnings), (
+            f"FAIL AC-12: no warning names the unjudged process: {cleanup.warnings}"
+        )
+        kept = json.loads((temp / LAUNCH_RECORD_NAME).read_text())
+        assert kept["reaped"] is False, "FAIL AC-12: unverified cleanup was recorded"
+        assert (
+            cleanup.redacted and secret.encode() not in (temp / "raw.out").read_bytes()
+        )
+        assert unrelated.poll() is None
+    finally:
+        _stop(child, unrelated)
+
+
+def test_ac12_a_child_born_during_cleanup_is_stopped_before_cleanup_verifies(
+    tmp_path: Path,
+) -> None:
+    """AC-12: a tokened process answers SIGTERM by forking a tokened child,
+    after the first scan, and exiting. Cleanup scans again, stops the child,
+    and verifies only once a scan finds no tokened process; the unrelated
+    process lives."""
+    from heddle.io.process import new_launch_token, reap_token
+
+    token = new_launch_token()
+    born, ready = tmp_path / "born.txt", tmp_path / "ready.txt"
+    parent = _spawn(LATE_CHILD, str(born), str(ready), token=token)
+    unrelated = _spawn(SLEEPER)
+    try:
+        _wait_for_file(ready)
+        result = reap_token(token, launcher=_this_launcher(), grace_s=0.5)
+
+        _wait_for_file(born)
+        child = int(born.read_text())
+        assert child in result.found, (
+            f"FAIL AC-12: cleanup never saw the child born during it: {result}"
+        )
+        assert _tokened_pids(token) == [], (
+            "FAIL AC-12: a tokened child born during cleanup outlived it"
+        )
+        assert result.verified, result
+        assert unrelated.poll() is None
+    finally:
+        _kill_tokened(token)
+        _stop(parent, unrelated)
+
+
+def test_ac12_cleanup_that_never_quiesces_keeps_the_record_and_warns(
+    tmp_path: Path,
+) -> None:
+    """AC-12: a tokened process replaces itself on every SIGTERM. Cleanup stops
+    within its bound, warns that tokened processes were still appearing, and
+    keeps the launch record unreaped; the unrelated process lives."""
+    from heddle.gate.io import LAUNCH_RECORD_NAME, finish_launch
+    from heddle.io.process import new_launch_token
+
+    token = new_launch_token()
+    temp, record = _recorded_launch(tmp_path, token, b"")
+    ready = tmp_path / "ready.txt"
+    respawning = _spawn(RESPAWNING, str(ready), token=token)
+    unrelated = _spawn(SLEEPER)
+    try:
+        _wait_for_file(ready)
+        started = time.monotonic()
+        cleanup = finish_launch(temp, record, grace_s=0.1)
+
+        assert time.monotonic() - started < 5, "FAIL AC-12: cleanup ran unbounded"
+        assert any(re.search(r"still appearing", w) for w in cleanup.warnings), (
+            f"FAIL AC-12: no warning says cleanup never quiesced: {cleanup.warnings}"
+        )
+        kept = json.loads((temp / LAUNCH_RECORD_NAME).read_text())
+        assert kept["reaped"] is False, "FAIL AC-12: unverified cleanup was recorded"
+        assert unrelated.poll() is None
+    finally:
+        _kill_tokened(token)
+        _stop(respawning, unrelated)
+
+
+@pytest.mark.parametrize(
+    "field", ["another-variable", "uppercase-token", "short-token", "zero-launcher"]
+)
+def test_ac12_a_record_naming_another_selector_is_kept_and_never_reaped(
+    tmp_path: Path, field: str
+) -> None:
+    """AC-12: a launch record whose launcher is gone, but whose selector is not
+    the launch-token variable with a token as Heddle makes it, or whose
+    launcher ID is not a process ID, is treated as unreadable: kept with a
+    warning, nothing reaped, its stream untouched. A process carrying the
+    named selector lives."""
+    from heddle.gate.io import LAUNCH_RECORD_NAME, recover_launches
+    from heddle.io.process import LAUNCH_TOKEN_ENV, new_launch_token, process_start_time
+
+    lane = _antigravity()
+    token = new_launch_token()
+    secret = lane.credential(f"selector-{field}")
+    temp, _record = _recorded_launch(tmp_path, token, _raw_with(secret))
+    path = temp / LAUNCH_RECORD_NAME
+    value = json.loads(path.read_text())
+    launcher = _spawn(SLEEPER)
+    gone = {"pid": launcher.pid, "start": process_start_time(launcher.pid)}
+    _stop(launcher)
+    value["launcher"] = gone
+    selector = {"variable": LAUNCH_TOKEN_ENV, "token": token}
+    if field == "another-variable":
+        selector["variable"] = "SYNTHETIC_SELECTOR"
+    elif field == "uppercase-token":
+        selector["token"] = token.upper()
+    elif field == "short-token":
+        selector["token"] = token[:-2]
+    else:
+        value["launcher"]["pid"] = 0
+    value.update(selector)
+    path.write_text(json.dumps(value))
+    named = _spawn(SLEEPER, token=selector["token"], variable=selector["variable"])
+    try:
+        recovery = recover_launches(temp.parent, grace_s=0.2)
+
+        assert temp.name in recovery.keep, "FAIL AC-12: the odd record was not kept"
+        assert any(
+            re.search(r"unreadable launch record", warning)
+            for warning in recovery.warnings
+        ), f"FAIL AC-12: no warning names the odd record: {recovery.warnings}"
+        assert named.poll() is None, (
+            "FAIL AC-12: recovery reaped by a selector Heddle never writes"
+        )
+        assert secret.encode() in (temp / "raw.out").read_bytes()
+    finally:
+        _stop(named)
+
+
+def test_ac12_ps_fallback_leaves_tokened_processes_running_with_a_warning(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """AC-12 macOS fallback: ``ps eww`` gives no start time, so a tokened
+    process it lists cannot be bound to its identity. Cleanup leaves it
+    running and warns; the result is not verified.
+
+    Injection seam: the platform switch reads as non-Linux and the bounded
+    ``ps`` call returns synthetic output listing the real tokened process.
+    """
+    from heddle.io import process
+
+    token = process.new_launch_token()
+    tokened = _spawn(SLEEPER, token=token)
+    try:
+        listing = (
+            "  PID COMMAND\n"
+            f"{tokened.pid} python -c sleep {process.LAUNCH_TOKEN_ENV}={token}\n"
+        )
+        with monkeypatch.context() as patch:
+            patch.setattr(process, "_PROC_TABLE", False)
+            patch.setattr(
+                process,
+                "run_bounded",
+                lambda *_args, **_kwargs: process.BoundedResult(0, listing),
+            )
+            result = process.reap_token(token, launcher=_this_launcher(), grace_s=0.2)
+
+        assert tokened.poll() is None, (
+            "FAIL AC-12: cleanup signalled a process it could not bind"
+        )
+        assert not result.verified and any(
+            str(tokened.pid) in warning for warning in result.warnings
+        ), f"FAIL AC-12: no warning names the unbound process: {result}"
+    finally:
+        _stop(tokened)

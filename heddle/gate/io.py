@@ -21,7 +21,10 @@ from heddle.gate.cli import GateArgs
 from heddle.gate.types import GateContext
 from heddle.io.process import (
     LAUNCH_TOKEN_ENV,
-    process_alive,
+    ProcessIdentity,
+    ProcessState,
+    is_launch_token,
+    observe_process,
     process_start_time,
     reap_token,
 )
@@ -658,9 +661,13 @@ _CREDENTIAL_PATTERN = (
 _CREDENTIAL_TEXT = re.compile(_CREDENTIAL_PATTERN)
 _CREDENTIAL_BYTES = re.compile(_CREDENTIAL_PATTERN.encode("ascii"))
 _REDACT_BLOCK_BYTES = 1 << 20
-# A run of credential-alphabet bytes longer than this is carried no further
-# between blocks: no credential shape is anywhere near this long.
+# A trailing run of credential-alphabet bytes up to this long is carried whole
+# into the next block; a longer one is cut where no match is open.
 _REDACT_CARRY_BYTES = 4096
+# Whether a match starts at a position is decided within this many bytes of
+# it: the longest prefix plus its shortest body (``gh?_`` and 36).
+_REDACT_DECIDING_BYTES = 40
+_REDACTED_BYTES = REDACTED.encode("ascii")
 
 
 def redact_text(text: str) -> str:
@@ -671,19 +678,53 @@ def redact_text(text: str) -> str:
 def redact_bytes(data: bytes) -> bytes:
     """``data`` with every credential-like value replaced, byte for byte
     elsewhere."""
-    return _CREDENTIAL_BYTES.sub(REDACTED.encode("ascii"), data)
+    return _CREDENTIAL_BYTES.sub(_REDACTED_BYTES, data)
 
 
-def _safe_cut(data: bytes) -> int:
-    """Where ``data`` can be split so that no credential, and no escape a
-    credential could follow, straddles the cut."""
+def _redact_settled(data: bytes) -> tuple[bytes, bytes, int]:
+    """Split ``data``, which more bytes follow, into the redacted part no
+    later byte can change, the raw rest to carry, and the number of values
+    replaced, so that streamed
+    redaction equals ``redact_bytes`` on the whole stream wherever the block
+    cuts fall.
+
+    Every match lies inside one run of credential-alphabet bytes, and only a
+    backslash right before a run changes what matches in it. A trailing run
+    up to ``_REDACT_CARRY_BYTES`` is carried whole, with that backslash. A
+    longer run is cut at the last position the coming bytes cannot affect,
+    after any match that ends there. A match that runs to the end can grow
+    with the coming bytes: it is carried, and when it is long, only its first
+    and last deciding bytes, since the bytes between are body bytes of the
+    same match and every match redacts to one marker.
+    """
     run = len(data) - len(data.rstrip(_CREDENTIAL_ALPHABET))
-    if run == len(data) or run > _REDACT_CARRY_BYTES:
-        return len(data)
-    index = len(data) - run - 1
-    # Keep a backslash with what follows it: ``\u00A`` + ``KIA...`` must be
-    # judged whole.
-    return index if data[index] == 0x5C else index + 1
+    if run <= _REDACT_CARRY_BYTES:
+        if run == len(data):
+            return b"", data, 0
+        index = len(data) - run - 1
+        # Keep a backslash with what follows it: ``\u00A`` + ``KIA...`` must
+        # be judged whole.
+        cut = index if data[index] == 0x5C else index + 1
+        redacted, replaced = _CREDENTIAL_BYTES.subn(_REDACTED_BYTES, data[:cut])
+        return redacted, data[cut:], replaced
+    settled = len(data) - _REDACT_DECIDING_BYTES
+    pieces: list[bytes] = []
+    position = replaced = 0
+    for match in _CREDENTIAL_BYTES.finditer(data):
+        if match.start() >= settled:
+            break
+        pieces.append(data[position : match.start()])
+        if match.end() == len(data):
+            rest = data[match.start() :]
+            if len(rest) > _REDACT_CARRY_BYTES:
+                rest = rest[:_REDACT_DECIDING_BYTES] + rest[-_REDACT_DECIDING_BYTES:]
+            return b"".join(pieces), rest, replaced
+        pieces.append(_REDACTED_BYTES)
+        replaced += 1
+        position = match.end()
+    cut = max(settled, position)
+    pieces.append(data[position:cut])
+    return b"".join(pieces), data[cut:], replaced
 
 
 def redact_file(path: Path) -> bool:
@@ -695,28 +736,25 @@ def redact_file(path: Path) -> bool:
         prefix=f".{path.name}.", suffix=".redacting", dir=path.parent
     )
     staged = Path(raw_staged)
-    changed = False
+    replaced = 0
     try:
         with path.open("rb") as source, os.fdopen(descriptor, "wb") as sink:
             descriptor = -1
             carry = b""
             while block := source.read(_REDACT_BLOCK_BYTES):
-                data = carry + block
-                cut = _safe_cut(data)
-                redacted = redact_bytes(data[:cut])
-                changed = changed or redacted != data[:cut]
+                redacted, carry, count = _redact_settled(carry + block)
+                replaced += count
                 sink.write(redacted)
-                carry = data[cut:]
-            redacted = redact_bytes(carry)
-            changed = changed or redacted != carry
+            redacted, count = _CREDENTIAL_BYTES.subn(_REDACTED_BYTES, carry)
+            replaced += count
             sink.write(redacted)
-        if changed:
+        if replaced:
             os.replace(staged, path)
     finally:
         if descriptor >= 0:
             os.close(descriptor)
         staged.unlink(missing_ok=True)
-    return changed
+    return replaced > 0
 
 
 # --------------------------------------------------------------------------- #
@@ -737,6 +775,17 @@ class LaunchRecord:
     variable: str = LAUNCH_TOKEN_ENV
     reaped: bool = False
     redacted: bool = False
+
+
+@dataclass(frozen=True)
+class LaunchCleanup:
+    """What finishing one launch did. ``redacted`` holds only when its raw
+    stream was replaced by the verified redacted copy, or never existed; until
+    then no part of that stream may be kept or handed on. ``warnings`` are the
+    warning-only cleanup conditions, reaping's among them."""
+
+    warnings: tuple[str, ...]
+    redacted: bool
 
 
 @dataclass(frozen=True)
@@ -784,13 +833,18 @@ def _store_launch_record(temp_dir: Path, record: LaunchRecord) -> None:
 
 
 def _load_launch_record(path: Path) -> LaunchRecord:
+    """The record at ``path``, only in the shape ``write_launch_record``
+    writes: the launch-token variable, a token as ``new_launch_token`` makes
+    it, and a launcher process ID. Any other selector would let a record
+    choose which processes cleanup stops."""
     value = json.loads(path.read_text(encoding="utf-8"))
     launcher = value["launcher"]
     raw_stream = value["raw_stream"]
     if (
-        not isinstance(value["token"], str)
-        or not isinstance(value["variable"], str)
+        not is_launch_token(value["token"])
+        or value["variable"] != LAUNCH_TOKEN_ENV
         or type(launcher["pid"]) is not int
+        or launcher["pid"] <= 0
         or not (launcher["start"] is None or type(launcher["start"]) is int)
         or not isinstance(raw_stream, str)
         or Path(raw_stream).name != raw_stream
@@ -811,15 +865,21 @@ def _load_launch_record(path: Path) -> LaunchRecord:
 
 def finish_launch(
     temp_dir: Path, record: LaunchRecord, *, grace_s: float
-) -> tuple[str, ...]:
+) -> LaunchCleanup:
     """Reap a finished launch's token, then replace its raw stream with the
     redacted copy. The record goes once both are done; otherwise it stays,
     updated, so a later pass retries and the sweep keeps the directory.
-    Cleanup is warning-only: the warnings are returned, never raised."""
+    Nothing is raised: a failed redaction is reported as ``redacted`` false,
+    with the other conditions, in the returned warnings."""
     warnings: list[str] = []
     reaped = record.reaped
     if not reaped:
-        result = reap_token(record.token, variable=record.variable, grace_s=grace_s)
+        result = reap_token(
+            record.token,
+            launcher=ProcessIdentity(record.launcher_pid, record.launcher_start),
+            variable=record.variable,
+            grace_s=grace_s,
+        )
         warnings.extend(result.warnings)
         reaped = result.verified
     redacted = record.redacted
@@ -841,7 +901,7 @@ def finish_launch(
             )
     except OSError as error:
         warnings.append(f"could not update {path.name}: {error}")
-    return tuple(warnings)
+    return LaunchCleanup(warnings=tuple(warnings), redacted=redacted)
 
 
 def recover_launches(directory: Path, *, grace_s: float) -> LaunchRecovery:
@@ -850,7 +910,8 @@ def recover_launches(directory: Path, *, grace_s: float) -> LaunchRecovery:
     launcher is live or whose cleanup is not yet verified.
 
     Liveness alone decides, from the recorded process ID and start time: a
-    live launch, its token and its stream are never touched.
+    live launch, its token and its stream are never touched, nor is one whose
+    launcher cannot be proven gone.
     """
     keep: set[str] = set()
     warnings: list[str] = []
@@ -864,13 +925,18 @@ def recover_launches(directory: Path, *, grace_s: float) -> LaunchRecovery:
             keep.add(candidate.name)
             warnings.append(f"{candidate.name}: unreadable launch record: {error}")
             continue
-        if process_alive(record.launcher_pid, record.launcher_start):
+        state = observe_process(record.launcher_pid, record.launcher_start)
+        if state is not ProcessState.GONE:
             keep.add(candidate.name)
+            if state is ProcessState.UNVERIFIABLE:
+                warnings.append(
+                    f"{candidate.name}: cannot verify whether launcher process "
+                    f"{record.launcher_pid} is still running, so its launch is "
+                    "left untouched"
+                )
             continue
-        warnings.extend(
-            f"{candidate.name}: {warning}"
-            for warning in finish_launch(candidate, record, grace_s=grace_s)
-        )
+        cleanup = finish_launch(candidate, record, grace_s=grace_s)
+        warnings.extend(f"{candidate.name}: {warning}" for warning in cleanup.warnings)
         if record_path.exists():
             keep.add(candidate.name)
     return LaunchRecovery(keep=frozenset(keep), warnings=tuple(warnings))

@@ -24,8 +24,10 @@ clear message, claims no slot and leaves the proof pending.
 **The attempt deadline.** A provider launch, first or relaunched, starts only
 when its own bound fits before the invocation's deadline less the reserve
 kept for cleanup and retention; otherwise the node fails, naming the
-exhausted attempt, and the launch never starts late. Every wait takes what
-remains as its bound. Each launch carries its own token in
+exhausted attempt, and the launch never starts late. A runner launch is
+checked again at the physical launch boundary, the call that spawns the
+provider process, so the runner's own pre-launch work counts. Every wait
+takes what remains as its bound. Each launch carries its own token in
 ``CANARY_LIVE_LAUNCH``, which every provider descendant inherits, so cleanup
 stops the launch's whole process set (its tree and any daemonised process
 carrying the token) with SIGTERM, then SIGKILL, each wait bounded; a survivor
@@ -36,7 +38,9 @@ leaves a sibling running; a launch whose evidence cannot be kept leaves an
 explicit evidence-failure record, and errors are reported after every launch
 has stopped. Each launch's evidence is kept by a child process in its own
 session that is killed with its process group at the retention bound, so
-nothing of a timed-out retention writes after it.
+nothing of a timed-out retention writes after it. Evidence written after the
+judging, such as m5's stream copy and directed-call files, goes through the
+same kind of child inside what remains of that launch's retention window.
 
 **Per-call outcomes.** Each directed call is judged on its own attributable
 observation: a step whose parameters are the directed ones and whose terminal
@@ -72,6 +76,10 @@ Activation seams named here, beyond the plan's ``admit_live_attempt``,
   observed to learn which chunk files the runner wrote there.
 - ``heddle.gate.runners.antigravity_audit.audit_stream`` (the audit
   scaffold's seam) replays the audit for the recognition check.
+- ``run_monitored`` (``heddle.io.process``), the call every runner uses to
+  spawn its provider process, takes the ``MonitorConfig`` as ``cfg``; it is
+  wrapped, in the runner launch's own process, to check the deadline at the
+  physical launch.
 - The unrecognized-shape warning contains "unrecognized", the lane and the call
   kind (the audit scaffold's wording).
 """
@@ -82,6 +90,7 @@ import copy
 import hashlib
 import importlib
 import importlib.util
+import inspect
 import json
 import os
 import re
@@ -964,31 +973,48 @@ def observe_transport(monkeypatch, record: Path) -> None:
     monkeypatch.setattr(runner, "write_transport", observed)
 
 
-def guard_launches(monkeypatch, record: Path, seconds: int, stop_at: float) -> None:
-    """Inside the runner launch's own process, refuse a provider launch whose
-    gate timeout would run past ``stop_at`` (the attempt deadline less the
-    reserve, on the shared monotonic clock) and any second provider launch,
-    such as a recovery or retry; each refusal is recorded in
-    ``refused.jsonl`` and nothing is started."""
-    from heddle.gate import entry as gate_entry
+def launch_refusal(calls: int, timeout: float, stop_at: float) -> str | None:
+    """Why a provider launch may not start now, or ``None`` when it may: it is
+    a second provider launch in one runner launch (a recovery or retry), or
+    its own bound, its monitor's hard ``timeout`` plus the runner's teardown,
+    no longer fits before ``stop_at`` (the attempt deadline less the reserve,
+    on the shared monotonic clock)."""
+    if calls:
+        return "a second provider launch in one runner launch"
+    bound = timeout + RUNNER_CLEANUP_SECONDS
+    left = stop_at - time.monotonic()
+    if bound > left:
+        return (
+            f"its bound of {bound:.0f} s (gate timeout and runner teardown) no "
+            f"longer fits the {max(left, 0.0):.0f} s left before the reserve"
+        )
+    return None
 
-    original = gate_entry.run_gate_for_runtime
+
+def guard_launches(monkeypatch, record: Path, stop_at: float) -> None:
+    """Inside the runner launch's own process, guard the physical launch
+    boundary: ``run_monitored`` (``heddle.io.process``), the call that spawns
+    the provider process, in every loaded Heddle module. The clock is read
+    there, after the runner's version probe and transport writes, so the
+    pre-launch work's time counts. A launch ``launch_refusal`` refuses is
+    recorded in ``refused.jsonl`` and never started."""
+    from heddle.io import process
+
+    original = process.run_monitored
+    signature = inspect.signature(original)
     calls: list[str | None] = []
 
-    def guarded(gate_type, context, **kwargs):
-        reason = None
-        if calls:
-            reason = "a second provider launch in one runner launch"
-        elif time.monotonic() + seconds > stop_at:
-            reason = "its gate timeout no longer fits the attempt deadline"
+    def guarded(*args, **kwargs):
+        config = signature.bind(*args, **kwargs).arguments["cfg"]
+        reason = launch_refusal(len(calls), config.hard_timeout_s, stop_at)
         calls.append(reason)
         if reason is None:
-            return original(gate_type, context, **kwargs)
+            return original(*args, **kwargs)
         with (record / "refused.jsonl").open("a", encoding="utf-8") as handle:
             handle.write(json.dumps({"reason": reason}) + "\n")
         raise RuntimeError(f"live attempt guard: {reason}; it was not started")
 
-    monkeypatch.setattr(gate_entry, "run_gate_for_runtime", guarded)
+    patch_everywhere(monkeypatch, original, guarded, "run_monitored")
 
 
 def observe_launch(monkeypatch, record: Path, seconds: int, stop_at: float) -> None:
@@ -1000,7 +1026,7 @@ def observe_launch(monkeypatch, record: Path, seconds: int, stop_at: float) -> N
     observe_summaries(monkeypatch, record)
     observe_transport(monkeypatch, record)
     bounded_gate_args(monkeypatch, seconds)
-    guard_launches(monkeypatch, record, seconds, stop_at)
+    guard_launches(monkeypatch, record, stop_at)
 
 
 RUNNER_DRIVER = r"""
@@ -1359,8 +1385,11 @@ def retain_launch(evidence: Path, launch: dict) -> dict:
     written here after the child is dead; the error then propagates. Called
     only once the launch has been stopped, so a retention error never leaves
     its processes running, and nothing of a timed-out retention can write
-    after its bound."""
+    after its bound. The result carries the end of the launch's retention
+    window, ``retention_until``, which every later write of the launch's
+    evidence (``retain_files``) must fit inside."""
     bound = retention_bound()
+    until = time.monotonic() + bound
     plain = {
         key: launch.get(key)
         for key in ("label", "number", "host", "state", "work", "gate", "killed")
@@ -1370,11 +1399,7 @@ def retain_launch(evidence: Path, launch: dict) -> dict:
     try:
         kept = run_killable(
             RETENTION_ENTRY,
-            {
-                "evidence": str(evidence),
-                "launch": plain,
-                "until": time.monotonic() + bound,
-            },
+            {"evidence": str(evidence), "launch": plain, "until": until},
             bound,
             "evidence retention",
             Path(launch["work"]) / "retention",
@@ -1382,7 +1407,54 @@ def retain_launch(evidence: Path, launch: dict) -> dict:
     except Exception as error:
         record_evidence_failure(evidence, launch, error)
         raise
-    return {**launch, **kept}
+    return {**launch, **kept, "retention_until": until}
+
+
+# The bounded writer's entry; an offline probe may point it elsewhere.
+WRITE_ENTRY = "tests.live.test_antigravity_canary_e2e:write_in_child"
+
+
+def write_in_child(request: dict) -> dict:
+    """The bounded writer's entry: JSON files, then file copies, into the
+    evidence directory, each refusing a name that already exists."""
+    evidence = Path(request["evidence"])
+    for name, value in request["files"].items():
+        save(evidence / name, value)
+    for source, name in request["copies"]:
+        with (evidence / name).open("xb") as target, open(source, "rb") as origin:
+            shutil.copyfileobj(origin, target)
+    return {"written": [*request["files"], *(name for _, name in request["copies"])]}
+
+
+def retain_files(
+    evidence: Path,
+    kept: dict,
+    files: dict[str, object],
+    copies: tuple[tuple[str, str], ...] = (),
+) -> None:
+    """Write more of a retained launch's evidence, ``files`` as JSON and
+    ``copies`` as ``(source, name)`` pairs, in a killable child inside what
+    remains of the launch's retention window (``kept["retention_until"]``),
+    so nothing of it writes after the window. When nothing remains, nothing
+    is started. A failure or a passed window leaves an explicit
+    evidence-failure record naming the error, which then propagates."""
+    remaining = kept["retention_until"] - time.monotonic()
+    try:
+        if remaining <= 0:
+            raise TimeoutError(
+                "the launch's evidence retention time is exhausted, so "
+                f"{sorted([*files, *(name for _, name in copies)])} were not written"
+            )
+        run_killable(
+            WRITE_ENTRY,
+            {"evidence": str(evidence), "files": files, "copies": list(copies)},
+            remaining,
+            "evidence retention",
+            Path(kept["work"]) / "retention",
+        )
+    except Exception as error:
+        record_evidence_failure(evidence, kept, error)
+        raise
 
 
 def status_envelope(host: Path, until: float) -> dict:
@@ -1630,10 +1702,9 @@ def assert_audit_clean(kept: dict, host: Path, label: str) -> None:
     )
 
 
-def assert_recorded_neon(kept: dict, label: str) -> dict:
-    """The launch's own row records the Neon selection, with ``init.model``
-    the launched model; recording means transport, audit and coverage passed."""
-    assert_stopped(kept["processes"], label)
+def assert_within_attempt(kept: dict, label: str) -> None:
+    """The launch ran inside the attempt: nothing stopped it at its bound or
+    the deadline, and its guard refused no provider launch."""
     assert kept["killed"] is None, (
         f"FAIL AC-25: {label} was stopped at {kept['killed']}"
     )
@@ -1641,6 +1712,13 @@ def assert_recorded_neon(kept: dict, label: str) -> dict:
         f"FAIL AC-25: the live attempt is exhausted: {label} refused a provider "
         f"launch: {kept['refused']}"
     )
+
+
+def assert_recorded_neon(kept: dict, label: str) -> dict:
+    """The launch's own row records the Neon selection, with ``init.model``
+    the launched model; recording means transport, audit and coverage passed."""
+    assert_stopped(kept["processes"], label)
+    assert_within_attempt(kept, label)
     rows = [row for row in kept["rows"] if row.get("cli") == "antigravity"]
     assert len(rows) == 1, (
         f"FAIL AC-25: {label} created {len(rows)} antigravity rows: {kept['rows']}"
@@ -2179,11 +2257,13 @@ def result_shapes(rows: list[dict]) -> list[dict]:
 
 
 def save_directed(evidence: Path, kept: dict, rows: list[dict]) -> None:
-    save(evidence / "directed-calls.json", rows)
-    save(evidence / "result-shapes.json", result_shapes(rows))
-    save(
-        evidence / "send-command-input.json",
-        [
+    """The directed calls' evidence, written inside the launch's retention
+    window (``retain_files``)."""
+    views = tool_views(kept["events"])
+    files = {
+        "directed-calls.json": rows,
+        "result-shapes.json": result_shapes(rows),
+        "send-command-input.json": [
             {
                 "parameter_names": row.get("parameter_names"),
                 "binding": row.get("binding"),
@@ -2191,34 +2271,29 @@ def save_directed(evidence: Path, kept: dict, rows: list[dict]) -> None:
             for row in rows
             if row["call"] == "send_command_input" and row.get("parameter_names")
         ],
-    )
-    # Every manage_task Action seen, for m6's audit rule (an Action that
-    # carries no input is allowed); recorded only, never judged here.
-    save(
-        evidence / "manage-task.json",
-        [
+        # Every manage_task Action seen, for m6's audit rule (an Action that
+        # carries no input is allowed); recorded only, never judged here.
+        "manage-task.json": [
             {
                 "action": view["parameters"].get("Action"),
                 "parameter_names": sorted(view["parameters"]),
                 "state": view["state"],
                 "ok": view["ok"],
             }
-            for view in tool_views(kept["events"])
+            for view in views
             if view["tool"] == "manage_task"
         ],
-    )
-    save(
-        evidence / "calls.json",
-        [
+        "calls.json": [
             {
                 "tool": view["tool"],
                 "parameters": sorted(view["parameters"]),
                 "state": view["state"],
                 "ok": view["ok"],
             }
-            for view in tool_views(kept["events"])
+            for view in views
         ],
-    )
+    }
+    retain_files(evidence, kept, files)
 
 
 # =========================================================================== #
@@ -2413,7 +2488,7 @@ def test_runner_canary(tmp_path, monkeypatch):
     kept = retain_launch(evidence, launch)
     raw = ((kept["summary"] or {}).get("artifacts") or {}).get("raw_out")
     if raw and Path(raw).is_file():
-        shutil.copyfile(raw, evidence / "stream.redacted.ndjson")
+        retain_files(evidence, kept, {}, ((raw, "stream.redacted.ndjson"),))
     assert_stopped(kept["processes"], "the runner canary")
     rows = judge_runner_canary(
         kept["events"],
@@ -2423,6 +2498,7 @@ def test_runner_canary(tmp_path, monkeypatch):
     )
     save_directed(evidence, kept, rows)
 
+    assert_within_attempt(kept, "the runner canary")
     assert_runner_canary(rows)
     assert kept["envelope"]["ok"], (
         f"FAIL AC-25: the canary did not record: {kept['envelope']}"

@@ -1660,6 +1660,42 @@ def test_ac9_altered_member_fails_before_launch_while_a_ready_sibling_records(
     assert len(agy.claude_calls()) == 1, "FAIL AC-9: the sibling did not launch once"
 
 
+@pytest.mark.parametrize("target", ("chunk", "index", "launch"))
+def test_ac9_member_altered_after_its_launch_record_fails_while_a_ready_sibling_records(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, target: str
+) -> None:
+    """AC-9 in a batch: a transport file altered after the Antigravity member
+    records its launch token, the last step before its launch, fails that
+    member alone as ``execution-failure`` with zero provider launches; the
+    ready Claude sibling launches once and records."""
+    lane = _lane()
+    lane.require_runner("AC-9")
+    agy = lane.install_agy(tmp_path, monkeypatch)
+    _host, state_path = lane.spec_host(
+        tmp_path, monkeypatch, secondary=lane.FABLE, prompt=lane.chunked_prompt()
+    )
+    record = tmp_path / "altered.txt"
+    lane.alter_after_write(
+        monkeypatch, state_path, target, record, seam=lane.RECORD_SEAM
+    )
+    result = execute_batch()
+    assert not result.ok
+    assert record.exists(), "fixture: the launch-record seam was not reached"
+    member = lane.batch_member(result, PRIMARY)
+    assert (member["execution"], member["publication"]) == ("failed", "recorded-error")
+    assert agy.launches() == [], f"FAIL AC-9: agy launched after the {target} changed"
+    rows = lane.lane_rows(state_path)
+    assert rows and rows[-1].get("failure_reason") == "execution-failure", (
+        f"FAIL AC-9: the altered member recorded {rows[-1:]}"
+    )
+    assert Path(record.read_text()).name in lane.gate_log(state_path), (
+        "FAIL AC-9: no warning names the changed file"
+    )
+    sibling = lane.batch_member(result, SECONDARY)
+    assert (sibling["execution"], sibling["publication"]) == ("completed", "recorded")
+    assert len(agy.claude_calls()) == 1, "FAIL AC-9: the sibling did not launch once"
+
+
 def _release_when(agy, count: int, action=None) -> threading.Thread:
     """Once ``count`` launches hold, run ``action`` and release every hold."""
 

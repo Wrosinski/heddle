@@ -5,13 +5,15 @@ directory. In order, it:
 
 1. writes the launch message, the chunks and their index, and the
    ``$ref``-free schema copy (``write_transport``);
-2. re-verifies them against preparation's frozen route before launch;
-3. launches ``agy`` under the gate marker with a fresh launch token, in the
+2. records the launch token, then re-verifies the transport against
+   preparation's frozen route as the last step before launch;
+3. launches ``agy`` under the gate marker with that fresh token, in the
    checkout root, through the shared monitor;
 4. reads the stream with bounds and classifies the outcome through one table
    (``classify_outcome``);
 5. writes the selected response redacted, reaps the token and replaces the raw
-   stream with its redacted copy (``finish_launch``).
+   stream with its redacted copy (``finish_launch``); a stream that cannot be
+   redacted fails the run.
 
 Every hard failure sets a failure reason; ``response_warning`` is never set.
 """
@@ -82,6 +84,16 @@ def agy_data_dir() -> Path:
 
 class TransportChanged(Exception):
     """A transport file differs from the frozen plan before launch."""
+
+
+class AgyRunFailed(Exception):
+    """A run that failed after ``agy --version`` was probed, by an I/O error
+    or a changed transport file. It keeps the probed version, so the failure
+    summary records it as a successful run's does."""
+
+    def __init__(self, message: str, agy_version: AgyVersion) -> None:
+        super().__init__(message)
+        self.agy_version = agy_version
 
 
 # --------------------------------------------------------------------------- #
@@ -315,9 +327,11 @@ class AgyStream:
     faults: tuple[str, ...] = ()
 
     @property
-    def init_models(self) -> tuple[object, ...]:
+    def init_models(self) -> tuple[str | None, ...]:
+        """The model each ``init`` event names; None where it names none, as a
+        blank or non-text value does not."""
         return tuple(
-            body.get("model") if isinstance(body, dict) else None
+            _model_name(body.get("model") if isinstance(body, dict) else None)
             for event in self.events
             if event.get("event") == "init"
             for body in (event.get("init"),)
@@ -333,11 +347,19 @@ class AgyStream:
         )
 
 
+def _model_name(value: object) -> str | None:
+    return value if isinstance(value, str) and value.strip() else None
+
+
 def read_stream(path: Path) -> AgyStream:
     """Read the merged stdout and stderr stream within the shared bounds:
-    ``MAX_EVENT_BYTES`` per line and ``MAX_STREAM_BYTES`` in all. Lines that
-    open with ``{`` are events; the rest are diagnostics, of which only
-    ``AGY_ERROR`` lines and model refusals are facts."""
+    ``MAX_EVENT_BYTES`` per line and ``MAX_STREAM_BYTES`` in all.
+
+    A line shaped as JSON (opening with ``{``, ``[`` or ``"``), or one that
+    parses as JSON, must be one event object; any other is an unparseable
+    line. Plain-text lines are diagnostics, of which only ``AGY_ERROR`` lines
+    and model refusals are facts.
+    """
     events: list[dict[str, Any]] = []
     agy_errors: list[str] = []
     model_refused = False
@@ -367,7 +389,7 @@ def read_stream(path: Path) -> AgyStream:
             except UnicodeDecodeError:
                 faults.append("a line is not UTF-8")
                 continue
-            if text.startswith("{"):
+            if text.startswith(("{", "[", '"')):
                 try:
                     events.append(strict_json(line, maximum=MAX_EVENT_BYTES))
                 except ValueError as error:
@@ -376,12 +398,22 @@ def read_stream(path: Path) -> AgyStream:
                 agy_errors.append(text[:_KEPT_DIAGNOSTIC_CHARS])
             elif "invalid model selection" in text:
                 model_refused = True
+            elif _is_json(text):
+                faults.append("an unparseable line: a JSON value that is not an event")
     return AgyStream(
         events=tuple(events),
         agy_errors=tuple(agy_errors),
         model_refused=model_refused,
         faults=tuple(faults),
     )
+
+
+def _is_json(text: str) -> bool:
+    try:
+        json.loads(text)
+    except ValueError:
+        return False
+    return True
 
 
 @dataclass(frozen=True)
@@ -427,7 +459,7 @@ def classify_outcome(
     # Row 2.
     if FailureReason.ANTIGRAVITY_UNAPPROVED_TOOL in violations:
         return Outcome(FailureReason.ANTIGRAVITY_UNAPPROVED_TOOL, "audited tool")
-    # Row 3.
+    # Row 3. Only a named model counts; a blank one is a missing identity.
     others = [
         reported
         for reported in stream.init_models
@@ -500,27 +532,39 @@ def execute_antigravity(
     *,
     checkout_root: Path,
 ) -> ExecutionResult:
-    """Launch ``agy`` once for ``prepared`` and classify what it returned."""
-    config = prepared.invocation.exec_config
+    """Launch ``agy`` once for ``prepared`` and classify what it returned.
+    Once the version is probed, a failure is raised as ``AgyRunFailed``."""
     cli_bin = args.cli_bin or GATE_CLI_BINARIES["antigravity"]
     environment = gate_agent_env()
     version = probe_agy_version(cli_bin, environment)
     _log_version(paths, version)
+    try:
+        return _launch(
+            args,
+            paths,
+            prepared,
+            checkout_root=checkout_root,
+            cli_bin=cli_bin,
+            environment=environment,
+            version=version,
+        )
+    except (OSError, TransportChanged) as error:
+        raise AgyRunFailed(str(error), version) from error
+
+
+def _launch(
+    args: GateArgs,
+    paths: GatePaths,
+    prepared: PreparedGateRun,
+    *,
+    checkout_root: Path,
+    cli_bin: str,
+    environment: dict[str, str],
+    version: AgyVersion,
+) -> ExecutionResult:
+    config = prepared.invocation.exec_config
     transport = plan_transport(paths.temp_dir, prepared)
     write_transport(transport)
-    # The run temp directory's copies of the frozen capture are re-verified
-    # with the transport, as the Codex lane checks its captured prompt.
-    capture = prepared.transport.stdin.encode("utf-8")
-    changed = file_changes(
-        {**transport.files, paths.prompt: capture, paths.command_output: capture}
-    )
-    if changed:
-        for change in changed:
-            append_log(paths.log, f"TransportWarning: {change}")
-        raise TransportChanged(
-            "a transport file changed after it was written, so agy was not "
-            f"launched: {'; '.join(changed)}"
-        )
     token = new_launch_token()
     record = write_launch_record(paths.temp_dir, token=token, raw_stream=paths.raw_out)
     command = build_command(cli_bin, prepared, transport.schema)
@@ -531,7 +575,21 @@ def execute_antigravity(
         poll_s=args.poll_seconds,
         term_grace_s=args.term_grace_seconds,
     )
+    # The run temp directory's copies of the frozen capture are re-verified
+    # with the transport, as the Codex lane checks its captured prompt.
+    capture = prepared.transport.stdin.encode("utf-8")
+    verified = {**transport.files, paths.prompt: capture, paths.command_output: capture}
     try:
+        # The last step before the launch: a change after it is the post-run
+        # digest check's.
+        changed = file_changes(verified)
+        if changed:
+            for change in changed:
+                append_log(paths.log, f"TransportWarning: {change}")
+            raise TransportChanged(
+                "a transport file changed after it was written, so agy was not "
+                f"launched: {'; '.join(changed)}"
+            )
         monitor = run_monitored(
             command,
             paths.raw_out,
@@ -552,10 +610,18 @@ def execute_antigravity(
             failure = outcome.reason
             append_log(paths.log, f"AgyOutcome: {outcome.reason} ({outcome.detail})")
     finally:
-        for warning in finish_launch(
-            paths.temp_dir, record, grace_s=args.term_grace_seconds
-        ):
+        cleanup = finish_launch(paths.temp_dir, record, grace_s=args.term_grace_seconds)
+        for warning in cleanup.warnings:
             append_log(paths.log, f"CleanupWarning: {warning}")
+    if not cleanup.redacted:
+        # Only verified redacted bytes leave the run temp directory: the raw
+        # stream stays there for the next recovery pass, and the run fails.
+        append_log(
+            paths.log,
+            "ExecutionFailure: the raw stream could not be redacted, so it is "
+            "not kept or handed on",
+        )
+        failure = failure or FailureReason.EXECUTION_FAILURE
     return ExecutionResult(
         monitor=monitor,
         cli_exit=monitor.exit_code,

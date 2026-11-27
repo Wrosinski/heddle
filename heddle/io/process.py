@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import ctypes
 import os
+import re
 import secrets
+import select
 import shutil
 import signal
 import subprocess
@@ -25,8 +27,16 @@ _REAP_POLL_S = 0.02
 # How long a timed-out bounded command's group gets between SIGTERM and SIGKILL.
 _BOUNDED_KILL_GRACE_S = 2.0
 _PS_TIMEOUT_S = 30.0
-# Linux reads each process's environment from /proc; elsewhere `ps eww` does.
-_PROC_ENVIRON = sys.platform.startswith("linux")
+# Cleanup scans and stops tokened processes again until a scan finds none, and
+# starts no pass after this many grace periods.
+_QUIESCENCE_GRACES = 2
+# An observation whose process ID changed hands mid-read is retried this often.
+_OBSERVE_ATTEMPTS = 3
+_LAUNCH_TOKEN_BYTES = 16
+_LAUNCH_TOKEN_SHAPE = re.compile(f"[0-9a-f]{{{2 * _LAUNCH_TOKEN_BYTES}}}")
+# Linux reads each process's stat, status and environment from /proc;
+# elsewhere `ps eww` finds tokened processes, and no start time binds them.
+_PROC_TABLE = sys.platform.startswith("linux")
 
 
 class Termination(StrEnum):
@@ -298,43 +308,93 @@ def run_bounded(
 
 def new_launch_token() -> str:
     """A fresh, unguessable value for one physical launch's token variable."""
-    return secrets.token_hex(16)
+    return secrets.token_hex(_LAUNCH_TOKEN_BYTES)
+
+
+def is_launch_token(value: object) -> bool:
+    """``value`` has the exact shape ``new_launch_token`` returns."""
+    return isinstance(value, str) and _LAUNCH_TOKEN_SHAPE.fullmatch(value) is not None
+
+
+class ProcessState(StrEnum):
+    """What one observation proves about a process."""
+
+    ALIVE = "alive"
+    GONE = "gone"
+    UNVERIFIABLE = "unverifiable"
+
+
+@dataclass(frozen=True)
+class ProcessIdentity:
+    """One process across PID reuse: its ID and its start time in clock ticks
+    since boot, None where none could be read."""
+
+    pid: int
+    start: int | None
+
+
+@dataclass(frozen=True)
+class _Stat:
+    state: ProcessState
+    start: int | None = None
+    parent: int | None = None
+
+
+def _read_stat(pid: int) -> _Stat:
+    """The process's start time and parent from ``/proc``: gone when there is
+    no such process or it is a zombie, unverifiable when its stat cannot be
+    read or parsed."""
+    try:
+        with open(f"/proc/{pid}/stat", "rb") as stream:
+            text = stream.read().decode("ascii", "replace")
+    except (FileNotFoundError, ProcessLookupError):
+        return _Stat(ProcessState.GONE)
+    except OSError:
+        return _Stat(ProcessState.UNVERIFIABLE)
+    fields = text.rsplit(")", 1)[-1].split()
+    if len(fields) < 20:
+        return _Stat(ProcessState.UNVERIFIABLE)
+    if fields[0] in ("Z", "X", "x"):
+        return _Stat(ProcessState.GONE)
+    try:
+        return _Stat(ProcessState.ALIVE, start=int(fields[19]), parent=int(fields[1]))
+    except ValueError:
+        return _Stat(ProcessState.UNVERIFIABLE)
 
 
 def process_start_time(pid: int) -> int | None:
     """The process's start time in clock ticks since boot, or None when the
     process is gone, a zombie, or unreadable. With the process ID it names one
     process across PID reuse."""
-    try:
-        with open(f"/proc/{pid}/stat", "rb") as stream:
-            text = stream.read().decode("ascii", "replace")
-    except OSError:
-        return None
-    fields = text.rsplit(")", 1)[-1].split()
-    if len(fields) < 20 or fields[0] == "Z":
-        return None
-    try:
-        return int(fields[19])
-    except ValueError:
-        return None
+    return _read_stat(pid).start
 
 
-def process_alive(pid: int, start: int | None) -> bool:
-    """The process with this ID, and this start time when one is given, is
-    running (a zombie is not). Where no process table can be read (no
-    ``/proc``), a signal-0 probe answers, without the start-time check."""
+def observe_process(pid: int, start: int | None) -> ProcessState:
+    """Whether the process this ID and start time name is alive, proven gone,
+    or unverifiable.
+
+    Gone means no process holds the ID, it is a zombie, or its start time
+    differs (the ID was reused). A process that holds the ID but whose stat
+    cannot be read, or that no recorded start time names, may be this one:
+    unverifiable. Without ``/proc`` no start time exists, so only a missing
+    process is proven gone.
+    """
     if pid <= 0:
-        return False
-    if os.path.isdir("/proc/self"):
-        current = process_start_time(pid)
-        return current is not None and (start is None or current == start)
+        return ProcessState.GONE
+    if _PROC_TABLE:
+        stat = _read_stat(pid)
+        if stat.state is not ProcessState.ALIVE:
+            return stat.state
+        if start is None:
+            return ProcessState.UNVERIFIABLE
+        return ProcessState.ALIVE if stat.start == start else ProcessState.GONE
     try:
         os.kill(pid, 0)
     except ProcessLookupError:
-        return False
-    except PermissionError:
-        return True
-    return True
+        return ProcessState.GONE
+    except OSError:
+        pass
+    return ProcessState.UNVERIFIABLE
 
 
 def parse_ps_eww(output: str, *, variable: str, token: str) -> frozenset[int]:
@@ -355,7 +415,8 @@ def parse_ps_eww(output: str, *, variable: str, token: str) -> frozenset[int]:
 @dataclass(frozen=True)
 class ReapResult:
     """What one reaping pass found and stopped. ``verified`` holds only when
-    the process table was read and no tokened process survived."""
+    the process table was read, every process in it was judged, and a final
+    scan found no tokened process."""
 
     found: tuple[int, ...]
     survivors: tuple[int, ...]
@@ -366,108 +427,283 @@ class ReapResult:
         return not self.warnings
 
 
-def _tokened_processes(
-    variable: str, token: str
-) -> tuple[dict[int, int | None], str | None]:
-    """Every other process whose environment carries ``variable=token``, with
-    its start time, or a warning naming why the process table is unreadable."""
-    own = os.getpid()
-    if _PROC_ENVIRON:
-        needle = f"{variable}={token}".encode()
-        try:
-            entries = os.listdir("/proc")
-        except OSError as error:
-            return {}, f"cannot enumerate the process table (/proc): {error}"
-        found: dict[int, int | None] = {}
-        for entry in entries:
-            if not entry.isdigit() or int(entry) == own:
-                continue
-            try:
-                with open(f"/proc/{entry}/environ", "rb") as stream:
-                    environment = stream.read()
-            except OSError:
-                # Gone since the listing, or another user's: neither carries
-                # a token this user's launch set.
-                continue
-            if needle in environment.split(b"\0"):
-                pid = int(entry)
-                found[pid] = process_start_time(pid)
-        return found, None
+@dataclass(frozen=True)
+class _Bound:
+    """A tokened process held by a process descriptor opened before its
+    environment was read: every signal goes through ``descriptor``, which
+    names that process and never a later holder of its ID."""
+
+    pid: int
+    descriptor: int
+
+
+@dataclass
+class _Scan:
+    tokened: list[_Bound]
+    unverifiable: list[str]
+    unreadable: str | None = None
+
+    def close(self) -> None:
+        for process in self.tokened:
+            os.close(process.descriptor)
+
+
+class _Retry:
+    """The ID changed hands during one observation: observe it again."""
+
+
+_RETRY = _Retry()
+
+
+def _carries(environment: bytes, needle: bytes) -> bool:
+    return needle in environment.split(b"\0")
+
+
+def _exited(descriptor: int) -> bool:
+    """The process a descriptor names has exited (a zombie has)."""
+    poller = select.poll()
+    poller.register(descriptor, select.POLLIN)
+    return bool(poller.poll(0))
+
+
+def _may_signal(pid: int) -> bool:
+    """This user's signals reach the process, by the kernel's rule: the
+    sender's real or effective ID equals the target's real or saved ID. An
+    unreadable status counts as reachable."""
+    if os.geteuid() == 0:
+        return True
     try:
-        listing = run_bounded(
-            ["ps", "axeww", "-o", "pid,command"], timeout_s=_PS_TIMEOUT_S
-        )
-    except (OSError, subprocess.SubprocessError) as error:
-        return {}, f"cannot enumerate the process table (ps): {error}"
-    if listing.returncode != 0:
-        return {}, (
-            f"cannot enumerate the process table (ps exited {listing.returncode})"
-        )
-    pids = parse_ps_eww(listing.stdout, variable=variable, token=token)
-    return {pid: None for pid in pids if pid != own}, None
+        with open(f"/proc/{pid}/status", "rb") as stream:
+            status = stream.read().decode("ascii", "replace")
+    except OSError:
+        return True
+    for line in status.splitlines():
+        if line.startswith("Uid:"):
+            ids = line.split()[1:]
+            if len(ids) >= 3 and all(value.isdigit() for value in ids[:3]):
+                target = {int(ids[0]), int(ids[2])}
+                return bool(target & {os.getuid(), os.geteuid()})
+    return True
 
 
-def _signal(pid: int, start: int | None, sig: signal.Signals) -> None:
-    """Send ``sig`` to the process this ID and start time name, through a
-    process descriptor where the platform has one, so a recycled ID is never
-    signalled."""
-    pidfd_open = getattr(os, "pidfd_open", None)
-    send = getattr(signal, "pidfd_send_signal", None)
-    if pidfd_open is not None and send is not None:
+def _judge_unreadable(
+    pid: int, stat: _Stat, needle: bytes, launcher: ProcessIdentity
+) -> str | None:
+    """Judge a process whose environment cannot be read: None when it cannot
+    carry the token, otherwise why it stays unverifiable.
+
+    A process carries the token only by inheriting it from the launch, so it
+    cannot when it started before the launcher, when this user's signals
+    cannot reach it (it would have changed identity through a privileged
+    program), or when its parent, which created it, is a readable process
+    without the token other than the launcher, the one process that adds it.
+    """
+    assert stat.start is not None
+    if launcher.start is not None and stat.start < launcher.start:
+        return None
+    if not _may_signal(pid):
+        return None
+    parent = stat.parent
+    if parent is not None and parent not in (0, 1, launcher.pid):
         try:
-            descriptor = pidfd_open(pid)
-        except OSError:
-            return
-        try:
-            if process_alive(pid, start):
-                send(descriptor, sig)
+            with open(f"/proc/{parent}/environ", "rb") as stream:
+                inherited = stream.read()
         except OSError:
             pass
-        finally:
+        else:
+            if not _carries(inherited, needle):
+                return None
+    return (
+        f"process {pid} may carry the token, but its environment cannot be "
+        "read, so it was left running"
+    )
+
+
+def _observe_once(
+    pid: int, needle: bytes, launcher: ProcessIdentity
+) -> _Bound | str | _Retry | None:
+    """One bound observation: open a process descriptor, read the start time,
+    read the environment, read the start time again. Only when both reads
+    agree and the descriptor's process is still running do the reads describe
+    the process the descriptor names. None means gone or untokened; a string
+    says why the process is unverifiable."""
+    pidfd_open = getattr(os, "pidfd_open", None)
+    descriptor: int | None = None
+    if pidfd_open is not None:
+        try:
+            descriptor = pidfd_open(pid)
+        except ProcessLookupError:
+            return None
+        except OSError as error:
+            return f"process {pid} cannot be held by a process descriptor: {error}"
+    bound = False
+    try:
+        first = _read_stat(pid)
+        if first.state is ProcessState.GONE:
+            return None
+        if first.state is ProcessState.UNVERIFIABLE:
+            return f"the stat of process {pid} cannot be read, so it was left running"
+        environment: bytes | None
+        try:
+            with open(f"/proc/{pid}/environ", "rb") as stream:
+                environment = stream.read()
+        except (FileNotFoundError, ProcessLookupError):
+            return None
+        except PermissionError:
+            environment = None
+        except OSError as error:
+            return f"the environment of process {pid} cannot be read: {error}"
+        second = _read_stat(pid)
+        if second.state is ProcessState.GONE:
+            return None
+        if second != first or (descriptor is not None and _exited(descriptor)):
+            return _RETRY
+        if environment is None:
+            return _judge_unreadable(pid, first, needle, launcher)
+        if not _carries(environment, needle):
+            return None
+        if descriptor is None:
+            return (
+                f"process {pid} carries the token, but this platform gives no "
+                "process descriptor to signal it by, so it was left running"
+            )
+        bound = True
+        return _Bound(pid, descriptor)
+    finally:
+        if descriptor is not None and not bound:
             os.close(descriptor)
-        return
-    with suppress(OSError):
-        os.kill(pid, sig)
 
 
-def _wait_gone(
-    processes: dict[int, int | None], grace_s: float
-) -> dict[int, int | None]:
+def _observe(pid: int, needle: bytes, launcher: ProcessIdentity) -> _Bound | str | None:
+    for _ in range(_OBSERVE_ATTEMPTS):
+        observed = _observe_once(pid, needle, launcher)
+        if not isinstance(observed, _Retry):
+            return observed
+    return f"process {pid} changed identity during every observation"
+
+
+def _scan(variable: str, token: str, launcher: ProcessIdentity) -> _Scan:
+    """Every other process whose environment carries ``variable=token``, each
+    bound to a process descriptor, with the processes that could not be
+    judged, or why the process table is unreadable."""
+    own = os.getpid()
+    if not _PROC_TABLE:
+        try:
+            listing = run_bounded(
+                ["ps", "axeww", "-o", "pid,command"], timeout_s=_PS_TIMEOUT_S
+            )
+        except (OSError, subprocess.SubprocessError) as error:
+            return _Scan([], [], f"cannot enumerate the process table (ps): {error}")
+        if listing.returncode != 0:
+            return _Scan(
+                [],
+                [],
+                f"cannot enumerate the process table (ps exited {listing.returncode})",
+            )
+        pids = parse_ps_eww(listing.stdout, variable=variable, token=token)
+        return _Scan(
+            [],
+            [
+                f"process {pid} carries the token, but without a start time its "
+                "identity cannot be verified, so it was left running"
+                for pid in sorted(pids - {own})
+            ],
+        )
+    needle = f"{variable}={token}".encode()
+    try:
+        entries = os.listdir("/proc")
+    except OSError as error:
+        return _Scan([], [], f"cannot enumerate the process table (/proc): {error}")
+    scan = _Scan([], [])
+    for entry in entries:
+        if not entry.isdigit() or int(entry) == own:
+            continue
+        observed = _observe(int(entry), needle, launcher)
+        if isinstance(observed, _Bound):
+            scan.tokened.append(observed)
+        elif observed is not None:
+            scan.unverifiable.append(observed)
+    return scan
+
+
+def _wait_exited(processes: list[_Bound], grace_s: float) -> list[_Bound]:
     deadline = time.monotonic() + max(grace_s, 0.0)
     while True:
-        remaining = {
-            pid: start for pid, start in processes.items() if process_alive(pid, start)
-        }
+        remaining = [
+            process for process in processes if not _exited(process.descriptor)
+        ]
         if not remaining or time.monotonic() >= deadline:
             return remaining
         time.sleep(_REAP_POLL_S)
 
 
+def _stop(processes: list[_Bound], grace_s: float) -> list[_Bound]:
+    """``SIGTERM``, then ``SIGKILL`` after ``grace_s``, each through the
+    process's descriptor; the processes still running after both."""
+    for process in processes:
+        with suppress(OSError):
+            signal.pidfd_send_signal(process.descriptor, signal.SIGTERM)
+    remaining = _wait_exited(processes, grace_s)
+    for process in remaining:
+        with suppress(OSError):
+            signal.pidfd_send_signal(process.descriptor, signal.SIGKILL)
+    return _wait_exited(remaining, grace_s)
+
+
 def reap_token(
     token: str,
     *,
+    launcher: ProcessIdentity,
     variable: str = LAUNCH_TOKEN_ENV,
     grace_s: float = DEFAULT_REAP_GRACE_S,
 ) -> ReapResult:
     """Stop every process whose environment carries ``variable=token``:
     ``SIGTERM``, then ``SIGKILL`` for any still running after ``grace_s``.
+    ``launcher`` is the process that set the token.
 
-    Cleanup is warning-only: an unreadable process table, or a process that
-    survives ``SIGKILL``, is reported in ``warnings`` and never raised.
+    The table is scanned again after every pass, so a process born during
+    cleanup is stopped too, until a scan finds none. No pass starts after
+    ``_QUIESCENCE_GRACES`` grace periods; tokened processes still appearing
+    then leave cleanup unverified.
+
+    Cleanup is warning-only: an unreadable process table, a process that
+    cannot be judged or bound (left running), and a process that survives
+    ``SIGKILL`` are reported in ``warnings`` and never raised.
     """
-    processes, unreadable = _tokened_processes(variable, token)
-    if unreadable is not None:
-        return ReapResult(found=(), survivors=(), warnings=(unreadable,))
-    for pid, start in processes.items():
-        _signal(pid, start, signal.SIGTERM)
-    remaining = _wait_gone(processes, grace_s)
-    for pid, start in remaining.items():
-        _signal(pid, start, signal.SIGKILL)
-    survivors = tuple(sorted(_wait_gone(remaining, grace_s)))
-    warnings = tuple(
-        f"tokened process {pid} survived SIGKILL and is still running"
-        for pid in survivors
-    )
+    bound_s = _QUIESCENCE_GRACES * max(grace_s, _REAP_POLL_S)
+    deadline = time.monotonic() + bound_s
+    found: set[int] = set()
+    survivors: tuple[int, ...] = ()
+    warnings: list[str] = []
+    while True:
+        scan = _scan(variable, token, launcher)
+        try:
+            if scan.unreadable is not None:
+                warnings.append(scan.unreadable)
+                break
+            found.update(process.pid for process in scan.tokened)
+            if not scan.tokened:
+                warnings.extend(scan.unverifiable)
+                break
+            if time.monotonic() >= deadline:
+                pids = ", ".join(str(process.pid) for process in scan.tokened)
+                warnings.append(
+                    f"tokened processes {pids} were still appearing when the "
+                    f"{bound_s:g}-second cleanup bound ran out"
+                )
+                warnings.extend(scan.unverifiable)
+                break
+            left = _stop(scan.tokened, grace_s)
+            if left:
+                survivors = tuple(sorted(process.pid for process in left))
+                warnings.extend(
+                    f"tokened process {pid} survived SIGKILL and is still running"
+                    for pid in survivors
+                )
+                warnings.extend(scan.unverifiable)
+                break
+        finally:
+            scan.close()
     return ReapResult(
-        found=tuple(sorted(processes)), survivors=survivors, warnings=warnings
+        found=tuple(sorted(found)), survivors=survivors, warnings=tuple(warnings)
     )

@@ -29,11 +29,12 @@ from heddle.gate.results import (
     read_bounded,
     serialize_review_result,
 )
-from heddle.gate.runners.antigravity import TransportChanged, execute_antigravity
+from heddle.gate.runners.antigravity import AgyRunFailed, execute_antigravity
 from heddle.gate.runners.claude import execute_claude
 from heddle.gate.runners.codex import execute_codex
 from heddle.gate.summary import build_summary, write_summary
 from heddle.gate.types import (
+    AgyVersion,
     DiffResult,
     ExecutionResult,
     FailureReason,
@@ -417,7 +418,11 @@ class GateRunner:
                     prepared,
                     checkout_root=Path(self.args.workdir or self._context.repo_root),
                 )
-            except (OSError, TransportChanged) as exc:
+            except AgyRunFailed as exc:
+                return self._launch_failure(
+                    paths, str(exc), agy_version=exc.agy_version
+                )
+            except OSError as exc:
                 return self._launch_failure(paths, str(exc))
         raise ValueError(f"unsupported cli: {cli}")
 
@@ -543,7 +548,9 @@ class GateRunner:
         append_log(paths.log, f"Summary:   {paths.summary}")
         append_log(paths.log, "")
 
-    def _launch_failure(self, paths: GatePaths, message: str) -> ExecutionResult:
+    def _launch_failure(
+        self, paths: GatePaths, message: str, *, agy_version: AgyVersion | None = None
+    ) -> ExecutionResult:
         append_log(paths.log, f"ExecutionFailure: {message}")
         paths.raw_out.write_text(message.rstrip() + "\n")
         return ExecutionResult(
@@ -562,6 +569,7 @@ class GateRunner:
             filtered_jsonl_path=paths.filtered_jsonl,
             codex_diagnostics=None,
             json_message_path=paths.json_message,
+            agy_version=agy_version,
         )
 
     def _unexpected_execution(self, paths: GatePaths) -> ExecutionResult:

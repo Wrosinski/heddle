@@ -25,10 +25,17 @@ Seam named by this scaffold (the plan names only the function and its file):
   ``m5`` attempts. It raises when the invocation is not admitted.
 
 Red until the helper exists.
+
+The last section drives, offline, the live canary module's two consumers of
+that deadline, with doubles in place of the provider: the guard at a runner
+launch's physical launch boundary (``guard_launches``, around
+``run_monitored``) and the bounded writes of evidence kept after judging
+(``retain_files``, inside the launch's retention window).
 """
 
 from __future__ import annotations
 
+import importlib
 import importlib.util
 import json
 import os
@@ -475,3 +482,196 @@ def test_ac25_attempt_deadline_raises_before_admission(lane):
     )
     assert outcomes(run) == ["admitted"], run
     assert_deadline(run["results"][0], ATTEMPT_SECONDS["stage"])
+
+
+# --------------------------------------------------------------------------- #
+# The live canary's launch boundary and bounded evidence retention
+# --------------------------------------------------------------------------- #
+CANARY = "tests.live.test_antigravity_canary_e2e"
+THIS_MODULE = "tests.runtime.test_antigravity_live_admission"
+# The doubled launcher: it records its own start, then exits.
+LAUNCHER = r"""
+import json, os, sys
+with open(sys.argv[1], "a") as handle:
+    handle.write(json.dumps({"pid": os.getpid()}) + "\n")
+"""
+LAUNCH_TIMEOUT = 5.0
+WINDOW_SECONDS = 0.6
+
+
+def canary_module():
+    return importlib.import_module(CANARY)
+
+
+def recording_writer(request: dict) -> dict:
+    """A bounded writer's double that only records that it started."""
+    Path(request["evidence"], "writer-started").write_text("started")
+    return {"written": []}
+
+
+def hung_writer(request: dict) -> dict:
+    """A bounded writer's double that outlives any window, then writes late."""
+    evidence = Path(request["evidence"])
+    (evidence / "writer-started").write_text("started")
+    time.sleep(30)
+    (evidence / "written-late").write_text("late")
+    return {"written": []}
+
+
+def refusals(record: Path) -> list[str]:
+    path = record / "refused.jsonl"
+    if not path.is_file():
+        return []
+    return [json.loads(line)["reason"] for line in path.read_text().splitlines()]
+
+
+def test_ac25_runner_launch_is_refused_at_the_physical_boundary(tmp_path, monkeypatch):
+    """The runner launch's guard reads the clock where the provider process is
+    spawned (``run_monitored``, the binding the antigravity runner calls), so
+    the runner's own work before it, such as the version probe, counts. A
+    launch whose bound fit when the gate run was entered, but no longer fits
+    after that work, is refused there, recorded, and the doubled launcher
+    never starts. With time to spare, one launch starts and a second is
+    refused."""
+    canary = canary_module()
+    from heddle.gate.runners import antigravity as runner
+    from heddle.io import process
+
+    launcher = tmp_path / "launcher.py"
+    launcher.write_text(LAUNCHER, encoding="utf-8")
+    starts = tmp_path / "starts.jsonl"
+    command = [sys.executable, str(launcher), str(starts)]
+    config = process.MonitorConfig(
+        hard_timeout_s=LAUNCH_TIMEOUT,
+        inactivity_timeout_s=LAUNCH_TIMEOUT,
+        poll_s=0.05,
+        term_grace_s=1.0,
+    )
+
+    late = tmp_path / "late"
+    late.mkdir()
+    with monkeypatch.context() as patch:
+        bound = LAUNCH_TIMEOUT + canary.RUNNER_CLEANUP_SECONDS
+        stop_at = time.monotonic() + bound + 0.5
+        canary.guard_launches(patch, late, stop_at)
+        assert runner.run_monitored is process.run_monitored, (
+            "FAIL AC-25: the launch guard does not cover the runner's own binding"
+        )
+        assert canary.launch_refusal(0, LAUNCH_TIMEOUT, stop_at) is None, (
+            "fixture: the launch does not fit when the gate run is entered"
+        )
+        time.sleep(0.7)  # the runner's pre-launch work
+        with pytest.raises(RuntimeError, match="live attempt guard"):
+            runner.run_monitored(command, tmp_path / "late.ndjson", config)
+    reasons = refusals(late)
+    assert len(reasons) == 1 and "no longer fits" in reasons[0], reasons
+    assert not starts.exists(), "FAIL AC-25: a refused launch started the provider"
+
+    spare = tmp_path / "spare"
+    spare.mkdir()
+    with monkeypatch.context() as patch:
+        canary.guard_launches(patch, spare, time.monotonic() + 3600)
+        result = runner.run_monitored(command, tmp_path / "spare.ndjson", config)
+        assert result.exit_code == 0
+        with pytest.raises(RuntimeError, match="second provider launch"):
+            runner.run_monitored(command, tmp_path / "again.ndjson", config)
+    assert len(starts.read_text().splitlines()) == 1
+    assert refusals(spare) == ["a second provider launch in one runner launch"]
+
+
+@pytest.mark.parametrize("window", ["exhausted", "passes-during-the-write"])
+def test_ac25_evidence_retention_writes_nothing_past_its_window(
+    tmp_path, monkeypatch, window
+):
+    """Evidence the canary keeps after judging (the directed-call files and the
+    stream copy) is written inside what remains of the launch's retention
+    window. With the window already exhausted, ``save_directed`` starts no
+    writer and writes no file; when the window passes during a write, the
+    writer's process is killed at it and nothing is written after. Either way
+    an explicit evidence-failure record names the error, which propagates."""
+    canary = canary_module()
+    evidence = tmp_path / "evidence"
+    evidence.mkdir()
+    writer = "recording_writer" if window == "exhausted" else "hung_writer"
+    monkeypatch.setattr(canary, "WRITE_ENTRY", f"{THIS_MODULE}:{writer}")
+    remaining = -1.0 if window == "exhausted" else WINDOW_SECONDS
+    kept = {
+        "label": "the runner canary",
+        "work": str(tmp_path / "work"),
+        "events": [],
+        "retention_until": time.monotonic() + remaining,
+    }
+    started = time.monotonic()
+    with pytest.raises(TimeoutError):
+        if window == "exhausted":
+            canary.save_directed(evidence, kept, [])
+        else:
+            source = tmp_path / "stream.ndjson"
+            source.write_text('{"event": "init"}\n', encoding="utf-8")
+            canary.retain_files(
+                evidence, kept, {}, ((str(source), "stream.redacted.ndjson"),)
+            )
+    elapsed = time.monotonic() - started
+    failure = json.loads((evidence / "evidence-failure.json").read_text())
+    if window == "exhausted":
+        assert sorted(path.name for path in evidence.iterdir()) == [
+            "evidence-failure.json"
+        ], "FAIL AC-25: a write started after the retention window was exhausted"
+        assert "exhausted" in failure["evidence_error"], failure
+        return
+    assert (evidence / "writer-started").exists(), "fixture: the writer never ran"
+    assert elapsed < WINDOW_SECONDS + 5, f"the write ran {elapsed:.1f} s"
+    time.sleep(0.2)
+    assert not (evidence / "written-late").exists(), (
+        "FAIL AC-25: evidence was written after the retention window"
+    )
+    assert "bound" in failure["evidence_error"], failure
+
+
+def kept_double(request: dict) -> dict:
+    """A retention child's double: it keeps nothing and returns at once."""
+    return {"envelope": {"ok": True}, "rows": [], "events": [], "refused": []}
+
+
+def test_ac25_evidence_retention_inside_its_window_writes_every_file(
+    tmp_path, monkeypatch
+):
+    """``retain_launch`` opens the launch's retention window and returns where
+    it ends; evidence kept after judging is then written inside it by the
+    canary's real writer: each JSON file, and the stream copy byte for byte."""
+    canary = canary_module()
+    deadline = time.monotonic() + 3600
+    monkeypatch.setattr(canary, "attempt_deadline", lambda: deadline)
+    monkeypatch.setattr(canary, "RETENTION_ENTRY", f"{THIS_MODULE}:kept_double")
+    evidence = tmp_path / "evidence"
+    evidence.mkdir()
+    source = tmp_path / "stream.ndjson"
+    source.write_bytes(
+        ('{"event": "init", "text": "a' + chr(0x2028) + 'b"}\n').encode()
+    )
+    launch = {
+        "label": "the runner canary",
+        "host": str(tmp_path),
+        "state": str(tmp_path / "state.yaml"),
+        "work": str(tmp_path / "work"),
+        "gate": "spec-review",
+        "killed": None,
+        "before": set(),
+        "processes": {},
+    }
+    opened = time.monotonic()
+    kept = canary.retain_launch(evidence, launch)
+    window = canary.RETENTION_SECONDS
+    assert opened + window <= kept["retention_until"] <= time.monotonic() + window, (
+        "FAIL AC-25: retain_launch does not return its retention window's end"
+    )
+    rows = [{"call": "read_file", "outcome": "inspectable"}]
+    canary.retain_files(
+        evidence,
+        kept,
+        {"directed-calls.json": rows},
+        ((str(source), "stream.redacted.ndjson"),),
+    )
+    assert json.loads((evidence / "directed-calls.json").read_text()) == rows
+    assert (evidence / "stream.redacted.ndjson").read_bytes() == source.read_bytes()
+    assert not (evidence / "evidence-failure.json").exists()
