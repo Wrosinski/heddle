@@ -2052,6 +2052,72 @@ def test_ac19_new_reasons_and_remedies_reach_run_gates_member_output(
     assert_batch_error_names_selected_reason(result, reasons)
 
 
+# Text output: two distinct failures, and a single-failure control whose other
+# member runs clean (None).
+AC19_TEXT_CASES = {
+    "two-failures": ("antigravity-quota", "antigravity-api-error"),
+    "single-failure": ("antigravity-quota", None),
+}
+
+
+def ac19_text_batch(lane, tmp_path, monkeypatch, reasons):
+    """A peer batch whose members fail with ``reasons`` through the real runner
+    on the doubled ``agy``; a None reason runs a clean stream. Returns the
+    failing gates with their reasons, the state path and the double."""
+    failing = {
+        gate: reason for gate, reason in zip(lane.PEER, reasons, strict=True) if reason
+    }
+    agy = lane.install_agy(tmp_path, monkeypatch)
+    _host, state_path = lane.peer_host(tmp_path, monkeypatch)
+    agy.scenario(
+        roles={gate: ac19_stream(lane, reason)[0] for gate, reason in failing.items()}
+    )
+    return failing, state_path, agy
+
+
+def assert_text_names_each_failure_once(text: str, reasons, where: str) -> None:
+    """Each failed member's reason and failure-guide remedy appear exactly once
+    in a text rendering: neither dropped nor repeated."""
+    for reason in reasons:
+        end = r"(?![\w-])"
+        stated = re.findall(
+            rf"did not complete cleanly: {re.escape(reason)}{end}", text
+        )
+        remedied = re.findall(
+            rf"`{re.escape(reason)}` entry in the installed gate failure guide", text
+        )
+        assert (len(stated), len(remedied)) == (1, 1), (
+            f"FAIL AC-19: the {where} names the {reason} reason {len(stated)} and "
+            f"its remedy {len(remedied)} times, not once each:\n{text}"
+        )
+
+
+@pytest.mark.parametrize("case", sorted(AC19_TEXT_CASES))
+def test_ac19_failed_members_reach_run_gates_text_output(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    case: str,
+) -> None:
+    """AC-19 text output: `heddle run-gates` without `--json` names every failed
+    member's reason and failure-guide remedy once, the selected failure in the
+    error lines and each other one in its member line. A single failure is not
+    printed twice."""
+    from heddle.cli import main
+
+    lane = _lane()
+    failing, state_path, agy = ac19_text_batch(
+        lane, tmp_path, monkeypatch, AC19_TEXT_CASES[case]
+    )
+    capsys.readouterr()
+    code = main(["run-gates", "--feature", V7_FEATURE])
+    text = "".join(capsys.readouterr())
+    assert code != 0, f"FAIL AC-19: the failing batch exited 0:\n{text}"
+    for gate, reason in failing.items():
+        assert_produced_by_the_runner(state_path, agy, gate, reason)
+    assert_text_names_each_failure_once(text, failing.values(), "run-gates text output")
+
+
 def test_ac19_run_gates_member_names_its_reason_not_the_generic_text(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

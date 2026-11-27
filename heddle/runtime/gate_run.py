@@ -1644,6 +1644,31 @@ def _batch_member_summary(
     }
 
 
+def failed_member_lines(error: HeddleError) -> list[str]:
+    """One text line per failed batch member besides the selected failure,
+    which the error's own lines already name: its label, reason and remedy,
+    read from the member summaries the batch error carries."""
+    lines: list[str] = []
+    for row in error.details.get("members") or ():
+        if not isinstance(row, Mapping):
+            continue
+        fallback = row.get("fallback")
+        if isinstance(fallback, Mapping) and fallback.get("ok"):
+            continue
+        failure = (
+            fallback.get("error") if isinstance(fallback, Mapping) else None
+        ) or row.get("error")
+        if not isinstance(failure, Mapping) or failure.get("message") == error.message:
+            continue
+        label = " ".join(
+            str(part) for part in (row.get("gate"), row.get("reviewer_slot")) if part
+        )
+        lines.append(
+            f"  member {label}: {failure.get('message')}; remedy: {failure.get('hint')}"
+        )
+    return lines
+
+
 def _member_run_error(member: _BatchMember) -> HeddleError | None:
     """The typed reason and remedy of a member's own failed run, as its
     standalone run-gate reports them; None when its run did not fail."""
@@ -3206,6 +3231,8 @@ def _render_human(result: HeddleResult) -> None:
         error = result.error
         print(f"heddle: error[{error.code}]: {error.message}", file=sys.stderr)
         print(f"  hint: {error.hint}", file=sys.stderr)
+        for line in failed_member_lines(error):
+            print(line, file=sys.stderr)
     else:
         data = result.data or {}
         # run-gates reports one row per member; run-gate reports one gate.

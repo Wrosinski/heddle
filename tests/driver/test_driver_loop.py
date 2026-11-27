@@ -1567,6 +1567,53 @@ def test_antigravity_failure_reason_reaches_drive_stop(
         assert len(agy.claude_calls()) == 1, "fixture: the Claude sibling did not run"
 
 
+@pytest.mark.parametrize("case", ["single-failure", "two-failures"])
+def test_antigravity_failure_reasons_reach_drive_text_stop(
+    run_cli, tmp_path, monkeypatch, case
+):
+    """AC-19 under `heddle drive` without `--json`: the drive's `run-gates`
+    batch fails through the real runners, the Antigravity primary on the
+    doubled `agy`'s quota stream. In the two-failure case the Claude secondary
+    fails too, because its double finds no review to return. The text stop names
+    every failed member's reason and failure-guide remedy once; a single failure
+    is not printed twice."""
+    import importlib
+
+    from tests.tiering_helpers import OPUS
+    from tests.tiering_review_helpers import V7_FEATURE
+
+    _require_antigravity_lane("AC-19")
+    lane = importlib.import_module("tests.gate.test_antigravity_runner")
+    batch = importlib.import_module("tests.runtime.test_concurrent_reviews")
+    stream, _chunked = batch.ac19_stream(lane, "antigravity-quota")
+    agy = lane.install_agy(tmp_path, monkeypatch)
+    _host, state_path = lane.spec_host(tmp_path, monkeypatch, secondary=OPUS)
+    agy.scenario(stream)
+    if case == "two-failures":
+        (agy.root / "reviews.json").write_text("{}", encoding="utf-8")
+    _stub_drive_sessions(monkeypatch)
+
+    code, out, err = run_cli(["drive", "--feature", V7_FEATURE])
+
+    assert code != 0, f"FAIL AC-19: the drive did not stop:\n{out}{err}"
+    batch.assert_produced_by_the_runner(
+        state_path, agy, "spec-review", "antigravity-quota"
+    )
+    reasons = ["antigravity-quota"]
+    if case == "two-failures":
+        [secondary] = [
+            row
+            for row in lane.gate_rows(state_path)
+            if row.get("reviewer_slot") == "secondary"
+        ]
+        assert secondary.get("failure_reason") not in {None, "unknown failure"}, (
+            f"fixture: the Claude secondary did not fail with a typed reason: "
+            f"{secondary}"
+        )
+        reasons.append(secondary["failure_reason"])
+    batch.assert_text_names_each_failure_once(out + err, reasons, "drive text stop")
+
+
 def _agy_shim(directory: Path, log: Path) -> Path:
     directory.mkdir(parents=True, exist_ok=True)
     return write_executable_script(

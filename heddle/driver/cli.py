@@ -78,6 +78,12 @@ def _print(result: HeddleResult, json_mode: bool) -> None:
         error = result.error
         _write_stdout(f"heddle: error[{error.code}]: {error.message}")
         _write_stdout(f"  hint: {error.hint}")
+        # A failed review batch names each other failed member's reason and
+        # remedy, which the hint tells the operator to follow.
+        from heddle.runtime.gate_run import failed_member_lines
+
+        for line in failed_member_lines(error):
+            _write_stdout(line)
         # Same channels status.py's failure renderer prints — before this,
         # text mode silently dropped next_actions/diagnostics, which is
         # exactly where the blocked envelope carries its remediation

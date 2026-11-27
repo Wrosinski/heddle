@@ -628,6 +628,49 @@ def test_ac25_evidence_retention_writes_nothing_past_its_window(
     assert "bound" in failure["evidence_error"], failure
 
 
+class SteppedClock:
+    """The canary's clock double: real monotonic time, stepped ``jump``
+    seconds forward after its first reading. Everything else is ``time``."""
+
+    def __init__(self, jump: float):
+        self.jump, self.readings = jump, 0
+
+    def monotonic(self) -> float:
+        self.readings += 1
+        return time.monotonic() + (self.jump if self.readings > 1 else 0.0)
+
+    def __getattr__(self, name):
+        return getattr(time, name)
+
+
+def test_ac25_evidence_retention_refuses_a_window_closed_before_the_writer_starts(
+    tmp_path, monkeypatch
+):
+    """The retention window is open when ``retain_files`` reads it and closes
+    while the writer's request is staged. The window's end is one cutoff,
+    checked again before spawn, so no writer starts and nothing is written;
+    an explicit evidence-failure record names the error, which propagates.
+    The canary's clock steps past the window after its first reading, so
+    the window closes at that point every time."""
+    canary = canary_module()
+    evidence = tmp_path / "evidence"
+    evidence.mkdir()
+    monkeypatch.setattr(canary, "WRITE_ENTRY", f"{THIS_MODULE}:recording_writer")
+    kept = {
+        "label": "the runner canary",
+        "work": str(tmp_path / "work"),
+        "retention_until": time.monotonic() + 30,
+    }
+    monkeypatch.setattr(canary, "time", SteppedClock(60))
+    with pytest.raises(TimeoutError, match="before its process started"):
+        canary.retain_files(evidence, kept, {"answer-key.json": {"key": "value"}})
+    assert sorted(path.name for path in evidence.iterdir()) == [
+        "evidence-failure.json"
+    ], "FAIL AC-25: evidence was written after its retention window closed"
+    failure = json.loads((evidence / "evidence-failure.json").read_text())
+    assert "before its process started" in failure["evidence_error"], failure
+
+
 def kept_double(request: dict) -> dict:
     """A retention child's double: it keeps nothing and returns at once."""
     return {"envelope": {"ok": True}, "rows": [], "events": [], "refused": []}

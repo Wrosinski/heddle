@@ -1315,13 +1315,25 @@ os.replace(partial, result)
 """
 
 
-def run_killable(entry: str, request: dict, seconds: float, what: str, scratch: Path):
+def run_killable(
+    entry: str,
+    request: dict,
+    seconds: float,
+    what: str,
+    scratch: Path,
+    *,
+    until: float | None = None,
+):
     """``module:function`` called with the plain ``request`` in a child process
-    in its own session, waited on for at most ``seconds``. When the bound
-    passes, the child's whole process group gets SIGKILL and is reaped before
-    this returns, so nothing it started can write after the bound; a
-    ``TimeoutError`` naming ``what`` and the bound then propagates. Returns
-    the function's JSON result; a child that fails raises with its stderr."""
+    in its own session. One absolute monotonic cutoff, ``until`` (by default
+    ``seconds`` from now), holds through staging, spawn and wait: when it has
+    passed before the child would start, nothing is started; the wait takes
+    only what remains of it; when it passes during the wait, the child's
+    whole process group gets SIGKILL and is reaped before this returns, so
+    nothing it started can write after the cutoff. Either case raises a
+    ``TimeoutError`` naming ``what``. Returns the function's JSON result; a
+    child that fails raises with its stderr."""
+    cutoff = time.monotonic() + seconds if until is None else until
     scratch.mkdir(parents=True, exist_ok=True)
     name = secrets.token_hex(4)
     order = scratch / f"{name}.request.json"
@@ -1341,6 +1353,10 @@ def run_killable(entry: str, request: dict, seconds: float, what: str, scratch: 
     environment["PYTHONPATH"] = os.pathsep.join(
         part for part in (str(REPO_ROOT), os.environ.get("PYTHONPATH")) if part
     )
+    if time.monotonic() >= cutoff:
+        raise TimeoutError(
+            f"{what}'s bound passed before its process started; nothing was written"
+        )
     with errors.open("w", encoding="utf-8") as stderr:
         child = subprocess.Popen(
             [sys.executable, "-c", KILLABLE_CHILD, str(REPO_ROOT), str(order)],
@@ -1352,10 +1368,10 @@ def run_killable(entry: str, request: dict, seconds: float, what: str, scratch: 
             start_new_session=True,
         )
     try:
-        child.wait(timeout=max(0.0, seconds))
+        child.wait(timeout=max(0.0, cutoff - time.monotonic()))
     except subprocess.TimeoutExpired:
         raise TimeoutError(
-            f"{what} exceeded its {seconds:.0f} s bound; its process was killed"
+            f"{what} exceeded its bound; its process was killed"
         ) from None
     finally:
         if child.poll() is None:
@@ -1424,6 +1440,7 @@ def retain_launch(evidence: Path, launch: dict) -> dict:
             bound,
             "evidence retention",
             Path(launch["work"]) / "retention",
+            until=until,
         )
     except Exception as error:
         record_evidence_failure(evidence, launch, error)
@@ -1456,8 +1473,9 @@ def retain_files(
     """Write more of a retained launch's evidence, ``files`` as JSON and
     ``copies`` as ``(source, name)`` pairs, in a killable child inside what
     remains of the launch's retention window (``kept["retention_until"]``),
-    so nothing of it writes after the window. When nothing remains, nothing
-    is started. A failure or a passed window leaves an explicit
+    so nothing of it writes after the window. The window's end is the
+    child's one cutoff through staging, spawn and wait. When nothing remains,
+    nothing is started. A failure or a passed window leaves an explicit
     evidence-failure record naming the error, which then propagates."""
     remaining = kept["retention_until"] - time.monotonic()
     try:
@@ -1472,6 +1490,7 @@ def retain_files(
             remaining,
             "evidence retention",
             Path(kept["work"]) / "retention",
+            until=kept["retention_until"],
         )
     except Exception as error:
         record_evidence_failure(evidence, kept, error)
@@ -2795,6 +2814,16 @@ def fidelity_key(data: bytes, first: str, last: str) -> dict[str, str]:
     return key
 
 
+def returned_content(view: dict, markers: dict[str, str]) -> list[str]:
+    """The names of the fixture's random ``markers`` a read event shows beside
+    its parameters: a read step carrying one returned the file's text, not
+    only a summary."""
+    shown = text_of(
+        {key: value for key, value in view["info"].items() if key != "parameters"}
+    )
+    return [name for name, marker in markers.items() if marker in shown]
+
+
 def reply_fields(text: str) -> dict[str, str]:
     fields: dict[str, str] = {}
     for line in text.split("\n"):
@@ -2811,7 +2840,9 @@ def test_ac25_canary_worst_case_chunk_reads_whole_and_exactly(tmp_path):
     offset range) whose terminal update is ``DONE``, and the model reports its
     first and last needles, its stripped-class code points in order and its
     wrapper-tag text exactly, against the key read back from the chunk's
-    bytes."""
+    bytes. Judged on its own, apart from the answer, the read event shows a
+    summary only: one carrying either random needle fails the measurement.
+    The evidence keeps each read's shape and scores, never its output."""
     first, last = needle("FIRST"), needle("LAST")
     chunk = tmp_path / "chunk-000.txt"
     data = worst_case_chunk(first, last)
@@ -2830,6 +2861,10 @@ def test_ac25_canary_worst_case_chunk_reads_whole_and_exactly(tmp_path):
     evidence = stage_evidence("canary", "whole-chunk-and-fidelity")
     call = agy_call(tmp_path, prompt, "canary 3/6")
     reads = reads_of(call["events"], chunk, tmp_path)
+    shown = {
+        view["position"]: returned_content(view, {"FIRST": first, "LAST": last})
+        for view in reads
+    }
     fields = reply_fields(response_of(call))
     normalized = {
         "FIRST": fields.get("FIRST"),
@@ -2851,7 +2886,8 @@ def test_ac25_canary_worst_case_chunk_reads_whole_and_exactly(tmp_path):
                     "parameters": sorted(view["parameters"]),
                     "state": view["state"],
                     "ok": view["ok"],
-                    "summary": view["output"],
+                    "output_shape": result_shape(view["output"]),
+                    "returned_content": shown[view["position"]],
                 }
                 for view in reads
             ],
@@ -2863,6 +2899,11 @@ def test_ac25_canary_worst_case_chunk_reads_whole_and_exactly(tmp_path):
         f"FAIL AC-25: the worst-case chunk did not come back in one successful "
         "whole read: "
         f"{[(sorted(view['parameters']), view['state']) for view in reads]}"
+    )
+    leaked = {position: names for position, names in shown.items() if names}
+    assert not leaked, (
+        "FAIL AC-25: a read event carried the chunk's returned text, not only a "
+        f"summary: needles {leaked} (by stream position) appear in it"
     )
     assert exact["LAST"], "FAIL AC-25: the chunk's last needle did not come back"
     assert all(exact.values()), f"FAIL AC-25: the read was not lossless: {exact}"
@@ -3088,10 +3129,40 @@ def spec_host(tmp_path, monkeypatch):
     )
 
 
+def scope_attribution(audit: dict, target: Path, host: Path) -> dict:
+    """The persisted audit's out-of-scope-access violations, split by whether
+    the call they were raised on names exactly ``target``: a parameter that
+    resolves to it, or text naming its whole path. ``attempts`` are the steps
+    of every audited call naming it."""
+    want = canonical(str(target), host)
+
+    def names(call: dict) -> bool:
+        return any(
+            canonical(value, host) == want or names_path(value, target)
+            for value in string_values(call.get("parameters") or {})
+        )
+
+    attempts = [call.get("step") for call in audit.get("calls") or [] if names(call)]
+    scope = [
+        row
+        for row in audit.get("violations") or []
+        if row.get("reason") == OUT_OF_SCOPE
+    ]
+    bound = [row for row in scope if row.get("step") in attempts]
+    return {
+        "attempts": attempts,
+        "bound": bound,
+        "unrelated": [row for row in scope if row not in bound],
+    }
+
+
 def test_ac25_canary_forbidden_access_fails_out_of_scope(tmp_path, monkeypatch):
     """AC-25 canary item 8: a canary-only prompt asks the reviewer to read a
     synthetic sibling file under the host's ``reviews/``; the launch's own
-    row fails with ``out-of-scope-access``."""
+    row fails with ``out-of-scope-access``, and the persisted audit raised
+    that violation on a call naming exactly this launch's planted sibling. A
+    missing directed attempt, or only an unrelated scope violation, fails the
+    item and says which."""
     from tests.gate.test_antigravity_runner import write_prompt
     from tests.tiering_review_helpers import V7_FEATURE
 
@@ -3114,6 +3185,19 @@ def test_ac25_canary_forbidden_access_fails_out_of_scope(tmp_path, monkeypatch):
     reasons = [row.get("failure_reason") for row in kept["rows"]]
     assert not kept["envelope"]["ok"] and reasons == [OUT_OF_SCOPE], (
         f"FAIL AC-25: the forbidden read's launch recorded {reasons}"
+    )
+    found = scope_attribution(
+        persisted_audit(kept["summary"], "canary 8"), sibling, host
+    )
+    why = (
+        f"the audited calls naming it (steps {found['attempts']}) raised none"
+        if found["attempts"]
+        else "no audited call names it, so the directed attempt is missing"
+    )
+    assert found["bound"], (
+        f"FAIL AC-25: canary 8's out-of-scope-access is not attributed to the "
+        f"planted sibling {sibling}: {why}; other scope violations: "
+        f"{found['unrelated']}"
     )
 
 
