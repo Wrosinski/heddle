@@ -664,6 +664,52 @@ def test_ac14_unknown_step_without_a_tool_is_listed(layout: AuditLayout) -> None
     )
 
 
+# A special step that also names a tool: (step type, tool name, parameters
+# built from the layout, the violations its special rule and its tool raise).
+NAMED_SPECIAL_STEPS: dict[
+    str, tuple[str, str, Callable[[AuditLayout], dict], set[tuple[str, int]]]
+] = {
+    "subagent": (
+        "subagent",
+        "invoke_subagent",
+        lambda lay: {"Task": "read the chunks"},
+        {(UNAPPROVED, 2)},
+    ),
+    "checkpoint": (
+        "checkpoint",
+        "read_file",
+        lambda lay: {"Path": str(lay.data_dir / "brain" / "a.md")},
+        {(COMPACTED, 4), (OUT_OF_SCOPE, 1)},
+    ),
+}
+
+
+@pytest.mark.parametrize("case", sorted(NAMED_SPECIAL_STEPS))
+def test_ac14_named_special_step_is_also_judged_as_a_tool_call(
+    layout: AuditLayout, case: str
+) -> None:
+    """
+    Red discriminator (AC-14 and AC-16; m6): a `subagent` or `checkpoint` step
+    that names a tool keeps its own rule (row 2, row 4) and is also judged as
+    that tool's call: the record lists it and the tool and scope checks apply.
+    """
+    step_type, name, parameters, expected = NAMED_SPECIAL_STEPS[case]
+    stream = AgyStream(layout).step(
+        step_type,
+        tool_name=name,
+        tool_info={"name": name, "parameters": parameters(layout)},
+    )
+
+    view = run_audit(stream)
+
+    assert expected <= set(view.violations), (
+        f"FAIL AC-14: a named {step_type} step raised {view.violations}, "
+        f"expected {sorted(expected)}"
+    )
+    calls = [call["tool"] for call in json.loads(view.record)["calls"]]
+    assert name in calls, f"FAIL AC-14: the audit record lists only {calls}"
+
+
 def test_ac14_subagent_step_fails_as_unapproved(layout: AuditLayout) -> None:
     """Red discriminator (AC-14; m6): a `subagent` step fails, row 2."""
     stream = AgyStream(layout).step(
@@ -799,6 +845,7 @@ FORBIDDEN_ACCESS: dict[str, AuditCase] = {
     "recursive-search-in-a-root-cwd": lambda s, lay: s.run(
         "find -name x", cwd=Path("/")
     ),
+    "recursive-search-after-a-global-option": lambda s, lay: s.run("find -L ~ -name x"),
     "heddle-by-name": lambda s, lay: s.run("heddle status --json"),
     "heddle-by-path": lambda s, lay: s.run("/usr/local/bin/heddle orient"),
     "heddle-as-module": lambda s, lay: s.run("python -m heddle status"),
@@ -854,6 +901,9 @@ SCOPE_CONTROLS: dict[str, AuditCase] = {
     "recursive-search-below-home": lambda s, lay: s.run("rg -n TODO ~/work/host/src"),
     "recursive-search-in-the-checkout": lambda s, lay: s.run("grep -rn TODO src"),
     "recursive-search-at-the-launch-directory": lambda s, lay: s.run("grep -rn TODO"),
+    "search-filtering-piped-input-at-home": lambda s, lay: s.run(
+        "cat notes.txt | rg x", cwd=lay.home
+    ),
     "ps-inside-a-file-name": lambda s, lay: s.run("cat requirements/deps.txt"),
     "heddle-inside-a-file-name": lambda s, lay: s.read(
         lay.root / "docs" / "heddle-notes.md"
@@ -1594,6 +1644,31 @@ def test_ac21_background_search_output_warns_without_inspection(
         )
 
 
+def test_ac21_completed_status_call_without_output_warns(
+    layout: AuditLayout,
+) -> None:
+    """
+    Red discriminator (AC-21; m6): a completed `command_status` whose result
+    is omitted draws one unrecognized-shape warning, as a result in an
+    unrecognized shape does; a `wait` that returns nothing stays silent.
+    """
+    stream = (
+        AgyStream(layout)
+        .tool("command_status", ASSUMED_PARAMETERS["command_status"](layout), None)
+        .tool("wait", ASSUMED_PARAMETERS["wait"](layout), None)
+    )
+
+    view = run_audit(stream)
+
+    assert view.violations == (), f"FAIL AC-21: raised {view.violations}"
+    assert len(view.lane_warnings("unrecognized", "command_status")) == 1, (
+        f"FAIL AC-21: an omitted status result did not warn once: {view.warnings}"
+    )
+    assert not view.lane_warnings("unrecognized", "wait"), (
+        f"FAIL AC-21: a resultless wait warned: {view.warnings}"
+    )
+
+
 def test_ac21_recognized_run_command_output_logs_no_shape_warning(
     layout: AuditLayout,
 ) -> None:
@@ -2064,6 +2139,17 @@ def _monitor_streams(launches: list[Launch], reviews: Path) -> dict[str, int]:
 AUDIT_MARKERS = ("git status --short", "rg -n SERVICE_TOKEN src")
 # Shown `run_command` text, not secret, that only the shown output carries.
 SHOWN_MARKER = "src/example.py:2:SERVICE_TOKEN"
+# A credential-shaped access key (synthetic, assembled so source holds no
+# literal one) shown right after literal escape-like text: a backslash-u run
+# and an escaped quote, as decoded output can carry them. The marker is the
+# non-secret text shown with it.
+ESCAPED_KEY = "AK" + "IA" + "SYNTHETICKEY0001"
+ESCAPED_MARKER = "escape-adjacent-sample"
+# Non-secret shown text holding literal backslashes, which must survive.
+BACKSLASH_TEXT = "notes\\drafts\\v2"
+ESCAPED_OUTPUT = (
+    f'{ESCAPED_MARKER} {BACKSLASH_TEXT} \\u00{ESCAPED_KEY} \\"{ESCAPED_KEY}\\"'
+)
 
 History = dict[str, list[tuple[int, str]]]
 
@@ -2221,6 +2307,7 @@ def _credential_steps(host: Path) -> list[dict[str, Any]]:
         AgySteps()
         .read(host / "src" / "example.py")
         .run(f"export SERVICE_TOKEN={TOKEN} && git status --short", "", cwd=host)
+        .run("cat config/escaped.txt", ESCAPED_OUTPUT, cwd=host)
         .run(
             "rg -n SERVICE_TOKEN src",
             f"src/example.py:2:SERVICE_TOKEN = '{TOKEN}'",
@@ -2421,20 +2508,31 @@ def test_ac18_redaction_holds_at_every_write_on_interrupted_and_completed_runs(
     assert isinstance(summary.get("audit"), dict), (
         f"FAIL AC-18: the completed run's summary {summary_path} has no audit record"
     )
-    for label, destination in (
-        ("gate log", summary["io"]["log"]),
-        ("audit record", summary["io"]["summary"]),
-    ):
+    production = {
+        "gate log": os.path.realpath(summary["io"]["log"]),
+        "audit record": os.path.realpath(summary["io"]["summary"]),
+    }
+    for label, destination in production.items():
         states = [
             content
-            for writer, content in history.get(os.path.realpath(destination), [])
+            for writer, content in history.get(destination, [])
             if writer == os.getpid()
         ]
         assert states, (
             f"FAIL AC-18: no write to the completed run's {label} {destination} "
             f"was recorded: {sorted(history)}"
         )
-        missing = [item for item in (*expected, SHOWN_MARKER) if item not in states[-1]]
+        missing = [
+            item
+            # Both destinations hold the backslash text JSON-encoded.
+            for item in (
+                *expected,
+                SHOWN_MARKER,
+                ESCAPED_MARKER,
+                json.dumps(BACKSLASH_TEXT)[1:-1],
+            )
+            if item not in states[-1]
+        ]
         assert not missing, (
             f"FAIL AC-18: the completed run's {label} {destination} lacks {missing}"
         )
@@ -2446,6 +2544,17 @@ def test_ac18_redaction_holds_at_every_write_on_interrupted_and_completed_runs(
     )
     assert not leaked, (
         f"FAIL AC-18: a rebuilt gate-log or audit-record state held the token: {leaked}"
+    )
+    # The access key shown beside literal escape-like text: absent from every
+    # rebuilt state of both production destinations, in both processes.
+    escaped = sorted(
+        f"{label} (state {index}, process {writer})"
+        for label, destination in production.items()
+        for index, (writer, content) in enumerate(history.get(destination, []), 1)
+        if ESCAPED_KEY in content
+    )
+    assert not escaped, (
+        f"FAIL AC-18: a rebuilt state held the escape-adjacent key: {escaped}"
     )
     assert not _token_holders(host), (
         "FAIL AC-18: kept files hold the token after the recovery pass and the "

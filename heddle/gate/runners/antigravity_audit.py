@@ -6,9 +6,9 @@ coverage verdict and the redacted audit record. It orders nothing:
 ``classify_outcome`` in the runner owns precedence.
 
 - **Steps.** A ``subagent`` step is an unapproved tool (row 2); a
-  ``checkpoint`` step is compaction (row 4). Any other step that names a tool
-  is judged as a tool call, whatever its type; one that names none, of a
-  type outside the known set, is listed in the record.
+  ``checkpoint`` step is compaction (row 4). Any step that names a tool,
+  those two included, is also judged as a tool call, whatever its type; one
+  that names none, of a type outside the known set, is listed in the record.
 - **Tools.** Only the allowlist passes (row 2), and ``manage_task`` only with
   an ``Action`` that carries no input. Every tool's path parameters, allowed
   or not, are checked against the forbidden paths (row 1).
@@ -22,9 +22,14 @@ coverage verdict and the redacted audit record. It orders nothing:
 - **Result shapes.** ``run_command`` output is shown text. The structured
   search and listing kinds, ``command_status`` and ``send_command_input``
   have no recorded shape, so their results are not inspected and each one
-  draws the unrecognized-shape warning; so does a successful ``run_command``
-  that shows no output. ``run_command`` and ``command_status`` text goes into
-  the record as shown, redacted.
+  draws the unrecognized-shape warning; so does a successful
+  ``run_command``, ``command_status`` or structured call that shows no
+  output. ``run_command`` and ``command_status`` text goes into the record as
+  shown.
+- **The record.** Every decoded string in it is made encodable (a lone
+  surrogate becomes a ``\\uXXXX`` escape) and redacted before anything is
+  serialized, so the gate log and the summary are built from text that holds
+  no credential and always encodes.
 - **Coverage** (row 6). A chunk is covered by a successful whole
   ``read_file`` that no write tool and no executed text targeted first, and
   only while every transport file still matches its frozen digest. A read is
@@ -44,7 +49,6 @@ grounds nothing.
 
 from __future__ import annotations
 
-import json
 import os
 import re
 from collections.abc import Iterable, Mapping, Sequence
@@ -108,6 +112,8 @@ RECURSIVE_TOOLS = frozenset({"grep_search", "find_by_name"})
 STRUCTURED_KINDS = frozenset({"grep_search", "find_by_name", "list_dir"})
 # Result-bearing kinds whose results this audit cannot inspect.
 UNINSPECTED_KINDS = STRUCTURED_KINDS | {"command_status", "send_command_input"}
+# Kinds whose successful call always shows a result, so an omitted one warns.
+RESULT_KINDS = STRUCTURED_KINDS | {"run_command", "command_status"}
 # Kinds whose shown text the record keeps.
 SHOWN_KINDS = frozenset({"run_command", "command_status"})
 # The step types agy is known to emit, the reference's list less `unknown`.
@@ -213,10 +219,12 @@ class _Step:
     error: Any
 
     @property
+    def succeeded(self) -> bool:
+        return self.state == SUCCESS_STATE and not self.error
+
+    @property
     def ok(self) -> bool:
-        return (
-            self.state == SUCCESS_STATE and self.output is not None and not self.error
-        )
+        return self.succeeded and self.output is not None
 
 
 def _steps(events: Iterable[Mapping[str, Any]]) -> list[_Step]:
@@ -317,7 +325,7 @@ class _Audit:
                 step,
                 "a checkpoint step compacted the context",
             )
-        elif step.tool or step.kind == "tool":
+        if step.tool or step.kind == "tool":
             self.judge_tool(step)
         elif step.kind not in KNOWN_STEP_KINDS:
             self.unknown_steps.append(
@@ -359,7 +367,9 @@ class _Audit:
         else:
             named = self.judge_paths(step)
             self.check_reviews(step, cwd=self.launch_dir, paths=named)
-        if step.tool in UNINSPECTED_KINDS and step.output is not None:
+        if (step.tool in UNINSPECTED_KINDS and step.output is not None) or (
+            step.tool in RESULT_KINDS and step.output is None and step.succeeded
+        ):
             self.unrecognized(step)
 
     def judge_paths(self, step: _Step) -> list[str]:
@@ -405,9 +415,7 @@ class _Audit:
         output: str | None = None
         if isinstance(step.output, str):
             output = _shown(step.output)
-        elif step.output is not None or (
-            step.state == SUCCESS_STATE and not step.error
-        ):
+        elif step.output is not None:
             self.unrecognized(step)
         self.check_reviews(
             step,
@@ -454,7 +462,7 @@ class _Audit:
                 self.out_of_scope(step, f"the command inspects processes ({name})")
             if _recursive(name, arguments) and any(
                 root in self.search_roots
-                for root in _search_roots(name, arguments, named, command.cwd)
+                for root in _search_roots(name, arguments, named, command)
             ):
                 self.out_of_scope(step, f"{name} searches recursively from a root")
         for target in targets:
@@ -544,7 +552,7 @@ class _Audit:
             credited=tuple((chunk.path, chunk.start, chunk.end) for chunk in credited),
             uncovered=uncovered,
             transport_intact=transport_intact,
-            warnings=tuple(redact_text(text) for text in self.warnings),
+            warnings=tuple(record["warnings"]),
             record=record,
         )
 
@@ -605,11 +613,29 @@ def _merged(ranges: Iterable[tuple[int, int]]) -> tuple[tuple[int, int], ...]:
 
 
 def _redacted(value: dict[str, Any]) -> dict[str, Any]:
-    redacted = json.loads(
-        redact_text(json.dumps(value, ensure_ascii=False, default=str))
-    )
-    assert isinstance(redacted, dict)
-    return redacted
+    """``value`` with every string leaf made encodable, then redacted; keys
+    stay as they are."""
+    cleaned = _cleaned(value)
+    assert isinstance(cleaned, dict)
+    return cleaned
+
+
+def _cleaned(value: Any) -> Any:
+    if isinstance(value, str):
+        return _redacted_text(value.encode("utf-8", "backslashreplace").decode())
+    if isinstance(value, dict):
+        return {key: _cleaned(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_cleaned(item) for item in value]
+    return value
+
+
+def _redacted_text(text: str) -> str:
+    """Decoded ``text`` redacted. The redactor declines a match that could
+    start inside a serialized ``\\uXXXX`` escape; decoded text holds none,
+    and no credential holds a backslash, so each backslash-free part is
+    redacted alone."""
+    return "\\".join(redact_text(part) for part in text.split("\\"))
 
 
 # --------------------------------------------------------------------------- #
@@ -653,23 +679,43 @@ def _invokes_heddle(name: str, arguments: Sequence[Word]) -> bool:
 
 
 def _search_roots(
-    name: str, arguments: Sequence[Word], named: Sequence[Word], cwd: Path | None
+    name: str, arguments: Sequence[Word], named: Sequence[Word], command: SimpleCommand
 ) -> list[Path]:
     """Where a recursive search starts: its root operands (``find``'s leading
-    operands, otherwise the path-naming arguments), or, with none, the
-    directory it runs in. An operand or directory this audit cannot place
-    yields nothing."""
+    operands after its global options, otherwise the path-naming arguments),
+    or, with none, the directory it runs in, unless it is a later pipeline
+    stage, which filters its input and searches nothing. An operand or
+    directory this audit cannot place yields nothing."""
+    cwd = command.cwd
     if name == "find":
         operands = list(
-            takewhile(lambda word: not word.text.startswith(("-", "(", "!")), arguments)
+            takewhile(
+                lambda word: not word.text.startswith(("-", "(", "!")),
+                arguments[_find_options_end(arguments) :],
+            )
         )
     else:
         operands = [word for word in named if any(word is item for item in arguments)]
     if not operands:
-        return [] if cwd is None else [cwd]
+        return [] if cwd is None or command.piped else [cwd]
     return [
         root for word in operands if (root := resolve_name(word.text, cwd)) is not None
     ]
+
+
+def _find_options_end(arguments: Sequence[Word]) -> int:
+    """The index after ``find``'s leading global options: ``-L``, ``-H``,
+    ``-P``, ``-D <debug options>`` and ``-O<level>``."""
+    at = 0
+    while at < len(arguments):
+        text = arguments[at].text
+        if text in ("-L", "-H", "-P") or (text[:2] == "-O" and text[2:].isdigit()):
+            at += 1
+        elif text == "-D":
+            at += 2
+        else:
+            break
+    return min(at, len(arguments))
 
 
 def _recursive(name: str, arguments: Sequence[Word]) -> bool:

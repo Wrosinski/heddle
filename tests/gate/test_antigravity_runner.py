@@ -2563,7 +2563,17 @@ ASSIGNED_REVIEWS_ACCESS = {
             tool_step(
                 "run_command",
                 {"CommandLine": "cat docs/notes.md", "Cwd": str(host)},
-                shell_output(f"See {shown} for the last round.\n"),
+                shell_output(f"{shown}:3:TODO tighten\n"),
+            )
+        ],
+        None,
+    ),
+    "hidden-ancestor-search": (
+        lambda host, shown: [
+            tool_step(
+                "run_command",
+                {"CommandLine": "rg -l TODO plans | wc -l", "Cwd": str(host)},
+                shell_output("2\n"),
             )
         ],
         None,
@@ -2578,8 +2588,10 @@ def test_ac21_reviews_access_on_an_assigned_run(tmp_path, monkeypatch, agy, case
       ``out-of-scope-access`` with no interpretable capture and no credit;
     - so does one after an unparseable ``cd`` in an earlier call, because a
       new ``run_command`` starts at the launch directory again;
-    - printed file content that mentions a ``reviews/`` path is not access:
-      the run records and the slot is credited."""
+    - printed file content is not access, even a path-led line naming the
+      sibling as a search hit would print it, and neither is an ancestor
+      search whose results are hidden: the run records and the slot is
+      credited."""
     require_audit("AC-21")
     host, state_path = spec_host(tmp_path, monkeypatch)
     reviews = state_path.parent / "reviews"
@@ -2608,6 +2620,36 @@ def test_ac21_reviews_access_on_an_assigned_run(tmp_path, monkeypatch, agy, case
 # --------------------------------------------------------------------------- #
 # AC-12: the runner reaps its launch token
 # --------------------------------------------------------------------------- #
+def test_ac11_unencodable_shown_text_keeps_the_audit_outcome(
+    tmp_path, monkeypatch, agy
+):
+    """AC-11 through the real runner: shown output carrying a lone surrogate,
+    beside an unapproved tool, still fails as ``antigravity-unapproved-tool``
+    rather than an execution failure, and the audit record persists with the
+    shown text in an encodable form."""
+    require_audit("AC-11")
+    host, state_path = spec_host(tmp_path, monkeypatch)
+    agy.scenario(
+        clean_stream(
+            tool_step(
+                "run_command",
+                {"CommandLine": "cat notes.bin", "Cwd": str(host)},
+                shell_output("broken \ud800 text\n"),
+            ),
+            tool_step("search_web", {"query": "review guidance"}, "3 results"),
+        )
+    )
+    result = run_gate()
+    assert not result.ok, "FAIL AC-11: an unapproved tool was credited"
+    assert_hard_failure(state_path, agy, "antigravity-unapproved-tool", "AC-11")
+    audit = summary_for(state_path).get("audit")
+    assert isinstance(audit, dict), "FAIL AC-11: the audit record did not persist"
+    shown = [call.get("output", "") for call in audit["calls"]]
+    assert any("broken \\ud800 text" in text for text in shown), (
+        f"FAIL AC-11: the shown text was not kept in an encodable form: {shown}"
+    )
+
+
 def test_ac12_normal_exit_reaps_every_tokened_child(
     tmp_path, monkeypatch, agy, processes
 ):

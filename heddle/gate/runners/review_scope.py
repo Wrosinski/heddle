@@ -73,10 +73,12 @@ class Word:
 class SimpleCommand:
     """One simple command of a list or pipeline: the directory it starts in
     (None when unknown) and its words, redirection operators removed and
-    their targets kept."""
+    their targets kept. ``piped`` is set for a pipeline stage after the
+    first, which reads the previous stage's output."""
 
     cwd: Path | None
     words: tuple[Word, ...]
+    piped: bool = False
 
 
 @dataclass(frozen=True)
@@ -246,7 +248,10 @@ def _walk(
     directory = None if cwd is None else _normalized(cwd)
     pipelines: list[tuple[SimpleCommand, ...]] = []
     for stages in _pipelines(_lex(command)):
-        pipeline = tuple(SimpleCommand(directory, words) for words in stages)
+        pipeline = tuple(
+            SimpleCommand(directory, words, piped=index > 0)
+            for index, words in enumerate(stages)
+        )
         pipelines.append(pipeline)
         if len(pipeline) == 1 and _is_cd(pipeline[0]):
             directory = _changed(_cd_target(pipeline[0]), directory)
