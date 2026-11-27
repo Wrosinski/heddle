@@ -863,6 +863,20 @@ def _load_launch_record(path: Path) -> LaunchRecord:
     )
 
 
+def unredacted_stream(stream: Path) -> bool:
+    """Whether ``stream`` may still hold unredacted provider output: the
+    launch record beside it names it and does not show it redacted, or the
+    record cannot be read. Such a stream stays in its run temp directory for
+    the next recovery pass; no artifact names it."""
+    try:
+        record = _load_launch_record(stream.parent / LAUNCH_RECORD_NAME)
+    except FileNotFoundError:
+        return False
+    except (OSError, ValueError, KeyError, TypeError):
+        return True
+    return record.raw_stream == stream.name and not record.redacted
+
+
 def finish_launch(
     temp_dir: Path, record: LaunchRecord, *, grace_s: float
 ) -> LaunchCleanup:

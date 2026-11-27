@@ -62,9 +62,11 @@ holds derived values only. A runner launch keeps the evidence written during
 that launch, bound to it at write time: the gate summary and gate log as the
 run writes them, the stream that summary names (read, never copied at the
 stage), its ledger rows, review artifacts, status envelope and usage, or an
-explicit record of what it did not produce. m5 keeps the runner's redacted
-stream copy, as the plan's m5 evidence says. Provider output is never
-replaced.
+explicit record of what it did not produce. The summary names the stream in
+``artifacts.raw_out`` only when the run verified it redacted; when that is
+null, no reader touches the stream. m5 keeps the runner's redacted stream
+copy, as the plan's m5 evidence says, or a record that the stream was not
+kept because it was not verified redacted. Provider output is never replaced.
 
 Activation seams named here, beyond the plan's ``admit_live_attempt``,
 ``attempt_deadline`` and ``summary["audit"]``:
@@ -1515,23 +1517,43 @@ def record_evidence_failure(evidence: Path, launch: dict, error: Exception) -> d
     return record
 
 
+def redacted_stream(summary: dict | None) -> Path | None:
+    """The stream the gate summary names in ``artifacts.raw_out``, which the
+    runner leaves null unless it verified the stream redacted; ``None`` when
+    it names none or the file is missing. Every stream reader goes through
+    this, and none falls back to the run temp directory's raw file."""
+    raw = ((summary or {}).get("artifacts") or {}).get("raw_out")
+    return Path(raw) if raw and Path(raw).is_file() else None
+
+
+def stream_handoff(summary: dict | None) -> tuple[dict, tuple[tuple[str, str], ...]]:
+    """What m5 keeps of the launch's stream, as ``retain_files``' files and
+    copies: a copy of the redacted stream the summary names, or
+    ``stream-not-kept.json`` when it names none."""
+    stream = redacted_stream(summary)
+    if stream is None:
+        reason = "the gate summary names no redacted stream (artifacts.raw_out)"
+        return {"stream-not-kept.json": {"kept": False, "reason": reason}}, ()
+    return {}, ((str(stream), "stream.redacted.ndjson"),)
+
+
 def keep_evidence(evidence: Path, launch: dict, until: float) -> dict:
     """Keep one physical launch's evidence before a successor or host cleanup.
 
     Everything is bound to this launch: its envelope, its own new ledger rows
-    and their review artifacts, the summary and gate log it wrote, the stream
-    that summary names (read, never copied), its frozen route and transport,
-    and its usage. ``produced.json`` records explicitly what it did not
-    produce. The host's status comes from a child process waited on until
-    ``until``.
+    and their review artifacts, the summary and gate log it wrote, the
+    redacted stream that summary names (read, never copied), its frozen route
+    and transport, and its usage. ``produced.json`` records explicitly what it
+    did not produce. The host's status comes from a child process waited on
+    until ``until``.
     """
     work, state_path = launch["work"], launch["state"]
     reported = work / "run-gate.json"
     envelope = json.loads(reported.read_text()) if reported.is_file() else None
     rows = new_rows(state_path, launch["before"])
     summary, log = bound_summary(work, launch["gate"])
-    raw = ((summary or {}).get("artifacts") or {}).get("raw_out")
-    events = stream_events(Path(raw)) if raw and Path(raw).is_file() else []
+    stream = redacted_stream(summary)
+    events = stream_events(stream) if stream is not None else []
     prepared = last_row(work / "prepared.jsonl")
     transport = last_row(work / "transport.jsonl")
     refused = json_lines(
@@ -1583,6 +1605,7 @@ def keep_evidence(evidence: Path, launch: dict, until: float) -> dict:
             "summary": summary is not None,
             "gate_log": log is not None,
             "stream": bool(events),
+            "stream_redacted": stream is not None,
             "usage_reported": usage["reported"],
             "route": prepared is not None,
             "transport": transport is not None,
@@ -1995,12 +2018,13 @@ def replay_audit(events: list[dict], kept: dict, host: Path) -> tuple[list, list
 
     route = kept["prepared"]["route"]
     transport = kept["transport"] or {"chunks": []}
-    raw = kept["summary"]["artifacts"]["raw_out"]
+    stream = redacted_stream(kept["summary"])
+    assert stream is not None, "FAIL AC-25: the audit replay has no redacted stream"
     result = audit_api().audit_stream(
         events,
         launch_dir=host,
         reviews_dir=host / "plans" / V7_FEATURE / "reviews",
-        temp_dir=Path(raw).parent,
+        temp_dir=stream.parent,
         route=CaptureRoute(
             kind=route["kind"],
             size=route["size"],
@@ -2486,9 +2510,7 @@ def test_runner_canary(tmp_path, monkeypatch):
         seconds=M5_SECONDS,
     )
     kept = retain_launch(evidence, launch)
-    raw = ((kept["summary"] or {}).get("artifacts") or {}).get("raw_out")
-    if raw and Path(raw).is_file():
-        retain_files(evidence, kept, {}, ((raw, "stream.redacted.ndjson"),))
+    retain_files(evidence, kept, *stream_handoff(kept["summary"]))
     assert_stopped(kept["processes"], "the runner canary")
     rows = judge_runner_canary(
         kept["events"],

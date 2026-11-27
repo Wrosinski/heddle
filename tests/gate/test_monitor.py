@@ -908,12 +908,14 @@ def _stop(*processes: Any) -> None:
         process.wait()
 
 
-def _recorded_launch(tmp_path: Path, token: str, raw: bytes) -> tuple[Path, Any]:
+def _recorded_launch(
+    tmp_path: Path, token: str, raw: bytes, name: str = "probe"
+) -> tuple[Path, Any]:
     """A launch directory recorded by this process, holding a raw stream."""
     from heddle.gate.io import write_launch_record
 
     directory = tmp_path / "reviews"
-    temp = directory / "spec-review.antigravity.tmp.probe"
+    temp = directory / f"spec-review.antigravity.tmp.{name}"
     temp.mkdir(parents=True)
     stream = temp / "raw.out"
     stream.write_bytes(raw)
@@ -1133,6 +1135,85 @@ def test_ac12_a_child_born_during_cleanup_is_stopped_before_cleanup_verifies(
     finally:
         _kill_tokened(token)
         _stop(parent, unrelated)
+
+
+def test_ac12_without_a_process_table_only_a_departed_launcher_is_recovered(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """AC-12 without ``/proc``: a missing process table proves no launcher
+    gone. In one recovery pass, the launch of a live launcher (this process)
+    is left untouched with a warning, its tokened child running and its
+    stream as written; the launch of a launcher the kernel reports gone is
+    recovered, its stream redacted, and its cleanup warns that the table
+    cannot be read, keeping its record unreaped. The unrelated process
+    lives.
+
+    Injection seam: opening any ``/proc`` path raises ``FileNotFoundError``
+    and listing ``/proc`` finds it empty, as on a host whose procfs is not
+    mounted.
+    """
+    import builtins
+
+    from heddle.gate.io import LAUNCH_RECORD_NAME, recover_launches
+    from heddle.io.process import new_launch_token, process_start_time
+
+    lane = _antigravity()
+    live_token, departed_token = new_launch_token(), new_launch_token()
+    live_secret = lane.credential("no-process-table-live")
+    departed_secret = lane.credential("no-process-table-departed")
+    live, _ = _recorded_launch(tmp_path, live_token, _raw_with(live_secret), "live")
+    departed, _ = _recorded_launch(
+        tmp_path, departed_token, _raw_with(departed_secret), "departed"
+    )
+    launcher = _spawn(SLEEPER)
+    identity = {"pid": launcher.pid, "start": process_start_time(launcher.pid)}
+    _stop(launcher)
+    value = json.loads((departed / LAUNCH_RECORD_NAME).read_text())
+    value["launcher"] = identity
+    (departed / LAUNCH_RECORD_NAME).write_text(json.dumps(value))
+    child = _spawn(SLEEPER, token=live_token)
+    unrelated = _spawn(SLEEPER)
+    try:
+        real_open, real_listdir = builtins.open, os.listdir
+
+        def absent(path: Any) -> bool:
+            return isinstance(path, str) and (
+                path == "/proc" or path.startswith("/proc/")
+            )
+
+        def opened(file: Any, *args: Any, **kwargs: Any) -> Any:
+            if absent(file):
+                raise FileNotFoundError(2, "No such file or directory", file)
+            return real_open(file, *args, **kwargs)
+
+        def listing(path: Any = ".", *args: Any, **kwargs: Any) -> list[str]:
+            return [] if absent(path) else real_listdir(path, *args, **kwargs)
+
+        with monkeypatch.context() as patch:
+            patch.setattr(builtins, "open", opened)
+            patch.setattr(os, "listdir", listing)
+            recovery = recover_launches(tmp_path / "reviews", grace_s=0.2)
+
+        assert live.name in recovery.keep and any(
+            str(os.getpid()) in warning and re.search(r"cannot verify", warning)
+            for warning in recovery.warnings
+        ), f"FAIL AC-12: the live launch was not kept with a warning: {recovery}"
+        assert live_secret.encode() in (live / "raw.out").read_bytes(), (
+            "FAIL AC-12: recovery touched the stream of a live launcher"
+        )
+        assert child.poll() is None and (live / LAUNCH_RECORD_NAME).is_file()
+        assert departed_secret.encode() not in (departed / "raw.out").read_bytes(), (
+            "FAIL AC-12: the departed launcher's stream was not recovered"
+        )
+        assert any(
+            departed.name in warning and re.search(r"process table", warning)
+            for warning in recovery.warnings
+        ), f"FAIL AC-12: no warning names the unreadable table: {recovery.warnings}"
+        kept = json.loads((departed / LAUNCH_RECORD_NAME).read_text())
+        assert (kept["reaped"], kept["redacted"]) == (False, True)
+        assert unrelated.poll() is None
+    finally:
+        _stop(child, unrelated)
 
 
 def test_ac12_cleanup_that_never_quiesces_keeps_the_record_and_warns(

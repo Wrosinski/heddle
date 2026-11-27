@@ -5,7 +5,7 @@ from dataclasses import asdict
 from pathlib import Path
 
 from heddle.gate.cli import GateArgs, resolve_gate_execution
-from heddle.gate.io import GatePaths
+from heddle.gate.io import GatePaths, unredacted_stream
 from heddle.gate.types import (
     ArtifactInfo,
     CodexDiagnosis,
@@ -132,7 +132,12 @@ def build_summary(
             log=str(paths.log),
             summary=str(paths.summary),
             prompt=str(paths.prompt) if preserve_artifacts else None,
-            raw_out=str(paths.raw_out) if preserve_artifacts else None,
+            # A raw stream its launch could not redact is named nowhere.
+            raw_out=(
+                str(paths.raw_out)
+                if preserve_artifacts and not unredacted_stream(paths.raw_out)
+                else None
+            ),
             last_message=str(paths.last_message) if preserve_artifacts else None,
             json_message=str(paths.json_message) if preserve_artifacts else None,
             command_output=str(paths.command_output) if preserve_artifacts else None,

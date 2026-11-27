@@ -5,15 +5,17 @@ directory. In order, it:
 
 1. writes the launch message, the chunks and their index, and the
    ``$ref``-free schema copy (``write_transport``);
-2. records the launch token, then re-verifies the transport against
-   preparation's frozen route as the last step before launch;
+2. records the launch token;
 3. launches ``agy`` under the gate marker with that fresh token, in the
-   checkout root, through the shared monitor;
+   checkout root, through the shared monitor, which re-verifies the
+   transport against preparation's frozen route immediately before the
+   spawn;
 4. reads the stream with bounds and classifies the outcome through one table
    (``classify_outcome``);
 5. writes the selected response redacted, reaps the token and replaces the raw
-   stream with its redacted copy (``finish_launch``); a stream that cannot be
-   redacted fails the run.
+   stream with its redacted copy (``finish_launch``). A stream that cannot be
+   redacted fails the run and stays in the run temp directory, named by no
+   artifact, for the next recovery pass.
 
 Every hard failure sets a failure reason; ``response_warning`` is never set.
 """
@@ -89,11 +91,16 @@ class TransportChanged(Exception):
 class AgyRunFailed(Exception):
     """A run that failed after ``agy --version`` was probed, by an I/O error
     or a changed transport file. It keeps the probed version, so the failure
-    summary records it as a successful run's does."""
+    summary records it as a successful run's does. ``stream_kept`` holds once
+    the launch token is recorded: the raw stream is then the launch's own,
+    redacted or withheld by its cleanup, and no failure message replaces it."""
 
-    def __init__(self, message: str, agy_version: AgyVersion) -> None:
+    def __init__(
+        self, message: str, agy_version: AgyVersion, *, stream_kept: bool = False
+    ) -> None:
         super().__init__(message)
         self.agy_version = agy_version
+        self.stream_kept = stream_kept
 
 
 # --------------------------------------------------------------------------- #
@@ -533,7 +540,8 @@ def execute_antigravity(
     checkout_root: Path,
 ) -> ExecutionResult:
     """Launch ``agy`` once for ``prepared`` and classify what it returned.
-    Once the version is probed, a failure is raised as ``AgyRunFailed``."""
+    Once the version is probed, a failure is raised as ``AgyRunFailed``;
+    after the launch token is recorded, ``_launch`` raises it itself."""
     cli_bin = args.cli_bin or GATE_CLI_BINARIES["antigravity"]
     environment = gate_agent_env()
     version = probe_agy_version(cli_bin, environment)
@@ -579,8 +587,9 @@ def _launch(
     # with the transport, as the Codex lane checks its captured prompt.
     capture = prepared.transport.stdin.encode("utf-8")
     verified = {**transport.files, paths.prompt: capture, paths.command_output: capture}
-    try:
-        # The last step before the launch: a change after it is the post-run
+
+    def verify_before_spawn() -> None:
+        # Immediately before the spawn: a change after it is the post-run
         # digest check's.
         changed = file_changes(verified)
         if changed:
@@ -590,6 +599,8 @@ def _launch(
                 "a transport file changed after it was written, so agy was not "
                 f"launched: {'; '.join(changed)}"
             )
+
+    try:
         monitor = run_monitored(
             command,
             paths.raw_out,
@@ -597,6 +608,7 @@ def _launch(
             stdin_source=transport.launch_message,
             env={**environment, LAUNCH_TOKEN_ENV: token},
             cwd=checkout_root,
+            before_spawn=verify_before_spawn,
         )
         stream = read_stream(paths.raw_out)
         # The post-run digest check binds credited reads to the frozen bytes.
@@ -609,18 +621,22 @@ def _launch(
         else:
             failure = outcome.reason
             append_log(paths.log, f"AgyOutcome: {outcome.reason} ({outcome.detail})")
+    except (OSError, TransportChanged) as error:
+        raise AgyRunFailed(str(error), version, stream_kept=True) from error
     finally:
         cleanup = finish_launch(paths.temp_dir, record, grace_s=args.term_grace_seconds)
         for warning in cleanup.warnings:
             append_log(paths.log, f"CleanupWarning: {warning}")
+        if not cleanup.redacted:
+            # Only verified redacted bytes leave the run temp directory: the
+            # raw stream stays there for the next recovery pass, its launch
+            # record says so, and no artifact names it (``unredacted_stream``).
+            append_log(
+                paths.log,
+                "ExecutionFailure: the raw stream could not be redacted, so it "
+                "is not kept or handed on",
+            )
     if not cleanup.redacted:
-        # Only verified redacted bytes leave the run temp directory: the raw
-        # stream stays there for the next recovery pass, and the run fails.
-        append_log(
-            paths.log,
-            "ExecutionFailure: the raw stream could not be redacted, so it is "
-            "not kept or handed on",
-        )
         failure = failure or FailureReason.EXECUTION_FAILURE
     return ExecutionResult(
         monitor=monitor,

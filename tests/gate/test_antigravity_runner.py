@@ -1383,7 +1383,8 @@ def test_ac9_each_physical_launch_carries_a_fresh_token(tmp_path, monkeypatch, a
 ALTERED = ("chunk", "index", "launch")
 # Where a transport file is altered: right after the runner writes the
 # transport, or right after it records the launch token, the last bookkeeping
-# step before the launch.
+# step before the launch. ``alter_during_monitor_setup`` alters one inside the
+# shared monitor.
 WRITE_SEAM = "write_transport"
 RECORD_SEAM = "write_launch_record"
 
@@ -1410,15 +1411,42 @@ def alter_after_write(
         written = original(*args, **kwargs)
         directories = sorted(reviews.glob("*.antigravity.tmp.*"), key=os.path.getmtime)
         assert directories, "fixture: no antigravity run temp directory"
-        path = transport_file(directories[-1], target)
-        data = bytearray(path.read_bytes())
-        position = _mutable_position(data, target)
-        data[position] = _mutated(data[position], target)
-        path.write_bytes(bytes(data))
-        record.write_text(str(path))
+        _alter_transport(directories[-1], target, record)
         return written
 
     monkeypatch.setattr(runner, seam, altered)
+
+
+def alter_during_monitor_setup(monkeypatch, target: str, record: Path) -> None:
+    """Alter one transport file while the shared monitor sets up the launch.
+
+    Seam: ``heddle.io.process.file_marker``, whose first call in
+    ``run_monitored`` reads the raw stream's marker before the monitor opens
+    the launch message and the stream and spawns the process. The first call
+    for an Antigravity run temp directory alters that directory's file,
+    keeping its length; a Claude sibling's calls pass through.
+    """
+    process = importlib.import_module("heddle.io.process")
+    original = process.file_marker
+    altered: set[Path] = set()
+
+    def marker(path):
+        directory = Path(path).parent
+        if ".antigravity.tmp." in directory.name and directory not in altered:
+            altered.add(directory)
+            _alter_transport(directory, target, record)
+        return original(path)
+
+    monkeypatch.setattr(process, "file_marker", marker)
+
+
+def _alter_transport(directory: Path, target: str, record: Path) -> None:
+    path = transport_file(directory, target)
+    data = bytearray(path.read_bytes())
+    position = _mutable_position(data, target)
+    data[position] = _mutated(data[position], target)
+    path.write_bytes(bytes(data))
+    record.write_text(str(path))
 
 
 def transport_file(directory: Path, target: str) -> Path:
@@ -1526,6 +1554,30 @@ def test_ac9_transport_altered_after_the_launch_record_fails_before_any_launch(
 
     assert not (changed.parent / LAUNCH_RECORD_NAME).exists(), (
         "FAIL AC-9: a launch that never started left its token recorded"
+    )
+
+
+def test_ac9_transport_altered_during_monitor_setup_fails_before_any_launch(
+    tmp_path, monkeypatch, agy
+):
+    """AC-9 standalone: the chunk index altered while the shared monitor sets
+    up the launch, after its last bookkeeping step, still fails the run as
+    ``execution-failure`` naming the changed file, and agy never launches:
+    the re-verification runs immediately before the spawn."""
+    require_runner("AC-9")
+    _host, state_path = spec_host(tmp_path, monkeypatch, prompt=chunked_prompt())
+    record = tmp_path / "altered.txt"
+    alter_during_monitor_setup(monkeypatch, "index", record)
+    result = run_gate()
+    assert not result.ok
+    assert record.exists(), "fixture: the monitor setup seam was not reached"
+    assert agy.launches() == [], "FAIL AC-9: agy launched after the index changed"
+    rows = lane_rows(state_path)
+    assert rows and rows[-1].get("failure_reason") == "execution-failure", (
+        f"FAIL AC-9: the altered run recorded {rows[-1:]}"
+    )
+    assert Path(record.read_text()).name in gate_log(state_path), (
+        "FAIL AC-9: no warning names the changed file"
     )
 
 
@@ -2729,26 +2781,29 @@ def run_gate_in_child(gate: str = SPEC) -> None:
     assert child.exitcode == 0, "fixture: the forked gate run did not finish"
 
 
-@pytest.mark.parametrize("kept", ["recorded", "retained"])
+@pytest.mark.parametrize("route", ["recorded", "retained", "unreadable-stream"])
 def test_ac18_unredactable_stream_fails_the_run_and_reaches_no_kept_artifact(
-    tmp_path, monkeypatch, agy, kept
+    tmp_path, monkeypatch, agy, route
 ):
     """AC-18: when the raw stream cannot be replaced by its redacted copy, the
-    run fails as ``execution-failure``, nothing is recorded or retained, and
-    no kept artifact holds the credential, decoded or not; only the run temp
-    directory's raw stream does. Once that run's process has exited, the next
-    run's recovery pass redacts it. The run would otherwise have been
-    ``kept``.
+    run fails as ``execution-failure``, nothing is recorded or retained, the
+    failure summary names no raw stream, the gate log says why, and no kept
+    artifact holds the credential, decoded or not. Only the run temp
+    directory's raw stream does, as written: no failure message replaces it.
+    Once that run's process has exited, the next run's recovery pass redacts
+    it. ``route`` is how the run would otherwise have ended: recorded,
+    retained, or failed reading its stream after the launch.
 
     Injection seam: ``os.replace`` refuses the redacted copy (a staged file
     whose name ends ``.redacting``) with ``PermissionError``, in the forked
-    process that runs the first gate.
+    process that runs the first gate; for ``unreadable-stream``, reading the
+    finished launch's stream also raises ``OSError`` there.
     """
     require_runner("AC-18")
     host, state_path = spec_host(tmp_path, monkeypatch)
-    token = credential(f"unredactable-{kept}")
+    token = credential(f"unredactable-{route}")
     review = echo(agy.reviews[SPEC], token)
-    if kept == "retained":
+    if route == "retained":
         review["extra"] = f"kept {token}"
     agy.scenario(
         clean_stream(
@@ -2770,6 +2825,8 @@ def test_ac18_unredactable_stream_fails_the_run_and_reaches_no_kept_artifact(
 
     with monkeypatch.context() as patch:
         patch.setattr(os, "replace", refused)
+        if route == "unreadable-stream":
+            unreadable_stream(patch)
         run_gate_in_child()
 
     rows = lane_rows(state_path)
@@ -2777,6 +2834,11 @@ def test_ac18_unredactable_stream_fails_the_run_and_reaches_no_kept_artifact(
         f"FAIL AC-18: the unredacted run recorded {rows[-1:]}"
     )
     assert captures(state_path) == [], "FAIL AC-18: the unredacted run was retained"
+    summary = summary_for(state_path)
+    assert summary["artifacts"]["raw_out"] is None, (
+        f"FAIL AC-18: the failure summary names the unredacted stream "
+        f"{summary['artifacts']['raw_out']}"
+    )
     assert re.search(r"could not be redacted", gate_log(state_path)), (
         "FAIL AC-18: the gate log does not say the stream could not be redacted"
     )
@@ -2786,7 +2848,10 @@ def test_ac18_unredactable_stream_fails_the_run_and_reaches_no_kept_artifact(
         for path in temp_dir_of(launch).iterdir()
         if path.is_file() and token.encode() in path.read_bytes()
     ]
-    assert len(raw) == 1, f"fixture: expected one raw stream holding the token: {raw}"
+    assert len(raw) == 1, (
+        f"FAIL AC-18: the run temp directory does not keep the raw stream as "
+        f"written for recovery: {raw}"
+    )
     leaked = decoded_holding(host, token.encode(), exempt=raw)
     assert leaked == [], f"FAIL AC-18: the credential reached kept files {leaked}"
 

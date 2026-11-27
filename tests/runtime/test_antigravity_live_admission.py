@@ -675,3 +675,34 @@ def test_ac25_evidence_retention_inside_its_window_writes_every_file(
     assert json.loads((evidence / "directed-calls.json").read_text()) == rows
     assert (evidence / "stream.redacted.ndjson").read_bytes() == source.read_bytes()
     assert not (evidence / "evidence-failure.json").exists()
+
+
+@pytest.mark.parametrize("raw_out", ["null", "names-a-file"])
+def test_ac25_runner_canary_keeps_only_a_stream_the_summary_names(tmp_path, raw_out):
+    """The gate summary's ``artifacts.raw_out`` names the stream only when the
+    run verified it redacted. The canary copies the stream only then; with
+    ``raw_out`` null it copies nothing, though the run's temp directory holds
+    the raw stream, and records that the stream was not kept."""
+    canary = canary_module()
+    stream = tmp_path / "run-temp" / "raw.out"
+    stream.parent.mkdir()
+    stream.write_text('{"event": "init", "text": "provider output"}\n')
+    named = str(stream) if raw_out == "names-a-file" else None
+    summary = {"artifacts": {"log": str(tmp_path / "gate.log"), "raw_out": named}}
+    evidence = tmp_path / "evidence"
+    evidence.mkdir()
+    kept = {
+        "label": "the runner canary",
+        "work": str(tmp_path / "work"),
+        "retention_until": time.monotonic() + 30,
+    }
+    canary.retain_files(evidence, kept, *canary.stream_handoff(summary))
+    names = sorted(path.name for path in evidence.iterdir())
+    if raw_out == "names-a-file":
+        assert names == ["stream.redacted.ndjson"], names
+        assert (evidence / "stream.redacted.ndjson").read_bytes() == stream.read_bytes()
+        return
+    assert names == ["stream-not-kept.json"], (
+        f"FAIL AC-25: a stream not verified redacted reached the evidence: {names}"
+    )
+    assert json.loads((evidence / "stream-not-kept.json").read_text())["kept"] is False

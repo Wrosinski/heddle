@@ -116,7 +116,15 @@ def run_monitored(
     activity_filter: Callable[[Path, int, int], bool] | None = None,
     env: dict[str, str] | None = None,
     cwd: Path | None = None,
+    before_spawn: Callable[[], None] | None = None,
 ) -> MonitorResult:
+    """Run ``cmd`` with its output appended to ``raw_out``, enforcing the
+    hard and inactivity timeouts of ``cfg``.
+
+    ``before_spawn``, when given, runs once the launch's files are open,
+    immediately before the process is spawned; whatever it raises propagates
+    with nothing spawned.
+    """
     launched_at = time.monotonic()
     last_progress_at = launched_at
     saw_stream = False
@@ -137,6 +145,8 @@ def run_monitored(
         stdin_fh = open(stdin_source, "rb") if stdin_source else None
         stdin_stream = stdin_fh if stdin_fh is not None else subprocess.DEVNULL
         with raw_out.open("ab", buffering=0) as sink:
+            if before_spawn is not None:
+                before_spawn()
             # subprocess-handler: allow monitored Popen; loop enforces timeouts
             proc = subprocess.Popen(
                 cmd,
@@ -335,15 +345,20 @@ class ProcessIdentity:
 
 @dataclass(frozen=True)
 class _Stat:
+    """One read of ``/proc/<pid>/stat``. Gone with a start time is a zombie,
+    which has exited but still holds its ID; gone without one is a missing
+    entry."""
+
     state: ProcessState
     start: int | None = None
     parent: int | None = None
 
 
 def _read_stat(pid: int) -> _Stat:
-    """The process's start time and parent from ``/proc``: gone when there is
-    no such process or it is a zombie, unverifiable when its stat cannot be
-    read or parsed."""
+    """The process's start time and parent from ``/proc``: gone when it has
+    no entry or is a zombie, unverifiable when its stat cannot be read or
+    parsed. A missing entry proves nothing by itself when the process table
+    is absent; ``_held`` asks the kernel."""
     try:
         with open(f"/proc/{pid}/stat", "rb") as stream:
             text = stream.read().decode("ascii", "replace")
@@ -354,47 +369,71 @@ def _read_stat(pid: int) -> _Stat:
     fields = text.rsplit(")", 1)[-1].split()
     if len(fields) < 20:
         return _Stat(ProcessState.UNVERIFIABLE)
-    if fields[0] in ("Z", "X", "x"):
-        return _Stat(ProcessState.GONE)
     try:
-        return _Stat(ProcessState.ALIVE, start=int(fields[19]), parent=int(fields[1]))
+        start, parent = int(fields[19]), int(fields[1])
     except ValueError:
         return _Stat(ProcessState.UNVERIFIABLE)
+    exited = fields[0] in ("Z", "X", "x")
+    return _Stat(
+        ProcessState.GONE if exited else ProcessState.ALIVE, start=start, parent=parent
+    )
 
 
 def process_start_time(pid: int) -> int | None:
     """The process's start time in clock ticks since boot, or None when the
     process is gone, a zombie, or unreadable. With the process ID it names one
     process across PID reuse."""
-    return _read_stat(pid).start
+    stat = _read_stat(pid)
+    return stat.start if stat.state is ProcessState.ALIVE else None
+
+
+def _held(pid: int) -> bool | None:
+    """Whether any process holds ``pid``, asked of the kernel rather than of
+    ``/proc``: None when it cannot tell."""
+    pidfd_open = getattr(os, "pidfd_open", None)
+    if pidfd_open is not None:
+        try:
+            os.close(pidfd_open(pid))
+        except ProcessLookupError:
+            return False
+        except OSError:
+            pass
+        else:
+            return True
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    except OSError:
+        return None
+    return True
 
 
 def observe_process(pid: int, start: int | None) -> ProcessState:
     """Whether the process this ID and start time name is alive, proven gone,
     or unverifiable.
 
-    Gone means no process holds the ID, it is a zombie, or its start time
-    differs (the ID was reused). A process that holds the ID but whose stat
-    cannot be read, or that no recorded start time names, may be this one:
-    unverifiable. Without ``/proc`` no start time exists, so only a missing
-    process is proven gone.
+    Gone means the kernel says no process holds the ID, or the holder is a
+    zombie, or its start time differs (the ID was reused). A missing
+    ``/proc`` entry alone proves nothing, as the table may be absent or
+    unreadable. A process that holds the ID but whose stat cannot be read, or
+    that no recorded start time names, may be this one: unverifiable.
     """
     if pid <= 0:
         return ProcessState.GONE
     if _PROC_TABLE:
         stat = _read_stat(pid)
-        if stat.state is not ProcessState.ALIVE:
-            return stat.state
-        if start is None:
+        if stat.state is ProcessState.ALIVE:
+            if start is None:
+                return ProcessState.UNVERIFIABLE
+            return ProcessState.ALIVE if stat.start == start else ProcessState.GONE
+        if stat.state is ProcessState.UNVERIFIABLE:
             return ProcessState.UNVERIFIABLE
-        return ProcessState.ALIVE if stat.start == start else ProcessState.GONE
-    try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
-        return ProcessState.GONE
-    except OSError:
-        pass
-    return ProcessState.UNVERIFIABLE
+        if stat.start is not None:
+            return ProcessState.GONE
+    return ProcessState.GONE if _held(pid) is False else ProcessState.UNVERIFIABLE
 
 
 def parse_ps_eww(output: str, *, variable: str, token: str) -> frozenset[int]:
@@ -585,7 +624,8 @@ def _observe(pid: int, needle: bytes, launcher: ProcessIdentity) -> _Bound | str
 def _scan(variable: str, token: str, launcher: ProcessIdentity) -> _Scan:
     """Every other process whose environment carries ``variable=token``, each
     bound to a process descriptor, with the processes that could not be
-    judged, or why the process table is unreadable."""
+    judged, or why the process table is unreadable. A listing without this
+    process is no process table."""
     own = os.getpid()
     if not _PROC_TABLE:
         try:
@@ -614,6 +654,12 @@ def _scan(variable: str, token: str, launcher: ProcessIdentity) -> _Scan:
         entries = os.listdir("/proc")
     except OSError as error:
         return _Scan([], [], f"cannot enumerate the process table (/proc): {error}")
+    if str(own) not in entries:
+        return _Scan(
+            [],
+            [],
+            "cannot enumerate the process table (/proc): it does not list this process",
+        )
     scan = _Scan([], [])
     for entry in entries:
         if not entry.isdigit() or int(entry) == own:

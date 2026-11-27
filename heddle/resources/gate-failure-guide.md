@@ -266,7 +266,7 @@ separate native stop-resolution and round-open route afterward.
 
 **Status:** emitted
 
-**Evidence:** The summary and log preserve an engine or provider execution exception that prevented a valid completion.
+**Evidence:** The summary and log preserve an engine or provider execution exception that prevented a valid completion. On the Antigravity lane, a provider stream that could not be redacted is never kept or named: the summary's `artifacts.raw_out` is null, the log's `ExecutionFailure` line says so, and the stream waits in the run's temporary directory until the next gate run's recovery redacts it.
 
 **Remedy:** Correct the reported local or provider failure, verify prerequisites, and retry the same gate configuration.
 

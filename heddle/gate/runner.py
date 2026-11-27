@@ -420,7 +420,10 @@ class GateRunner:
                 )
             except AgyRunFailed as exc:
                 return self._launch_failure(
-                    paths, str(exc), agy_version=exc.agy_version
+                    paths,
+                    str(exc),
+                    agy_version=exc.agy_version,
+                    stream_kept=exc.stream_kept,
                 )
             except OSError as exc:
                 return self._launch_failure(paths, str(exc))
@@ -549,10 +552,19 @@ class GateRunner:
         append_log(paths.log, "")
 
     def _launch_failure(
-        self, paths: GatePaths, message: str, *, agy_version: AgyVersion | None = None
+        self,
+        paths: GatePaths,
+        message: str,
+        *,
+        agy_version: AgyVersion | None = None,
+        stream_kept: bool = False,
     ) -> ExecutionResult:
+        """A failed launch's result. The message stands in for the raw stream
+        unless the launch's own stream (``stream_kept``) holds bytes, which
+        stay as its cleanup redacted or withheld them."""
         append_log(paths.log, f"ExecutionFailure: {message}")
-        paths.raw_out.write_text(message.rstrip() + "\n")
+        if not (stream_kept and _holds_bytes(paths.raw_out)):
+            paths.raw_out.write_text(message.rstrip() + "\n")
         return ExecutionResult(
             monitor=MonitorResult(
                 exit_code=127,
@@ -637,6 +649,13 @@ def _workflow_control_paths(ctx: GateContext) -> list[str]:
         except ValueError:
             continue
     return paths
+
+
+def _holds_bytes(path: Path) -> bool:
+    try:
+        return path.stat().st_size > 0
+    except OSError:
+        return False
 
 
 def _binary_available(cli_bin: str) -> bool:
