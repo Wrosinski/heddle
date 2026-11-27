@@ -131,6 +131,18 @@ from tests.concurrent_review_helpers import (
 from tests.tiering_review_helpers import V7_FEATURE, dispose, disposition
 
 FIXED_GIT_DATE = "2026-11-24T00:00:00+0000"
+# The managed AGENTS.md session-entry body as the pins were recorded. The host
+# commits AGENTS.md into its feature baseline, and the runtime manifest names
+# that baseline commit, so a change to the managed text would move every pinned
+# identity although no Claude or Codex preparation changed. `_host` writes this
+# frozen body; other files' hosts keep the current render.
+FROZEN_SESSION_ENTRY = (
+    "\nThis repository's feature workflow runs through the `heddle` CLI.\n\n"
+    "To enter a feature-work session:\n\n"
+    "1. Run `heddle orient`.\n"
+    "2. Follow the `next_actions` it returns.\n"
+    "3. Run `heddle kickoff` only when `orient` routes there.\n\n"
+)
 MILESTONE = "milestone-review"
 LARGE_SOURCE_LINES = 60_000
 
@@ -456,7 +468,12 @@ def _host(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, role: str, **kwargs):
         monkeypatch.setenv(name, FIXED_GIT_DATE)
     base = tmp_path / checkout
     base.mkdir()
-    host, _state_path = same_gate_host(base, monkeypatch, role=role, window=window)
+    with monkeypatch.context() as frozen:
+        frozen.setattr(
+            "tests.runtime.adoption_helpers.render_session_entry",
+            lambda: FROZEN_SESSION_ENTRY,
+        )
+        host, _state_path = same_gate_host(base, monkeypatch, role=role, window=window)
     overrides = host / ".heddle/overrides"
     overrides.mkdir(parents=True, exist_ok=True)
     (overrides / "decision-routing.md").write_text(

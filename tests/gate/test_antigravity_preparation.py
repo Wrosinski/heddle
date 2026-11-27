@@ -30,6 +30,7 @@ import pytest
 from heddle.gate.preparation import prepare_gate_run
 from heddle.gate.prompt import output_constraint, resolve_gate_prompt
 from heddle.gate.registry import GATES
+from heddle.gate.results import review_output_contract
 from heddle.gate.types import (
     DiffResult,
     GateContext,
@@ -675,7 +676,9 @@ def test_ac10_lane_block_names_forbidden_tools_and_paths_and_bans_heddle(
     rules say, and says to read captured input with read_file only. The
     ``reviews/`` rule draws the run temp directory boundary: this run's chunk
     index and chunks may be read, and every other ``reviews/`` path, sibling
-    and earlier review output included, stays forbidden.
+    and earlier review output included, stays forbidden. One line says a
+    ``report`` finding needs its decision content, by the output schema's own
+    field names, since a review without it cannot record.
     """
     lane = prepare_body(checkout, "VALUE = 2\n", gate=gate)
     codex = prepare_body(checkout, "VALUE = 2\n", gate=gate, cli="codex")
@@ -713,6 +716,27 @@ def test_ac10_lane_block_names_forbidden_tools_and_paths_and_bans_heddle(
     ) and all(word in reviews_rule for word in ("sibling", "earlier")), (
         "FAIL AC-10: the reviews/ rule does not keep every other reviews/ path, "
         "sibling and earlier review output included, forbidden"
+    )
+    definitions = json.loads(review_output_contract(gate).schema_json)["$defs"]
+    finding = definitions["ReviewFinding"]["properties"]
+    owners = {
+        "classification": finding,
+        "decision": finding,
+        "options": definitions["FindingDecision"]["properties"],
+        "recommended": definitions["FindingDecision"]["properties"],
+        "name": definitions["DecisionOption"]["properties"],
+    }
+    assert "report" in finding["classification"]["enum"] and all(
+        field in properties for field, properties in owners.items()
+    ), "FAIL AC-10: the output schema no longer names the report decision fields"
+    report_rule = [line for line in lines if "`report`" in line]
+    assert (
+        len(report_rule) == 1
+        and all(f"`{field}`" in report_rule[0] for field in owners)
+        and all(word in report_rule[0] for word in ("two", "distinct", "non-empty"))
+    ), (
+        "FAIL AC-10: no one line says a report finding needs a decision with at "
+        "least two distinctly named options and a non-empty recommendation"
     )
 
 

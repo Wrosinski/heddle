@@ -539,6 +539,9 @@ ANTIGRAVITY_LANE_BLOCK = "\n".join(
         "- Use `manage_task` only to check a task's status, never to send it input.",
         "- `run_command` output is cut at about 10 KB, so read files with "
         "`view_file`, not through shell output.",
+        "- Give every finding whose `classification` is `report` a `decision` "
+        "with at least two `options` of distinct `name` and a non-empty "
+        "`recommended`, or the review cannot be recorded.",
     )
 )
 

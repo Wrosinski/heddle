@@ -44,6 +44,9 @@ SESSION_BODY = (
     "1. Run `heddle orient`.\n"
     "2. Follow the `next_actions` it returns.\n"
     "3. Run `heddle kickoff` only when `orient` routes there.\n\n"
+    "A review session, which Heddle marks with `HEDDLE_AGENT_SESSION=gate`, "
+    "is not a feature-work session: Heddle runs and records the review "
+    "itself, so never run `heddle` in one.\n\n"
 )
 CREATED_AGENTS = SESSION_BEGIN + "\n" + SESSION_BODY + SESSION_END + "\n"
 

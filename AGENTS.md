@@ -8,6 +8,8 @@ To enter a feature-work session:
 2. Follow the `next_actions` it returns.
 3. Run `heddle kickoff` only when `orient` routes there.
 
+A review session, which Heddle marks with `HEDDLE_AGENT_SESSION=gate`, is not a feature-work session: Heddle runs and records the review itself, so never run `heddle` in one.
+
 <!-- heddle:end session-entry -->
 
 Engineering preferences are governed by `docs/workflow/engineering-principles.md`.
