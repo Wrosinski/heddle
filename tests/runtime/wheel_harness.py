@@ -726,7 +726,7 @@ def emit(value):
 SCENARIO = load("scenario.json", {})
 argv = sys.argv[1:]
 if argv == ["--version"]:
-    version = SCENARIO.get("version", "1.5.16")
+    version = SCENARIO.get("version", "1.5.18")
     append("versions.jsonl", {"pid": os.getpid(), "version": version})
     if version is None:
         sys.stderr.write("agy: version information is unavailable\n")
@@ -818,10 +818,20 @@ for text in texts:
     visit(text, CWD, 1)
 digests = {path: hashlib.sha256(data).hexdigest() for path, data in observed.items()}
 index_path, chunks = None, []
+
+
+def position(text, other):
+    # Where the index names ``other``: its earliest spelling, so two chunks
+    # with the same bytes (and digest) keep their own places.
+    spellings = [token for token, real in opened.items() if real == other]
+    found = [text.find(name) for name in [*spellings, other] if name in text]
+    return min(found) if found else text.find(digests[other])
+
+
 for path, data in observed.items():
     text = data.decode("utf-8", "replace")
     found = sorted(
-        (text.find(digest), other)
+        (position(text, other), other)
         for other, digest in digests.items()
         if other != path and digest in text
     )

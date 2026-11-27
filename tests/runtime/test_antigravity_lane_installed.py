@@ -147,10 +147,6 @@ HARD_FAILURES = {
     "empty-output": "missing-structured-output",
 }
 AUDIT_KEYS = frozenset({"credited", "uncovered", "violations", "transport_intact"})
-# Consumer fields of a failed ``run-gates`` member: where it names its reason,
-# and where it carries its remedy.
-REASON_FIELDS = ("failure_reason", "reason", "error", "message", "summary")
-REMEDY_FIELDS = ("remedy", "hint", "next_actions")
 GUIDE_PROBE = """
 import json
 from importlib.resources import files
@@ -279,7 +275,10 @@ class LaneHost:
         ]
 
     def captures(self) -> list[Path]:
-        return sorted(self.reviews.glob("*.capture.json"))
+        """Published review output: a canonical ``.review.json`` or a retained
+        ``.capture.json``, either of which a restart recovers."""
+        published = [*self.reviews.glob("*.review.json")]
+        return sorted([*published, *self.reviews.glob("*.capture.json")])
 
     def cleanup(self) -> None:
         for name in ("release", "release-first", "release-second"):
@@ -480,9 +479,10 @@ def assert_exact_launch(host: LaneHost, observation: dict) -> None:
     assert schema_path and Path(schema_path).is_absolute(), (
         f"FAIL AC-9: --json-schema names {schema_path!r}"
     )
-    assert not Path(schema_path).resolve().is_relative_to(host.root.resolve()), (
-        "FAIL AC-9: the schema copy was written into the checkout, not the run temp"
-    )
+    temp = Path(schema_path).resolve().parent
+    assert temp.parent == host.reviews.resolve() and temp.name.startswith(
+        f"{SPEC_REVIEW}.antigravity.tmp."
+    ), "FAIL AC-9: the schema copy is not in the run temp directory under reviews/"
     assert Path(observation["cwd"]).resolve() == host.root.resolve(), (
         f"FAIL AC-9: agy ran in {observation['cwd']}, not the checkout root"
     )
@@ -608,6 +608,15 @@ def member(envelope: dict, slot: str) -> dict:
     return found
 
 
+def start_time(pid: int) -> int | None:
+    """A live process's start time, so a reused process ID is never acted on."""
+    try:
+        text = Path(f"/proc/{pid}/stat").read_text()
+    except OSError:
+        return None
+    return int(text.rsplit(")", 1)[1].split()[19])
+
+
 def alive(pid: int, start: int | None) -> bool:
     try:
         text = Path(f"/proc/{pid}/stat").read_text()
@@ -702,11 +711,22 @@ def installed_guide(host: LaneHost) -> dict[str, str]:
     return INSTALLED_GUIDES[key]
 
 
-def field_text(row: dict, fields) -> str:
-    return " ".join(
-        value if isinstance(value, str) else json.dumps(value, ensure_ascii=False)
-        for value in (row.get(field) for field in fields)
-        if value
+def member_text(row: dict) -> tuple[str, str]:
+    """A failed ``run-gates`` member's reason text and remedy text, read where
+    the member summary carries them, as the in-process batch witness reads
+    them: its error, or a reason, remedy or action field."""
+    error = row.get("error") or {}
+    reason = (error.get("message"), row.get("failure_reason"), row.get("reason"))
+    actions = row.get("next_actions") or ()
+    remedy = (
+        error.get("hint"),
+        row.get("remedy"),
+        row.get("hint"),
+        *(action.get("reason") for action in actions),
+    )
+    return (
+        " ".join(str(value) for value in reason if value),
+        " ".join(str(value) for value in remedy if value),
     )
 
 
@@ -899,9 +919,14 @@ def test_capture_above_the_ceiling_is_refused_before_any_launch(
         f"FAIL AC-8: the remedy does not amend the policy: {error.get('hint')}"
     )
     if batch:
-        text = json.dumps(error)
-        assert "primary" in text and "secondary" in text, (
-            f"FAIL AC-8: the batch refusal does not name the member and slots: {error}"
+        details = error.get("details") or {}
+        selected = {"gate": SPEC_REVIEW, "scope": "feature", "reviewer_slot": "primary"}
+        assert details.get("selected_member") == selected, (
+            f"FAIL AC-8: the batch refusal does not name its member: {error}"
+        )
+        # The launch set serves both slots, so it leaves none out.
+        assert details.get("excluded_slots") == [], (
+            f"FAIL AC-8: the batch refusal names slots left out wrongly: {error}"
         )
     assert host.physical_launches() == 0, (
         f"FAIL AC-8: {host.physical_launches()} provider launches after the refusal"
@@ -964,9 +989,7 @@ def test_each_hard_failure_reaches_standalone_and_batch_output(
 
     if batch:
         envelope = host.run("run-gates", expected=FAILED)
-        failed = member(envelope, "primary")
-        reason_text = field_text(failed, REASON_FIELDS)
-        remedy_text = field_text(failed, REMEDY_FIELDS)
+        reason_text, remedy_text = member_text(member(envelope, "primary"))
     else:
         envelope = host.run("run-gate", SPEC_REVIEW, expected=FAILED)
         reason_text = envelope["error"].get("message") or ""
@@ -994,7 +1017,8 @@ def test_killed_coordinator_recovers_published_capture_and_relaunches_the_first(
 ):
     """Scenario 5 (AC-12): the first member's ``agy`` holds; the second
     publishes its capture with no ledger row. Killing the coordinator's
-    process group and restarting records the second from its capture with no
+    process group, and the held member's worker, which runs in its own
+    session, then restarting records the second from its capture with no
     provider call, relaunches the first, and records both in slot order:
     three physical launches in all. The held ``agy`` and its tokened child are
     shown running, with the launch's token, before the kill, and are gone
@@ -1003,7 +1027,7 @@ def test_killed_coordinator_recovers_published_capture_and_relaunches_the_first(
     hosts.append(host)
     host.scenario([init_event(), {"$children": ["daemon"]}, {"$hold": "release"}])
 
-    coordinator = None
+    coordinator = worker = None
     try:
         coordinator = host.spawn("run-gates")
         host.wait_for("holding.jsonl")
@@ -1013,6 +1037,10 @@ def test_killed_coordinator_recovers_published_capture_and_relaunches_the_first(
         (child,) = host.rows("children.jsonl")
         assert alive(killed["pid"], killed["start"]), (
             "fixture: the held agy was not running before the kill"
+        )
+        worker = (killed["ppid"], start_time(killed["ppid"]))
+        assert worker[0] != coordinator.pid and worker[1] is not None, (
+            "fixture: the held agy's parent is not a running member worker"
         )
         assert_tokened_child(child, killed, "the held run's child")
         deadline = time.monotonic() + 120
@@ -1027,6 +1055,11 @@ def test_killed_coordinator_recovers_published_capture_and_relaunches_the_first(
             if coordinator.poll() is None:
                 os.killpg(coordinator.pid, signal.SIGKILL)
             coordinator.wait(timeout=60)
+        # A member worker leads its own session, outside the coordinator's
+        # process group; while it lives it holds the gate lock.
+        if worker is not None and alive(*worker):
+            os.killpg(worker[0], signal.SIGKILL)
+            assert wait_gone(*worker), "fixture: the held member's worker survived"
 
     host.scenario()
     envelope = host.run("run-gates")
@@ -1148,17 +1181,21 @@ def test_sibling_review_read_fails_on_every_lane(installed, tmp_path, hosts, lan
 # Scenario 8: coordinator reaping
 # --------------------------------------------------------------------------- #
 def test_coordinator_reaps_a_killed_members_tokens(installed, tmp_path, hosts):
-    """Scenario 8 (AC-12): the first member's ``agy`` spawns a daemonised
-    tokened child and holds; the child is shown running with the launch's
-    token, and an unrelated process running, before the owner acts. Killing
-    that member's worker, found through the double's recorded parent process
-    ID, makes the running coordinator reap the child before any later gate
-    run. The second member then records in slot order, and the unrelated
-    process survives. Every process the test starts is stopped on any exit."""
-    host = lane_host(installed, tmp_path, primary=NEON, secondary=FABLE)
+    """Scenario 8 (AC-12): the secondary member's ``agy`` spawns a daemonised
+    tokened child and holds, while the Claude primary holds too; the child is
+    shown running with the launch's token, and an unrelated process running,
+    before the owner acts. Killing the ``agy`` member's worker, found through
+    the double's recorded parent process ID, makes the running coordinator
+    reap the child before any later gate run. The primary then records, the
+    killed member is reported failed and records no result, and the
+    unrelated process survives. Members record in slot order, so the killed
+    member is the later one: an earlier member without a result would hold
+    back its sibling's recording until a restart recovers it (scenario 5).
+    Every process the test starts is stopped on any exit."""
+    host = lane_host(installed, tmp_path, primary=FABLE, secondary=NEON)
     hosts.append(host)
     host.scenario([init_event(), {"$children": ["daemon"]}, {"$hold": "release"}])
-    host.lane("claude", hold="release-second")
+    host.lane("claude", hold="release-first")
     unrelated = coordinator = None
     survived = None
     try:
@@ -1174,7 +1211,7 @@ def test_coordinator_reaps_a_killed_members_tokens(installed, tmp_path, hosts):
         host.wait_for("holding.jsonl", 2)
         (observation,) = host.observations()
         (child,) = host.rows("children.jsonl")
-        assert_tokened_child(child, observation, "the first member's child")
+        assert_tokened_child(child, observation, "the killed member's child")
         assert unrelated.poll() is None, "fixture: the unrelated process is not running"
         worker = observation["ppid"]
         assert worker != coordinator.pid, "fixture: agy's parent is the coordinator"
@@ -1185,7 +1222,7 @@ def test_coordinator_reaps_a_killed_members_tokens(installed, tmp_path, hosts):
         assert coordinator.poll() is None, (
             "fixture: the coordinator ended before the child was observed gone"
         )
-        host.release("release-second")
+        host.release("release-first")
         stdout, _stderr = coordinator.communicate(timeout=300)
         survived = unrelated.poll() is None
     finally:
@@ -1197,15 +1234,19 @@ def test_coordinator_reaps_a_killed_members_tokens(installed, tmp_path, hosts):
             unrelated.wait()
     assert survived, "FAIL AC-12: the unrelated process was killed"
     assert stdout.strip(), "fixture: the coordinator printed no envelope"
+    envelope = json.loads(stdout)
+    assert not envelope["ok"], "FAIL AC-12: the batch hid the killed member"
+    killed = member(envelope, "secondary")
+    assert killed.get("execution") in {"failed", "interrupted"}, (
+        f"FAIL AC-12: the killed member is reported as {killed}"
+    )
     slots = [
         (row.get("reviewer_slot"), row["verdict"]["status"]) for row in host.ledger()
     ]
-    order = [slot for slot, _ in slots]
-    # The killed member may record an error row; if it does, it comes first.
-    assert order in (["secondary"], ["primary", "secondary"]), (
-        f"FAIL AC-12: members recorded as {slots}, not in slot order"
+    assert [slot for slot, _ in slots] == ["primary"], (
+        f"FAIL AC-12: members recorded as {slots}, not the primary alone"
     )
-    assert slots[-1][1] != "error", "FAIL AC-12: the second member did not record"
+    assert slots[0][1] != "error", "FAIL AC-12: the primary did not record"
     assert not alive(observation["pid"], observation["start"]), (
         "FAIL AC-12: the killed member's agy was not reaped"
     )

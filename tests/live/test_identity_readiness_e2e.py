@@ -24,7 +24,11 @@ with no slot claimed and the proof left pending. Its one provider launch
 starts only when the launch's bound and the reserve for cleanup and retention
 fit before the invocation's deadline (``attempt_deadline`` in the same helper
 module); any further launch, such as a replay that is not served from the
-cache, is refused before it starts. The launch's processes carry the canary
+cache, is refused before it starts. Both checks run at the physical launch,
+the canary module's guard on ``run_monitored``, so the gate's own pre-launch
+work counts; a refused launch fails the case by name. The stream is read only
+through the canary's ``redacted_stream``: a summary that names no verified
+redacted stream yields no events. The launch's processes carry the canary
 module's per-launch token: a watchdog timer, on its own thread and
 independent of anything the test is doing, stops them at the deadline less
 the reserve, so the in-process wait cannot outlast it, and any process left after
@@ -223,14 +227,12 @@ def lane_summary(path, lane):
 
 
 def stream_events(summary):
-    """Events of the kept (redacted) stream; it is read here, never copied.
-    Lines end at ``\\n`` only, since JSON text may hold U+2028."""
-    raw = Path(summary["artifacts"]["raw_out"])
-    return [
-        json.loads(line)
-        for line in raw.read_text(encoding="utf-8").split("\n")
-        if line.lstrip().startswith("{")
-    ]
+    """Events of the stream the summary names as verified redacted, read here
+    and never copied, through the canary's ``redacted_stream``; none when the
+    summary names no such stream (a null ``raw_out``)."""
+    canary = launch_bounds()
+    stream = canary.redacted_stream(summary)
+    return [] if stream is None else canary.stream_events(stream)
 
 
 def usage_record(events):
@@ -273,9 +275,7 @@ def retain_launch(evidence, lane, path):
         log = Path(summary["io"]["log"])
         if log.is_file():
             shutil.copyfile(log, evidence / f"{lane}-gate-{number}.log")
-        raw = (summary.get("artifacts") or {}).get("raw_out")
-        if raw and Path(raw).is_file():
-            events.extend(stream_events(summary))
+        events.extend(stream_events(summary))
     save(
         evidence / f"{lane}-usage.json",
         {**usage_record(events), "stream_read": bool(events)},
@@ -346,24 +346,27 @@ def stop_at_teardown(guard, watchdog):
         stop_leftovers(guard, "at teardown")
 
 
-def refuse_late_launch(guard, lane, executed):
-    """Every provider launch of the antigravity case passes here first: a
-    second launch (a replay not served from the cache) or one whose bound no
-    longer fits the attempt is refused before it starts."""
+def guard_physical_launches(monkeypatch, guard):
+    """Every provider launch of the antigravity case passes the canary's guard
+    at ``run_monitored``, the call that spawns the provider process: a second
+    launch (a replay not served from the cache), or one whose gate bound and
+    teardown no longer fit before the reserve, is recorded and never started.
+    Installed once the deadline is fixed, before the first launch."""
     bounds = launch_bounds()
-    if lane in executed:
+    guard["work"].mkdir()
+    stop_at = guard["deadline"] - bounds.RESERVE_SECONDS
+    bounds.guard_launches(monkeypatch, guard["work"], stop_at)
+
+
+def refuse_late_launch(guard, what):
+    """Fail by name when the physical guard refused a launch of ``what``."""
+    path = guard["work"] / "refused.jsonl"
+    text = path.read_text(encoding="utf-8") if path.is_file() else ""
+    refused = [row["reason"] for row in launch_bounds().json_lines(text)]
+    if refused:
         pytest.fail(
-            "FAIL AC-25: the identity case's replay would start a second provider "
-            "launch; it was refused before it started",
-            pytrace=False,
-        )
-    need = GATE_SECONDS + bounds.RUNNER_CLEANUP_SECONDS
-    left = guard["deadline"] - time.monotonic() - bounds.RESERVE_SECONDS
-    if need > left:
-        pytest.fail(
-            f"FAIL AC-25: the live attempt is exhausted: the identity launch needs "
-            f"{need} s and {max(left, 0.0):.0f} s remain before the reserve, so it "
-            "was not started",
+            f"FAIL AC-25: the live attempt refused {what} at its physical launch, "
+            f"so it was not started: {refused}",
             pytrace=False,
         )
 
@@ -569,13 +572,22 @@ def test_ac14_real_review_readiness_change_restore_and_exact_replay(
         args.preserve_success_artifacts = True
         return args
 
-    guard = {"deadline": None, "token": None, "evidence": None, "stops": []}
+    guard = {
+        "deadline": None,
+        "token": None,
+        "evidence": None,
+        "stops": [],
+        "work": tmp_path / "launch-guard",
+    }
 
     def observed_run(gate, context, **kwargs):
         prepared = context.prepared_run
         lane = prepared.invocation.exec_config.cli
-        if alone:
-            refuse_late_launch(guard, lane, executed)
+        if alone and lane in executed:
+            # A replay that missed the cache: the physical guard refuses its
+            # launch, and the case then fails by name.
+            executed.append(lane)
+            return original_run(gate, context, **kwargs)
         save(
             where["evidence"] / f"{lane}-prepared.json",
             {
@@ -610,6 +622,7 @@ def test_ac14_real_review_readiness_change_restore_and_exact_replay(
                 deadline=deadline, token=secrets.token_hex(8), evidence=evidence
             )
             monkeypatch.setenv(launch_bounds().LAUNCH_VAR, guard["token"])
+            guard_physical_launches(monkeypatch, guard)
             watchdog = start_watchdog(guard)
             request.addfinalizer(functools.partial(stop_at_teardown, guard, watchdog))
         evidence = where["evidence"]
@@ -623,9 +636,16 @@ def test_ac14_real_review_readiness_change_restore_and_exact_replay(
         )
         operation = ops.RunGate(GATE, feature=FEATURE, cli=lane, **CONFIG[lane])
         if alone:
-            first = launch_and_keep(
-                guard, functools.partial(app.execute, operation), evidence, lane, path
-            )
+            try:
+                first = launch_and_keep(
+                    guard,
+                    functools.partial(app.execute, operation),
+                    evidence,
+                    lane,
+                    path,
+                )
+            finally:
+                refuse_late_launch(guard, "the identity launch")
         else:
             first = app.execute(operation)
         save(evidence / f"{lane}-first.json", first.to_envelope())
@@ -723,6 +743,8 @@ def test_ac14_real_review_readiness_change_restore_and_exact_replay(
         frozen = path.read_bytes(), canonical.read_bytes()
         replay = app.execute(operation)
         save(evidence / f"{lane}-replay.json", replay.to_envelope())
+        if alone:
+            refuse_late_launch(guard, "the replay, a second provider launch")
         assert replay.ok and replay.data["cached"]
         assert replay.data["run_id"] == first.data["run_id"]
         assert (path.read_bytes(), canonical.read_bytes()) == frozen
