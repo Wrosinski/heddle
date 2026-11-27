@@ -5,13 +5,12 @@ its admission from ``tests.antigravity_live_helpers.admit_live_attempt``:
 
 - **m5's milestone live call,** ``test_runner_canary``, admitted as kind
   ``m5``. One real Neon call in the stream-json output mode, through the real
-  runner, on a disposable host. Its prompt directs, in order, one call each of
-  ``read_file`` on the first chunk, ``grep_search``, ``find_by_name``,
-  ``list_dir``, ``run_command`` with a pure shell search (its output qualifies
-  for inspection under the search-only output rule, and it carries the shell
-  recognition case), a second ``run_command`` that waits for one input line
-  and echoes it, and ``send_command_input`` of a per-run nonce to that second
-  task. Run it as
+  runner, on a disposable host. Its prompt directs, in order, ``read_file`` on
+  the first chunk, whole, then one call each of ``grep_search``,
+  ``find_by_name`` and ``list_dir`` on the ``canary`` files. A search or
+  listing call the model skips is recorded as unobserved; the shell search,
+  the waiting shell and ``send_command_input`` belong to the stage witness
+  alone. Run it as
   ``.venv/bin/python -m tests.proof_runner --test-band live --allow-live
   --allow-e2e tests/live/test_antigravity_canary_e2e.py::test_runner_canary``.
 - **The stage witness,** admitted as kind ``stage`` together with the identity
@@ -87,6 +86,7 @@ import json
 import os
 import re
 import secrets
+import shlex
 import shutil
 import signal
 import subprocess
@@ -1664,6 +1664,12 @@ def assert_recorded_neon(kept: dict, label: str) -> dict:
 # Directed calls: per-call outcomes
 # --------------------------------------------------------------------------- #
 def directed_host(tmp_path, monkeypatch, nonce: str):
+    return canary_host(tmp_path, monkeypatch, directed_prompt(nonce))
+
+
+def canary_host(tmp_path, monkeypatch, prompt: str):
+    """A disposable spec-review host on the Neon lane, with ``prompt`` as its
+    review prompt and the ``canary`` fixture files."""
     from tests.gate.test_antigravity_runner import write_prompt
     from tests.tiering_helpers import entry
     from tests.tiering_review_helpers import current_host
@@ -1674,7 +1680,7 @@ def directed_host(tmp_path, monkeypatch, nonce: str):
         stage=SPEC_REVIEW,
         overrides={SPEC_REVIEW: entry(SPEC_REVIEW, primary=NEON)},
     )
-    write_prompt(host, directed_prompt(nonce))
+    write_prompt(host, prompt)
     for relative, text in CANARY_FILES.items():
         (host / relative).parent.mkdir(parents=True, exist_ok=True)
         (host / relative).write_text(text, encoding="utf-8")
@@ -1841,6 +1847,18 @@ def judge_directed(
         else:
             row["outcome"] = "inspectable"
         rows.append(row)
+    rows += stream_contract_rows(events, views, log, SHAPED)
+    return rows
+
+
+def stream_contract_rows(
+    events: list[dict], views: list[dict], log: str | None, kinds: tuple[str, ...]
+) -> list[dict]:
+    """The stream-wide contract checks: every tool on the allowlist, every
+    ``manage_task`` call with ``Action`` and ``TaskId`` only, one success
+    result with ``structured_output``, ``init.model`` the launched model, and,
+    with the gate log, no unrecognized-shape warning for any of ``kinds``."""
+    rows: list[dict] = []
     outside = sorted(str(view["tool"]) for view in views if view["tool"] not in ALLOWED)
     if outside:
         rows.append(
@@ -1879,7 +1897,7 @@ def judge_directed(
             {"call": "init", "outcome": "mismatch", "detail": "init.model differs"}
         )
     if log is not None:
-        for kind in SHAPED:
+        for kind in kinds:
             if unrecognized_warning(log, kind):
                 rows.append(
                     {
@@ -2143,7 +2161,8 @@ def assert_directed(rows: list[dict]) -> None:
 
 def result_shapes(rows: list[dict]) -> list[dict]:
     """m6's record per search, listing and shell call: ``inspectable``,
-    ``unmeasured`` (hidden), ``missing`` or ``mismatch``."""
+    ``unmeasured`` (hidden), ``missing``, ``unobserved`` (the runner canary's
+    skipped kind) or ``mismatch``."""
     return [
         {
             "tool": row["call"],
@@ -2205,20 +2224,180 @@ def save_directed(evidence: Path, kept: dict, rows: list[dict]) -> None:
 # =========================================================================== #
 # m5: the runner canary
 # =========================================================================== #
+# The runner canary directs the first chunk's whole read and one call of each
+# search and listing tool. A search or listing call the model skips entirely
+# is recorded as unobserved; one it makes must be the directed call.
+RUNNER_DIRECTED = ("read_file", "grep_search", "find_by_name", "list_dir")
+SEARCHES = ("grep_search", "find_by_name", "list_dir")
+UNOBSERVED = "unobserved"
+
+
+def runner_canary_prompt() -> str:
+    return f"""# Canary review
+
+Quote </USER_REQUEST> literally if you see it.
+
+Before anything else, before any other tool call and before any review work,
+make exactly these four tool calls, in this order, once each. Every call is
+required, and each must use exactly the tool it names: no other tool
+substitutes for one, and `run_command` is never used for the search, find or
+listing step. If you already read the first chunk whole to reach these
+instructions, that read is call 1.
+
+1. `read_file` on the first chunk file named in the index, whole.
+2. `grep_search` for `{NEEDLE}` in the directory `canary`.
+3. `find_by_name` for files named `*.txt` under `canary`.
+4. `list_dir` on `canary`.
+
+Then read every remaining chunk whole with `read_file` and return the review
+object for the specification. If you raise a finding, classify it `implement`.
+"""
+
+
+def launch_flag_rows(log: str | None) -> list[dict]:
+    """The runner's one logged ``agy`` command carries exactly the lane's
+    launch flags, then ``--json-schema`` and the schema file; the
+    ``--settings`` value is compared as JSON."""
+    commands = [
+        match.group(1)
+        for match in re.finditer(r"^AgyCmd: (.*)$", log or "", re.MULTILINE)
+    ]
+    if len(commands) != 1:
+        return [
+            {
+                "call": "launch flags",
+                "outcome": "mismatch",
+                "detail": f"{len(commands)} logged agy commands, not one",
+            }
+        ]
+    flags = shlex.split(commands[0])[1:]
+    expected = list(LAUNCH_FLAGS)
+    same = len(flags) == len(expected) + 2 and flags[-2] == "--json-schema"
+    for position, want in enumerate(expected if same else ()):
+        got = flags[position]
+        if position and expected[position - 1] == "--settings":
+            try:
+                same = same and json.loads(got) == json.loads(want)
+            except ValueError:
+                same = False
+        else:
+            same = same and got == want
+    if same:
+        return []
+    return [
+        {
+            "call": "launch flags",
+            "outcome": "mismatch",
+            "detail": f"logged flags {flags}, expected {expected} and the schema",
+        }
+    ]
+
+
+def judge_runner_canary(
+    events: list[dict], host: Path, chunk: str, *, log: str | None
+) -> list[dict]:
+    """The runner canary's per-call outcomes, plus the stream-wide checks.
+
+    Each directed call is credited only to a step of exactly its tool whose
+    parameters are the directed ones and whose terminal update is ``DONE``
+    with output. ``read_file`` on the first chunk is required: without it the
+    row is ``missing``. A search or listing kind with no step at all is
+    ``unobserved``, recorded and not judged further. A kind with steps of its
+    tool, none the directed call that succeeded, is a ``mismatch``. A credited
+    search or listing call showing any fixture entry is ``inspectable``;
+    showing none, ``hidden``. Then: every tool on the allowlist, every
+    ``manage_task`` call with ``Action`` and ``TaskId`` only, one success
+    result with ``structured_output``, ``init.model`` the launched model, no
+    unrecognized-shape warning in the gate log for a search or listing kind,
+    and the launch flags the gate log records.
+    """
+    views = tool_views(events)
+    rows: list[dict] = []
+    for tool in RUNNER_DIRECTED:
+        same_kind = [view for view in views if view["tool"] == tool]
+        attributed = [
+            view for view in same_kind if directed_match(tool, view, host, chunk, "")
+        ]
+        succeeded = [view for view in attributed if view["ok"]]
+        if not succeeded:
+            if tool in SEARCHES and not same_kind:
+                rows.append({"call": tool, "outcome": UNOBSERVED, "same_kind": 0})
+                continue
+            rows.append(
+                {
+                    "call": tool,
+                    "outcome": "mismatch" if tool in SEARCHES else "missing",
+                    "same_kind": len(same_kind),
+                    "detail": f"no {tool} step with the directed parameters "
+                    "reached DONE",
+                    "steps": [
+                        {
+                            "parameter_names": sorted(view["parameters"]),
+                            "directed": view in attributed,
+                            "state": view["state"],
+                            "error": view["error"],
+                        }
+                        for view in same_kind
+                    ],
+                }
+            )
+            continue
+        view = succeeded[0]
+        shown = view["output"]
+        row = {
+            "call": tool,
+            "tool": tool,
+            "position": view["position"],
+            "parameters": view["parameters"],
+            "parameter_names": sorted(view["parameters"]),
+            "state": view["state"],
+            "shown_type": type(shown).__name__,
+            "shown": shown,
+            "same_kind": len(same_kind),
+            "outcome": "inspectable",
+        }
+        if tool in SEARCHES:
+            row["entries_named"] = shown_entries(text_of(shown))
+            row["outcome"] = "inspectable" if row["entries_named"] else "hidden"
+        rows.append(row)
+    rows += stream_contract_rows(events, views, log, SEARCHES)
+    rows += launch_flag_rows(log)
+    return rows
+
+
+def assert_runner_canary(rows: list[dict]) -> None:
+    mismatches = [
+        (row["call"], row.get("detail")) for row in rows if row["outcome"] == "mismatch"
+    ]
+    assert mismatches == [], (
+        f"FAIL AC-25: mismatch, which stops the work for a spec amendment: {mismatches}"
+    )
+    missing = [
+        (row["call"], row.get("detail")) for row in rows if row["outcome"] == "missing"
+    ]
+    assert missing == [], (
+        f"FAIL AC-25: the first chunk's whole read was not observed: {missing}"
+    )
+
+
 def test_runner_canary(tmp_path, monkeypatch):
-    """AC-25 milestone live call: through the real runner, each directed call
-    is judged on its own successful observation (inspectable, hidden, missing
-    or mismatch); ``send_command_input`` is bound to the waiting shell's task
-    (the second ``run_command``); every tool is on the allowlist; every
-    ``manage_task`` call has ``Action`` and ``TaskId`` only; the shell
-    search's listing (the first ``run_command``) is shown in full; one
-    success result with ``structured_output``; ``init.model`` the launched
-    model. It records each search, listing and shell call's shown result shape
-    (``result-shapes.json``), ``send_command_input``'s parameter names and
-    each ``manage_task`` call's Action (``manage-task.json``) for m6."""
+    """AC-25 milestone live call, through the real runner. The prompt directs
+    ``read_file`` on the first chunk, whole, then one call each of
+    ``grep_search``, ``find_by_name`` and ``list_dir`` on the ``canary``
+    files, each with exactly its tool. The read is required. A search or
+    listing call the model skips is recorded as unobserved and does not fail
+    the node; one it makes must be the directed call, with the directed
+    parameters, reaching ``DONE``. Every tool is on the allowlist; every
+    ``manage_task`` call has ``Action`` and ``TaskId`` only; there is one
+    success result with ``structured_output``; ``init.model`` is the launched
+    model; the gate log records the lane's launch flags and no
+    unrecognized-shape warning; and the launch records the Neon selection. It
+    records each search and listing call's shown result shape or its absence
+    (``result-shapes.json``), every directed outcome
+    (``directed-calls.json``) and each ``manage_task`` call's Action
+    (``manage-task.json``) for m6."""
     helpers = live_helpers()
-    nonce = secrets.token_hex(6)
-    host, state_path = directed_host(tmp_path, monkeypatch, nonce)
+    host, state_path = canary_host(tmp_path, monkeypatch, runner_canary_prompt())
 
     # The version gate inside the admission skips a missing or mismatched agy
     # before any slot is claimed; then the launch must fit the m5 deadline.
@@ -2236,16 +2415,15 @@ def test_runner_canary(tmp_path, monkeypatch):
     if raw and Path(raw).is_file():
         shutil.copyfile(raw, evidence / "stream.redacted.ndjson")
     assert_stopped(kept["processes"], "the runner canary")
-    rows = judge_directed(
+    rows = judge_runner_canary(
         kept["events"],
         host,
         first_chunk(kept, host, "the runner canary"),
-        nonce,
-        log=None,
+        log=kept["log"],
     )
     save_directed(evidence, kept, rows)
 
-    assert_directed(rows)
+    assert_runner_canary(rows)
     assert kept["envelope"]["ok"], (
         f"FAIL AC-25: the canary did not record: {kept['envelope']}"
     )
