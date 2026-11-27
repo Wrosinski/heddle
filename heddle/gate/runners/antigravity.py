@@ -679,12 +679,22 @@ def _launch(
 
 
 def _log_audit(paths: GatePaths, audit: AuditResult) -> None:
-    """The audit in the gate log: every call with its parameters, then each
-    violation, warning and uncovered range. The record is redacted."""
+    """The audit in the gate log: every call with its parameters and shown
+    text, every step of an unknown type, then each violation, warning and
+    uncovered range. The record is redacted."""
     for call in audit.record["calls"]:
         parameters = json.dumps(call["parameters"], ensure_ascii=False, sort_keys=True)
         append_log(
             paths.log, f"AgyCall: step {call['step']} {call['tool']} {parameters}"
+        )
+        if "output" in call:
+            shown = json.dumps(call["output"], ensure_ascii=False)
+            append_log(paths.log, f"AgyShown: step {call['step']} {shown}")
+    for unknown in audit.record["unknown_steps"]:
+        append_log(
+            paths.log,
+            f"AgyUnknownStep: step {unknown['step']} of type {unknown['kind']!r} "
+            f"({unknown['state']}) names no tool",
         )
     for item in audit.record["violations"]:
         append_log(

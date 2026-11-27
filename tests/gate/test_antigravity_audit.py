@@ -602,6 +602,68 @@ def test_ac14_unknown_tool_fails_as_unapproved(layout: AuditLayout) -> None:
     )
 
 
+# A tool call arriving under a step type other than `tool`: (tool name,
+# parameters built from the layout, whether the allowlist refuses it).
+UNKNOWN_STEP_TOOLS: dict[str, tuple[str, Callable[[AuditLayout], dict], bool]] = {
+    "excluded": ("search_web", lambda lay: {"Query": "release notes"}, True),
+    "allowed": (
+        "read_file",
+        lambda lay: {"Path": str(lay.root / "docs" / "guide.md")},
+        False,
+    ),
+}
+
+
+@pytest.mark.parametrize("case", sorted(UNKNOWN_STEP_TOOLS))
+def test_ac14_tool_under_an_unknown_step_type_meets_the_allowlist(
+    layout: AuditLayout, case: str
+) -> None:
+    """
+    Red discriminator (AC-14; m6): a step that names a tool goes through the
+    allowlist whatever its step type. An excluded tool under step type
+    `unknown` fails, row 2; an allowed one passes. Either way the audit record
+    lists the call.
+    """
+    name, parameters, refused = UNKNOWN_STEP_TOOLS[case]
+    stream = AgyStream(layout).step(
+        "unknown",
+        tool_name=name,
+        tool_info={"name": name, "parameters": parameters(layout), "output": "done"},
+    )
+
+    view = run_audit(stream)
+
+    if refused:
+        assert (UNAPPROVED, 2) in view.violations, (
+            f"FAIL AC-14: {name} under an unknown step type raised {view.violations}"
+        )
+    else:
+        assert view.violations == (), (
+            f"FAIL AC-14: allowed {name} under an unknown step type raised "
+            f"{view.violations}"
+        )
+    calls = [call["tool"] for call in json.loads(view.record)["calls"]]
+    assert name in calls, f"FAIL AC-14: the audit record lists only {calls}"
+
+
+def test_ac14_unknown_step_without_a_tool_is_listed(layout: AuditLayout) -> None:
+    """
+    Visibility guard (AC-14; m6): a step of an unknown type that names no tool
+    raises nothing, and the audit record lists its index, type and state.
+    """
+    stream = AgyStream(layout).step("unknown")
+
+    view = run_audit(stream)
+
+    assert view.violations == (), (
+        f"FAIL AC-14: an unknown step raised {view.violations}"
+    )
+    listed = json.loads(view.record)["unknown_steps"]
+    assert {"step": 1, "kind": "unknown", "state": "DONE"} in listed, (
+        f"FAIL AC-14: the audit record does not list the unknown step: {listed}"
+    )
+
+
 def test_ac14_subagent_step_fails_as_unapproved(layout: AuditLayout) -> None:
     """Red discriminator (AC-14; m6): a `subagent` step fails, row 2."""
     stream = AgyStream(layout).step(
@@ -732,6 +794,11 @@ FORBIDDEN_ACCESS: dict[str, AuditCase] = {
     "recursive-search-tilde": lambda s, lay: s.run("rg -n secret ~"),
     "recursive-search-home-variable": lambda s, lay: s.run("find $HOME -name '*.db'"),
     "recursive-search-home-root": lambda s, lay: s.run("grep -rln token /home"),
+    "recursive-search-after-cd-home": lambda s, lay: s.run("cd ~ && grep -r x"),
+    "recursive-search-in-a-home-cwd": lambda s, lay: s.run("rg x", cwd=lay.home),
+    "recursive-search-in-a-root-cwd": lambda s, lay: s.run(
+        "find -name x", cwd=Path("/")
+    ),
     "heddle-by-name": lambda s, lay: s.run("heddle status --json"),
     "heddle-by-path": lambda s, lay: s.run("/usr/local/bin/heddle orient"),
     "heddle-as-module": lambda s, lay: s.run("python -m heddle status"),
@@ -786,6 +853,7 @@ SCOPE_CONTROLS: dict[str, AuditCase] = {
     "sqlite3-on-a-host-database": lambda s, lay: s.run("sqlite3 data/app.db .tables"),
     "recursive-search-below-home": lambda s, lay: s.run("rg -n TODO ~/work/host/src"),
     "recursive-search-in-the-checkout": lambda s, lay: s.run("grep -rn TODO src"),
+    "recursive-search-at-the-launch-directory": lambda s, lay: s.run("grep -rn TODO"),
     "ps-inside-a-file-name": lambda s, lay: s.run("cat requirements/deps.txt"),
     "heddle-inside-a-file-name": lambda s, lay: s.read(
         lay.root / "docs" / "heddle-notes.md"
@@ -1494,6 +1562,38 @@ def test_ac21_unrecognized_result_shape_warns_on_antigravity(
     _assert_unrecognized_shape_not_inspected(layout, kind, parameters)
 
 
+def test_ac21_background_search_output_warns_without_inspection(
+    layout: AuditLayout,
+) -> None:
+    """
+    Red discriminator (AC-21; m6): a successful `run_command` that shows no
+    output, then a `command_status` showing its hit under `reviews/`. Neither
+    result is inspected: no violation, and one unrecognized-shape warning
+    naming the lane for each call kind.
+    """
+    shown = layout.sibling.relative_to(layout.root).as_posix()
+    stream = (
+        AgyStream(layout)
+        .tool("run_command", {"CommandLine": "rg -l TODO plans"}, None)
+        .tool(
+            "command_status",
+            ASSUMED_PARAMETERS["command_status"](layout),
+            f"{shown}\n",
+        )
+    )
+
+    view = run_audit(stream)
+
+    assert view.violations == (), (
+        f"FAIL AC-21: an uninspected background result raised {view.violations}"
+    )
+    for kind in ("run_command", "command_status"):
+        assert len(view.lane_warnings("unrecognized", kind)) == 1, (
+            f"FAIL AC-21: expected one unrecognized-shape warning for {kind}, got "
+            f"{list(view.warnings)}"
+        )
+
+
 def test_ac21_recognized_run_command_output_logs_no_shape_warning(
     layout: AuditLayout,
 ) -> None:
@@ -1962,6 +2062,8 @@ def _monitor_streams(launches: list[Launch], reviews: Path) -> dict[str, int]:
 # Text only an audit record (or the raw stream it is built from) carries: the
 # command lines of the credential steps' tool parameters.
 AUDIT_MARKERS = ("git status --short", "rg -n SERVICE_TOKEN src")
+# Shown `run_command` text, not secret, that only the shown output carries.
+SHOWN_MARKER = "src/example.py:2:SERVICE_TOKEN"
 
 History = dict[str, list[tuple[int, str]]]
 
@@ -2014,7 +2116,7 @@ import time
 
 argv = sys.argv[1:]
 if "--version" in argv:
-    print("1.5.16")
+    print("1.5.18")
     sys.exit(0)
 with open(PIDS, "a", encoding="utf-8") as handle:
     handle.write(f"{os.getpid()}\n")
@@ -2170,6 +2272,17 @@ def _persisted_stream(
         time.sleep(0.05)
 
 
+def _completed_summary(reviews: Path) -> Path:
+    """The canonical gate summary that carries an audit record."""
+    found = [
+        path
+        for path in sorted(reviews.glob("*.gate-summary.json"))
+        if "audit" in json.loads(path.read_text(encoding="utf-8"))
+    ]
+    assert found, f"FAIL AC-18: no gate summary under {reviews} carries an audit record"
+    return Path(json.loads(found[0].read_text(encoding="utf-8"))["io"]["summary"])
+
+
 def test_ac18_redaction_holds_at_every_write_on_interrupted_and_completed_runs(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -2301,6 +2414,30 @@ def test_ac18_redaction_holds_at_every_write_on_interrupted_and_completed_runs(
         "FAIL AC-18: no recorded gate-log or audit-record destination of the "
         f"completed run lists every tool name, path and command line: {sorted(history)}"
     )
+    # Both production destinations, named by the completed run's own summary:
+    # the gate log it points at, and the summary carrying the audit record.
+    summary_path = _completed_summary(reviews)
+    summary = json.loads(summary_path.read_text(encoding="utf-8"))
+    assert isinstance(summary.get("audit"), dict), (
+        f"FAIL AC-18: the completed run's summary {summary_path} has no audit record"
+    )
+    for label, destination in (
+        ("gate log", summary["io"]["log"]),
+        ("audit record", summary["io"]["summary"]),
+    ):
+        states = [
+            content
+            for writer, content in history.get(os.path.realpath(destination), [])
+            if writer == os.getpid()
+        ]
+        assert states, (
+            f"FAIL AC-18: no write to the completed run's {label} {destination} "
+            f"was recorded: {sorted(history)}"
+        )
+        missing = [item for item in (*expected, SHOWN_MARKER) if item not in states[-1]]
+        assert not missing, (
+            f"FAIL AC-18: the completed run's {label} {destination} lacks {missing}"
+        )
     leaked = sorted(
         f"{path} (state {index} of {len(states)}, process {writer})"
         for path, states in history.items()

@@ -6,7 +6,9 @@ coverage verdict and the redacted audit record. It orders nothing:
 ``classify_outcome`` in the runner owns precedence.
 
 - **Steps.** A ``subagent`` step is an unapproved tool (row 2); a
-  ``checkpoint`` step is compaction (row 4).
+  ``checkpoint`` step is compaction (row 4). Any other step that names a tool
+  is judged as a tool call, whatever its type; one that names none, of a
+  type outside the known set, is listed in the record.
 - **Tools.** Only the allowlist passes (row 2), and ``manage_task`` only with
   an ``Action`` that carries no input. Every tool's path parameters, allowed
   or not, are checked against the forbidden paths (row 1).
@@ -18,8 +20,11 @@ coverage verdict and the redacted audit record. It orders nothing:
 - **``reviews/`` access** is the lane-neutral predicate's
   (``review_scope.reviews_access``), given each call's context.
 - **Result shapes.** ``run_command`` output is shown text. The structured
-  search and listing kinds have no recorded shape, so their results are not
-  inspected and each one draws the unrecognized-shape warning.
+  search and listing kinds, ``command_status`` and ``send_command_input``
+  have no recorded shape, so their results are not inspected and each one
+  draws the unrecognized-shape warning; so does a successful ``run_command``
+  that shows no output. ``run_command`` and ``command_status`` text goes into
+  the record as shown, redacted.
 - **Coverage** (row 6). A chunk is covered by a successful whole
   ``read_file`` that no write tool and no executed text targeted first, and
   only while every transport file still matches its frozen digest. A read is
@@ -44,6 +49,7 @@ import os
 import re
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
+from itertools import takewhile
 from pathlib import Path
 from typing import Any, Protocol
 
@@ -100,6 +106,22 @@ RECURSIVE_TOOLS = frozenset({"grep_search", "find_by_name"})
 # Kinds whose results show search or listing entries. No live call has
 # recorded a result shape for any of them yet, so none is inspected.
 STRUCTURED_KINDS = frozenset({"grep_search", "find_by_name", "list_dir"})
+# Result-bearing kinds whose results this audit cannot inspect.
+UNINSPECTED_KINDS = STRUCTURED_KINDS | {"command_status", "send_command_input"}
+# Kinds whose shown text the record keeps.
+SHOWN_KINDS = frozenset({"run_command", "command_status"})
+# The step types agy is known to emit, the reference's list less `unknown`.
+KNOWN_STEP_KINDS = frozenset(
+    {
+        "user_input",
+        "agent_response",
+        "tool",
+        "finish",
+        "system_message",
+        "checkpoint",
+        "subagent",
+    }
+)
 SUCCESS_STATE = "DONE"
 
 ROW_OUT_OF_SCOPE = 1
@@ -264,6 +286,7 @@ class _Audit:
         self.violations: list[AuditViolation] = []
         self.warnings: list[str] = []
         self.calls: list[dict[str, Any]] = []
+        self.unknown_steps: list[dict[str, Any]] = []
         # Each chunk's first targeting by a write or by executed text.
         self.targeted: dict[str, int] = {}
         self.reads: list[tuple[int, str]] = []
@@ -294,18 +317,23 @@ class _Audit:
                 step,
                 "a checkpoint step compacted the context",
             )
-        elif step.kind == "tool":
+        elif step.tool or step.kind == "tool":
             self.judge_tool(step)
+        elif step.kind not in KNOWN_STEP_KINDS:
+            self.unknown_steps.append(
+                {"step": step.index, "kind": step.kind, "state": step.state}
+            )
 
     def judge_tool(self, step: _Step) -> None:
-        self.calls.append(
-            {
-                "step": step.index,
-                "tool": step.tool,
-                "state": step.state,
-                "parameters": step.parameters,
-            }
-        )
+        call: dict[str, Any] = {
+            "step": step.index,
+            "tool": step.tool,
+            "state": step.state,
+            "parameters": step.parameters,
+        }
+        if step.tool in SHOWN_KINDS and isinstance(step.output, str):
+            call["output"] = step.output
+        self.calls.append(call)
         if step.tool not in ALLOWED_TOOLS:
             self.flag(
                 FailureReason.ANTIGRAVITY_UNAPPROVED_TOOL,
@@ -325,14 +353,14 @@ class _Audit:
                 )
         if step.tool == "send_command_input":
             self.judge_shell_input(step)
-            return
-        named = self.judge_paths(step)
-        if step.tool == "run_command":
+        elif step.tool == "run_command":
+            self.judge_paths(step)
             self.judge_command(step)
-            return
-        if step.tool in STRUCTURED_KINDS and step.output is not None:
+        else:
+            named = self.judge_paths(step)
+            self.check_reviews(step, cwd=self.launch_dir, paths=named)
+        if step.tool in UNINSPECTED_KINDS and step.output is not None:
             self.unrecognized(step)
-        self.check_reviews(step, cwd=self.launch_dir, paths=named)
 
     def judge_paths(self, step: _Step) -> list[str]:
         """Check each path parameter; return them as written."""
@@ -377,7 +405,9 @@ class _Audit:
         output: str | None = None
         if isinstance(step.output, str):
             output = _shown(step.output)
-        elif step.output is not None:
+        elif step.output is not None or (
+            step.state == SUCCESS_STATE and not step.error
+        ):
             self.unrecognized(step)
         self.check_reviews(
             step,
@@ -408,9 +438,10 @@ class _Audit:
         the words that name a path (not flags, not a search pattern) are
         placed and checked against the forbidden paths and the chunks."""
         words = command.words
+        named = list(named_words(words))
         targets = [
             target
-            for word in named_words(words)
+            for word in named
             if (target := resolve_name(word.text, command.cwd)) is not None
         ]
         at = _command_at(words)
@@ -422,7 +453,8 @@ class _Audit:
             if name in _PROCESS_TOOLS:
                 self.out_of_scope(step, f"the command inspects processes ({name})")
             if _recursive(name, arguments) and any(
-                target in self.search_roots for target in targets
+                root in self.search_roots
+                for root in _search_roots(name, arguments, named, command.cwd)
             ):
                 self.out_of_scope(step, f"{name} searches recursively from a root")
         for target in targets:
@@ -504,6 +536,7 @@ class _Audit:
                 "uncovered": [list(item) for item in uncovered],
                 "transport_intact": transport_intact,
                 "warnings": self.warnings,
+                "unknown_steps": self.unknown_steps,
             }
         )
         return AuditResult(
@@ -617,6 +650,26 @@ def _invokes_heddle(name: str, arguments: Sequence[Word]) -> bool:
             return False
         return module == "heddle" or module.startswith("heddle.")
     return False
+
+
+def _search_roots(
+    name: str, arguments: Sequence[Word], named: Sequence[Word], cwd: Path | None
+) -> list[Path]:
+    """Where a recursive search starts: its root operands (``find``'s leading
+    operands, otherwise the path-naming arguments), or, with none, the
+    directory it runs in. An operand or directory this audit cannot place
+    yields nothing."""
+    if name == "find":
+        operands = list(
+            takewhile(lambda word: not word.text.startswith(("-", "(", "!")), arguments)
+        )
+    else:
+        operands = [word for word in named if any(word is item for item in arguments)]
+    if not operands:
+        return [] if cwd is None else [cwd]
+    return [
+        root for word in operands if (root := resolve_name(word.text, cwd)) is not None
+    ]
 
 
 def _recursive(name: str, arguments: Sequence[Word]) -> bool:

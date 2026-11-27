@@ -2238,18 +2238,28 @@ def test_ac14_manage_task_with_input_fails_as_unapproved(
     assert_hard_failure(state_path, agy, MANAGE_TASK[case][1], "AC-14")
 
 
-def test_ac14_manage_task_with_input_fails_as_a_batch_member(
-    tmp_path, monkeypatch, agy
-):
-    """AC-14 as ``run-gates`` members (real streams through the audit): the
-    member whose ``manage_task`` sends input fails alone as
-    ``antigravity-unapproved-tool``; the sibling checking a task's status
-    records."""
+def test_ac14_manage_task_status_records(tmp_path, monkeypatch, agy):
+    """AC-14 standalone control (real stream through the audit):
+    ``manage_task`` checking a task's status records, with one launch."""
+    require_audit("AC-14")
+    _host, state_path = spec_host(tmp_path, monkeypatch)
+    agy.scenario(manage_task_stream("status"))
+    result = run_gate()
+    assert result.ok, result.to_envelope()
+    assert_recorded(state_path, "AC-14")
+    assert len(agy.launches()) == 1, (
+        f"FAIL AC-14: the status control launched agy {len(agy.launches())} times"
+    )
+
+
+def _manage_task_batch(tmp_path, monkeypatch, agy, failing: str) -> None:
+    """``failing``'s member fails alone as ``antigravity-unapproved-tool``,
+    beside a sibling checking a task's status that records."""
     require_audit("AC-14")
     _host, state_path = peer_host(tmp_path, monkeypatch)
     cases = {
         gate: (case, MANAGE_TASK[case][1])
-        for gate, case in zip(PEER, ("send-input", "status"), strict=True)
+        for gate, case in zip(PEER, (failing, "status"), strict=True)
     }
     agy.scenario(
         roles={gate: manage_task_stream(case) for gate, (case, _) in cases.items()}
@@ -2257,6 +2267,57 @@ def test_ac14_manage_task_with_input_fails_as_a_batch_member(
     result = run_batch()
     assert not result.ok
     assert_member_outcomes(result, state_path, agy, cases, "AC-14")
+
+
+def test_ac14_manage_task_with_input_fails_as_a_batch_member(
+    tmp_path, monkeypatch, agy
+):
+    """AC-14 as ``run-gates`` members (real streams through the audit): the
+    member whose ``manage_task`` sends input fails alone as
+    ``antigravity-unapproved-tool``; the sibling checking a task's status
+    records."""
+    _manage_task_batch(tmp_path, monkeypatch, agy, "send-input")
+
+
+def test_ac14_manage_task_unknown_action_fails_as_a_batch_member(
+    tmp_path, monkeypatch, agy
+):
+    """AC-14 as ``run-gates`` members (real streams through the audit): the
+    member whose ``manage_task`` names an unknown action fails alone as
+    ``antigravity-unapproved-tool``; the sibling checking a task's status
+    records."""
+    _manage_task_batch(tmp_path, monkeypatch, agy, "unknown-action")
+
+
+def test_ac14_excluded_tool_under_an_unknown_step_type_fails_as_unapproved(
+    tmp_path, monkeypatch, agy
+):
+    """AC-14 (real stream through the audit): an excluded tool arriving under
+    a step type other than ``tool`` still meets the allowlist. The run fails
+    as ``antigravity-unapproved-tool``, and the audit record lists the call."""
+    require_audit("AC-14")
+    _host, state_path = spec_host(tmp_path, monkeypatch)
+    name = "search_web"
+    agy.scenario(
+        clean_stream(
+            {
+                "$step": {
+                    "step_type": "unknown",
+                    "tool_name": name,
+                    "tool_info": {
+                        "name": name,
+                        "parameters": {"query": "review guidance"},
+                        "output": "3 results",
+                    },
+                }
+            }
+        )
+    )
+    result = run_gate()
+    assert not result.ok, "FAIL AC-14: an excluded tool under an unknown step passed"
+    assert_hard_failure(state_path, agy, "antigravity-unapproved-tool", "AC-14")
+    calls = [call["tool"] for call in summary_for(state_path)["audit"]["calls"]]
+    assert name in calls, f"FAIL AC-14: the audit record lists only {calls}"
 
 
 # --------------------------------------------------------------------------- #
@@ -2465,6 +2526,82 @@ def test_ac21_shown_reviews_entry_fails_an_assigned_run_without_credit(
     assert_hard_failure(state_path, agy, "out-of-scope-access", "AC-21")
     assert latest_attempt(state_path)["source"] is None, (
         "FAIL AC-21: the slot was credited despite the shown reviews/ entry"
+    )
+
+
+# Assigned runs over a sibling artifact under the feature's ``reviews/``: each
+# case builds its steps from the checkout root and the sibling's
+# checkout-relative path, with the failure reason or None when the run records.
+ASSIGNED_REVIEWS_ACCESS = {
+    "named-sibling": (
+        lambda host, shown: [
+            tool_step(
+                "run_command",
+                {"CommandLine": f"cat {shown}", "Cwd": str(host)},
+                shell_output("# Sibling review\n"),
+            )
+        ],
+        "out-of-scope-access",
+    ),
+    "named-after-an-unparseable-cd": (
+        lambda host, shown: [
+            tool_step(
+                "run_command",
+                {"CommandLine": 'cd "$REVIEW_DIR" && ls'},
+                shell_output("notes.md\n"),
+            ),
+            tool_step(
+                "run_command",
+                {"CommandLine": f"cat {shown}"},
+                shell_output("# Sibling review\n"),
+            ),
+        ],
+        "out-of-scope-access",
+    ),
+    "printed-reference": (
+        lambda host, shown: [
+            tool_step(
+                "run_command",
+                {"CommandLine": "cat docs/notes.md", "Cwd": str(host)},
+                shell_output(f"See {shown} for the last round.\n"),
+            )
+        ],
+        None,
+    ),
+}
+
+
+@pytest.mark.parametrize("case", list(ASSIGNED_REVIEWS_ACCESS))
+def test_ac21_reviews_access_on_an_assigned_run(tmp_path, monkeypatch, agy, case):
+    """AC-21 through assigned recording, at the public boundary:
+    - a command naming a sibling artifact under ``reviews/`` fails as
+      ``out-of-scope-access`` with no interpretable capture and no credit;
+    - so does one after an unparseable ``cd`` in an earlier call, because a
+      new ``run_command`` starts at the launch directory again;
+    - printed file content that mentions a ``reviews/`` path is not access:
+      the run records and the slot is credited."""
+    require_audit("AC-21")
+    host, state_path = spec_host(tmp_path, monkeypatch)
+    reviews = state_path.parent / "reviews"
+    reviews.mkdir(exist_ok=True)
+    sibling = reviews / "peer-review.md"
+    sibling.write_text("# Sibling review\n\nTODO tighten\n", encoding="utf-8")
+    build, reason = ASSIGNED_REVIEWS_ACCESS[case]
+    agy.scenario(clean_stream(*build(host, sibling.relative_to(host).as_posix())))
+    result = run_gate()
+    assert _prepared_row(agy, SPEC)["assignment"], "fixture: the run is not assigned"
+    if reason is None:
+        assert result.ok, result.to_envelope()
+        assert_recorded(state_path, "AC-21")
+        assert len(agy.launches()) == 1
+        assert latest_attempt(state_path)["source"] is not None, (
+            "FAIL AC-21: the lawful run recorded without slot credit"
+        )
+        return
+    assert not result.ok, f"FAIL AC-21: {case} was credited"
+    assert_hard_failure(state_path, agy, reason, "AC-21")
+    assert latest_attempt(state_path)["source"] is None, (
+        f"FAIL AC-21: the slot was credited despite {case}"
     )
 
 
