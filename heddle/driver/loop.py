@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import shutil
 import tempfile
 from collections.abc import Callable
 from dataclasses import dataclass, replace
@@ -14,7 +15,7 @@ import heddle.runtime.gate_run as gate_run
 import heddle.runtime.verification as runtime_verification
 from heddle.contracts import decisions as kinds
 from heddle.contracts import operations as ops
-from heddle.contracts.gate_execution import model_fallback
+from heddle.contracts.gate_execution import GATE_CLI_BINARIES, model_fallback
 from heddle.contracts.result import (
     ExitCode,
     HeddleResult,
@@ -576,24 +577,32 @@ def _capability_probe_result(
 ) -> HeddleResult | None:
     if capability_checked:
         return None
-    # probe the session CLI (Claude) capabilities. Gate runs follow
-    # each gate's registry default lane (the gate-to-CLI configuration,
-    # When any required gate defaults to the Codex lane,
-    # the codex binary is probed too, so an unattended run halts at startup
-    # instead of error-marking its first Phase-6 gate run mid-flight.
+    # Probe the session CLI (Claude) capabilities, then the binary of each
+    # lane a serving review slot of the current step runs on, so an
+    # unattended run halts at startup instead of error-marking its first gate
+    # run mid-flight. A lane named only for another role or round is not
+    # probed.
     missing = probe_claude_capabilities()
     if missing is not None:
         return _hard_failure(
             f"missing required Claude capability: {missing}",
             "install/update Claude Code so headless autopilot flags work",
         )
-    if _requires_codex_lane(snap):
+    lanes = _required_gate_lanes(snap)
+    if "codex" in lanes:
         missing = probe_codex_capabilities()
         if missing is not None:
             return _hard_failure(
                 f"missing required Codex capability: {missing}",
                 "install/update the codex CLI so the scheduled gate lanes can run",
             )
+    agy = GATE_CLI_BINARIES["antigravity"]
+    if "antigravity" in lanes and shutil.which(agy) is None:
+        return _hard_failure(
+            f"missing required Antigravity capability: {agy} binary",
+            f"install the Antigravity CLI so `{agy}` is on PATH, or route the "
+            "serving review slot to another lane",
+        )
     return None
 
 
@@ -605,15 +614,40 @@ def _capability_probe_needed(
     return snap.stage != "complete" and snap.stage != checked_stage
 
 
-def _requires_codex_lane(snap: FeatureSnapshot) -> bool:
-    """Whether the effective scheduled gate/producer projection needs Codex."""
-    assert snap.state.feature_policy is not None
-    return any(
-        reviewer is not None and reviewer.cli == "codex"
-        for row in snap.state.feature_policy.entries
-        if row.role in snap.required_gates and row.mode != "off"
-        for reviewer in (row.primary, row.secondary)
-    )
+def _required_gate_lanes(snap: FeatureSnapshot) -> frozenset[str]:
+    """The lanes the current step's serving review slots run on.
+
+    For each gate the stage requires, the slots of its current round serve,
+    each on its reviewer after any model fallback; before its first round,
+    the slots the policy freezes for round one.
+    """
+    from heddle.kernel import review_assignments as core
+
+    state = snap.state
+    assert state.feature_policy is not None
+    milestone = snap.current_milestone.id if snap.current_milestone else None
+    lanes: set[str] = set()
+    for policy in state.feature_policy.entries:
+        if policy.role not in snap.required_gates:
+            continue
+        scope = "feature" if policy.scope == "feature" else milestone
+        assignment = next(
+            (
+                row
+                for row in state.review_assignments.assignments
+                if (row.role, row.scope) == (policy.role, scope) and row.rounds
+            ),
+            None,
+        )
+        if assignment is None:
+            lanes.update(slot.reviewer.cli for slot in core.round_slots(policy, 1))
+            continue
+        current = assignment.rounds[-1]
+        lanes.update(
+            core.serving_reviewer(state, assignment, current, slot).cli
+            for slot in current.slots
+        )
+    return frozenset(lanes)
 
 
 def _next_command(

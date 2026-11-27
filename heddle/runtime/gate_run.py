@@ -1398,13 +1398,22 @@ def _batch_result(
         fallback_error = (
             selected.fallback.error if selected.fallback is not None else None
         )
+        run_error = _member_run_error(selected)
         error = (
             selected.error
             or fallback_error
-            or HeddleError(
-                "gate-not-converged",
-                f"{selected.label} did not complete its review",
-                "follow every member remedy, then reassess",
+            or (
+                HeddleError(
+                    run_error.code,
+                    run_error.message,
+                    f"{run_error.hint}; follow every member remedy, then reassess",
+                )
+                if run_error is not None
+                else HeddleError(
+                    "gate-not-converged",
+                    f"{selected.label} did not complete its review",
+                    "follow every member remedy, then reassess",
+                )
             )
         )
         return _batch_failure(
@@ -1619,12 +1628,8 @@ def _batch_member_summary(
         "finished_at": member.finished_at,
         "duration_s": member.duration_s,
         "error": (
-            {
-                "code": member.error.code,
-                "message": member.error.message,
-                "hint": member.error.hint,
-            }
-            if member.error is not None
+            {"code": error.code, "message": error.message, "hint": error.hint}
+            if (error := member.error or _member_run_error(member)) is not None
             else None
         ),
         "fallback": _fallback_summary(member.fallback),
@@ -1637,6 +1642,24 @@ def _batch_member_summary(
             for action in actions
         ],
     }
+
+
+def _member_run_error(member: _BatchMember) -> HeddleError | None:
+    """The typed reason and remedy of a member's own failed run, as its
+    standalone run-gate reports them; None when its run did not fail."""
+    outcome = member.completion
+    if (
+        outcome is None
+        or isinstance(outcome, ReuseResult)
+        or outcome.retained_review is not None
+        or outcome.gate_exit == 0
+    ):
+        return None
+    return _failed_run_error(
+        member.label,
+        str(outcome.reason or "unknown failure"),
+        outcome.artifact_relpath,
+    )
 
 
 def _member_exit(member: _BatchMember) -> ExitCode | None:
@@ -2686,14 +2709,7 @@ def _gate_result(
     )
     if gate_exit != 0:
         result = HeddleResult.failure(
-            HeddleError(
-                code="gate-not-converged",
-                message=(
-                    f"the {parsed.gate} gate run did not complete cleanly: "
-                    f"{failure_reason}"
-                ),
-                hint=_failure_guidance_hint(failure_reason, artifact_relpath),
-            ),
+            _failed_run_error(parsed.gate, failure_reason, artifact_relpath),
             exit_code=decision.exit_code,
             diagnostics=diagnostics,
         )
@@ -2747,6 +2763,18 @@ def _gate_result(
             next_actions=next_actions,
         )
     return result
+
+
+def _failed_run_error(
+    name: str, failure_reason: str, artifact_relpath: str
+) -> HeddleError:
+    """A failed gate run's error: its typed reason and failure-guide remedy,
+    the same in standalone and batch output."""
+    return HeddleError(
+        code="gate-not-converged",
+        message=f"the {name} gate run did not complete cleanly: {failure_reason}",
+        hint=_failure_guidance_hint(failure_reason, artifact_relpath),
+    )
 
 
 def _failure_guidance_hint(failure_reason: str, artifact_relpath: str) -> str:
