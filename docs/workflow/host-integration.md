@@ -132,7 +132,9 @@ repository unchanged.
 - Set `commands.test`, `commands.lint`, and `commands.typecheck` to the host's
   real verification entry points. These values describe commands; they do not
   grant permission to run broad, external, or paid scopes.
-- Enable the available runners with `agents.claude` and `agents.codex`.
+- Enable the available runners with `agents.claude`, `agents.codex` and
+  `agents.antigravity`; [the Antigravity lane](#use-the-antigravity-review-lane)
+  describes the third.
 - Owner checkpoints default on. Set `checkpoints.specification` or
   `checkpoints.review_changes` to `false` to drop the specification checkpoint
   or the review change confirmation for every feature; for an admitted feature,
@@ -206,6 +208,105 @@ the declared scope, including relevant untracked files. Unchanged Git status
 cannot detect further edits to an already modified file, and content comparison
 detects changes rather than preventing them. A supplied-text review must disclose
 its coverage and keep unperformed repository inspection pending.
+
+## Use the Antigravity review lane
+
+The Antigravity CLI, `agy`, is an optional third review lane beside Claude
+Code and Codex. Heddle tests the lane with `agy` 1.5.18. The gate log records
+the version `agy` reports, and a different or unknown version only adds a
+warning there.
+
+Enable the lane with `agents.antigravity: true` in `.heddle.yaml`; then
+`heddle doctor` reports at info severity whether `agy` is on `PATH`. Without
+the key, doctor reports nothing for `agy` and the lane stays selectable, while
+`false` refuses the lane's review slots before any launch.
+
+Select the lane for a review slot with `cli: antigravity` in the feature
+policy, or with `--cli antigravity` on `heddle run-gate` and
+`heddle show-prompt`. The default model is `gemini-4-neon` at reasoning effort
+`high`. Name a Gemini 4 base model and give the effort separately, as the
+policy's `reasoning_effort` or the command's `--reasoning-effort`: `low`,
+`medium`, `high` or `xhigh`. A model name with an effort suffix, a Flash, Lite
+or orchestrator model and other providers' models are refused, and the Claude
+and Codex lanes refuse Gemini models. An effort the model does not offer fails
+the review as `unsupported-model`.
+
+Heddle launches `agy` headless in the checkout root, with streamed JSON in and
+out, slash commands disabled and no `agy` log file. The launch passes
+`--dangerously-skip-permissions`, so the reviewer runs with full permissions
+and is never asked to approve a tool call, plus a per-run settings rule that
+denies `read_file` on agy's data directory, `~/.gemini/antigravity-cli/`. Any
+denied action `agy` reports fails the review as `out-of-scope-access`.
+
+`agy` saves every conversation in that data directory, each review's included,
+with the review input it read. Heddle neither writes nor deletes those files,
+so remove them under your own retention rules. Reviewers may not read them: a
+tool call or command that names `~/.gemini` in any spelling fails the review
+as `out-of-scope-access`.
+
+The reviewer may use only the lane's tool allowlist:
+
+- reading and searching: `view_file` (recorded as `read_file`), `list_dir`,
+  `find_by_name` and `grep_search`;
+- commands: `run_command`, `command_status`, `send_command_input`, `wait`,
+  `wait_5_seconds` and `manage_task`, the last only to check a task's status;
+- writing: `write_to_file`, `replace_file_content`,
+  `multi_replace_file_content`, `sed_file`, `notebook_edit` and
+  `notebook_execution`;
+- finishing: `finish`.
+
+A call to a tool outside the allowlist fails the review as
+`antigravity-unapproved-tool`. That covers browser and web tools, MCP tools,
+subagents and other delegation, scheduling and messaging, and any tool a later
+`agy` release adds, until a Heddle release admits it. A write that changes a
+reviewed source fails as `reviewed-source-changed`.
+
+Heddle sends the review input inline when it is at most 160,000 UTF-8 bytes
+and holds nothing `agy` could strip or misread. Otherwise it writes the input
+as chunk files with an index, and the reviewer must read every chunk whole
+with `view_file`; a chunk left unread fails the review as
+`antigravity-incomplete-coverage`. Input above the lane's 250,000-byte ceiling
+is refused before any launch with `antigravity-input-too-large`, which names
+the size, the ceiling and the policy amendment that moves the slot to another
+lane. A `heddle run-gates` batch holding such a slot is refused whole, and
+`heddle drive` stops there.
+
+The lane's other failures are hard too, never retried or rerun on another
+model: `antigravity-context-compacted` when `agy` compacts the conversation
+during the review, `antigravity-quota` and `antigravity-api-error` for errors
+`agy` reports, and `model-substituted` when a different model answered. Each
+reason reaches `heddle run-gate`, a `heddle run-gates` member's result and
+`heddle drive`'s stop with its remedy from the gate failure guide. The gate log
+keeps a redacted record of every tool call the reviewer made. Heddle marks the
+processes of each launch and stops any that outlive it, including those of a
+crashed earlier run; a process it cannot identify or stop is a warning and
+leaves the outcome unchanged.
+
+Review records name the lane as `cli: antigravity`, and Heddle builds without
+the lane refuse to read them. Upgrade every Heddle installation that shares the
+records before the first Antigravity review.
+
+`agy` loads the checkout's `AGENTS.md` as user rules that take precedence over
+the gate prompt. In `AGENTS.md`, scope any instruction to run `heddle`, edit
+the code under review or read earlier reviews away from review sessions, which
+carry `HEDDLE_AGENT_SESSION=gate`; a review that follows one fails.
+
+## Review session boundaries on every lane
+
+Every reviewer process, on every lane, runs with `HEDDLE_AGENT_SESSION=gate`.
+Under that marker Heddle refuses each state-changing command, `run-gate`,
+`drive` and `--dry-run` previews included, with exit 3 and
+`gate-session-refused`; help and read-only commands still work. A host test
+suite that runs `heddle` commands should clear the variable in its own test
+setup, as Heddle's own test suite does.
+
+On every lane, Claude, Codex and Antigravity, a reviewer whose tool call names
+a path under the feature's `reviews/` directory, or that is shown a result
+located there, fails as `out-of-scope-access`. Only the run's own transport
+files in its temporary directory are exempt. On the Antigravity lane the same
+reason also covers agy's data directory, recursive searches rooted at `/`, `~`,
+`$HOME` or `/home`, running `heddle` by name, path or module, and inspecting
+other processes, for example with `ps`, `pgrep` or `/proc`.
 
 ## Verify the integration
 

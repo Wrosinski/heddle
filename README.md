@@ -40,8 +40,8 @@ or stale. If you know Spec Kit, start with
 
 - **Review** — Heddle recommends a review policy based on scope, complexity,
   and testability. You confirm the review roles, models, reasoning effort, and
-  round mode, with optional independent reviewers across Codex and Claude
-  Code, so one provider can check the other.
+  round mode, with optional independent reviewers across Codex, Claude Code
+  and Antigravity, so one provider can check another.
 - **Continuity** — Resume with recorded tasks, decisions, verification results,
   and session handoffs. `heddle orient` identifies the next action, while stage
   briefings give agents the instructions and context for the work ahead.
@@ -55,15 +55,17 @@ or stale. If you know Spec Kit, start with
   repeated attempts under control.
 
 Heddle runs locally and keeps workflow records in your workspace. It integrates
-with installed Codex and Claude Code runners; model execution uses the selected
-provider.
+with installed Codex and Claude Code runners, and with the Antigravity CLI
+(`agy`) as an optional third review lane that the
+[host-integration guide](docs/workflow/host-integration.md#use-the-antigravity-review-lane)
+describes; model execution uses the selected provider.
 
 ## Try it in two minutes
 
 You need [uv](https://docs.astral.sh/uv/); it fetches Python 3.13 on demand.
-You do not need Codex or Claude Code to look around. Heddle calls those runners
-only when a confirmed review policy schedules a model review; a concept review
-you opt into before the spec is a separate call.
+You do not need Codex, Claude Code or Antigravity to look around. Heddle calls
+those runners only when a confirmed review policy schedules a model review; a
+concept review you opt into before the spec is a separate call.
 
 Run the v0.3.0 release without installing it:
 
@@ -156,9 +158,10 @@ from the recorded run and refused the boundary.
    end-to-end test shape before anything is built. `heddle kickoff` renders the
    briefing for whichever stage is current.
 3. **Review.** Each role in the policy runs through `heddle run-gate` with
-   Codex or Claude Code as a non-modifying reviewer that may run commands.
-   Findings stay attached to the review that raised them; the lead records an
-   evidence-bound disposition for each; closure is derived, not declared.
+   Codex, Claude Code or Antigravity as a non-modifying reviewer that may run
+   commands. Findings stay attached to the review that raised them; the lead
+   records an evidence-bound disposition for each; closure is derived, not
+   declared.
 4. **Design the proof.** At scaffold, the agent turns the acceptance criteria
    into executable tests at the real application boundary, end-to-end
    included, and binds the commands that will prove them. When the policy
@@ -199,7 +202,8 @@ The two-minute install above pins the release tag. For a repository you
 mean to keep, choose one installation mode; see the
 [host-integration guide](docs/workflow/host-integration.md) for setup details.
 Requires **Python 3.13+**, [uv](https://docs.astral.sh/uv/), and installed,
-authenticated Codex or Claude Code runners for the review roles you select.
+authenticated Codex, Claude Code or Antigravity (`agy`) runners for the review
+roles you select.
 
 #### Editable checkout — develop Heddle
 

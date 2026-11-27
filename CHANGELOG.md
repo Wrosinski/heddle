@@ -8,6 +8,62 @@ authority for the installed version.
 
 ## [Unreleased]
 
+### Added
+
+- The Antigravity CLI, `agy`, is a third review lane beside Claude Code and
+  Codex. `agents.antigravity: true` enables it and makes `heddle doctor`
+  report whether `agy` is on `PATH`; a review slot selects it with
+  `cli: antigravity` in the feature policy, or with `--cli antigravity` on
+  `heddle run-gate` and `heddle show-prompt`. The default model is
+  `gemini-4-neon` at reasoning effort `high`. A model must be a Gemini 4 base
+  name with the effort given separately: an effort suffix, Flash, Lite and
+  orchestrator models and other providers' models are refused, and the Claude
+  and Codex lanes refuse Gemini models. The lane is tested with `agy` 1.5.18;
+  the gate log records the version `agy` reports, and another version only
+  warns. Review records carry `cli: antigravity`, which older Heddle builds
+  refuse to read.
+- Heddle launches `agy` with `--dangerously-skip-permissions` and a per-run
+  rule that denies `read_file` on agy's data directory,
+  `~/.gemini/antigravity-cli/`, where `agy` saves every conversation, reviews
+  included. Heddle neither writes nor deletes those files, and a reviewer that
+  names or reads them fails as `out-of-scope-access`. A stream audit admits
+  only the lane's tool allowlist for reading, searching, commands, writing and
+  finishing; any other tool, including browser, web, MCP and delegation tools
+  and tools a later `agy` release adds, fails the review as
+  `antigravity-unapproved-tool`. Running `heddle`, inspecting other processes
+  and recursive searches rooted at `/`, `~`, `$HOME` or `/home` fail as
+  `out-of-scope-access`, and the gate log keeps a redacted record of every
+  tool call.
+- Antigravity review input of at most 160,000 UTF-8 bytes is sent inline when
+  nothing in it could be stripped or misread, and otherwise as chunk files the
+  reviewer must read whole; an unread chunk fails the review as
+  `antigravity-incomplete-coverage`. Input above the lane's 250,000-byte
+  ceiling is refused before any launch with `antigravity-input-too-large`,
+  which names the size, the ceiling and the policy amendment that moves the
+  slot to another lane. `antigravity-context-compacted`, `antigravity-quota`
+  and `antigravity-api-error` are the lane's other new failure reasons, each
+  with a gate failure guide entry. None of them is retried or rerun on
+  another model.
+- `heddle drive` stops with a missing-capability result naming `agy` when a
+  review slot serving the current step runs on the Antigravity lane and `agy`
+  is not on `PATH`. A policy that names the lane only for another role or
+  round does not need `agy` yet.
+
+### Changed
+
+- Every reviewer process, on every lane, runs with
+  `HEDDLE_AGENT_SESSION=gate`. Under that marker Heddle refuses each
+  state-changing command, `run-gate`, `drive` and `--dry-run` previews
+  included, with exit 3 and `gate-session-refused`; help and read-only
+  commands still work.
+- On every lane, Claude, Codex and Antigravity, a reviewer whose tool call
+  names a path under the feature's `reviews/` directory outside its run's
+  temporary directory, or that is shown a result located there, fails as
+  `out-of-scope-access`.
+- A `heddle run-gates` member's result and `heddle drive`'s stop carry a
+  failed review's exact reason with its remedy from the gate failure guide,
+  as standalone `heddle run-gate` does.
+
 ## [0.3.0] - 2026-11-23
 
 ### Changed
