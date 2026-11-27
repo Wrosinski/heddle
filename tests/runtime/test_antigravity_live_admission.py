@@ -671,6 +671,83 @@ def test_ac25_evidence_retention_refuses_a_window_closed_before_the_writer_start
     assert "before its process started" in failure["evidence_error"], failure
 
 
+class ManualClock:
+    """The canary's clock double: real monotonic time plus an offset that
+    ``expire`` moves past any window. Everything else is ``time``."""
+
+    def __init__(self):
+        self.offset = 0.0
+
+    def monotonic(self) -> float:
+        return time.monotonic() + self.offset
+
+    def expire(self) -> None:
+        self.offset += 3600
+
+    def __getattr__(self, name):
+        return getattr(time, name)
+
+
+class PausedSpawn:
+    """The canary's ``subprocess`` double: each child it starts runs to its
+    end before the parent resumes, as when the parent is descheduled right
+    after the spawn. It records each spawn. Everything else is
+    ``subprocess``."""
+
+    def __init__(self):
+        self.spawned: list[int] = []
+
+    def Popen(self, *args, **kwargs):
+        child = subprocess.Popen(*args, **kwargs)
+        child.wait()
+        self.spawned.append(child.pid)
+        return child
+
+    def __getattr__(self, name):
+        return getattr(subprocess, name)
+
+
+def test_ac25_evidence_retention_refuses_a_window_closed_during_the_last_setup_step(
+    tmp_path, monkeypatch
+):
+    """The retention window closes while the writer's stderr file is opened,
+    the last setup step before the spawn. The cutoff is checked after it, so
+    no writer starts: nothing but the evidence-failure record is written,
+    and the error propagates. The clock expires inside that open, and a
+    child that is started runs to its end before the parent resumes, so a
+    late start would always show as written evidence."""
+    canary = canary_module()
+    evidence = tmp_path / "evidence"
+    evidence.mkdir()
+    monkeypatch.setattr(canary, "WRITE_ENTRY", f"{THIS_MODULE}:recording_writer")
+    kept = {
+        "label": "the runner canary",
+        "work": str(tmp_path / "work"),
+        "retention_until": time.monotonic() + 30,
+    }
+    clock, spawn = ManualClock(), PausedSpawn()
+    monkeypatch.setattr(canary, "time", clock)
+    monkeypatch.setattr(canary, "subprocess", spawn)
+    real_open = Path.open
+
+    def open_then_expire(path, *args, **kwargs):
+        handle = real_open(path, *args, **kwargs)
+        if path.suffix == ".stderr":
+            clock.expire()
+        return handle
+
+    monkeypatch.setattr(Path, "open", open_then_expire)
+    with pytest.raises(TimeoutError, match="before its process started"):
+        canary.retain_files(evidence, kept, {"answer-key.json": {"key": "value"}})
+    monkeypatch.undo()
+    assert spawn.spawned == [], "FAIL AC-25: a writer started after its window closed"
+    assert sorted(path.name for path in evidence.iterdir()) == [
+        "evidence-failure.json"
+    ], "FAIL AC-25: evidence was written after its retention window closed"
+    failure = json.loads((evidence / "evidence-failure.json").read_text())
+    assert "before its process started" in failure["evidence_error"], failure
+
+
 def kept_double(request: dict) -> dict:
     """A retention child's double: it keeps nothing and returns at once."""
     return {"envelope": {"ok": True}, "rows": [], "events": [], "refused": []}

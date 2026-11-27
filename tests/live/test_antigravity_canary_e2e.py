@@ -1326,11 +1326,12 @@ def run_killable(
 ):
     """``module:function`` called with the plain ``request`` in a child process
     in its own session. One absolute monotonic cutoff, ``until`` (by default
-    ``seconds`` from now), holds through staging, spawn and wait: when it has
-    passed before the child would start, nothing is started; the wait takes
-    only what remains of it; when it passes during the wait, the child's
-    whole process group gets SIGKILL and is reaped before this returns, so
-    nothing it started can write after the cutoff. Either case raises a
+    ``seconds`` from now), holds through staging, spawn and wait. It is
+    checked after the last setup step, immediately before the spawn: when it
+    has passed, nothing is started. The wait takes only what remains of it;
+    when it passes during the wait, the child's whole process group gets
+    SIGKILL and is reaped before this returns, so nothing it started can
+    write after the cutoff. Either case raises a
     ``TimeoutError`` naming ``what``. Returns the function's JSON result; a
     child that fails raises with its stderr."""
     cutoff = time.monotonic() + seconds if until is None else until
@@ -1353,11 +1354,12 @@ def run_killable(
     environment["PYTHONPATH"] = os.pathsep.join(
         part for part in (str(REPO_ROOT), os.environ.get("PYTHONPATH")) if part
     )
-    if time.monotonic() >= cutoff:
-        raise TimeoutError(
-            f"{what}'s bound passed before its process started; nothing was written"
-        )
     with errors.open("w", encoding="utf-8") as stderr:
+        # Every setup step is done: only the spawn follows the check.
+        if time.monotonic() >= cutoff:
+            raise TimeoutError(
+                f"{what}'s bound passed before its process started; nothing was written"
+            )
         child = subprocess.Popen(
             [sys.executable, "-c", KILLABLE_CHILD, str(REPO_ROOT), str(order)],
             cwd=scratch,
@@ -2814,12 +2816,39 @@ def fidelity_key(data: bytes, first: str, last: str) -> dict[str, str]:
     return key
 
 
-def returned_content(view: dict, markers: dict[str, str]) -> list[str]:
-    """The names of the fixture's random ``markers`` a read event shows beside
-    its parameters: a read step carrying one returned the file's text, not
-    only a summary."""
-    shown = text_of(
-        {key: value for key, value in view["info"].items() if key != "parameters"}
+def step_updates(events: list[dict], view: dict) -> list[dict]:
+    """Every ``step_update`` the stream carries for ``view``'s tool step, in
+    order, keyed as ``tool_views`` keys them."""
+    updates = []
+    for number, event in enumerate(events):
+        if event.get("event") != "step_update":
+            continue
+        step = event.get("step_update") or {}
+        if step.get("step_type") != "tool":
+            continue
+        if step.get("step_index", f"event-{number}") == view["key"]:
+            updates.append(step)
+    return updates
+
+
+def returned_content(
+    events: list[dict], view: dict, markers: dict[str, str]
+) -> list[str]:
+    """The names of the fixture's random ``markers`` any update of a read step
+    shows beside its parameters, not only its last: a read step carrying one
+    returned the file's text, not only a summary."""
+    shown = " ".join(
+        text_of(
+            {
+                **step,
+                "tool_info": {
+                    key: value
+                    for key, value in (step.get("tool_info") or {}).items()
+                    if key != "parameters"
+                },
+            }
+        )
+        for step in step_updates(events, view)
     )
     return [name for name, marker in markers.items() if marker in shown]
 
@@ -2840,8 +2869,9 @@ def test_ac25_canary_worst_case_chunk_reads_whole_and_exactly(tmp_path):
     offset range) whose terminal update is ``DONE``, and the model reports its
     first and last needles, its stripped-class code points in order and its
     wrapper-tag text exactly, against the key read back from the chunk's
-    bytes. Judged on its own, apart from the answer, the read event shows a
-    summary only: one carrying either random needle fails the measurement.
+    bytes. Judged on its own, apart from the answer, every update of the
+    read's step shows a summary only: one carrying either random needle fails
+    the measurement.
     The evidence keeps each read's shape and scores, never its output."""
     first, last = needle("FIRST"), needle("LAST")
     chunk = tmp_path / "chunk-000.txt"
@@ -2862,7 +2892,9 @@ def test_ac25_canary_worst_case_chunk_reads_whole_and_exactly(tmp_path):
     call = agy_call(tmp_path, prompt, "canary 3/6")
     reads = reads_of(call["events"], chunk, tmp_path)
     shown = {
-        view["position"]: returned_content(view, {"FIRST": first, "LAST": last})
+        view["position"]: returned_content(
+            call["events"], view, {"FIRST": first, "LAST": last}
+        )
         for view in reads
     }
     fields = reply_fields(response_of(call))
@@ -3133,7 +3165,10 @@ def scope_attribution(audit: dict, target: Path, host: Path) -> dict:
     """The persisted audit's out-of-scope-access violations, split by whether
     the call they were raised on names exactly ``target``: a parameter that
     resolves to it, or text naming its whole path. ``attempts`` are the steps
-    of every audited call naming it."""
+    of every audited call naming it; ``identified`` those that name one call
+    alone, a non-null step no other audited call carries. A violation is
+    attributed only to an identified step: a missing or shared step number
+    attributes nothing."""
     want = canonical(str(target), host)
 
     def names(call: dict) -> bool:
@@ -3142,15 +3177,21 @@ def scope_attribution(audit: dict, target: Path, host: Path) -> dict:
             for value in string_values(call.get("parameters") or {})
         )
 
-    attempts = [call.get("step") for call in audit.get("calls") or [] if names(call)]
+    calls = audit.get("calls") or []
+    carried = [call.get("step") for call in calls]
+    attempts = [call.get("step") for call in calls if names(call)]
+    identified = [
+        step for step in attempts if step is not None and carried.count(step) == 1
+    ]
     scope = [
         row
         for row in audit.get("violations") or []
         if row.get("reason") == OUT_OF_SCOPE
     ]
-    bound = [row for row in scope if row.get("step") in attempts]
+    bound = [row for row in scope if row.get("step") in identified]
     return {
         "attempts": attempts,
+        "identified": identified,
         "bound": bound,
         "unrelated": [row for row in scope if row not in bound],
     }
@@ -3189,11 +3230,15 @@ def test_ac25_canary_forbidden_access_fails_out_of_scope(tmp_path, monkeypatch):
     found = scope_attribution(
         persisted_audit(kept["summary"], "canary 8"), sibling, host
     )
-    why = (
-        f"the audited calls naming it (steps {found['attempts']}) raised none"
-        if found["attempts"]
-        else "no audited call names it, so the directed attempt is missing"
-    )
+    if not found["attempts"]:
+        why = "no audited call names it, so the directed attempt is missing"
+    elif not found["identified"]:
+        why = (
+            f"no audited call naming it has a step number of its own (steps "
+            f"{found['attempts']}), so no violation is attributable to it"
+        )
+    else:
+        why = f"the audited calls naming it (steps {found['identified']}) raised none"
     assert found["bound"], (
         f"FAIL AC-25: canary 8's out-of-scope-access is not attributed to the "
         f"planted sibling {sibling}: {why}; other scope violations: "
