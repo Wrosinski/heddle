@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import shlex
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -20,6 +21,12 @@ from heddle.gate.results import (
 )
 from heddle.gate.runners.codex_diagnostics import build_bundle
 from heddle.gate.runners.environment import gate_agent_env
+from heddle.gate.runners.review_scope import (
+    ambiguous_warning,
+    reviews_access,
+    unrecognized_warning,
+    unwrap_shell,
+)
 from heddle.gate.runners.structured import read_native_stream
 from heddle.gate.types import ExecutionResult, FailureReason, PreparedGateRun
 from heddle.io.process import MonitorConfig, Termination, run_monitored
@@ -123,6 +130,11 @@ def classify_codex(facts: CodexFacts) -> FailureReason | None:
     return None
 
 
+def _codex_workdir(args: GateArgs, paths: GatePaths) -> Path:
+    """The ``-C`` directory: the configured workdir, else the feature directory."""
+    return Path(args.workdir or paths.output.parent.parent)
+
+
 def _codex_command(
     args: GateArgs, paths: GatePaths, prepared: PreparedGateRun
 ) -> list[str]:
@@ -142,7 +154,7 @@ def _codex_command(
         "-c",
         f'model_reasoning_effort="{config.reasoning_effort}"',
         "-C",
-        str(args.workdir or paths.output.parent.parent),
+        str(_codex_workdir(args, paths)),
         "-",
     ]
     command[-1:-1] = ["--output-schema", str(paths.temp_dir / "review-schema.json")]
@@ -242,7 +254,10 @@ def execute_codex(
     )
     failure_reason = classify_codex(facts)
     response_warning = None
-    if failure_reason is None or (
+    if _reaches_reviews(args, paths, bundle.parse_result.events):
+        # The `reviews/` rule outranks the lane's own classification.
+        failure_reason = FailureReason.OUT_OF_SCOPE_ACCESS
+    elif failure_reason is None or (
         prepared.assignment_id is not None
         and failure_reason
         in {FailureReason.OUTPUT_LAST_MSG_EMPTY, FailureReason.MISSING_FINAL_MESSAGE}
@@ -269,6 +284,66 @@ def execute_codex(
         response_warning=response_warning,
         response_channel="codex.output-last-message",
     )
+
+
+def _reaches_reviews(args: GateArgs, paths: GatePaths, events: list[dict]) -> bool:
+    """Whether any completed item named or showed a path under the feature's
+    ``reviews/`` outside this run's temp directory. Warnings go to the gate
+    log.
+
+    Each ``command_execution`` item is its own process, so it starts in the
+    ``-C`` directory; its command is checked with the shell wrapper removed,
+    and its ``aggregated_output`` is its shown output. A ``file_change``
+    item's paths are named; it returns no result.
+    """
+    workdir = _codex_workdir(args, paths)
+    reached = False
+    for event in events:
+        item = event.get("item")
+        if event.get("type") != "item.completed" or not isinstance(item, dict):
+            continue
+        kind = item.get("type")
+        if kind == "command_execution":
+            command = item.get("command")
+            if isinstance(command, list):
+                command = shlex.join(str(part) for part in command)
+            output = item.get("aggregated_output")
+            if not isinstance(output, str):
+                append_log(paths.log, unrecognized_warning("codex", str(kind)))
+                output = None
+            verdict = reviews_access(
+                reviews_dir=paths.output.parent,
+                temp_dir=paths.temp_dir,
+                cwd=workdir,
+                command=unwrap_shell(command) if isinstance(command, str) else None,
+                output=output,
+            )
+        elif kind == "file_change":
+            changes = item.get("changes")
+            named = [
+                change["path"]
+                for change in (changes if isinstance(changes, list) else ())
+                if isinstance(change, dict) and isinstance(change.get("path"), str)
+            ]
+            verdict = reviews_access(
+                reviews_dir=paths.output.parent,
+                temp_dir=paths.temp_dir,
+                cwd=workdir,
+                paths=named,
+            )
+        else:
+            continue
+        if verdict.ambiguous:
+            append_log(paths.log, ambiguous_warning("codex", str(kind)))
+        if verdict.named or verdict.observed:
+            how = "named" if verdict.named else "showed"
+            append_log(
+                paths.log,
+                f"ReviewScope: out-of-scope access on the codex lane: a {kind} "
+                f"item {how} a path under reviews/ outside the run temp directory",
+            )
+            reached = True
+    return reached
 
 
 def _raw_model_unsupported(raw_out: Path) -> bool:

@@ -10,8 +10,9 @@ directory. In order, it:
    checkout root, through the shared monitor, which re-verifies the
    transport against preparation's frozen route immediately before the
    spawn;
-4. reads the stream with bounds and classifies the outcome through one table
-   (``classify_outcome``);
+4. reads the stream with bounds, audits it (``audit_stream``), and classifies
+   the outcome through one table (``classify_outcome``) from the stream's
+   facts and the audit's violations and coverage;
 5. writes the selected response redacted, reaps the token and replaces the raw
    stream with its redacted copy (``finish_launch``). A stream that cannot be
    redacted fails the run and stays in the run temp directory, named by no
@@ -48,6 +49,7 @@ from heddle.gate.results import (
     canonical_json,
     strict_json,
 )
+from heddle.gate.runners.antigravity_audit import AuditResult, audit_stream
 from heddle.gate.runners.environment import gate_agent_env
 from heddle.gate.types import (
     AgyVersion,
@@ -113,6 +115,8 @@ class Transport:
     files: Mapping[Path, bytes]
     launch_message: Path
     schema: Path
+    # The chunk files, in the frozen route's order; empty for inline delivery.
+    chunks: tuple[Path, ...] = ()
 
 
 def resolve_schema_refs(schema: Mapping[str, Any]) -> dict[str, Any]:
@@ -193,6 +197,7 @@ def plan_transport(temp_dir: Path, prepared: PreparedGateRun) -> Transport:
     if route.size != len(capture):
         raise ValueError("the frozen route's size differs from the frozen capture")
     files: dict[Path, bytes] = {}
+    chunks: list[Path] = []
     message = temp_dir / LAUNCH_MESSAGE_NAME
     if route.kind == "inline":
         files[message] = _launch_event(prepared.transport.stdin)
@@ -207,6 +212,7 @@ def plan_transport(temp_dir: Path, prepared: PreparedGateRun) -> Transport:
                 )
             path = temp_dir / f"chunk-{number:0{width}d}.txt"
             files[path] = piece
+            chunks.append(path)
             entries.append(
                 {
                     "path": str(path),
@@ -229,7 +235,9 @@ def plan_transport(temp_dir: Path, prepared: PreparedGateRun) -> Transport:
         )
         + "\n"
     ).encode("utf-8")
-    return Transport(files=files, launch_message=message, schema=schema)
+    return Transport(
+        files=files, launch_message=message, schema=schema, chunks=tuple(chunks)
+    )
 
 
 def write_transport(transport: Transport) -> None:
@@ -612,9 +620,26 @@ def _launch(
         )
         stream = read_stream(paths.raw_out)
         # The post-run digest check binds credited reads to the frozen bytes.
-        for change in file_changes(transport.files):
+        changes = file_changes(transport.files)
+        for change in changes:
             append_log(paths.log, f"TransportWarning: during the run, {change}")
-        outcome = classify_outcome(monitor, stream, model=config.model)
+        audit = audit_stream(
+            stream.events,
+            launch_dir=checkout_root,
+            reviews_dir=paths.temp_dir.parent,
+            temp_dir=paths.temp_dir,
+            route=prepared.antigravity_route,
+            chunk_paths=transport.chunks,
+            transport_intact=not changes,
+        )
+        _log_audit(paths, audit)
+        outcome = classify_outcome(
+            monitor,
+            stream,
+            model=config.model,
+            violations={item.reason for item in audit.violations},
+            uncovered=bool(audit.uncovered),
+        )
         failure: FailureReason | None
         if outcome is None:
             failure = _write_response(paths, stream.results[0]["structured_output"])
@@ -649,7 +674,31 @@ def _launch(
         json_message_path=None,
         response_channel=RESPONSE_CHANNEL,
         agy_version=version,
+        audit=audit.record,
     )
+
+
+def _log_audit(paths: GatePaths, audit: AuditResult) -> None:
+    """The audit in the gate log: every call with its parameters, then each
+    violation, warning and uncovered range. The record is redacted."""
+    for call in audit.record["calls"]:
+        parameters = json.dumps(call["parameters"], ensure_ascii=False, sort_keys=True)
+        append_log(
+            paths.log, f"AgyCall: step {call['step']} {call['tool']} {parameters}"
+        )
+    for item in audit.record["violations"]:
+        append_log(
+            paths.log,
+            f"AgyViolation: row {item['row']} {item['reason']} at step "
+            f"{item['step']}: {item['detail']}",
+        )
+    for warning in audit.warnings:
+        append_log(paths.log, f"AgyAuditWarning: {warning}")
+    if audit.uncovered:
+        ranges = ", ".join(f"[{start}, {end})" for start, end in audit.uncovered)
+        append_log(
+            paths.log, f"AgyCoverage: capture bytes {ranges} have no credited read"
+        )
 
 
 def _write_response(paths: GatePaths, value: dict[str, Any]) -> FailureReason | None:

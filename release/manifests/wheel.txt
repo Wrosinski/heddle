@@ -42,10 +42,12 @@ heddle/gate/retained.py
 heddle/gate/runner.py
 heddle/gate/runners/__init__.py
 heddle/gate/runners/antigravity.py
+heddle/gate/runners/antigravity_audit.py
 heddle/gate/runners/claude.py
 heddle/gate/runners/codex.py
 heddle/gate/runners/codex_diagnostics.py
 heddle/gate/runners/environment.py
+heddle/gate/runners/review_scope.py
 heddle/gate/runners/structured.py
 heddle/gate/summary.py
 heddle/gate/types.py

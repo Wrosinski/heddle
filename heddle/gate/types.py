@@ -643,6 +643,8 @@ class ExecutionResult:
     response_channel: str | None = None
     # The Antigravity lane's version state for its launch; None elsewhere.
     agy_version: AgyVersion | None = None
+    # The Antigravity lane's redacted stream audit record; None elsewhere.
+    audit: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True)
@@ -789,6 +791,7 @@ class GateSummary:
     review_result: ReviewResult | None = None
     retained_review: CapturedReview | None = None
     agy_version: AgyVersion | None = None
+    audit: dict[str, Any] | None = None
 
     def to_dict(self) -> dict[str, Any]:
         data = cast(
@@ -816,6 +819,8 @@ class GateSummary:
             data["artifacts"].pop("published_views")
         if self.agy_version is None:
             data.pop("agy_version", None)
+        if self.audit is None:
+            data.pop("audit", None)
         return data
 
 

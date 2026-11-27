@@ -521,6 +521,10 @@ NAMED_REVIEWS_ACCESS: dict[str, CodexCase] = {
         False,
         lambda layout: [_run(f"rg -n nothing-matches {layout.reviews}")],
     ),
+    "search-path-after-the-pattern": (
+        False,
+        lambda layout: [_run("rg -n x reviews/")],
+    ),
     "shell-write": (False, lambda layout: [_run("printf x > reviews/notes.md")]),
     "file-change-write": (
         False,
@@ -651,6 +655,15 @@ IN_SCOPE_CONTROLS: dict[str, CodexCase] = {
         False,
         lambda layout: [_run("rg -l TODO | wc -l", "2")],
     ),
+    "search-pattern-mentioning-reviews": (
+        False,
+        lambda layout: [
+            _run(
+                'rg -n "reviews/" ../../heddle',
+                "../../heddle/gate/scope.py:12:    # reviews/ holds sibling output",
+            )
+        ],
+    ),
     "unclassified-command-output": (
         False,
         lambda layout: [_run("python3 tools/summary.py", "reviews/peer-review.md")],
@@ -690,7 +703,8 @@ def test_ac21_in_scope_controls_record_on_the_codex_lane(
 ) -> None:
     """
     Survivor pin (AC-21 (c), (d), (e); m6): own-temp access, printed file
-    content, an ancestor search whose results are hidden, unclassified output,
+    content, an ancestor search whose results are hidden, a search whose
+    pattern mentions `reviews/` and whose hits lie elsewhere, unclassified output,
     a list with a content-printing element, a relative `reviews/` name in an
     item that starts outside the feature or after a `cd` into an unrelated
     directory, and a write outside `reviews/` all record today and must keep

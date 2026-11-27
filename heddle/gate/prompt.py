@@ -536,6 +536,7 @@ ANTIGRAVITY_LANE_BLOCK = "\n".join(
         "fails the review, including subagents or other delegation, browser "
         "tools, `search_web`, `read_url_content`, MCP tools, `run_workflow`, "
         "`ask_question`, image generation, scheduling and messaging.",
+        "- Use `manage_task` only to check a task's status, never to send it input.",
         "- `run_command` output is cut at about 10 KB, so read files with "
         "`view_file`, not through shell output.",
     )

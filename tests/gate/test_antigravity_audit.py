@@ -910,6 +910,12 @@ COVERAGE: dict[str, tuple[AuditCase, tuple[int, ...]]] = {
         ),
         (0,),
     ),
+    "read-carrying-an-unrecognized-parameter": (
+        lambda s, lay: _whole_reads(s, lay, 1).read(
+            lay.chunks[1].path, Encoding="utf-8"
+        ),
+        (1,),
+    ),
 }
 
 

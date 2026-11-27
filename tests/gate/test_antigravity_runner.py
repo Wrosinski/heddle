@@ -2202,6 +2202,63 @@ def test_ac11_audit_outcome_rows_as_batch_members(
     assert_member_outcomes(result, state_path, agy, cases, "AC-11")
 
 
+# `manage_task` passes only with an action that delivers nothing to the task:
+# its `send_input` delivers input no parameter shows.
+MANAGE_TASK = {
+    # case: (Action, expected failure reason or None when the run records)
+    "status": ("status", None),
+    "send-input": ("send_input", "antigravity-unapproved-tool"),
+    "unknown-action": ("rewind", "antigravity-unapproved-tool"),
+}
+
+
+def manage_task_stream(case: str) -> list:
+    action, _reason = MANAGE_TASK[case]
+    return clean_stream(
+        tool_step(
+            "manage_task",
+            {"Action": action, "TaskId": f"{CONVERSATION}/task-1"},
+            "Task is running.",
+        )
+    )
+
+
+@pytest.mark.parametrize("case", ["send-input", "unknown-action"])
+def test_ac14_manage_task_with_input_fails_as_unapproved(
+    tmp_path, monkeypatch, agy, case
+):
+    """AC-14 standalone (real stream through the audit): ``manage_task`` with
+    ``send_input`` or an unknown action fails as
+    ``antigravity-unapproved-tool``, whatever the object says."""
+    require_audit("AC-14")
+    _host, state_path = spec_host(tmp_path, monkeypatch)
+    agy.scenario(manage_task_stream(case))
+    result = run_gate()
+    assert not result.ok, f"FAIL AC-14: manage_task {case} recorded as a success"
+    assert_hard_failure(state_path, agy, MANAGE_TASK[case][1], "AC-14")
+
+
+def test_ac14_manage_task_with_input_fails_as_a_batch_member(
+    tmp_path, monkeypatch, agy
+):
+    """AC-14 as ``run-gates`` members (real streams through the audit): the
+    member whose ``manage_task`` sends input fails alone as
+    ``antigravity-unapproved-tool``; the sibling checking a task's status
+    records."""
+    require_audit("AC-14")
+    _host, state_path = peer_host(tmp_path, monkeypatch)
+    cases = {
+        gate: (case, MANAGE_TASK[case][1])
+        for gate, case in zip(PEER, ("send-input", "status"), strict=True)
+    }
+    agy.scenario(
+        roles={gate: manage_task_stream(case) for gate, (case, _) in cases.items()}
+    )
+    result = run_batch()
+    assert not result.ok
+    assert_member_outcomes(result, state_path, agy, cases, "AC-14")
+
+
 # --------------------------------------------------------------------------- #
 # AC-2: the reviewer child's marker and its refused mutation
 # --------------------------------------------------------------------------- #

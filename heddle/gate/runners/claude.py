@@ -23,6 +23,11 @@ from heddle.gate.runners.environment import (
     GATE_AGENT_SESSION,
     HEDDLE_AGENT_SESSION_ENV,
 )
+from heddle.gate.runners.review_scope import (
+    ambiguous_warning,
+    reviews_access,
+    unrecognized_warning,
+)
 from heddle.gate.runners.structured import read_native_stream
 from heddle.gate.types import ExecutionResult, FailureReason, GateType, PreparedGateRun
 from heddle.io.claude_events import (
@@ -36,6 +41,9 @@ from heddle.io.process import MonitorConfig, MonitorResult, Termination, run_mon
 CLAUDE_MAX_TURNS = "500"
 CLAUDE_MAX_BUDGET_USD = "50.00"
 CLAUDE_PREAPPROVED_TOOLS = frozenset({"Read", "Grep", "Glob"})
+# Tool parameters that name a path, and the tools whose results list entries.
+CLAUDE_PATH_PARAMETERS = ("file_path", "path", "notebook_path")
+CLAUDE_INSPECTED_RESULTS = frozenset({"Bash", "Grep", "Glob"})
 
 
 def classify_claude(
@@ -169,7 +177,10 @@ def execute_claude(
         failure_reason = classify_claude(monitor, paths.raw_out, events)
         _log_model_change(paths, events)
         terminals = [event for event in events if event.get("type") == "result"]
-        if failure_reason is None:
+        if _reaches_reviews(paths, events):
+            # The `reviews/` rule outranks the lane's own classification.
+            failure_reason = FailureReason.OUT_OF_SCOPE_ACCESS
+        elif failure_reason is None:
             if (
                 len(terminals) != 1
                 or terminals[0].get("subtype") != "success"
@@ -215,6 +226,95 @@ def execute_claude(
         response_warning=response_warning,
         response_channel=response_channel,
     )
+
+
+def _reaches_reviews(paths: GatePaths, events: list[dict[str, Any]]) -> bool:
+    """Whether any tool call named or showed a path under the feature's
+    ``reviews/`` outside this run's temp directory. Warnings go to the gate
+    log.
+
+    File tools resolve against Claude's process directory, this process's
+    working directory. The ``Bash`` tool keeps its directory between calls,
+    so each call starts where the previous one's parseable ``cd`` left it.
+    """
+    calls: dict[str, tuple[str, dict[str, Any]]] = {}
+    results: dict[str, str] = {}
+    for event in events:
+        message = event.get("message")
+        content = message.get("content") if isinstance(message, dict) else None
+        for block in content if isinstance(content, list) else ():
+            if not isinstance(block, dict):
+                continue
+            if event.get("type") == "assistant" and block.get("type") == "tool_use":
+                inputs = block.get("input")
+                calls[str(block.get("id"))] = (
+                    str(block.get("name")),
+                    inputs if isinstance(inputs, dict) else {},
+                )
+            elif event.get("type") == "user" and block.get("type") == "tool_result":
+                text = _result_text(block.get("content"))
+                if text is not None:
+                    results[str(block.get("tool_use_id"))] = text
+    process_dir = Path.cwd()
+    shell_dir: Path | None = process_dir
+    reached = False
+    for call_id, (name, inputs) in calls.items():
+        output = results.get(call_id)
+        if output is None and name in CLAUDE_INSPECTED_RESULTS:
+            append_log(paths.log, unrecognized_warning("claude", name))
+        if name == "Bash":
+            command = inputs.get("command")
+            verdict = reviews_access(
+                reviews_dir=paths.output.parent,
+                temp_dir=paths.temp_dir,
+                cwd=shell_dir,
+                command=command if isinstance(command, str) else None,
+                output=output,
+            )
+            shell_dir = verdict.directory
+        else:
+            named = [
+                inputs[key]
+                for key in CLAUDE_PATH_PARAMETERS
+                if isinstance(inputs.get(key), str)
+            ]
+            pattern = inputs.get("pattern")
+            if name == "Glob" and isinstance(pattern, str):
+                named.append(str(Path(named[0] if named else process_dir) / pattern))
+            listed = name in CLAUDE_INSPECTED_RESULTS and output is not None
+            verdict = reviews_access(
+                reviews_dir=paths.output.parent,
+                temp_dir=paths.temp_dir,
+                cwd=process_dir,
+                paths=named,
+                entries=output.splitlines() if listed and output else (),
+            )
+        if verdict.ambiguous:
+            append_log(paths.log, ambiguous_warning("claude", name))
+        if verdict.named or verdict.observed:
+            how = "named" if verdict.named else "showed"
+            append_log(
+                paths.log,
+                f"ReviewScope: out-of-scope access on the claude lane: a {name} "
+                f"call {how} a path under reviews/ outside the run temp directory",
+            )
+            reached = True
+    return reached
+
+
+def _result_text(content: object) -> str | None:
+    """A ``tool_result`` block's text: a string, or a list of text blocks.
+    Any other shape is unrecognized (None)."""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list) and all(
+        isinstance(part, dict)
+        and part.get("type") == "text"
+        and isinstance(part.get("text"), str)
+        for part in content
+    ):
+        return "\n".join(part["text"] for part in content)
+    return None
 
 
 def _log_model_change(paths: GatePaths, events: list[dict[str, Any]]) -> None:

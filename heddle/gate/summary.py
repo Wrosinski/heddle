@@ -150,6 +150,7 @@ def build_summary(
         verdict=verdict,
         verdict_note=verdict_note,
         agy_version=execution_result.agy_version,
+        audit=execution_result.audit,
     )
 
 
