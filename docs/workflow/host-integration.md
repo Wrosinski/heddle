@@ -115,8 +115,9 @@ To keep the session entry out of `AGENTS.md`, for example when the file is
 shared with people who do not use Heddle, adopt with
 `heddle init --no-session-entry`. The lock then records no `AGENTS.md` entry,
 and `heddle sync` and `heddle validate` leave the file alone. Your agents need
-another way to learn that sessions start with `heddle orient`. An existing lock
-fixes the choice. To change it, move `.heddle.lock` aside and adopt again with
+another way to learn that feature-work sessions start with `heddle orient` and
+that review sessions never run `heddle`. An existing lock fixes the choice. To
+change it, move `.heddle.lock` aside and adopt again with
 `heddle init --adopt-existing`, adding `--no-session-entry` to opt out. When
 opting out, remove the managed block from `AGENTS.md` yourself; nothing
 maintains it afterwards.
@@ -159,7 +160,10 @@ Keep repository instructions in `AGENTS.md` outside the Heddle-managed session
 entry. Those instructions retain test authority and all permission boundaries
 for provider access, production mutation, push, deployment, and publication.
 Heddle does not infer any of those permissions from populated commands,
-credentials, a phase transition, or a review schedule.
+credentials, a phase transition, or a review schedule. The session entry tells
+agents never to run `heddle` in a review session; scope your own instructions
+that send agents to run it the same way, as
+[the Antigravity lane](#use-the-antigravity-review-lane) explains.
 
 Select a workflow only through the CLI. For an existing feature, use
 `heddle flow set <flow> --feature <slug>` and follow the command's current help
@@ -272,7 +276,8 @@ with `view_file`; a chunk left unread fails the review as
 is refused before any launch with `antigravity-input-too-large`, which names
 the size, the ceiling and the policy amendment that moves the slot to another
 lane. A `heddle run-gates` batch holding such a slot is refused whole, and
-`heddle drive` stops there.
+`heddle drive` stops there. C0 control characters other than tab and line
+endings, such as U+0007, may reach the reviewer altered.
 
 The lane's other failures are hard too, never retried or rerun on another
 model: `antigravity-context-compacted` when `agy` compacts the conversation
@@ -290,9 +295,11 @@ the lane refuse to read them. Upgrade every Heddle installation that shares the
 records before the first Antigravity review.
 
 `agy` loads the checkout's `AGENTS.md` as user rules that take precedence over
-the gate prompt. In `AGENTS.md`, scope any instruction to run `heddle`, edit
-the code under review or read earlier reviews away from review sessions, which
-carry `HEDDLE_AGENT_SESSION=gate`; a review that follows one fails.
+the gate prompt. Heddle's managed session-entry block already excludes review
+sessions, which carry `HEDDLE_AGENT_SESSION=gate`: it tells agents never to run
+`heddle` in one. Scope your own instructions in `AGENTS.md` the same way when
+they tell agents to run `heddle`, edit the code under review or read earlier
+reviews; a review that follows one fails.
 
 ## Review session boundaries on every lane
 
@@ -410,10 +417,11 @@ appends the packaged `local-checkout.md` to its briefing, and `heddle orient`
 names it in a `local-checkout` note. The rules keep Heddle paths and AC,
 finding and decision IDs out of code, tests, shared docs, commit messages and
 pull requests, and take precedence where a briefing would cite them. Your
-agents need only be told to begin sessions with `heddle orient`. Say so in your
-personal instructions, such as `~/.claude/CLAUDE.md` or `~/.codex/AGENTS.md`,
-never in a hidden file inside the checkout: when a teammate commits a file at
-the same path, such as `AGENTS.md`, a merge replaces your copy without warning.
+agents need only be told to begin feature-work sessions with `heddle orient`
+and never to run `heddle` in a review session. Say so in your personal
+instructions, such as `~/.claude/CLAUDE.md` or `~/.codex/AGENTS.md`, never in
+a hidden file inside the checkout: when a teammate commits a file at the same
+path, such as `AGENTS.md`, a merge replaces your copy without warning.
 
 A new worktree or another clone has none of these files, and a checkout
 without its own `.heddle.yaml` fails with `workspace-invalid` instead of
@@ -506,6 +514,8 @@ heddle sync
 Inspect the sync preview and apply only approved managed-region changes.
 Current sync targets are the plan-status region and the root AGENTS session-entry
 region; a host adopted with `--no-session-entry` has only the plan-status region.
+A Heddle update that changes the session entry's text, such as its
+review-session sentence, reaches `AGENTS.md` through this sync.
 
 ### No active feature
 

@@ -39,13 +39,14 @@ authority for the installed version.
 - Antigravity review input of at most 160,000 UTF-8 bytes is sent inline when
   nothing in it could be stripped or misread, and otherwise as chunk files the
   reviewer must read whole; an unread chunk fails the review as
-  `antigravity-incomplete-coverage`. Input above the lane's 250,000-byte
-  ceiling is refused before any launch with `antigravity-input-too-large`,
-  which names the size, the ceiling and the policy amendment that moves the
-  slot to another lane. `antigravity-context-compacted`, `antigravity-quota`
-  and `antigravity-api-error` are the lane's other new failure reasons, each
-  with a gate failure guide entry. None of them is retried or rerun on
-  another model.
+  `antigravity-incomplete-coverage`, and C0 control characters other than tab
+  and line endings may reach the reviewer altered. Input above the lane's
+  250,000-byte ceiling is refused before any launch with
+  `antigravity-input-too-large`, which names the size, the ceiling and the
+  policy amendment that moves the slot to another lane.
+  `antigravity-context-compacted`, `antigravity-quota` and
+  `antigravity-api-error` are the lane's other new failure reasons, each with a
+  gate failure guide entry. None of them is retried or rerun on another model.
 - `heddle drive` stops with a missing-capability result naming `agy` when a
   review slot serving the current step runs on the Antigravity lane and `agy`
   is not on `PATH`. A policy that names the lane only for another role or
@@ -53,6 +54,11 @@ authority for the installed version.
 
 ### Changed
 
+- The session-entry block that `heddle init` writes into `AGENTS.md` now ends
+  with a sentence saying that a review session, which Heddle marks with
+  `HEDDLE_AGENT_SESSION=gate`, is not a feature-work session and never runs
+  `heddle`. An adopted host receives it on its next `heddle sync`; a host
+  adopted with `--no-session-entry` gives its agents that rule itself.
 - Every reviewer process, on every lane, runs with
   `HEDDLE_AGENT_SESSION=gate`. Under that marker Heddle refuses each
   state-changing command, `run-gate`, `drive` and `--dry-run` previews
