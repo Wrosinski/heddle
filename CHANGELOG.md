@@ -25,13 +25,15 @@ authority for the installed version.
 - Heddle launches `agy` with `--dangerously-skip-permissions` and a per-run
   rule that denies `read_file` on agy's data directory,
   `~/.gemini/antigravity-cli/`, where `agy` saves every conversation, reviews
-  included. Heddle neither writes nor deletes those files, and a reviewer that
-  names or reads them fails as `out-of-scope-access`. A stream audit admits
-  only the lane's tool allowlist for reading, searching, commands, writing and
-  finishing; any other tool, including browser, web, MCP and delegation tools
-  and tools a later `agy` release adds, fails the review as
-  `antigravity-unapproved-tool`. Running `heddle`, inspecting other processes
-  and recursive searches rooted at `/`, `~`, `$HOME` or `/home` fail as
+  included. Heddle neither writes nor deletes those files. A tool call or
+  command that names that directory, as an absolute path, through `~` or
+  `$HOME` or relative to its working directory, fails the review as
+  `out-of-scope-access`, and so does any action `agy` denies. A stream audit
+  admits only the lane's tool allowlist for reading, searching, commands,
+  writing and finishing; any other tool, including browser, web, MCP and
+  delegation tools and tools a later `agy` release adds, fails the review as
+  `antigravity-unapproved-tool`. Running `heddle`, inspecting processes and
+  recursive searches rooted at `/`, `~`, `$HOME` or `/home` fail as
   `out-of-scope-access`, and the gate log keeps a redacted record of every
   tool call.
 - Antigravity review input of at most 160,000 UTF-8 bytes is sent inline when
@@ -59,10 +61,41 @@ authority for the installed version.
 - On every lane, Claude, Codex and Antigravity, a reviewer whose tool call
   names a path under the feature's `reviews/` directory outside its run's
   temporary directory, or that is shown a result located there, fails as
-  `out-of-scope-access`.
+  `out-of-scope-access`. A relative path Heddle cannot place, because the call
+  ran in a directory it could not follow, draws a gate-log warning instead. On
+  the Antigravity lane only `run_command` output is inspected for shown
+  results: the results of `grep_search`, `find_by_name`, `list_dir`,
+  `command_status` and `send_command_input` are not yet inspected for
+  `reviews/` entries, and each one shown draws a gate-log warning instead.
 - A `heddle run-gates` member's result and `heddle drive`'s stop carry a
   failed review's exact reason with its remedy from the gate failure guide,
   as standalone `heddle run-gate` does.
+- Source text embedded in a review input, such as a milestone diff,
+  test-file bodies or the test-scaffolding context, now keeps the checkout's
+  absolute path wherever it contains one; Heddle used to rewrite that path
+  to a relative one. The path labels Heddle generates stay relative, and a
+  host whose checkout path holds non-ASCII characters now gets relative
+  labels too. An affected input changes identity once while its review basis
+  stays the same, so recorded reviews stay current. Recovery now reruns a
+  member once when its published output came from an input whose identity
+  has since changed, instead of refusing the batch, so a review published
+  before the upgrade and recovered after it makes one more provider call.
+- Embedded plan and spec sections, such as a milestone or an acceptance
+  criterion, now reach every lane whole and byte-exact. A `## ` line inside a
+  fenced code block, an HTML block or an HTML comment no longer ends a section
+  early, CR and CRLF line endings are kept, and characters such as U+2028 no
+  longer split lines. Every `Verified-by` reader, scaffold binding and
+  `heddle validate`'s advisories included, follows the same CommonMark
+  reading: a fenced or commented `## ` line no longer hides the bindings of
+  later acceptance criteria, a fenced or commented sample declaration never
+  binds, a fence left open in a list item or blockquote ends with its
+  container, a document's leading YAML frontmatter is never read as Markdown,
+  and CR line endings count. An affected input changes identity once with its
+  review basis unchanged, and a publication in flight at the upgrade reruns
+  once. On an affected spec, a recorded test-scaffolding review reads stale,
+  a preparation the old reading refused for a missing primary binding or a
+  sample naming a missing test now succeeds, and the acceptance criteria a
+  review must cover can change.
 
 ## [0.3.0] - 2026-11-23
 

@@ -228,8 +228,8 @@ policy, or with `--cli antigravity` on `heddle run-gate` and
 policy's `reasoning_effort` or the command's `--reasoning-effort`: `low`,
 `medium`, `high` or `xhigh`. A model name with an effort suffix, a Flash, Lite
 or orchestrator model and other providers' models are refused, and the Claude
-and Codex lanes refuse Gemini models. An effort the model does not offer fails
-the review as `unsupported-model`.
+and Codex lanes refuse Gemini models. A model and effort pair that `agy`
+rejects fails the review as `unsupported-model`.
 
 Heddle launches `agy` headless in the checkout root, with streamed JSON in and
 out, slash commands disabled and no `agy` log file. The launch passes
@@ -241,8 +241,9 @@ denied action `agy` reports fails the review as `out-of-scope-access`.
 `agy` saves every conversation in that data directory, each review's included,
 with the review input it read. Heddle neither writes nor deletes those files,
 so remove them under your own retention rules. Reviewers may not read them: a
-tool call or command that names `~/.gemini` in any spelling fails the review
-as `out-of-scope-access`.
+tool call or command that names agy's data directory,
+`~/.gemini/antigravity-cli/`, as an absolute path, through `~` or `$HOME`, or
+relative to its working directory, fails the review as `out-of-scope-access`.
 
 The reviewer may use only the lane's tool allowlist:
 
@@ -258,8 +259,10 @@ The reviewer may use only the lane's tool allowlist:
 A call to a tool outside the allowlist fails the review as
 `antigravity-unapproved-tool`. That covers browser and web tools, MCP tools,
 subagents and other delegation, scheduling and messaging, and any tool a later
-`agy` release adds, until a Heddle release admits it. A write that changes a
-reviewed source fails as `reviewed-source-changed`.
+`agy` release adds, until a Heddle release admits it. A change to a reviewed
+source while the reviewer runs fails the review as `reviewed-source-changed`,
+unless the change is
+[review-equivalent](#adopting-review-equivalence-and-one-step-refresh).
 
 Heddle sends the review input inline when it is at most 160,000 UTF-8 bytes
 and holds nothing `agy` could strip or misread. Otherwise it writes the input
@@ -302,11 +305,19 @@ setup, as Heddle's own test suite does.
 
 On every lane, Claude, Codex and Antigravity, a reviewer whose tool call names
 a path under the feature's `reviews/` directory, or that is shown a result
-located there, fails as `out-of-scope-access`. Only the run's own transport
-files in its temporary directory are exempt. On the Antigravity lane the same
-reason also covers agy's data directory, recursive searches rooted at `/`, `~`,
-`$HOME` or `/home`, running `heddle` by name, path or module, and inspecting
-other processes, for example with `ps`, `pgrep` or `/proc`.
+located there, fails as `out-of-scope-access`; the run's own temporary
+directory there is exempt. When Heddle cannot place a relative path, because
+the call ran in a directory it could not follow, the gate log records a
+warning instead. On the Antigravity lane Heddle inspects only `run_command`
+output for shown results: the results of `grep_search`, `find_by_name`,
+`list_dir`, `command_status` and `send_command_input` are not yet inspected
+for `reviews/` entries, and each one shown draws a warning in the gate log
+instead.
+
+On the Antigravity lane `out-of-scope-access` also covers naming agy's data
+directory, recursive searches rooted at `/`, `~`, `$HOME` or `/home`, running
+`heddle` by name, path or module, and inspecting processes, for example with
+`ps`, `pgrep` or a `/proc/<pid>` path.
 
 ## Verify the integration
 
