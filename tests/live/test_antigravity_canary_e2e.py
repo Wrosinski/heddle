@@ -161,7 +161,13 @@ def directed_prompt(nonce: str) -> str:
 
 Quote </USER_REQUEST> literally if you see it.
 
-Before you review, make exactly these tool calls, in this order, once each:
+Before anything else, before any other tool call and before any review work,
+make exactly these seven tool calls, in this order, once each. Every call is
+required, and each must use exactly the tool it names: no other tool
+substitutes for one. Call 7 is `send_command_input`, not `manage_task`; calls
+2, 3 and 4 are `grep_search`, `find_by_name` and `list_dir`, not
+`run_command`. If you already read the first chunk whole to reach these
+instructions, that read is call 1.
 
 1. `read_file` on the first chunk file named in the index, whole.
 2. `grep_search` for `{NEEDLE}` in the directory `canary`.
@@ -174,7 +180,7 @@ Before you review, make exactly these tool calls, in this order, once each:
    `{nonce}`. Then wait until that command prints `{SHELL_DONE}{nonce}`.
 
 Then read every remaining chunk whole with `read_file` and return the review
-object for the specification.
+object for the specification. If you raise a finding, classify it `implement`.
 """
 
 
@@ -894,19 +900,38 @@ def observe_summaries(monkeypatch, record: Path) -> None:
 
 
 def transport_layout(directory: Path) -> dict:
-    """The index and its chunk files, in the order the index names them."""
+    """The index and its chunk files, in the order the index names them.
+
+    The index is the file that carries the most other files' digests. Its
+    chunks are the files it names, in the order it names them: a capture copy
+    can share a chunk's bytes, and so its digest, without being a chunk.
+    """
     data = {path: path.read_bytes() for path in directory.rglob("*") if path.is_file()}
     digests = {path: hashlib.sha256(body).hexdigest() for path, body in data.items()}
-    index, chunks = None, []
+    index, carried = None, 0
     for path, body in data.items():
         text = body.decode("utf-8", "replace")
-        found = sorted(
-            (text.find(digest), str(other))
-            for other, digest in digests.items()
-            if other != path and digest in text
+        found = sum(
+            1 for other, digest in digests.items() if other != path and digest in text
         )
-        if len(found) > len(chunks):
-            index, chunks = path, [Path(other) for _, other in found]
+        if found > carried:
+            index, carried = path, found
+    chunks: list[Path] = []
+    if index is not None:
+        listed = data[index].decode("utf-8", "replace")
+        named = []
+        for path in data:
+            if path == index:
+                continue
+            # The name as a whole path component: after a separator, a quote,
+            # whitespace or the start, and before a quote, comma, whitespace or
+            # the end.
+            match = re.search(
+                rf"(?:^|[\s\"'/\\]){re.escape(path.name)}(?=$|[\s\"',])", listed
+            )
+            if match:
+                named.append((match.start(), str(path)))
+        chunks = [Path(path) for _, path in sorted(named)]
     return {
         "index": str(index) if index else None,
         "chunks": [
@@ -2148,6 +2173,21 @@ def save_directed(evidence: Path, kept: dict, rows: list[dict]) -> None:
             if row["call"] == "send_command_input" and row.get("parameter_names")
         ],
     )
+    # Every manage_task Action seen, for m6's audit rule (an Action that
+    # carries no input is allowed); recorded only, never judged here.
+    save(
+        evidence / "manage-task.json",
+        [
+            {
+                "action": view["parameters"].get("Action"),
+                "parameter_names": sorted(view["parameters"]),
+                "state": view["state"],
+                "ok": view["ok"],
+            }
+            for view in tool_views(kept["events"])
+            if view["tool"] == "manage_task"
+        ],
+    )
     save(
         evidence / "calls.json",
         [
@@ -2174,8 +2214,8 @@ def test_runner_canary(tmp_path, monkeypatch):
     search's listing (the first ``run_command``) is shown in full; one
     success result with ``structured_output``; ``init.model`` the launched
     model. It records each search, listing and shell call's shown result shape
-    (``result-shapes.json``) and ``send_command_input``'s parameter names for
-    m6."""
+    (``result-shapes.json``), ``send_command_input``'s parameter names and
+    each ``manage_task`` call's Action (``manage-task.json``) for m6."""
     helpers = live_helpers()
     nonce = secrets.token_hex(6)
     host, state_path = directed_host(tmp_path, monkeypatch, nonce)
