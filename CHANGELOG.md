@@ -77,9 +77,11 @@ authority for the installed version.
   host whose checkout path holds non-ASCII characters now gets relative
   labels too. An affected input changes identity once while its review basis
   stays the same, so recorded reviews stay current. Recovery now reruns a
-  member once when its published output came from an input whose identity
-  has since changed, instead of refusing the batch, so a review published
-  before the upgrade and recovered after it makes one more provider call.
+  member once when the only difference between its published output and its
+  launch is the input's identity, instead of refusing the batch, so a review
+  published before the upgrade and recovered after it makes one more
+  provider call. A publication whose input is unaffected is reused as
+  before, and one that differs in anything else still refuses recovery.
 - Embedded plan and spec sections, such as a milestone or an acceptance
   criterion, now reach every lane whole and byte-exact. A `## ` line inside a
   fenced code block, an HTML block or an HTML comment no longer ends a section
@@ -92,10 +94,10 @@ authority for the installed version.
   container, a document's leading YAML frontmatter is never read as Markdown,
   and CR line endings count. An affected input changes identity once with its
   review basis unchanged, and a publication in flight at the upgrade reruns
-  once. On an affected spec, a recorded test-scaffolding review reads stale,
-  a preparation the old reading refused for a missing primary binding or a
-  sample naming a missing test now succeeds, and the acceptance criteria a
-  review must cover can change.
+  once under the same recovery rule. On an affected spec, a recorded
+  test-scaffolding review reads stale, a preparation the old reading refused
+  for a missing primary binding or a sample naming a missing test now
+  succeeds, and the acceptance criteria a review must cover can change.
 
 ## [0.3.0] - 2026-11-23
 
