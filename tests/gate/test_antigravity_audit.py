@@ -1269,8 +1269,13 @@ class RecordedResultShape:
 
 
 # Transcribed from m5's canary record, one row per structured kind. No shape
-# is invented here.
-RECORDED_RESULT_SHAPES: dict[str, RecordedResultShape] = {}
+# is invented here. The live call observed none of the three: the reviewer
+# never called them, so each is missing.
+RECORDED_RESULT_SHAPES: dict[str, RecordedResultShape] = {
+    "grep_search": RecordedResultShape(MISSING),
+    "find_by_name": RecordedResultShape(MISSING),
+    "list_dir": RecordedResultShape(MISSING),
+}
 
 
 def _recorded(kind: str, *outcomes: str) -> bool:
