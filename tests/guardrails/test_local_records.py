@@ -363,7 +363,9 @@ def test_fresh_public_snapshot_builds_and_tests_without_workflow_history(
     for relative in members:
         target = root / relative
         target.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(ROOT / relative, target)
+        # A tracked symlink (a shared skill linked from .claude/skills) is
+        # copied as the link itself, as git stores it.
+        shutil.copy2(ROOT / relative, target, follow_symlinks=False)
     for relative in [
         "plans",
         "docs/features",
