@@ -216,9 +216,11 @@ its coverage and keep unperformed repository inspection pending.
 ## Use the Antigravity review lane
 
 The Antigravity CLI, `agy`, is an optional third review lane beside Claude
-Code and Codex. Heddle tests the lane with `agy` 1.5.18. The gate log records
+Code and Codex. Heddle tests the lane with `agy` 1.5.19. The gate log records
 the version `agy` reports, and a different or unknown version only adds a
-warning there.
+warning there. `agy` updates itself when it runs, so set
+`AGY_CLI_DISABLE_AUTO_UPDATE=1` in the environment Heddle runs in to keep it on
+the version you have checked.
 
 Enable the lane with `agents.antigravity: true` in `.heddle.yaml`; then
 `heddle doctor` reports at info severity whether `agy` is on `PATH`. Without

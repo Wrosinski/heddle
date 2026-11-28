@@ -726,7 +726,7 @@ def emit(value):
 SCENARIO = load("scenario.json", {})
 argv = sys.argv[1:]
 if argv == ["--version"]:
-    version = SCENARIO.get("version", "1.5.18")
+    version = SCENARIO.get("version", "1.5.19")
     append("versions.jsonl", {"pid": os.getpid(), "version": version})
     if version is None:
         sys.stderr.write("agy: version information is unavailable\n")

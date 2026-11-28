@@ -71,7 +71,7 @@ from heddle.io.process import (
 
 # The agy release this lane is tested against. Its flags, stream shapes and
 # limits were measured on 1.5.16 and are confirmed on this release live.
-TESTED_AGY_VERSION = "1.5.18"
+TESTED_AGY_VERSION = "1.5.19"
 VERSION_PROBE_TIMEOUT_S = 30.0
 LAUNCH_MESSAGE_NAME = "launch.ndjson"
 CHUNK_INDEX_NAME = "chunk-index.json"

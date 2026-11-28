@@ -1618,7 +1618,7 @@ def _agy_shim(directory: Path, log: Path) -> Path:
     directory.mkdir(parents=True, exist_ok=True)
     return write_executable_script(
         directory / "agy",
-        f'#!/bin/sh\nprintf "%s\\n" "$*" >> "{log}"\necho "agy 1.5.18"\n',
+        f'#!/bin/sh\nprintf "%s\\n" "$*" >> "{log}"\necho "agy 1.5.19"\n',
     )
 
 

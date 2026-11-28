@@ -44,7 +44,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 RUNNER = "heddle.gate.runners.antigravity"
 AUDIT = "heddle.gate.runners.antigravity_audit"
 NEON = {"cli": "antigravity", "model": "gemini-4-neon", "reasoning_effort": "high"}
-TESTED_VERSION = "1.5.18"
+TESTED_VERSION = "1.5.19"
 OTHER_VERSION = "1.6.2"
 INLINE_LIMIT = 160_000
 CEILING = 250_000
@@ -157,7 +157,7 @@ def emit(value):
 SCENARIO = load("scenario.json", {})
 argv = sys.argv[1:]
 if argv == ["--version"]:
-    version = SCENARIO.get("version", "1.5.18")
+    version = SCENARIO.get("version", "1.5.19")
     append("versions.jsonl", {"pid": os.getpid(), "version": version})
     if version is None:
         sys.stderr.write("agy: version information is unavailable\n")

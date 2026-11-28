@@ -2253,7 +2253,7 @@ import time
 
 argv = sys.argv[1:]
 if "--version" in argv:
-    print("1.5.18")
+    print("1.5.19")
     sys.exit(0)
 with open(PIDS, "a", encoding="utf-8") as handle:
     handle.write(f"{os.getpid()}\n")

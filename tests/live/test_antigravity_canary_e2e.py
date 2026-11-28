@@ -18,7 +18,7 @@ its admission from ``tests.antigravity_live_helpers.admit_live_attempt``:
   three realistic reviews.
 
 Every node reaches the version gate inside the admission before anything else
-of the provider's: a missing ``agy``, or one that is not 1.5.18, skips with a
+of the provider's: a missing ``agy``, or one that is not 1.5.19, skips with a
 clear message, claims no slot and leaves the proof pending.
 
 **The attempt deadline.** A provider launch, first or relaunched, starts only

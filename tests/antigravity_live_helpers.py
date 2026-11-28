@@ -69,7 +69,7 @@ ADMISSIONS = (
 )
 ROOT_VARIABLE = "HEDDLE_W4_LIVE_ROOT"
 OVERRIDE_VARIABLE = "HEDDLE_W4_LIVE_ATTEMPT_SECONDS"
-TESTED_VERSION = "1.5.18"
+TESTED_VERSION = "1.5.19"
 LIMITS = {"stage": 4, "m5": 3}
 ATTEMPT_SECONDS = {"stage": 3600, "m5": 1200}
 # The override may raise only a stage attempt's allowance, and only this far.

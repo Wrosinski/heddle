@@ -18,7 +18,7 @@ authority for the installed version.
   `gemini-4-neon` at reasoning effort `high`. A model must be a Gemini 4 base
   name with the effort given separately: an effort suffix, Flash, Lite and
   orchestrator models and other providers' models are refused, and the Claude
-  and Codex lanes refuse Gemini models. The lane is tested with `agy` 1.5.18;
+  and Codex lanes refuse Gemini models. The lane is tested with `agy` 1.5.19;
   the gate log records the version `agy` reports, and another version only
   warns. Review records carry `cli: antigravity`, which older Heddle builds
   refuse to read.
