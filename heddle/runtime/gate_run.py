@@ -1224,14 +1224,10 @@ def _recover_departed_launches(resolved: ResolvedSnapshotContext) -> None:
     """Reap and redact the feature's launches whose launcher is gone, once per
     invocation and before any reuse decision, so a run that only reuses
     output still recovers a crashed launch. Live launches are left alone."""
-    from heddle.gate.io import recover_launches
-    from heddle.io.process import DEFAULT_REAP_GRACE_S
-
     workspace = resolved.config.root / resolved.snapshot.workspace
-    recovery = recover_launches(
-        workspace / WORKSPACE_REVIEWS_DIR, grace_s=DEFAULT_REAP_GRACE_S
+    _print_cleanup_warnings(
+        entry.recover_launches_in(workspace / WORKSPACE_REVIEWS_DIR)
     )
-    _print_cleanup_warnings(recovery.warnings)
 
 
 def _finish_timing(member: _BatchMember) -> None:

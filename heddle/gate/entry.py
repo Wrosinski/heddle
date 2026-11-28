@@ -743,14 +743,21 @@ def recover_launches_for_runtime(contexts: Iterable[GateContext]) -> tuple[str, 
     worker's, for one) in each distinct reviews directory of ``contexts``, and
     return the cleanup warnings. A launch whose launcher still runs is left
     alone, so live siblings are safe."""
-    from heddle.gate.io import recover_launches, reviews_dir
-    from heddle.io.process import DEFAULT_REAP_GRACE_S
+    from heddle.gate.io import reviews_dir
 
     warnings: list[str] = []
     for directory in dict.fromkeys(reviews_dir(context) for context in contexts):
-        recovery = recover_launches(directory, grace_s=DEFAULT_REAP_GRACE_S)
-        warnings.extend(recovery.warnings)
+        warnings.extend(recover_launches_in(directory))
     return tuple(warnings)
+
+
+def recover_launches_in(directory: Path) -> tuple[str, ...]:
+    """Reap and redact every launch in one reviews directory whose launcher is
+    gone, and return the cleanup warnings. Live launches are left alone."""
+    from heddle.gate.io import recover_launches
+    from heddle.io.process import DEFAULT_REAP_GRACE_S
+
+    return recover_launches(directory, grace_s=DEFAULT_REAP_GRACE_S).warnings
 
 
 def run_gate_for_runtime(
