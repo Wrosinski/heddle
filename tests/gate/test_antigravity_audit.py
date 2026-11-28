@@ -1610,6 +1610,13 @@ def test_ac21_structured_result_shapes_on_antigravity(
         )
 
 
+@pytest.mark.xfail(
+    strict=True,
+    reason=(
+        "PENDING AC-21 (b): no recorded shape shows this kind's entries, so its "
+        "observed-entry proof stays pending until a measured row records them"
+    ),
+)
 @pytest.mark.parametrize("kind", ENTRY_PROOF_PENDING)
 def test_ac21_unmeasured_structured_entry_proof_is_pending(kind: str) -> None:
     """
@@ -1618,15 +1625,17 @@ def test_ac21_unmeasured_structured_entry_proof_is_pending(kind: str) -> None:
     unmeasured or missing) has no observed-entry fixture. Its proof stays
     pending and is reported, never invented.
 
-    Each such kind is one failing node. A kind leaves the parameter set once
-    its row records it as showing entries. When no kind is left, pytest's
-    default empty-parameter-set handling collects one skipped node for this
-    function; it does not disappear. The shell fallback and the
+    Each such kind is one strict xfail node: the fast band stays green, and
+    strict proof, which never counts an xfail as passed, reports it pending.
+    A kind leaves the parameter set once its row records it as showing
+    entries; an unexpected pass fails under ``strict``. When no kind is left,
+    pytest's default empty-parameter-set handling collects one skipped node
+    for this function; it does not disappear. The shell fallback and the
     unrecognized-shape cases stay in m6's required proof.
     """
     row = RECORDED_RESULT_SHAPES.get(kind)
     state = "not transcribed" if row is None else f"recorded as {row.outcome}"
-    pytest.fail(
+    assert _recorded(kind, ENTRIES), (
         f"PENDING AC-21 (b): {kind} is {state}; its observed-entry proof has no "
         "recorded shape"
     )
