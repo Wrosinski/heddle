@@ -1840,6 +1840,131 @@ def test_ac12_killed_worker_tokens_are_reaped_by_the_coordinator(
         tracker.cleanup()
 
 
+# AC-12 and AC-18 on runs that only reuse output: the next `run-gate` or
+# `run-gates` in the feature recovers a departed launch even when it launches
+# nothing. Launches are planted as recorded directories with real tokened
+# processes; the engine double counts provider calls.
+
+
+def _plant_departed_and_live_launches(reviews: Path) -> dict:
+    """Two recorded launches in ``reviews``, each with a running tokened child
+    and a credential in its raw stream: one whose launcher is gone, and one
+    whose launcher is this live process."""
+    import tests.gate.test_monitor as monitor
+    from heddle.gate.io import LAUNCH_RECORD_NAME, write_launch_record
+    from heddle.io.process import new_launch_token, process_start_time
+
+    launches = {}
+    for name in ("departed", "live"):
+        token = new_launch_token()
+        secret = _lane().credential(f"reuse-recovery-{name}")
+        temp = reviews / f"{SPEC}.antigravity.tmp.{name}"
+        temp.mkdir(parents=True)
+        (temp / "raw.out").write_bytes(monitor._raw_with(secret))
+        write_launch_record(temp, token=token, raw_stream=temp / "raw.out")
+        child = monitor._spawn(monitor.SLEEPER, token=token)
+        launches[name] = {"temp": temp, "secret": secret, "child": child}
+    gone = monitor._spawn(monitor.SLEEPER)
+    launcher = {"pid": gone.pid, "start": process_start_time(gone.pid)}
+    monitor._stop(gone)
+    record = launches["departed"]["temp"] / LAUNCH_RECORD_NAME
+    value = json.loads(record.read_text())
+    value["launcher"] = launcher
+    record.write_text(json.dumps(value))
+    live = launches["live"]["temp"]
+    launches["live"]["files"] = {
+        path: path.read_bytes() for path in live.rglob("*") if path.is_file()
+    }
+    return launches
+
+
+def _assert_departed_recovered_and_live_untouched(launches: dict) -> None:
+    from heddle.gate.io import LAUNCH_RECORD_NAME
+
+    departed, live = launches["departed"], launches["live"]
+    assert departed["child"].poll() is not None, (
+        "FAIL AC-12: the reusing run left the departed launch's tokened child"
+    )
+    raw = (departed["temp"] / "raw.out").read_bytes()
+    assert departed["secret"].encode() not in raw, (
+        "FAIL AC-18: the reusing run left the departed launch's stream unredacted"
+    )
+    assert not (departed["temp"] / LAUNCH_RECORD_NAME).exists()
+    assert live["child"].poll() is None, (
+        "FAIL AC-12: the reusing run reaped the live launch's child"
+    )
+    assert {
+        path: path.read_bytes() for path in live["temp"].rglob("*") if path.is_file()
+    } == live["files"], "FAIL AC-12: the reusing run touched the live launch"
+
+
+def test_ac12_ac18_a_run_gate_that_reuses_output_recovers_a_departed_launch(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """AC-12 and AC-18, standalone: a `run-gate` that replays its recorded
+    result makes no provider call, yet reaps and redacts a departed launch
+    and leaves a live sibling launch untouched."""
+    import tests.gate.test_monitor as monitor
+
+    _host, state_path = same_gate_host(tmp_path, monkeypatch)
+    launches: dict = {}
+    try:
+        with multiprocessing.Manager() as manager:
+            starts, _finishes, _seen = install_slot_engine(
+                monkeypatch, manager, parties=1
+            )
+            assert run_slot(*P).ok
+            calls = len(starts)
+            launches = _plant_departed_and_live_launches(state_path.parent / "reviews")
+            reused = run_slot(*P)
+            assert len(starts) == calls == 1, "FAIL AC-12: recovery called a provider"
+        assert reused.ok and reused.data["cached"], reused.to_envelope()
+        _assert_departed_recovered_and_live_untouched(launches)
+    finally:
+        monitor._stop(*(launch["child"] for launch in launches.values()))
+
+
+def test_ac12_ac18_a_run_gates_with_nothing_pending_recovers_a_departed_launch(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """AC-12 and AC-18, batch: a `run-gates` whose members all recover their
+    published output launches no worker and makes no provider call, yet reaps
+    and redacts a departed launch and leaves a live sibling launch untouched."""
+    import tests.gate.test_monitor as monitor
+    from heddle.runtime import gate_run
+
+    _host, state_path = same_gate_host(tmp_path, monkeypatch)
+    original = gate_run._record
+    conflicted = False
+
+    def conflict_once(*args, **kwargs):
+        nonlocal conflicted
+        if not conflicted:
+            conflicted = True
+            _unrelated_write()
+        return original(*args, **kwargs)
+
+    launches: dict = {}
+    try:
+        with multiprocessing.Manager() as manager:
+            starts, _finishes, _seen = install_slot_engine(monkeypatch, manager)
+            monkeypatch.setattr(gate_run, "_record", conflict_once)
+            assert not execute_batch().ok
+            monkeypatch.setattr(gate_run, "_record", original)
+            calls = len(starts)
+            launches = _plant_departed_and_live_launches(state_path.parent / "reviews")
+            recovered = execute_batch()
+            assert len(starts) == calls == 2, "FAIL AC-12: recovery called a provider"
+        assert recovered.ok, recovered.to_envelope()
+        assert [row["reuse"] for row in recovered.data["members"]] == [
+            "recovered",
+            "recovered",
+        ]
+        _assert_departed_recovered_and_live_untouched(launches)
+    finally:
+        monitor._stop(*(launch["child"] for launch in launches.values()))
+
+
 # --------------------------------------------------------------------------- #
 # antigravity-reviewer-lane-v1 AC-19: each new failure reason, produced through
 # the real runner with the doubled `agy`, reaches every consumer with its
@@ -1985,6 +2110,58 @@ def assert_batch_error_names_selected_reason(result, reasons: dict[str, str]) ->
     )
 
 
+def other_reason(reason: str) -> str:
+    """A second provider failure for a rerun, distinct from ``reason``."""
+    if reason == "antigravity-quota":
+        return "antigravity-api-error"
+    return "antigravity-quota"
+
+
+def remedy_paths(remedy: str) -> list[str]:
+    """The workspace paths a failure remedy tells the operator to inspect."""
+    named = re.match(r"inspect (.+?); then consult", remedy)
+    assert named, f"FAIL AC-19: the remedy names no evidence to inspect: {remedy!r}"
+    return named.group(1).split(" and ")
+
+
+def assert_remedy_names_member_files(
+    remedy: str, workspace: Path, gate: str, reason: str, *, rerun: bool = False
+) -> None:
+    """Every path the remedy names is an existing file of the failed ``gate``
+    member, and the published log it names records the ``reason`` run. The
+    gate summary is the member's rolling one: it records ``reason`` until a
+    ``rerun`` of the member replaces it."""
+    paths = remedy_paths(remedy)
+    assert [path for path in paths if path.endswith(".log")], (
+        f"FAIL AC-19: the {gate} remedy names no published log: {remedy!r}"
+    )
+    for name in paths:
+        path = workspace / name
+        assert path.is_file(), (
+            f"FAIL AC-19: the {gate} remedy names {name}, which the run never "
+            f"published: {remedy!r}"
+        )
+        if name.endswith(".log"):
+            text = path.read_text(encoding="utf-8")
+            member = bool(
+                re.search(rf"^Gate:\s+{re.escape(gate)}$", text, re.M)
+                and re.search(r"^CLI:\s+antigravity$", text, re.M)
+            )
+            ran = re.search(
+                rf"^Status:\s+failure \({re.escape(reason)}(?![\w-])", text, re.M
+            )
+        else:
+            assert name.endswith(".gate-summary.json"), (
+                f"FAIL AC-19: the {gate} remedy names {name}, neither a log nor "
+                "the gate summary"
+            )
+            summary = json.loads(path.read_text(encoding="utf-8"))
+            member = (summary["gate"], summary["cli"]) == (gate, "antigravity")
+            ran = rerun or names_reason(summary["reason"], reason)
+        assert member, f"FAIL AC-19: {name}, named by the remedy, is not {gate}'s"
+        assert ran, f"FAIL AC-19: {name}, named by the remedy, is not the {reason} run"
+
+
 def assert_produced_by_the_runner(state_path: Path, agy, gate: str, reason: str):
     """The reason was recorded from one real launch of the doubled ``agy``."""
     rows = [row for row in _lane().lane_rows(state_path) if row["gate"] == gate]
@@ -2001,7 +2178,9 @@ def test_ac19_new_reason_and_remedy_reach_standalone_run_gate(
 ) -> None:
     """AC-19 standalone: the real runner fails on the doubled ``agy`` stream
     with the new reason, and the ``run-gate`` error names exactly that reason
-    and its failure-guide remedy."""
+    and its failure-guide remedy. Every file the remedy names exists and is
+    that run's, and stays the member's after a rerun updates the rolling
+    files."""
     lane = _lane()
     stream, chunked = ac19_stream(lane, reason)
     agy = lane.install_agy(tmp_path, monkeypatch)
@@ -2016,6 +2195,17 @@ def test_ac19_new_reason_and_remedy_reach_standalone_run_gate(
     assert_produced_by_the_runner(state_path, agy, SPEC, reason)
     assert_reason_and_remedy(
         result.error.message, result.error.hint, reason, "run-gate error"
+    )
+    workspace = state_path.parent
+    assert_remedy_names_member_files(result.error.hint, workspace, SPEC, reason)
+
+    rerun_reason = other_reason(reason)
+    agy.scenario(ac19_stream(lane, rerun_reason)[0])
+    rerun = lane.run_gate()
+    assert not rerun.ok, f"fixture: the {rerun_reason} rerun recorded a success"
+    assert_remedy_names_member_files(rerun.error.hint, workspace, SPEC, rerun_reason)
+    assert_remedy_names_member_files(
+        result.error.hint, workspace, SPEC, reason, rerun=True
     )
 
 
@@ -2035,7 +2225,9 @@ def test_ac19_new_reasons_and_remedies_reach_run_gates_member_output(
     """AC-19 batch: two Antigravity members fail through the real runner, one
     reason each. Each member summary names its own reason and remedy, never
     the generic text or its sibling's reason, and the batch error names the
-    selected member's reason."""
+    selected member's reason. Every file a remedy names exists and is that
+    member's run's, and stays the member's after a rerun with the reasons
+    swapped updates the rolling files."""
     lane = _lane()
     reasons = dict(zip(lane.PEER, (first, second), strict=True))
     built = {gate: ac19_stream(lane, reason) for gate, reason in reasons.items()}
@@ -2050,6 +2242,26 @@ def test_ac19_new_reasons_and_remedies_reach_run_gates_member_output(
         assert_produced_by_the_runner(state_path, agy, gate, reason)
         assert_member_names_reason(result, gate, reason)
     assert_batch_error_names_selected_reason(result, reasons)
+    workspace = state_path.parent
+
+    def assert_remedies_name_member_files(batch, reasons, *, rerun=False) -> None:
+        for gate, reason in reasons.items():
+            hint = lane.gate_member(batch, gate)["error"]["hint"]
+            assert_remedy_names_member_files(hint, workspace, gate, reason, rerun=rerun)
+        selected = batch.error.details["selected_member"]["gate"]
+        assert_remedy_names_member_files(
+            batch.error.hint, workspace, selected, reasons[selected], rerun=rerun
+        )
+
+    assert_remedies_name_member_files(result, reasons)
+    swapped = dict(zip(lane.PEER, (second, first), strict=True))
+    agy.scenario(
+        roles={gate: ac19_stream(lane, reason)[0] for gate, reason in swapped.items()}
+    )
+    rerun = execute_batch()
+    assert not rerun.ok, f"fixture: the swapped rerun succeeded: {rerun}"
+    assert_remedies_name_member_files(rerun, swapped)
+    assert_remedies_name_member_files(result, reasons, rerun=True)
 
 
 # Text output: two distinct failures, and a single-failure control whose other

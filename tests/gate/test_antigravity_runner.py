@@ -459,6 +459,12 @@ for op in plan:
         with open(target, "wb") as handle:
             handle.write(bytes(data))
         append("altered.jsonl", {"launch": os.getpid(), "chunk": value, "path": target})
+    elif name == "$alter_schema":
+        # Append a newline to the launch's schema file while the run goes on.
+        os.chmod(schema_path, os.stat(schema_path).st_mode | 0o200)
+        with open(schema_path, "ab") as handle:
+            handle.write(b"\n")
+        append("altered.jsonl", {"launch": os.getpid(), "schema": schema_path})
     elif name == "$write":
         target = Path(CWD, value["path"])
         text = target.read_text(encoding="utf-8")
@@ -2495,6 +2501,44 @@ def test_ac17_chunk_changed_after_its_whole_read_leaves_the_capture_uncovered(
         f"FAIL AC-17: reads were credited after a transport file changed: "
         f"{audit.get('credited')}"
     )
+
+
+def test_ac9_inline_transport_changed_during_the_run_withholds_credit(
+    tmp_path, monkeypatch, agy
+):
+    """AC-9 and AC-11 through the assigned runner as ``run-gates`` members,
+    both delivered inline: one launch's schema file changes while ``agy``
+    runs, so its transport no longer matches at completion. It warns
+    (``TransportWarning``) and fails as ``antigravity-incomplete-coverage``,
+    the outcome a chunked run reaches when its credited reads are withdrawn,
+    with no credit. Its sibling, an unchanged inline launch, records
+    normally."""
+    require_runner("AC-9")
+    _host, state_path = peer_host(tmp_path, monkeypatch)
+    altered, control = PEER
+    agy.scenario(
+        roles={altered: clean_stream({"$alter_schema": True}), control: clean_stream()}
+    )
+    result = run_batch()
+    for gate in PEER:
+        route_of(agy, "inline", "AC-9", gate)
+    assert agy.rows("altered.jsonl"), "fixture: the double never altered the schema"
+    assert not result.ok, "FAIL AC-9: a run whose transport changed was credited"
+    assert_member_outcomes(
+        result,
+        state_path,
+        agy,
+        {
+            altered: ("inline-transport-changed", "antigravity-incomplete-coverage"),
+            control: (None, None),
+        },
+        "AC-9",
+    )
+    assert "TransportWarning: during the run" in gate_log(state_path, altered), (
+        "FAIL AC-9: the changed inline transport did not warn"
+    )
+    assert "TransportWarning" not in gate_log(state_path, control)
+    assert summary_for(state_path, altered)["audit"]["transport_intact"] is False
 
 
 # --------------------------------------------------------------------------- #

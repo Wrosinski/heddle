@@ -13,7 +13,7 @@ import time
 from collections.abc import Callable, Iterator, Mapping
 from contextlib import ExitStack, contextmanager
 from dataclasses import asdict, dataclass, replace
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any, cast
 
 from heddle.contracts import operations as ops
@@ -43,6 +43,7 @@ from heddle.contracts.review_assignments import (
 )
 from heddle.contracts.schemas import (
     REVIEW_LAUNCH_MODES,
+    WORKSPACE_REVIEWS_DIR,
     WORKSPACE_STATE,
     normalize_decision_route,
 )
@@ -253,6 +254,7 @@ def execute_gate(parsed: RunGate) -> HeddleResult:
             diagnostics=resolved.diagnostics,
             include_feature_switch_action=False,
         )
+    _recover_departed_launches(resolved)
     try:
         pending = _retained_reuse(resolved, parsed)
         if pending is not None:
@@ -422,6 +424,7 @@ def execute_gates(parsed: RunGates) -> HeddleResult:
             diagnostics=resolved.diagnostics,
             include_feature_switch_action=False,
         )
+    _recover_departed_launches(resolved)
     launch: LaunchSet | None = None
     try:
         launch, current_actions = current_launch_set(resolved.config, resolved.snapshot)
@@ -1217,6 +1220,20 @@ def _print_cleanup_warnings(warnings: tuple[str, ...]) -> None:
         print(f"warning: launch-cleanup: {warning}", file=sys.stderr)
 
 
+def _recover_departed_launches(resolved: ResolvedSnapshotContext) -> None:
+    """Reap and redact the feature's launches whose launcher is gone, once per
+    invocation and before any reuse decision, so a run that only reuses
+    output still recovers a crashed launch. Live launches are left alone."""
+    from heddle.gate.io import recover_launches
+    from heddle.io.process import DEFAULT_REAP_GRACE_S
+
+    workspace = resolved.config.root / resolved.snapshot.workspace
+    recovery = recover_launches(
+        workspace / WORKSPACE_REVIEWS_DIR, grace_s=DEFAULT_REAP_GRACE_S
+    )
+    _print_cleanup_warnings(recovery.warnings)
+
+
 def _finish_timing(member: _BatchMember) -> None:
     if member.started_monotonic is None:
         return
@@ -1683,7 +1700,8 @@ def _member_run_error(member: _BatchMember) -> HeddleError | None:
     return _failed_run_error(
         member.label,
         str(outcome.reason or "unknown failure"),
-        outcome.artifact_relpath,
+        outcome.artifacts,
+        member.context.workspace_dir,
     )
 
 
@@ -2733,8 +2751,14 @@ def _gate_result(
         )
     )
     if gate_exit != 0:
+        assert not isinstance(completion, ReuseResult)
         result = HeddleResult.failure(
-            _failed_run_error(parsed.gate, failure_reason, artifact_relpath),
+            _failed_run_error(
+                parsed.gate,
+                failure_reason,
+                completion.artifacts,
+                resolved.config.root / resolved.snapshot.workspace,
+            ),
             exit_code=decision.exit_code,
             diagnostics=diagnostics,
         )
@@ -2791,28 +2815,37 @@ def _gate_result(
 
 
 def _failed_run_error(
-    name: str, failure_reason: str, artifact_relpath: str
+    name: str,
+    failure_reason: str,
+    artifacts: tuple[ArtifactRef, ...],
+    workspace: Path,
 ) -> HeddleError:
     """A failed gate run's error: its typed reason and failure-guide remedy,
     the same in standalone and batch output."""
     return HeddleError(
         code="gate-not-converged",
         message=f"the {name} gate run did not complete cleanly: {failure_reason}",
-        hint=_failure_guidance_hint(failure_reason, artifact_relpath),
+        hint=_failure_guidance_hint(failure_reason, artifacts, workspace),
     )
 
 
-def _failure_guidance_hint(failure_reason: str, artifact_relpath: str) -> str:
-    """Point a failed run at its durable evidence and packaged remedy."""
-    if artifact_relpath:
-        artifact = Path(artifact_relpath)
-        summary = artifact.with_suffix(_SUMMARY_SUFFIX).as_posix()
-        log = artifact.with_suffix(_LOG_SUFFIX).as_posix()
+def _failure_guidance_hint(
+    failure_reason: str, artifacts: tuple[ArtifactRef, ...], workspace: Path
+) -> str:
+    """Point a failed run at the evidence it published and its packaged remedy:
+    the immutable log the failure published, ``<output>.<sha256>.log``, and
+    the gate summary the run wrote beside it, ``<output>.gate-summary.json``,
+    named only when it exists."""
+    log = next((ref.path for ref in artifacts if ref.role == "log"), None)
+    if log is None:
+        evidence = "the gate summary and the gate log"
     else:
-        summary = "the gate summary"
-        log = "the gate log"
+        log_path = PurePosixPath(log)
+        output = log_path.name.removesuffix(_LOG_SUFFIX).rpartition(".")[0]
+        summary = log_path.with_name(output + _SUMMARY_SUFFIX).as_posix()
+        evidence = f"{summary} and {log}" if (workspace / summary).is_file() else log
     return (
-        f"inspect {summary} and {log}; then consult the `{failure_reason}` "
+        f"inspect {evidence}; then consult the `{failure_reason}` "
         "entry in the installed gate failure guide; run `heddle doctor` to "
         "check the installed guide before rerunning"
     )

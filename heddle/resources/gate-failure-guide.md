@@ -418,9 +418,9 @@ separate native stop-resolution and round-open route afterward.
 
 **Status:** emitted
 
-**Evidence:** The review input was delivered as chunk files, and at least one chunk has no credited whole read. A read is credited only when the chunk was read whole with `view_file` (recorded as `read_file`), nothing wrote to it or named it in executed text before that read, and every transport file still matched its frozen digest when the run ended. The gate summary records the credited reads and the uncovered byte ranges.
+**Evidence:** The review earned no credit for its input. On a chunked delivery, at least one chunk has no credited whole read: a read is credited only when the chunk was read whole with `view_file` (recorded as `read_file`) and nothing wrote to it or named it in executed text before that read. On either delivery, a transport file (the launch message, the schema copy, a chunk or the index) that no longer matched its frozen digest when the run ended withholds every credit, and the gate log names it on a `TransportWarning` line. The gate summary records the credited reads and the uncovered byte ranges.
 
-**Remedy:** The review is not credited, because the reviewer did not read all of its input. Rerun the gate. If chunks keep going unread, reduce the review input so it needs fewer chunks.
+**Remedy:** The review is not credited, because the reviewer did not read all of its input, or its input changed while it ran. Rerun the gate. If chunks keep going unread, reduce the review input so it needs fewer chunks.
 
 ## `out-of-scope-access`
 

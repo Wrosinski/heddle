@@ -10,9 +10,11 @@ directory. In order, it:
    checkout root, through the shared monitor, which re-verifies the
    transport against preparation's frozen route immediately before the
    spawn;
-4. reads the stream with bounds, audits it (``audit_stream``), and classifies
-   the outcome through one table (``classify_outcome``) from the stream's
-   facts and the audit's violations and coverage;
+4. reads the stream with bounds, re-checks the transport's digests, audits
+   the stream (``audit_stream``), and classifies the outcome through one
+   table (``classify_outcome``) from the stream's facts, the audit's
+   violations and coverage, and that digest check: a transport file changed
+   during the run warns and withholds credit on every route;
 5. writes the selected response redacted, reaps the token and replaces the raw
    stream with its redacted copy (``finish_launch``). A stream that cannot be
    redacted fails the run and stays in the run temp directory, named by no
@@ -454,13 +456,15 @@ def classify_outcome(
     model: str,
     violations: Collection[FailureReason] = (),
     uncovered: bool = False,
+    transport_intact: bool = True,
 ) -> Outcome | None:
     """The lane's outcome table: the first matching row wins, None is success.
 
     ``violations`` holds the stream audit's out-of-scope, unapproved-tool and
-    compaction findings, and ``uncovered`` its coverage verdict; this function
-    alone orders them against the process, provider and terminal facts.
-    Canonical validation of a successful object follows downstream.
+    compaction findings, ``uncovered`` its coverage verdict and
+    ``transport_intact`` the post-run digest check; this function alone orders
+    them against the process, provider and terminal facts. Canonical
+    validation of a successful object follows downstream.
     """
     results = stream.results
     denied = [
@@ -525,11 +529,14 @@ def classify_outcome(
         return Outcome(
             FailureReason.EXECUTION_FAILURE, f"status {result.get('status')!r}"
         )
-    # Row 6.
-    if uncovered:
+    # Row 6. A transport file changed during the run withholds credit on
+    # every route, inline or chunked.
+    if uncovered or not transport_intact:
         return Outcome(
             FailureReason.ANTIGRAVITY_INCOMPLETE_COVERAGE,
-            "a chunk has no credited read",
+            "a chunk has no credited read"
+            if transport_intact
+            else "a transport file changed during the run, so nothing is credited",
         )
     # Row 7.
     if not isinstance(result.get("structured_output"), dict):
@@ -639,6 +646,7 @@ def _launch(
             model=config.model,
             violations={item.reason for item in audit.violations},
             uncovered=bool(audit.uncovered),
+            transport_intact=audit.transport_intact,
         )
         failure: FailureReason | None
         if outcome is None:
