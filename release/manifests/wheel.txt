@@ -65,6 +65,7 @@ heddle/kernel/knowledge.py
 heddle/kernel/knowledge_search.py
 heddle/kernel/locking.py
 heddle/kernel/managed_regions.py
+heddle/kernel/markdown_structure.py
 heddle/kernel/model.py
 heddle/kernel/project_config.py
 heddle/kernel/readiness.py
