@@ -21,8 +21,7 @@ directory, moved by each parseable ``cd`` list element in the command. ``~``,
 ``$HOME`` and ``..`` are normalized. A ``cd`` whose target cannot be parsed,
 or a relative ``cd`` from an unknown directory, leaves the directory unknown;
 a parseable absolute, ``~`` or ``$HOME`` ``cd`` re-establishes it. A search
-command's pattern is not a named path, nor is what an output-only command
-(``echo``, ``printf``) prints; their redirection targets still are.
+command's pattern is not a named path.
 
 The shell walker (``simple_commands``, ``directory_after``) and the rule for
 which of a command's words name a path (``named_words``) are public so other
@@ -35,7 +34,7 @@ import os
 import re
 import shlex
 from collections.abc import Iterable, Iterator
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from pathlib import Path
 
 # Shell commands whose output lists paths: their path-led lines are entries.
@@ -52,8 +51,6 @@ _PATTERN_VALUE_OPTIONS = frozenset({"-e", "--regexp"})
 _VALUE_OPTIONS = frozenset(
     {"-A", "-B", "-C", "-m", "-g", "-t", "--glob", "--type", "--max-count"}
 )
-# Commands that only print their operands, so an operand names no path.
-OUTPUT_COMMANDS = frozenset({"echo", "printf"})
 # Shells whose ``-c`` script is the command a lane actually ran.
 SHELLS = frozenset({"bash", "sh", "zsh", "dash"})
 _OPERATOR_CHARS = frozenset("();<>|&\n")
@@ -66,12 +63,10 @@ class Word:
     """One shell word after quote removal. An unquoted or double-quoted
     ``~``, ``$HOME`` or ``${HOME}`` prefix is expanded from ``Path.home()``;
     single-quoted text stays literal. ``quoted`` is set when any part of the
-    word was quoted or escaped; ``redirect`` when the word is a redirection's
-    target."""
+    word was quoted or escaped."""
 
     text: str
     quoted: bool
-    redirect: bool = False
 
 
 @dataclass(frozen=True)
@@ -334,25 +329,18 @@ def _lex(command: str) -> list[Word | str]:
 def _pipelines(tokens: list[Word | str]) -> Iterator[list[tuple[Word, ...]]]:
     """List elements (split at ``&&``, ``||``, ``;``, ``&``, newlines and
     parentheses), each as its non-empty pipeline stages. Redirection
-    operators are dropped; their targets stay as words, marked
-    ``redirect``."""
+    operators are dropped; their targets stay as words."""
     stages: list[list[Word]] = [[]]
-    redirect = False
     for token in tokens:
         if isinstance(token, Word):
-            stages[-1].append(replace(token, redirect=True) if redirect else token)
-            redirect = False
-        elif set(token) & {"<", ">"}:
-            redirect = True
+            stages[-1].append(token)
         elif token in {"|", "|&"}:
             stages.append([])
-            redirect = False
-        else:
+        elif not set(token) & {"<", ">"}:
             kept = [tuple(stage) for stage in stages if stage]
             if kept:
                 yield kept
             stages = [[]]
-            redirect = False
     kept = [tuple(stage) for stage in stages if stage]
     if kept:
         yield kept
@@ -376,12 +364,10 @@ def _cd_target(command: SimpleCommand) -> Word | None:
 
 def named_words(words: tuple[Word, ...]) -> Iterator[Word]:
     """The words that may name a path: arguments and redirection targets,
-    not flags, a bare command word, a search pattern or what an output-only
-    command (``OUTPUT_COMMANDS``) prints."""
+    not flags, a bare command word or a search pattern."""
     unnamed = _search_operands([word.text for word in words])
-    prints = bool(words) and os.path.basename(words[0].text) in OUTPUT_COMMANDS
     for index, word in enumerate(words):
-        if index in unnamed or (prints and index and not word.redirect):
+        if index in unnamed:
             continue
         if index == 0 and "/" not in word.text:
             continue

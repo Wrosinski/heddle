@@ -836,6 +836,15 @@ FORBIDDEN_ACCESS: dict[str, AuditCase] = {
     "data-dir-read-in-a-stage-after-a-print": lambda s, lay: s.run(
         "echo a; cat ~/.gemini/antigravity-cli/brain/notes.md"
     ),
+    # Printing a protected path fails closed: the audit cannot tell display
+    # from a print whose output becomes a filename or a glob the shell expands.
+    "data-dir-printed": lambda s, lay: s.run(
+        "printf '%s\\n' ~/.gemini/antigravity-cli", str(lay.data_dir)
+    ),
+    "data-dir-printed-into-xargs": lambda s, lay: s.run(
+        "printf '%s\\n' ~/.gemini/antigravity-cli/brain/notes.md | xargs cat"
+    ),
+    "data-dir-glob-printed": lambda s, lay: s.run("echo ~/.gemini/antigravity-cli/*"),
     "data-dir-through-shell-input": lambda s, lay: s.shell(lay.root).send(
         "cat ~/.gemini/antigravity-cli/brain/notes.md\n"
     ),
@@ -902,9 +911,6 @@ SCOPE_CONTROLS: dict[str, AuditCase] = {
     ),
     "data-dir-in-a-search-pattern": lambda s, lay: s.run(
         'rg -n "~/.gemini/antigravity-cli" docs'
-    ),
-    "data-dir-printed": lambda s, lay: s.run(
-        "printf '%s\\n' ~/.gemini/antigravity-cli", str(lay.data_dir)
     ),
     "sqlite3-on-a-host-database": lambda s, lay: s.run("sqlite3 data/app.db .tables"),
     "recursive-search-below-home": lambda s, lay: s.run("rg -n TODO ~/work/host/src"),
@@ -1211,6 +1217,25 @@ NAMED_REVIEWS_ACCESS: dict[str, AuditCase] = {
     "read-in-a-stage-after-a-print": lambda s, lay: s.run(
         f"echo a; cat {lay.sibling}", "a\n# Sibling"
     ),
+    # Printing a reviews/ path fails closed (see the data-directory cases).
+    "printed-reviews-path": lambda s, lay: s.run(
+        f"echo {lay.sibling}", str(lay.sibling)
+    ),
+    "printed-into-xargs": lambda s, lay: s.run(
+        f"echo {lay.sibling} | xargs cat", "# Sibling"
+    ),
+    "printed-into-a-read-loop": lambda s, lay: s.run(
+        f'echo {lay.sibling} | while read f; do cat "$f"; done', "# Sibling"
+    ),
+    "process-substitution-in-a-print": lambda s, lay: s.run(
+        f"echo <(cat {lay.sibling})", "/dev/fd/63"
+    ),
+    "locale-prefixed-print": lambda s, lay: s.run(
+        f"LC_ALL=C printf '%s\\n' {lay.sibling}", str(lay.sibling)
+    ),
+    "glob-of-reviews-printed": lambda s, lay: s.run(
+        f"echo {lay.sibling.parent}/*", str(lay.sibling)
+    ),
 }
 
 
@@ -1311,9 +1336,6 @@ IN_SCOPE_CONTROLS: dict[str, AuditCase] = {
     "similar-prefix-outside-reviews": lambda s, lay: s.run(
         "cat plans/sample-feature/reviews-archive/old.md", "old"
     ),
-    "printed-reviews-path": lambda s, lay: s.run(
-        f"echo {lay.sibling}", str(lay.sibling)
-    ),
 }
 
 
@@ -1326,8 +1348,8 @@ def test_ac21_in_scope_controls_pass_on_the_antigravity_lane(
     controls; m6): own-temp access, a document or printed file mentioning a
     `reviews/` path, an ancestor search with hidden results, unclassified
     output, a list with a content-printing element, a directory that does not
-    persist between `run_command` calls, an unrelated directory and a
-    `reviews/` path printed with `echo` raise no violation.
+    persist between `run_command` calls and an unrelated directory raise no
+    violation.
     Red now only because the audit module is absent; once it exists, this
     guards against over-refusal.
     """
@@ -1776,7 +1798,11 @@ PREDICATE_NAMED: dict[str, tuple[ScopeCase, bool]] = {
     ),
     "command-prints-a-reviews-path": (
         lambda lay: {"cwd": lay.root, "command": f"printf '%s\\n' {lay.sibling}"},
-        False,
+        True,
+    ),
+    "command-prints-a-reviews-path-into-xargs": (
+        lambda lay: {"cwd": lay.root, "command": f"echo {lay.sibling} | xargs cat"},
+        True,
     ),
     "command-print-redirected-into-reviews": (
         lambda lay: {"cwd": lay.root, "command": f"echo x > {lay.sibling}"},
@@ -1791,14 +1817,14 @@ def test_review_scope_named_access(layout: AuditLayout, case: str) -> None:
     Red discriminator (AC-21 (a), (c), (d); m6): the shared predicate reports
     named access for a path under `reviews/` outside the run temp directory,
     after resolving relative names, `cd`, `~`, `$HOME` and `..`, and never for
-    content that merely mentions such a path or a command that only prints
-    it.
+    content that merely mentions such a path. A command that prints such a
+    path names it: printing fails closed.
 
     The cases expecting False (own-temp-path, relative-path-at-root,
-    similar-prefix, command-cd-to-unrelated-directory,
-    command-mentions-in-printed-output-only and command-prints-a-reviews-path)
-    are red now only because the predicate module is absent; once it exists,
-    they guard against over-refusal.
+    similar-prefix, command-cd-to-unrelated-directory and
+    command-mentions-in-printed-output-only) are red now only because the
+    predicate module is absent; once it exists, they guard against
+    over-refusal.
     """
     context, expected = PREDICATE_NAMED[case]
 
