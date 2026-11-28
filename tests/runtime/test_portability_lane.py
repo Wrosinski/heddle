@@ -694,7 +694,7 @@ def test_ac06_red_seed_is_template_and_ratification_is_preserved_by_rerun(
     )
     for owner_phrase in (
         "The owner's preference profile",
-        "Point-in-time integrity",
+        "Delete before adding",
         "Core first; scope is earned",
     ):
         assert owner_phrase not in projected, (

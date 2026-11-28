@@ -584,7 +584,7 @@ introduced. Any future automation needs measured benefit and defined authority.
 
 This strategy applies the ratified
 [engineering principles](engineering-principles.md): Pure core, effects at the
-edges; Everything once, in one place; Structural beats policed; Never
+edges; One owner per authority; Structural beats policed; Never
 misrepresent; and Core first, scope is earned. It does not amend that document.
 
 Prior test-policy guidance contributed practical mappings, heuristic retagging,

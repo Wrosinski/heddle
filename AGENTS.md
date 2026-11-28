@@ -48,3 +48,15 @@ staged files it re-stages exactly those files and retries once; any other failur
 unchanged.
 Keep behavior changes and mechanical changes (formatting, renames, moves) in
 separate commits.
+
+Skills: shared workflow skills live canonically under
+`.agents/skills/<name>/SKILL.md` (discovered natively by Codex, Antigravity,
+and other compatible agents). Each shared skill is exposed to Claude Code via a
+relative symlink at `.claude/skills/<name>` pointing to
+`../../.agents/skills/<name>`, while Claude-only skills remain regular
+directories under `.claude/skills/`. Other files under `.agents/` stay ignored
+and local to each checkout.
+
+The user's instructions come before a skill's. If a skill makes you pause, ask
+for confirmation, or leave requested work unfinished, name the skill file and
+quote the line that caused it.
