@@ -53,7 +53,7 @@ OVERRIDE_VARIABLE = "HEDDLE_W4_LIVE_ATTEMPT_SECONDS"
 ATTEMPT_SECONDS = {"stage": 3600, "m5": 1200}
 OVERRUN_CEILING = 5400
 TESTED_VERSION = "1.5.19"
-LIMITS = {"stage": 4, "m5": 3}
+LIMITS = {"stage": 5, "m5": 3}
 
 AGY = r"""
 import json, os, sys
@@ -250,8 +250,8 @@ def test_ac25_live_admission_each_kind_counts_only_its_own_slots(lane):
     assert lane.slots("m5") == ["1", "2", "3"]
     admitted = lane.invoke([("stage", "canary")], lane.fresh_root("stage-last"))
     assert outcomes(admitted) == ["admitted"], admitted
-    assert lane.slots("stage") == ["1", "2", "3", "4"]
-    slot = (lane.admissions / "stage" / "4").read_text()
+    assert lane.slots("stage") == ["1", "2", "3", "4", "5"]
+    slot = (lane.admissions / "stage" / "5").read_text()
     assert str(lane.tmp_path / "evidence" / "stage-last") in slot
     assert str(admitted["pid"]) in slot, "the slot does not record the process"
     again = lane.invoke([("stage", "canary")], lane.fresh_root("stage-over"))

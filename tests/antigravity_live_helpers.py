@@ -9,7 +9,7 @@ process reuses it, so a run past the granted attempts refuses before it costs
 anything.
 
 Kinds are counted separately, each against its own limit: ``stage`` attempts
-(the implement-exit and post-review stages, 4) and ``m5`` attempts (the
+(the implement-exit, post-review and close stages, 5) and ``m5`` attempts (the
 milestone's runner canary, 3). An invocation admits one kind; a node of the
 other kind in the same invocation refuses.
 
@@ -70,7 +70,7 @@ ADMISSIONS = (
 ROOT_VARIABLE = "HEDDLE_W4_LIVE_ROOT"
 OVERRIDE_VARIABLE = "HEDDLE_W4_LIVE_ATTEMPT_SECONDS"
 TESTED_VERSION = "1.5.19"
-LIMITS = {"stage": 4, "m5": 3}
+LIMITS = {"stage": 5, "m5": 3}
 ATTEMPT_SECONDS = {"stage": 3600, "m5": 1200}
 # The override may raise only a stage attempt's allowance, and only this far.
 OVERRIDABLE = frozenset({"stage"})
