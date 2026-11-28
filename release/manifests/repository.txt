@@ -43,6 +43,7 @@ docs/patterns/event-anchored-fake-clock.md
 docs/patterns/fatal-advisory-by-reliance-test.md
 docs/patterns/fixtures-as-phase5-scaffolding.md
 docs/patterns/installed-artifact-portability-lane.md
+docs/patterns/launch-token-orphan-reaping.md
 docs/patterns/lock-last-host-adoption-transaction.md
 docs/patterns/red-phase-always-green-scaffolding.md
 docs/patterns/registry-over-literal-versioning.md
@@ -54,6 +55,7 @@ docs/patterns/tolerant-evidence-projection.md
 docs/patterns/transitive-consumer-closure.md
 docs/patterns/typed-error-channel-rail.md
 docs/patterns/verified-by-completeness-rule.md
+docs/patterns/whole-chunk-read-coverage.md
 docs/testing/test-selection-map.md
 docs/tour.md
 docs/workflow/brainstorming-guidelines.md
