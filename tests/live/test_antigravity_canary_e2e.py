@@ -1705,10 +1705,12 @@ def keep_evidence(evidence: Path, launch: dict, until: float) -> dict:
     """Keep one physical launch's evidence before a successor or host cleanup.
 
     Everything is bound to this launch: its envelope, its own new ledger rows
-    and their review artifacts, a retained run's decoded response with its
-    capture's identity, never the capture itself (``retained_response``), the
-    summary and gate log it wrote, the redacted stream that summary names
-    (read, never copied), its frozen route and transport, and its usage.
+    and their artifacts (``review-<run_id>`` with the artifact's own suffix,
+    so a failure's ``.log`` stays ``.log``), a retained run's decoded
+    response with its capture's identity, never the capture itself
+    (``retained_response``), the summary and gate log it wrote, the redacted
+    stream that summary names (read, never copied), its frozen route and
+    transport, and its usage.
     ``produced.json`` records explicitly what it did not produce. The host's
     status comes from a child process waited on until ``until``.
     """
@@ -1738,7 +1740,8 @@ def keep_evidence(evidence: Path, launch: dict, until: float) -> dict:
     for row in rows:
         artifact = state_path.parent / str(row.get("artifact") or "")
         if row.get("artifact") and artifact.is_file():
-            shutil.copyfile(artifact, evidence / f"review-{row['run_id']}.json")
+            name = f"review-{row['run_id']}{artifact.suffix}"
+            shutil.copyfile(artifact, evidence / name)
     retained = retained_response(launch["host"], envelope)
     if retained is not None:
         save(evidence / f"retained-{retained['run_id']}.json", retained)
